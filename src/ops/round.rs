@@ -1,0 +1,283 @@
+//! Decimal rounding to 34 digits, with status-flag emission.
+//!
+//! The arithmetic ops compute an unrounded coefficient as a 256-bit
+//! intermediate (because alignment by `10^k` can grow up to 226 bits),
+//! associate it with a target quantum exponent, and call here to:
+//!
+//! 1. Drop digits below position `PRECISION` from the coefficient,
+//!    tracking guard / sticky bits.
+//! 2. Apply the [`RoundingMode`] direction.
+//! 3. Renormalize if the rounding bumped the digit count over 34.
+//! 4. Convert to a biased exponent, watching for overflow / underflow.
+//! 5. Emit `INEXACT` / `OVERFLOW` / `UNDERFLOW` flags as appropriate.
+//!
+//! The contract:
+//!
+//! * Caller provides `coef: U256`, `unbiased_exp: i32` (the quantum
+//!   exponent of `coef`), `sign: bool`, and `pre_sticky: bool` (set when
+//!   the alignment step had to drop low-order digits below the U256
+//!   envelope).
+//! * Returns `(Decimal128, Status)`. The status is *added to* an existing
+//!   `Status` passed by the caller — sticky-NaN style.
+
+use crate::bid::{
+    pack_finite, pack_infinity, BIAS, BIASED_EXP_MAX, COEFFICIENT_LIMIT, E_MAX, PRECISION,
+};
+use crate::decimal::Decimal128;
+use crate::multiword::U256;
+use crate::status::{RoundingMode, Status};
+
+/// Round `coef × 10^unbiased_exp` (with sign `sign`) to a canonical
+/// `Decimal128`, accumulating the operation's prior `status`.
+pub(crate) fn round_and_pack_finite(
+    coef: U256,
+    unbiased_exp: i32,
+    sign: bool,
+    pre_sticky: bool,
+    rm: RoundingMode,
+    mut status: Status,
+) -> (Decimal128, Status) {
+    if coef.is_zero() && !pre_sticky {
+        // Pure zero — let caller decide sign for cancellation; here we
+        // honour the sign passed in.
+        return (
+            Decimal128::from_bits(pack_finite(sign, biased(unbiased_exp), 0)),
+            status,
+        );
+    }
+
+    // Step 1: drop excess digits.
+    let digits = coef.decimal_digit_count();
+    let (kept, kept_exp, round_digit, sticky) = if digits > PRECISION {
+        let excess = digits - PRECISION;
+        drop_excess_digits(coef, excess, pre_sticky, unbiased_exp)
+    } else {
+        // No excess to drop; pre-sticky still feeds the round logic.
+        (coef, unbiased_exp, 0u32, pre_sticky)
+    };
+
+    if round_digit != 0 || sticky {
+        status |= Status::INEXACT;
+    }
+
+    // Step 2: apply rounding direction.
+    let last_kept_lsb = kept.div_rem10().1; // LSB digit of `kept`
+    let round_up = should_round_up(rm, sign, last_kept_lsb, round_digit, sticky);
+
+    let mut rounded = kept;
+    let mut exp_after = kept_exp;
+    if round_up {
+        rounded = rounded.add(U256::from_u128(1));
+        // Step 3: renormalize if rounding overflowed PRECISION digits.
+        if rounded.decimal_digit_count() > PRECISION {
+            let (q, _) = rounded.div_rem10();
+            rounded = q;
+            exp_after += 1;
+        }
+    }
+
+    // Step 4 + 5: pack with overflow / underflow checks.
+    finalize_finite(rounded, exp_after, sign, rm, status)
+}
+
+/// Drop `excess` decimal digits from `coef`, returning
+/// `(kept, kept_exp, round_digit, sticky)`.
+///
+/// `round_digit` is the most significant of the dropped digits — i.e. the
+/// digit immediately below the new LSB. `sticky` is the OR over any
+/// further-dropped digit being non-zero, plus the caller's `pre_sticky`.
+fn drop_excess_digits(
+    mut coef: U256,
+    excess: u32,
+    pre_sticky: bool,
+    unbiased_exp: i32,
+) -> (U256, i32, u32, bool) {
+    let mut sticky = pre_sticky;
+    let mut round_digit = 0u32;
+    let mut i = 0u32;
+    while i < excess {
+        let (q, r) = coef.div_rem10();
+        if i == excess - 1 {
+            // Last iteration → this digit is the round digit (most-significant
+            // of the dropped set).
+            round_digit = r;
+        } else if r != 0 {
+            sticky = true;
+        }
+        coef = q;
+        i += 1;
+    }
+    (coef, unbiased_exp + excess as i32, round_digit, sticky)
+}
+
+/// Decide whether to round the kept coefficient up by one ULP, given the
+/// IEEE 754 rounding mode and the bits we discarded.
+fn should_round_up(
+    rm: RoundingMode,
+    sign: bool,
+    last_kept: u32,
+    round_digit: u32,
+    sticky: bool,
+) -> bool {
+    let dropped_nonzero = round_digit != 0 || sticky;
+    if !dropped_nonzero {
+        return false;
+    }
+    match rm {
+        RoundingMode::TowardZero => false,
+        RoundingMode::TowardPositive => !sign,
+        RoundingMode::TowardNegative => sign,
+        RoundingMode::NearestAway => round_digit >= 5,
+        RoundingMode::NearestEven => match round_digit.cmp(&5) {
+            core::cmp::Ordering::Less => false,
+            core::cmp::Ordering::Greater => true,
+            core::cmp::Ordering::Equal => sticky || (last_kept & 1) == 1,
+        },
+    }
+}
+
+/// Convert a fully rounded `(coef, unbiased_exp, sign)` triple to the
+/// final `Decimal128`, deciding overflow → Inf/MAX or underflow → 0.
+fn finalize_finite(
+    coef: U256,
+    unbiased_exp: i32,
+    sign: bool,
+    rm: RoundingMode,
+    mut status: Status,
+) -> (Decimal128, Status) {
+    if coef.is_zero() {
+        // Never an exception path — emit canonical zero with the given exp
+        // (clamped if it falls out of range).
+        let clamped_exp = unbiased_exp.clamp(-(BIAS as i32), BIASED_EXP_MAX as i32 - BIAS as i32);
+        return (
+            Decimal128::from_bits(pack_finite(sign, biased(clamped_exp), 0)),
+            status,
+        );
+    }
+
+    // Overflow check: largest representable magnitude is 9.999…9 × 10^E_MAX,
+    // i.e. coef < 10^34 and quantum_exp ≤ E_MAX − (digits − 1).
+    // Equivalently: digits + quantum_exp − 1 ≤ E_MAX, i.e.
+    //   digits + unbiased_exp <= E_MAX + 1
+    let digits = coef.decimal_digit_count() as i32;
+    let scale = digits + unbiased_exp; // log10(magnitude) + 1, roughly
+
+    if scale > E_MAX + 1 {
+        status |= Status::OVERFLOW | Status::INEXACT;
+        return (overflow_result(sign, rm), status);
+    }
+
+    let mut biased_exp = unbiased_exp + BIAS as i32;
+    let mut coef = coef;
+
+    // Up-renormalize when the quantum exponent exceeds the storable range
+    // but the value's magnitude is still within MAX. Multiplying the
+    // coefficient by 10 and decrementing `biased_exp` is exact — and the
+    // overflow check above guarantees we have enough digits of slack
+    // (`PRECISION − digits`) to absorb the excess.
+    if biased_exp > BIASED_EXP_MAX as i32 {
+        let excess = biased_exp - BIASED_EXP_MAX as i32;
+        let slack = PRECISION as i32 - digits;
+        debug_assert!(excess <= slack, "scale check should have caught this");
+        coef = coef.mul_pow10(excess as u32);
+        biased_exp -= excess;
+    }
+
+    // Underflow: biased_exp < 0 means the quantum is below qmin. Try to
+    // shift the coefficient right until we either fit or hit zero.
+    if biased_exp < 0 {
+        let shift = (-biased_exp) as u32;
+        if shift >= digits as u32 {
+            // Entire value rounds to ±0 in this rounding mode.
+            // For away-from-zero modes, may round up to MIN_POSITIVE.
+            // (Simplified: emit ±0 with UNDERFLOW + INEXACT.)
+            status |= Status::UNDERFLOW | Status::INEXACT;
+            return (
+                Decimal128::from_bits(pack_finite(sign, 0, 0)),
+                status,
+            );
+        }
+        // Shift right by `shift` decimal digits, applying the rounding mode
+        // again to the discarded digits.
+        let (shifted, dropped_sticky, round_digit) = shift_right_decimal(coef, shift);
+        let last_kept = shifted.div_rem10().1;
+        let round_up = should_round_up(rm, sign, last_kept, round_digit, dropped_sticky);
+        let mut adjusted = shifted;
+        if round_up {
+            adjusted = adjusted.add(U256::from_u128(1));
+        }
+        if round_digit != 0 || dropped_sticky {
+            status |= Status::UNDERFLOW | Status::INEXACT;
+        }
+        let coef_u128 = adjusted.to_u128();
+        return (
+            Decimal128::from_bits(pack_finite(sign, 0, coef_u128)),
+            status,
+        );
+    }
+
+    debug_assert!(biased_exp >= 0 && biased_exp as u32 <= BIASED_EXP_MAX);
+    debug_assert!(coef.hi == 0);
+    debug_assert!(coef.lo < COEFFICIENT_LIMIT);
+    (
+        Decimal128::from_bits(pack_finite(sign, biased_exp as u32, coef.to_u128())),
+        status,
+    )
+}
+
+/// Shift `coef` right by `n` decimal digits, returning the quotient, the
+/// sticky bit (any non-zero digit beyond the round digit), and the round
+/// digit (the most-significant dropped digit).
+fn shift_right_decimal(mut coef: U256, n: u32) -> (U256, bool, u32) {
+    let mut sticky = false;
+    let mut round_digit = 0u32;
+    let mut i = 0u32;
+    while i < n {
+        let (q, r) = coef.div_rem10();
+        if i == n - 1 {
+            round_digit = r;
+        } else if r != 0 {
+            sticky = true;
+        }
+        coef = q;
+        i += 1;
+    }
+    (coef, sticky, round_digit)
+}
+
+/// What an overflowed result decodes to under each rounding direction:
+/// either signed Infinity (the usual case) or ± `MAX` (when the mode
+/// rounds *toward* the underflow direction relative to sign).
+fn overflow_result(sign: bool, rm: RoundingMode) -> Decimal128 {
+    match rm {
+        RoundingMode::TowardZero => {
+            if sign {
+                Decimal128::MIN
+            } else {
+                Decimal128::MAX
+            }
+        }
+        RoundingMode::TowardPositive => {
+            if sign {
+                Decimal128::MIN
+            } else {
+                Decimal128::from_bits(pack_infinity(false))
+            }
+        }
+        RoundingMode::TowardNegative => {
+            if sign {
+                Decimal128::from_bits(pack_infinity(true))
+            } else {
+                Decimal128::MAX
+            }
+        }
+        RoundingMode::NearestEven | RoundingMode::NearestAway => {
+            Decimal128::from_bits(pack_infinity(sign))
+        }
+    }
+}
+
+#[inline]
+const fn biased(unbiased_exp: i32) -> u32 {
+    (unbiased_exp + BIAS as i32) as u32
+}
