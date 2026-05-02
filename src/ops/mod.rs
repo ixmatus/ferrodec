@@ -5,7 +5,11 @@
 //! [`crate::status`] for why we don't carry a global flag word.
 
 mod addsub;
+mod div;
+mod fma;
 mod mul;
+mod rem;
 mod round;
+mod sqrt;
 
 pub(crate) use round::round_and_pack_finite;

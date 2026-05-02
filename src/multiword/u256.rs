@@ -116,6 +116,105 @@ impl U256 {
         )
     }
 
+    /// Long-division `self / divisor` returning `(quotient, remainder)`.
+    ///
+    /// Bit-by-bit shift-and-subtract. Each iteration shifts a 129-bit
+    /// running remainder left by one (tracking the overflow bit
+    /// separately, since `divisor` can be up to `u128::MAX`) and
+    /// conditionally subtracts `divisor`. 256 iterations.
+    ///
+    /// Pre-condition: `divisor != 0`.
+    pub(crate) fn div_rem_u128(self, divisor: u128) -> (Self, u128) {
+        debug_assert!(divisor != 0);
+
+        // Short path when the high half is zero.
+        if self.hi == 0 {
+            let q = self.lo / divisor;
+            let r = self.lo - q * divisor;
+            return (Self::from_u128(q), r);
+        }
+
+        let mut rem: u128 = 0;
+        let mut q_hi: u128 = 0;
+        let mut q_lo: u128 = 0;
+
+        let mut i: u32 = 256;
+        while i > 0 {
+            i -= 1;
+            // Bit `i` of `self`.
+            let bit = if i >= 128 {
+                (self.hi >> (i - 128)) & 1
+            } else {
+                (self.lo >> i) & 1
+            };
+
+            // Shift the running remainder left by 1, tracking the
+            // overflow into a virtual 129th bit.
+            let carry_out = (rem >> 127) & 1;
+            rem = (rem << 1) | bit;
+
+            // After the shift the running value is
+            //   (carry_out << 128) | rem
+            // Compare against `divisor`. Because `divisor < 2^128`, any
+            // `carry_out` makes the running value strictly greater.
+            let geq = carry_out == 1 || rem >= divisor;
+            if geq {
+                rem = rem.wrapping_sub(divisor);
+                if i >= 128 {
+                    q_hi |= 1u128 << (i - 128);
+                } else {
+                    q_lo |= 1u128 << i;
+                }
+            }
+        }
+
+        (Self { lo: q_lo, hi: q_hi }, rem)
+    }
+
+    /// Floor of the integer square root, with the unsquared remainder.
+    ///
+    /// Returns `(s, r)` where `s = ⌊√self⌋` and `r = self − s²`. For our
+    /// use the input is bounded by `10^70 < 2^234`, so `s` fits in
+    /// `u128`. We assert that here.
+    ///
+    /// Algorithm: Newton's method on integers, started from an upper
+    /// bound `2^⌈bitlen/2⌉`. Each step computes `n / x` via
+    /// `div_rem_u128` and averages with overflow-safe `(a/2 + b/2 + a&b&1)`.
+    /// Converges in O(log log n) once close — for 234-bit inputs that
+    /// is well under 20 iterations.
+    pub(crate) fn isqrt(self) -> (u128, Self) {
+        if self.is_zero() {
+            return (0, Self::ZERO);
+        }
+
+        let bit_len = if self.hi == 0 {
+            128 - self.lo.leading_zeros()
+        } else {
+            256 - self.hi.leading_zeros()
+        };
+        let half_bits = (bit_len + 1) / 2;
+        debug_assert!(half_bits < 128, "isqrt input exceeds supported range");
+
+        let mut x: u128 = 1u128 << half_bits;
+
+        // Newton's method from above. Each iteration is monotonically
+        // non-increasing until the floor is reached.
+        loop {
+            let (q, _r) = self.div_rem_u128(x);
+            debug_assert!(q.hi == 0, "isqrt quotient exceeds u128");
+            let q_u128 = q.lo;
+            let avg = (x >> 1) + (q_u128 >> 1) + (x & q_u128 & 1);
+            if avg >= x {
+                break;
+            }
+            x = avg;
+        }
+
+        let (sq_hi, sq_lo) = widening_mul_u128(x, x);
+        let rem = self.sub(Self { lo: sq_lo, hi: sq_hi });
+        (x, rem)
+    }
+
     /// Number of significant decimal digits in `self`. Returns `1` for zero.
     pub(crate) fn decimal_digit_count(self) -> u32 {
         if self.is_zero() {
@@ -327,6 +426,114 @@ mod tests {
         assert_eq!(a.decimal_digit_count(), 41);
         let b = U256::from_u128(1).mul_pow10(70);
         assert_eq!(b.decimal_digit_count(), 71);
+    }
+
+    #[test]
+    fn div_rem_u128_short_path() {
+        let (q, r) = U256::from_u128(123).div_rem_u128(10);
+        assert_eq!(q, U256::from_u128(12));
+        assert_eq!(r, 3);
+    }
+
+    #[test]
+    fn div_rem_u128_zero_numerator() {
+        let (q, r) = U256::ZERO.div_rem_u128(7);
+        assert!(q.is_zero());
+        assert_eq!(r, 0);
+    }
+
+    #[test]
+    fn div_rem_u128_full_inverts_mul() {
+        // n * d + r = result, where r < d. Sweep with widening_mul to
+        // build a U256 numerator.
+        let cases: &[(u128, u128)] = &[
+            (1, 1),
+            (123, 7),
+            (u128::MAX, 7),
+            (u128::MAX, u128::MAX),
+            (10u128.pow(34), 10u128.pow(17)),
+            (10u128.pow(34) - 1, 10u128.pow(33)),
+        ];
+        for &(a, b) in cases {
+            let (hi, lo) = widening_mul_u128(a, b);
+            let n = U256 { hi, lo };
+            // Divide back by `b` (assume b != 0).
+            let (q, r) = n.div_rem_u128(b);
+            assert_eq!(q, U256::from_u128(a), "a={a}, b={b}");
+            assert_eq!(r, 0, "a={a}, b={b}");
+        }
+    }
+
+    #[test]
+    fn div_rem_u128_with_remainder() {
+        // Build a U256 by multiplying then adding a non-zero remainder.
+        let a = 10u128.pow(20);
+        let b = 7u128;
+        let r_in = 3u128;
+        let (hi, lo) = widening_mul_u128(a, b);
+        let n = U256 { hi, lo }.add(U256::from_u128(r_in));
+        let (q, r) = n.div_rem_u128(b);
+        assert_eq!(q, U256::from_u128(a));
+        assert_eq!(r, r_in);
+    }
+
+    #[test]
+    fn div_rem_u128_full_u256() {
+        // Numerator with both halves non-zero. Build n = (10^60) and
+        // divide by 10^30 — quotient should be 10^30, remainder 0.
+        let n = U256::from_u128(1).mul_pow10(60);
+        let d = 10u128.pow(30);
+        let (q, r) = n.div_rem_u128(d);
+        assert_eq!(q, U256::from_u128(10u128.pow(30)));
+        assert_eq!(r, 0);
+    }
+
+    #[test]
+    fn isqrt_zero() {
+        let (s, r) = U256::ZERO.isqrt();
+        assert_eq!(s, 0);
+        assert!(r.is_zero());
+    }
+
+    #[test]
+    fn isqrt_perfect_squares() {
+        for &x in &[1u128, 2, 3, 7, 16, 100, 1_000_000, u128::from(u32::MAX)] {
+            let n = U256::from_u128(x * x);
+            let (s, r) = n.isqrt();
+            assert_eq!(s, x, "sqrt({}^2)", x);
+            assert!(r.is_zero(), "remainder of perfect square {x}^2");
+        }
+    }
+
+    #[test]
+    fn isqrt_off_by_one_remainders() {
+        // sqrt(x^2 + k) for small k < 2x+1 should still give x.
+        for &x in &[7u128, 100, 12_345] {
+            for k in 0..=(2 * x) {
+                let n = x * x + k;
+                let (s, _) = U256::from_u128(n).isqrt();
+                assert_eq!(s, x, "sqrt({}) ≠ {}", n, x);
+            }
+            // x^2 + 2x + 1 = (x+1)^2.
+            let (s, _) = U256::from_u128(x * x + 2 * x + 1).isqrt();
+            assert_eq!(s, x + 1);
+        }
+    }
+
+    #[test]
+    fn isqrt_large() {
+        // sqrt(10^60) = 10^30.
+        let n = U256::from_u128(1).mul_pow10(60);
+        let (s, r) = n.isqrt();
+        assert_eq!(s, 10u128.pow(30));
+        assert!(r.is_zero());
+
+        // sqrt(10^70 - 1) ≈ 10^35 - tiny. We only check s^2 + r == n.
+        let n = U256::from_u128(1).mul_pow10(70).sub(U256::from_u128(1));
+        let (s, r) = n.isqrt();
+        let (sq_hi, sq_lo) = widening_mul_u128(s, s);
+        let recombined = U256 { lo: sq_lo, hi: sq_hi }.add(r);
+        assert_eq!(recombined, n);
     }
 
     #[test]

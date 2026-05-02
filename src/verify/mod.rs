@@ -14,5 +14,8 @@
 mod addsub;
 mod classify;
 mod cmp;
+mod div;
 mod encode;
 mod mul;
+mod rem;
+mod sqrt;
