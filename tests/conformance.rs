@@ -82,15 +82,17 @@ fn dectest_conformance() {
 
     // Regression guard: any change that drops pass count below the
     // floor or raises fail count above the ceiling fails the test.
-    // Bumped as known-issue categories get fixed. The remaining 6
-    // dqFMA failures all hit the conformance runner's missing
-    // mappings for decTest's `up` (round-away-from-zero) and `05up`
-    // rounding modes — IEEE 754 doesn't define those, and ferrodec's
-    // `RoundingMode` doesn't include them, so they fall through with
-    // the previous directive's mode and produce mode-mismatched
-    // results. Fixing this is a runner-side follow-up.
-    const PASS_FLOOR: usize = 6240;
-    const FAIL_CEILING: usize = 10;
+    // Bumped as known-issue categories get fixed.
+    //
+    // `up` (round-away-from-zero, directional) is honored via a
+    // runner-side two-pass wrapper that uses TowardZero to detect the
+    // sign of the exact result, then dispatches to TowardPositive or
+    // TowardNegative. `half_down` and `05up` are General Decimal
+    // Arithmetic modes that are not part of IEEE 754-2019; cases under
+    // those directives are skipped rather than coerced into a kernel
+    // mode that doesn't match the spec.
+    const PASS_FLOOR: usize = 6200;
+    const FAIL_CEILING: usize = 0;
 
     if totals.passed < PASS_FLOOR {
         panic!(
@@ -276,7 +278,43 @@ struct Context {
     precision: u32,
     max_exponent: i32,
     min_exponent: i32,
-    rounding: RoundingMode,
+    rounding: CaseRounding,
+}
+
+/// Rounding directive a decTest block may select.
+///
+/// IEEE 754-2019 defines five rounding-direction attributes; decTest
+/// adds two more (`half_down`, `05up`) plus a directional `up` (round
+/// away from zero). ferrodec only implements the IEEE set, so for the
+/// extras the runner either emulates (`up`, via a two-pass wrapper) or
+/// skips the case (`half_down`, `05up`) rather than coercing them onto
+/// a kernel mode they don't match.
+#[derive(Clone, Copy)]
+enum CaseRounding {
+    /// One of the five IEEE 754 rounding-direction attributes.
+    Ieee(RoundingMode),
+    /// decTest `up` — round away from zero (directional). Implemented
+    /// as a runner-side two-pass: TowardZero to determine the sign of
+    /// the exact result, then TowardPositive/TowardNegative to round
+    /// magnitude up.
+    Up,
+    /// `half_down` (nearest, ties toward zero) and `05up` (round-zero-
+    /// five-up). Not in IEEE 754; cases under these are skipped.
+    Unsupported,
+}
+
+impl CaseRounding {
+    /// Rounding mode to use when parsing operand literals or expected
+    /// values for cases under this directive. For literals that fit in
+    /// 34 digits exactly (the common case) the mode is irrelevant; we
+    /// fall back to NearestEven for the non-IEEE directives so parses
+    /// of long literals stay deterministic.
+    fn for_parse(self) -> RoundingMode {
+        match self {
+            Self::Ieee(m) => m,
+            Self::Up | Self::Unsupported => RoundingMode::NearestEven,
+        }
+    }
 }
 
 impl Default for Context {
@@ -285,7 +323,7 @@ impl Default for Context {
             precision: 34,
             max_exponent: 6144,
             min_exponent: -6143,
-            rounding: RoundingMode::NearestEven,
+            rounding: CaseRounding::Ieee(RoundingMode::NearestEven),
         }
     }
 }
@@ -310,11 +348,19 @@ impl Context {
             }
             "rounding" => {
                 self.rounding = match value {
-                    "half_even" | "ceiling-tie-to-even" => RoundingMode::NearestEven,
-                    "half_up" | "half_away_from_zero" => RoundingMode::NearestAway,
-                    "down" | "trunc" | "toward_zero" => RoundingMode::TowardZero,
-                    "ceiling" | "up" => RoundingMode::TowardPositive,
-                    "floor" => RoundingMode::TowardNegative,
+                    "half_even" | "ceiling-tie-to-even" => {
+                        CaseRounding::Ieee(RoundingMode::NearestEven)
+                    }
+                    "half_up" | "half_away_from_zero" => {
+                        CaseRounding::Ieee(RoundingMode::NearestAway)
+                    }
+                    "down" | "trunc" | "toward_zero" => {
+                        CaseRounding::Ieee(RoundingMode::TowardZero)
+                    }
+                    "ceiling" => CaseRounding::Ieee(RoundingMode::TowardPositive),
+                    "floor" => CaseRounding::Ieee(RoundingMode::TowardNegative),
+                    "up" => CaseRounding::Up,
+                    "half_down" | "05up" => CaseRounding::Unsupported,
                     _ => self.rounding,
                 };
             }
@@ -345,9 +391,16 @@ fn run_case(case: &TestCase, ctx: &Context) -> Outcome {
         None => return Outcome::Skip,
     };
 
-    let result = match invoke(op_kind, &case.operands, ctx.rounding) {
-        Some(r) => r,
-        None => return Outcome::Skip,
+    let result = match ctx.rounding {
+        CaseRounding::Unsupported => return Outcome::Skip,
+        CaseRounding::Ieee(rm) => match invoke(op_kind, &case.operands, rm) {
+            Some(r) => r,
+            None => return Outcome::Skip,
+        },
+        CaseRounding::Up => match invoke_up(op_kind, &case.operands) {
+            Some(r) => r,
+            None => return Outcome::Skip,
+        },
     };
 
     // `class` results are class-name strings, not Decimal128 values —
@@ -356,8 +409,10 @@ fn run_case(case: &TestCase, ctx: &Context) -> Outcome {
         return Outcome::Skip;
     }
 
-    // Parse the expected result.
-    let (expected, _) = match parse_value(&case.expected, ctx.rounding) {
+    // Parse the expected result. Expected literals in decTest are exact
+    // strings, so any rounding mode parses the same; we use the IEEE
+    // mode where one applies and NearestEven otherwise.
+    let (expected, _) = match parse_value(&case.expected, ctx.rounding.for_parse()) {
         Some(v) => v,
         None => {
             return Outcome::Fail(format!(
@@ -511,15 +566,48 @@ fn invoke(op: OpKind, operands: &[String], rm: RoundingMode) -> Option<OpResult>
             Some(OpResult::Value(v, s))
         }
         OpKind::Class => {
-            let a = parse_value(&operands[0], rm)?.0;
-            Some(OpResult::Class(a))
+            // Decimal128::class returns a class-name string we don't yet
+            // dispatch through. Marker variant is enough — the comparator
+            // skips these.
+            let _ = parse_value(&operands[0], rm)?.0;
+            Some(OpResult::Class(()))
         }
     }
 }
 
 enum OpResult {
     Value(Decimal128, Status),
-    Class(Decimal128),
+    Class(()),
+}
+
+/// Run an op under decTest's directional `up` rounding (away from zero).
+///
+/// Strategy: round once with `TowardZero` to recover the sign of the
+/// exact result without losing it to a sign-of-zero ambiguity, then
+/// dispatch to whichever directional IEEE mode rounds magnitude up
+/// for that sign — `TowardPositive` for non-negative, `TowardNegative`
+/// for negative.
+///
+/// If the first pass is already exact, both modes would agree, so we
+/// short-circuit. The IEEE 754 sign-of-zero rule means `TowardZero`
+/// returns `+0` for cancellation results (only `TowardNegative` gives
+/// `-0`), so the sign check correctly steers zero-result cases to
+/// `TowardPositive`, matching `up`'s convention.
+fn invoke_up(op: OpKind, operands: &[String]) -> Option<OpResult> {
+    let probe = invoke(op, operands, RoundingMode::TowardZero)?;
+    let (val, status) = match probe {
+        OpResult::Value(v, s) => (v, s),
+        OpResult::Class(_) => return Some(probe),
+    };
+    if !status.inexact() {
+        return Some(OpResult::Value(val, status));
+    }
+    let mode = if val.is_sign_negative() {
+        RoundingMode::TowardNegative
+    } else {
+        RoundingMode::TowardPositive
+    };
+    invoke(op, operands, mode)
 }
 
 fn parse_value(s: &str, rm: RoundingMode) -> Option<(Decimal128, Status)> {
