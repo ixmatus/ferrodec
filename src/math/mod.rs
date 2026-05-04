@@ -26,5 +26,7 @@
 mod consts;
 mod exp;
 mod ln;
+mod pow;
+mod sincos;
 
 pub use consts::{e, ln10, ln2, pi};
