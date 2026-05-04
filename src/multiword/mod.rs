@@ -16,6 +16,8 @@
 
 pub(crate) mod u256;
 pub(crate) mod u384;
+pub(crate) mod u512;
 
 pub(crate) use u256::U256;
 pub(crate) use u384::U384;
+pub(crate) use u512::U512;

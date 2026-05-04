@@ -230,10 +230,23 @@ impl Extended {
     /// 10^(exp + drop_count)` — i.e. rounding shifts `exp` upward
     /// when digits are dropped.
     pub fn from_components(coef: U256, exp: i32, sign: bool) -> Self {
+        Self::from_components_with_sticky(coef, exp, sign, false)
+    }
+
+    /// Variant of [`Self::from_components`] that accepts a `sticky`
+    /// flag for digits already dropped before this call (e.g. by a
+    /// `U384 → U256` shift). Round-half-even uses both this sticky and
+    /// any further-dropped digits.
+    pub fn from_components_with_sticky(
+        coef: U256,
+        exp: i32,
+        sign: bool,
+        pre_sticky: bool,
+    ) -> Self {
         if coef.is_zero() {
             return Self::ZERO;
         }
-        let (rounded, exp_shift) = round_u256_to_ext(coef, false);
+        let (rounded, exp_shift) = round_u256_to_ext(coef, pre_sticky);
         Self {
             coef: rounded,
             exp: exp + exp_shift as i32,

@@ -49,7 +49,7 @@
 use crate::bid::{classify_bits, decimal_digit_count, Class, BIAS};
 use crate::decimal::Decimal128;
 use crate::math::extended::Extended;
-use crate::multiword::{u256::widening_mul_u128, U256, U384};
+use crate::multiword::{u256::widening_mul_u128, U256, U384, U512};
 use crate::status::Status;
 
 mod table {
@@ -194,13 +194,19 @@ mod table {
 // Algorithm constants. See module-level docs for derivation.
 
 /// Fractional decimal digits we extract from the windowed product.
-const FRAC_DIGITS: u32 = 40;
+///
+/// Sized to absorb up to 33 leading zeros (or 9s after rounding) in
+/// the fractional residual when the input is within 1 ULP of an
+/// integer multiple of π/2: 76 − 33 = 43 sig digits in `y_signed` —
+/// comfortably above EXT_PRECISION = 50 of the downstream `Extended`
+/// envelope.
+const FRAC_DIGITS: u32 = 76;
 /// Extra digits below the precision window to absorb truncation
 /// carries from the unread tail of `2/π`.
 const CARRY_GUARD: u32 = 4;
 /// Combined offset added to `q` to compute the high end of the window
 /// (so that `i_hi = q + I_HI_OFFSET`).
-const I_HI_OFFSET: u32 = FRAC_DIGITS + 33 + CARRY_GUARD; // = 77
+const I_HI_OFFSET: u32 = FRAC_DIGITS + 33 + CARRY_GUARD; // = 113
 
 /// 38 leading decimal digits of π/2, parsed as a u128 (truncated, not
 /// rounded — pinned to [`table::PI_OVER_TWO_STR`] by
@@ -231,25 +237,52 @@ fn two_over_pi_digit(i: usize) -> u8 {
 }
 
 // ----------------------------------------------------------------------------
-// U384 × u128 → U384 (truncating; caller guarantees the product fits).
+// Multi-word multiplications used by the Payne-Hanek pipeline.
 
+/// `a × b` for a `U384` and a `u128`, producing the **full** product
+/// in a `U512`. Used by the windowed-product step where `a` is a
+/// `2/π` window (up to ~115 decimal digits) and `b` is a 34-digit
+/// Decimal128 coefficient — the product can grow up to ~149 digits,
+/// which exceeds `U384`'s ~115-digit envelope.
 #[inline]
-fn u384_mul_u128(a: U384, b: u128) -> U384 {
+fn u384_mul_u128_to_u512(a: U384, b: u128) -> U512 {
     // `widening_mul_u128` returns `(hi, lo)`.
     let (l_hi, l_lo) = widening_mul_u128(a.lo, b);
     let (m_hi, m_lo) = widening_mul_u128(a.mid, b);
     let (h_hi, h_lo) = widening_mul_u128(a.hi, b);
 
-    // a*b = l_lo + (l_hi + m_lo) << 128 + (m_hi + h_lo) << 256 + (h_hi) << 384
+    // Layout in U512 (4 × u128 limbs lo / mid_lo / mid_hi / hi):
+    //   lo     bits 0..127:    l_lo
+    //   mid_lo bits 128..255:  l_hi + m_lo  (with carry into mid_hi)
+    //   mid_hi bits 256..383:  m_hi + h_lo  (with carry from below + into hi)
+    //   hi     bits 384..511:  h_hi (+ carry from below)
     let lo = l_lo;
-    let (mid, c1) = l_hi.overflowing_add(m_lo);
-    let (hi_a, c2) = m_hi.overflowing_add(h_lo);
-    let hi = hi_a.wrapping_add(u128::from(c1));
-    let final_carry = c2 || (c1 && hi_a == u128::MAX);
-    debug_assert!(
-        !final_carry && h_hi == 0,
-        "u384_mul_u128 overflow — caller violated capacity guarantee"
-    );
+    let (mid_lo, c1) = l_hi.overflowing_add(m_lo);
+    let (mh_a, c2) = m_hi.overflowing_add(h_lo);
+    let (mid_hi, c2b) = mh_a.overflowing_add(u128::from(c1));
+    let hi = h_hi
+        .wrapping_add(u128::from(c2))
+        .wrapping_add(u128::from(c2b));
+
+    U512 {
+        lo,
+        mid_lo,
+        mid_hi,
+        hi,
+    }
+}
+
+/// `a × b` for a `U256` and a `u128`, producing the full product in a
+/// `U384`. Used by `make_residual` to multiply the (up to 76-digit)
+/// fractional magnitude by the 38-digit π/2 coefficient.
+#[inline]
+fn u256_mul_u128_to_u384(a: U256, b: u128) -> U384 {
+    let (l_hi, l_lo) = widening_mul_u128(a.lo, b);
+    let (h_hi, h_lo) = widening_mul_u128(a.hi, b);
+    // Layout: lo = l_lo; mid = l_hi + h_lo; hi = h_hi + carry.
+    let lo = l_lo;
+    let (mid, c1) = l_hi.overflowing_add(h_lo);
+    let hi = h_hi.wrapping_add(u128::from(c1));
     U384 { lo, mid, hi }
 }
 
@@ -282,20 +315,21 @@ struct Split {
     frac_digits: [u8; FRAC_DIGITS as usize],
 }
 
-/// Given `p = c · W` (a `U384`) and the implicit scale `10^{-I_HI_OFFSET}`,
-/// peel off the digits that matter:
+/// Given `p = c · W` (a `U512`) and the implicit scale
+/// `10^{-I_HI_OFFSET}`, peel off the digits that matter:
 ///   * positions `0 .. (I_HI_OFFSET − FRAC_DIGITS)` are the unread tail
 ///     (low-order noise + carry guard) — discarded.
 ///   * positions `(I_HI_OFFSET − FRAC_DIGITS) .. I_HI_OFFSET` are the
 ///     `FRAC_DIGITS` leading fractional digits (LSD first internally,
 ///     stored MSD-first in `frac_digits`).
 ///   * positions `I_HI_OFFSET .. I_HI_OFFSET + 2` are the integer mod 100.
-fn split_product(mut p: U384) -> Split {
+fn split_product(mut p: U512) -> Split {
     let mut frac = [0u8; FRAC_DIGITS as usize];
 
-    // Drop the unread tail. With FRAC_DIGITS = 40 and I_HI_OFFSET = 77,
-    // that's 37 digits of low-order tail (33 from the c-coefficient
-    // overlap below the fractional window, plus CARRY_GUARD = 4).
+    // Drop the unread tail. With FRAC_DIGITS = 76 and I_HI_OFFSET =
+    // 113, that's 37 digits of low-order tail (33 from the
+    // c-coefficient overlap below the fractional window, plus
+    // CARRY_GUARD = 4).
     let drop = I_HI_OFFSET - FRAC_DIGITS;
     for _ in 0..drop {
         let (q, _) = p.div_rem10();
@@ -323,44 +357,68 @@ fn split_product(mut p: U384) -> Split {
 /// Build an `Extended` for `sign · y · π/2`, where `y` is given as the
 /// fractional digit array with implicit scale `10^{-FRAC_DIGITS}`,
 /// optionally minus `1` (when the rounding step chose to round up,
-/// leaving a negative residual). All ~75 digits of the
-/// `y_mag · PI_OVER_TWO_COEF_38` product survive into `Extended`'s
-/// 50-digit envelope.
+/// leaving a negative residual).
+///
+/// All `FRAC_DIGITS` digits of `y` are preserved into the windowed
+/// product `y · π/2_38`, which then collapses to `Extended`'s
+/// 50-digit envelope via `shift_right_to_u256`. The post-cancellation
+/// effective precision in `y_mag` is at least 43 digits (76 − 33
+/// leading zeros worst case), more than enough to round `r` faithfully.
 fn make_residual(
     frac_digits: [u8; FRAC_DIGITS as usize],
     rounded_up: bool,
     sign: bool,
 ) -> Extended {
-    // Pack the leading `KEEP` fractional digits into a u128. KEEP = 38
-    // is the largest power-of-10 boundary that fits in u128 (10^38 ≈
-    // 2^126 < 2^128).
-    const KEEP: usize = 38;
-    let mut y_coef: u128 = 0;
-    for &d in &frac_digits[..KEEP] {
-        y_coef = y_coef * 10 + u128::from(d);
+    // Pack all FRAC_DIGITS fractional digits into a U256. 76 digits ≈
+    // 252 bits — fits comfortably (U256 holds up to 10^77).
+    let mut y_coef = U256::ZERO;
+    for &d in &frac_digits {
+        y_coef = y_coef.mul10().add(U256::from_u128(u128::from(d)));
     }
 
+    // For `round_up`: y_signed = (y_coef · 10^{-FRAC_DIGITS}) − 1, so
+    // y_mag = 10^FRAC_DIGITS − y_coef. Build 10^FRAC_DIGITS in U256.
+    let one_scaled = pow10_u256(FRAC_DIGITS);
     let mut y_signed_neg = false;
-    let y_mag: u128 = if rounded_up {
-        let one_scaled = 10u128.pow(KEEP as u32); // 10^38
+    let y_mag: U256 = if rounded_up {
         y_signed_neg = true;
-        one_scaled - y_coef
+        one_scaled.sub(y_coef)
     } else {
         y_coef
     };
 
-    if y_mag == 0 {
+    if y_mag.is_zero() {
         return Extended::ZERO;
     }
 
     let net_sign = sign ^ y_signed_neg;
 
-    // y_mag · PI_OVER_TWO_COEF_38: u128 × u128 → U256 (≤ 76 digits).
-    let (hi, lo) = widening_mul_u128(y_mag, PI_OVER_TWO_COEF_38);
-    let coef = U256 { lo, hi };
-    // Combined exponent: y is at scale 10^{-KEEP}, π/2 at 10^{-37}.
-    let exp = -(KEEP as i32) + PI_OVER_TWO_EXP_38;
-    Extended::from_components(coef, exp, net_sign)
+    // y_mag (≤ 76 digits) · PI_OVER_TWO_COEF_38 (38 digits) → U384
+    // (up to 114 digits ≈ 378 bits, well inside U384's 384-bit cap).
+    let coef = u256_mul_u128_to_u384(y_mag, PI_OVER_TWO_COEF_38);
+
+    // Collapse U384 down to the U256 / Extended envelope, accumulating
+    // dropped digits into a sticky bit so round-half-even can act on it.
+    let (coef_u256, shift, sticky) = coef.shift_right_to_u256(false);
+
+    // Combined exponent: y is at scale 10^{-FRAC_DIGITS}, π/2 at
+    // 10^{PI_OVER_TWO_EXP_38} = 10^{-37}, plus the shift introduced by
+    // the U384 → U256 collapse.
+    let exp = -(FRAC_DIGITS as i32) + PI_OVER_TWO_EXP_38 + shift as i32;
+    Extended::from_components_with_sticky(coef_u256, exp, net_sign, sticky)
+}
+
+/// `10^k` as a `U256`. Bounded loop; caller keeps `k` ≤ 76 for the
+/// `U256` envelope.
+fn pow10_u256(k: u32) -> U256 {
+    debug_assert!(k <= 76, "pow10_u256: k > 76 overflows U256");
+    let mut v = U256::from_u128(1);
+    let mut i = 0;
+    while i < k {
+        v = v.mul10();
+        i += 1;
+    }
+    v
 }
 
 // ----------------------------------------------------------------------------
@@ -431,8 +489,11 @@ pub(super) fn reduce(x: Decimal128) -> (u32, Extended, Status) {
     // W = window value as a U384 (≤ 78 decimal digits ≤ 2^259).
     let w = extract_window(i_lo, i_hi);
 
-    // P = c × W. Up to 78 + 34 = 112 digits — fits in U384.
-    let p = u384_mul_u128(w, c);
+    // P = c × W. With FRAC_DIGITS = 76 the window is up to 115
+    // digits and `c` is up to 34 digits — the product can reach
+    // ~149 digits, exceeding `U384` (~115). The full product lives
+    // in `U512` (~154 digits).
+    let p = u384_mul_u128_to_u512(w, c);
 
     // The window value used the digits at positions i_lo..i_hi of 2/π,
     // which in `c · 10^q · 2/π` corresponds to the LSD of P sitting at

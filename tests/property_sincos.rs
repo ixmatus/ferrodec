@@ -1,22 +1,11 @@
 //! Faithful-rounding cross-check for `Decimal128::sin` / `cos` vs astro-float.
 //!
 //! Companion to `tests/property_sincos_large.rs`, which only checked
-//! large-|x| inputs at 5-10 ULP. Now that the Taylor body runs at
-//! `Extended` precision, we tighten the small / mid-magnitude tolerance
-//! to 1 ULP. Large-|x| accuracy is still bounded by the Payne-Hanek
-//! reduction's residual quality (~1 ULP_50 → ~1 ULP_34), but any input
-//! whose `r` lands cleanly inside `[-π/4, π/4]` should round faithfully.
-//!
-//! ## Known boundary limitation
-//!
-//! Inputs that land within ~1 ULP of a multiple of π/2 (e.g. the
-//! Decimal128 rounding of π, 2π, π/2 themselves) suffer cancellation
-//! in the Payne-Hanek extraction beyond what 38 fractional digits of
-//! `2/π` can resolve. Those inputs hold to ≤ 10 ULP rather than 1
-//! ULP. Closing the gap needs the windowed multiplication widened to
-//! ~80 fractional digits — a `U512` infrastructure lift tracked as a
-//! follow-up. For random inputs the probability of landing in this
-//! window is < 10^{-15}, so proptest sweeps still hold at 1 ULP.
+//! large-|x| inputs at 5-10 ULP. With the Taylor body running at
+//! `Extended` precision and the Payne-Hanek window widened to
+//! `FRAC_DIGITS = 76` (via the U512 multiplication path), we now hold
+//! to 1 ULP across the full domain — including inputs that land
+//! within 1 ULP of a multiple of π/2.
 
 #![cfg(feature = "transcendentals")]
 
@@ -114,30 +103,12 @@ fn check_sin_cos(x_str: &str, ulps: u32) {
 #[test] fn spot_pi_over_four() { check_sin_cos("0.7853981633974483096156608458198757", 1); }
 #[test] fn spot_pi_over_three() { check_sin_cos("1.047197551196597746154214461093168", 1); }
 // These three inputs land within ~1 ULP of an integer multiple of π/2.
-// The argred extracts only 38 fractional digits of 2/π, so when
-// `x · 2/π` cancels down by 33+ leading zeros (or 9s, post-rounding),
-// the residual loses ~29 sig digits relative — way beyond the 1-ULP
-// envelope. Tracked as a follow-up needing the windowed multiplication
-// widened to ~80 fractional digits (U512 lift). Marked `#[ignore]`
-// rather than relaxed to a meaningless tolerance so the regression
-// stays visible.
-#[test]
-#[ignore = "near-multiple-of-π/2 cancellation; needs U512 widening"]
-fn spot_pi_over_two() {
-    check_sin_cos("1.570796326794896619231321691639751", 1);
-}
-
-#[test]
-#[ignore = "near-multiple-of-π/2 cancellation; needs U512 widening"]
-fn spot_pi() {
-    check_sin_cos("3.141592653589793238462643383279503", 1);
-}
-
-#[test]
-#[ignore = "near-multiple-of-π/2 cancellation; needs U512 widening"]
-fn spot_two_pi() {
-    check_sin_cos("6.283185307179586476925286766559006", 1);
-}
+// The Payne-Hanek window now extracts 76 fractional digits — enough to
+// retain ≥ 43 sig digits after the worst-case 33-digit cancellation —
+// so they round faithfully (≤ 1 ULP).
+#[test] fn spot_pi_over_two() { check_sin_cos("1.570796326794896619231321691639751", 1); }
+#[test] fn spot_pi() { check_sin_cos("3.141592653589793238462643383279503", 1); }
+#[test] fn spot_two_pi() { check_sin_cos("6.283185307179586476925286766559006", 1); }
 #[test] fn spot_tiny_pos() { check_sin_cos("0.00001", 1); }
 #[test] fn spot_tiny_neg() { check_sin_cos("-0.00001", 1); }
 #[test] fn spot_random_finite() { check_sin_cos("123.456789012345", 1); }
