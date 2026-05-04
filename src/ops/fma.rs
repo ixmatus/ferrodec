@@ -477,11 +477,7 @@ fn sub_ulp_round(
     // when `digits ≥ PRECISION`. The pad multiplications by 10 are
     // exact and preserve the value.
     let digits = dom.decimal_digit_count();
-    let pad = if digits < PRECISION {
-        PRECISION - digits
-    } else {
-        0
-    };
+    let pad = PRECISION.saturating_sub(digits);
     let padded = if pad > 0 { dom.mul_pow10(pad) } else { dom };
     let q_padded = q_dom - pad as i32;
 

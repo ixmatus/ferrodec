@@ -26,7 +26,7 @@ pub struct Decimal128(pub(crate) u128);
 
 impl Decimal128 {
     /// Reinterpret a raw 128-bit pattern as a `Decimal128` without checking
-    /// canonicality. Non-canonical inputs (Form B, biased_exp > 12287,
+    /// canonicality. Non-canonical inputs (Form B, `biased_exp` > 12287,
     /// coefficient ≥ 10^34) decode according to IEEE 754 — typically as
     /// zero with an unusual quantum.
     #[inline]

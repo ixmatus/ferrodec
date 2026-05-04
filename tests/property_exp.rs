@@ -150,7 +150,7 @@ proptest! {
         sign in any::<bool>(),
     ) {
         // Build a value in [10^-30, 10^4] (covers tiny → ~14000).
-        let mantissa = (bits & 0xFFFF_FFFF_FFFF_FFFF) as f64 / (u64::MAX as f64);
+        let mantissa = bits as f64 / (u64::MAX as f64);
         let exponent_log10 = -30.0 + mantissa * 34.0; // [-30, +4]
         let abs_value: f64 = (bits as f64).rem_euclid(9.0) + 1.0;
         let value_str = format!("{}{}e{}",

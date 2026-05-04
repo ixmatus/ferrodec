@@ -250,6 +250,12 @@ fn eq_ignore_ascii_case(a: &[u8], b: &[u8]) -> bool {
             .all(|(x, y)| x.eq_ignore_ascii_case(y))
 }
 
+// `String::repeat` requires `alloc`; only used in test helpers above.
+#[cfg(test)]
+extern crate alloc;
+#[cfg(test)]
+use alloc::string::ToString;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -427,9 +433,3 @@ mod tests {
         assert!(s.inexact());
     }
 }
-
-// `String::repeat` requires `alloc`; only used in test helpers above.
-#[cfg(test)]
-extern crate alloc;
-#[cfg(test)]
-use alloc::string::ToString;

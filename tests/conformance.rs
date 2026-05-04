@@ -36,7 +36,7 @@ fn dectest_conformance() {
 
     let entries = fs::read_dir(VECTORS_DIR).expect("vectors directory");
     let mut paths: Vec<PathBuf> = entries
-        .filter_map(|e| e.ok())
+        .filter_map(std::result::Result::ok)
         .map(|e| e.path())
         .filter(|p| p.extension().and_then(|s| s.to_str()) == Some("decTest"))
         .collect();
@@ -91,16 +91,20 @@ fn dectest_conformance() {
     const PASS_FLOOR: usize = 6200;
     const FAIL_CEILING: usize = 0;
 
-    if totals.passed < PASS_FLOOR {
-        panic!(
-            "conformance pass count regressed: {} < floor {}",
-            totals.passed, PASS_FLOOR
-        );
-    }
-    if totals.failed > FAIL_CEILING {
-        panic!(
+    assert!(
+        totals.passed >= PASS_FLOOR,
+        "conformance pass count regressed: {} < floor {}",
+        totals.passed,
+        PASS_FLOOR
+    );
+    // FAIL_CEILING is currently 0; if it ever rises, replace with `<=`.
+    #[allow(clippy::absurd_extreme_comparisons)]
+    {
+        assert!(
+            totals.failed <= FAIL_CEILING,
             "conformance failure count regressed: {} > ceiling {}",
-            totals.failed, FAIL_CEILING
+            totals.failed,
+            FAIL_CEILING
         );
     }
 }
@@ -185,7 +189,7 @@ fn run_file(path: &Path, failures: &mut Vec<Failure>) -> FileResult {
 // Parsing
 
 fn strip_comment(line: &str) -> &str {
-    line.find("--").map(|i| &line[..i]).unwrap_or(line)
+    line.find("--").map_or(line, |i| &line[..i])
 }
 
 fn parse_directive(line: &str) -> Option<(String, String)> {
@@ -287,7 +291,7 @@ enum CaseRounding {
     /// One of the five IEEE 754 rounding-direction attributes.
     Ieee(RoundingMode),
     /// decTest `up` — round away from zero (directional). Implemented
-    /// as a runner-side two-pass: TowardZero to determine the sign of
+    /// as a runner-side two-pass: `TowardZero` to determine the sign of
     /// the exact result, then TowardPositive/TowardNegative to round
     /// magnitude up.
     Up,
@@ -300,7 +304,7 @@ impl CaseRounding {
     /// Rounding mode to use when parsing operand literals or expected
     /// values for cases under this directive. For literals that fit in
     /// 34 digits exactly (the common case) the mode is irrelevant; we
-    /// fall back to NearestEven for the non-IEEE directives so parses
+    /// fall back to `NearestEven` for the non-IEEE directives so parses
     /// of long literals stay deterministic.
     fn for_parse(self) -> RoundingMode {
         match self {
@@ -398,7 +402,7 @@ fn run_case(case: &TestCase, ctx: &Context) -> Outcome {
 
     // `class` results are class-name strings, not Decimal128 values —
     // we don't have a comparison harness for those yet.
-    if matches!(result, OpResult::Class(_)) {
+    if matches!(result, OpResult::Class(())) {
         return Outcome::Skip;
     }
 
@@ -585,7 +589,7 @@ fn invoke_up(op: OpKind, operands: &[String]) -> Option<OpResult> {
     let probe = invoke(op, operands, RoundingMode::TowardZero)?;
     let (val, status) = match probe {
         OpResult::Value(v, s) => (v, s),
-        OpResult::Class(_) => return Some(probe),
+        OpResult::Class(()) => return Some(probe),
     };
     if !status.inexact() {
         return Some(OpResult::Value(val, status));
@@ -620,7 +624,7 @@ fn expected_status(conditions: &[String]) -> Status {
             // 0*Inf for fma) and "division_impossible" (integer divide
             // overflow) are subtypes of Invalid_operation.
             "invalid_operation" | "division_undefined" | "division_impossible" => {
-                s |= Status::INVALID
+                s |= Status::INVALID;
             }
             // Ignore: rounded, clamped, subnormal, lost_digits, conversion_syntax
             _ => {}
@@ -636,7 +640,7 @@ fn compare(
     expected_flags: Status,
 ) -> Outcome {
     match result {
-        OpResult::Class(_) => {
+        OpResult::Class(()) => {
             // class op compares against the class name string directly;
             // we don't currently dispatch through it. Skip.
             Outcome::Skip

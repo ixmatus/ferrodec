@@ -781,7 +781,7 @@ mod table {
 /// Sized to absorb up to 33 leading zeros (or 9s after rounding) in
 /// the fractional residual when the input is within 1 ULP of an
 /// integer multiple of π/2: 76 − 33 = 43 sig digits in `y_signed` —
-/// comfortably above EXT_PRECISION = 50 of the downstream `Extended`
+/// comfortably above `EXT_PRECISION` = 50 of the downstream `Extended`
 /// envelope.
 const FRAC_DIGITS: u32 = 76;
 /// Extra digits below the precision window to absorb truncation
@@ -810,7 +810,7 @@ const PI_OVER_TWO_EXP_38: i32 = -37;
 /// pre-clip.
 #[inline]
 fn two_over_pi_digit(i: usize) -> u8 {
-    debug_assert!(i >= 1 && i <= table::TWO_OVER_PI_DIGITS);
+    debug_assert!((1..=table::TWO_OVER_PI_DIGITS).contains(&i));
     let idx = i - 1;
     let limb = table::TWO_OVER_PI[idx / 9];
     // Position 0 in a limb is the MSD (10^8), position 8 is the LSD.
@@ -1167,7 +1167,7 @@ mod tests {
         // a u128.
         let s = table::PI_OVER_TWO_STR
             .chars()
-            .filter(|c| c.is_ascii_digit())
+            .filter(char::is_ascii_digit)
             .take(38)
             .collect::<alloc::string::String>();
         let derived: u128 = s.parse().unwrap();

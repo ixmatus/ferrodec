@@ -78,7 +78,7 @@ fn atan_one() {
         "atan",
         "1",
         |x| x.atan(RoundingMode::NearestEven),
-        |x, p, rm, cc| x.atan(p, rm, cc),
+        astro_float::BigFloat::atan,
         1,
     );
 }
@@ -88,7 +88,7 @@ fn atan_two() {
         "atan",
         "2",
         |x| x.atan(RoundingMode::NearestEven),
-        |x, p, rm, cc| x.atan(p, rm, cc),
+        astro_float::BigFloat::atan,
         1,
     );
 }
@@ -98,7 +98,7 @@ fn atan_huge() {
         "atan",
         "1e30",
         |x| x.atan(RoundingMode::NearestEven),
-        |x, p, rm, cc| x.atan(p, rm, cc),
+        astro_float::BigFloat::atan,
         1,
     );
 }
@@ -108,7 +108,7 @@ fn atan_tiny() {
         "atan",
         "1e-30",
         |x| x.atan(RoundingMode::NearestEven),
-        |x, p, rm, cc| x.atan(p, rm, cc),
+        astro_float::BigFloat::atan,
         1,
     );
 }
@@ -118,7 +118,7 @@ fn atan_half() {
         "atan",
         "0.5",
         |x| x.atan(RoundingMode::NearestEven),
-        |x, p, rm, cc| x.atan(p, rm, cc),
+        astro_float::BigFloat::atan,
         1,
     );
 }
@@ -128,7 +128,7 @@ fn atan_pi() {
         "atan",
         "3.14159265358979323846264338327950288",
         |x| x.atan(RoundingMode::NearestEven),
-        |x, p, rm, cc| x.atan(p, rm, cc),
+        astro_float::BigFloat::atan,
         1,
     );
 }
@@ -141,7 +141,7 @@ fn asin_half() {
         "asin",
         "0.5",
         |x| x.asin(RoundingMode::NearestEven),
-        |x, p, rm, cc| x.asin(p, rm, cc),
+        astro_float::BigFloat::asin,
         1,
     );
 }
@@ -151,7 +151,7 @@ fn asin_neg_half() {
         "asin",
         "-0.5",
         |x| x.asin(RoundingMode::NearestEven),
-        |x, p, rm, cc| x.asin(p, rm, cc),
+        astro_float::BigFloat::asin,
         1,
     );
 }
@@ -161,7 +161,7 @@ fn asin_near_one() {
         "asin",
         "0.999",
         |x| x.asin(RoundingMode::NearestEven),
-        |x, p, rm, cc| x.asin(p, rm, cc),
+        astro_float::BigFloat::asin,
         1,
     );
 }
@@ -171,7 +171,7 @@ fn asin_tiny() {
         "asin",
         "1e-15",
         |x| x.asin(RoundingMode::NearestEven),
-        |x, p, rm, cc| x.asin(p, rm, cc),
+        astro_float::BigFloat::asin,
         1,
     );
 }
@@ -184,7 +184,7 @@ fn acos_half() {
         "acos",
         "0.5",
         |x| x.acos(RoundingMode::NearestEven),
-        |x, p, rm, cc| x.acos(p, rm, cc),
+        astro_float::BigFloat::acos,
         1,
     );
 }
@@ -194,7 +194,7 @@ fn acos_quarter() {
         "acos",
         "0.25",
         |x| x.acos(RoundingMode::NearestEven),
-        |x, p, rm, cc| x.acos(p, rm, cc),
+        astro_float::BigFloat::acos,
         1,
     );
 }
@@ -204,7 +204,7 @@ fn acos_neg_half() {
         "acos",
         "-0.5",
         |x| x.acos(RoundingMode::NearestEven),
-        |x, p, rm, cc| x.acos(p, rm, cc),
+        astro_float::BigFloat::acos,
         1,
     );
 }

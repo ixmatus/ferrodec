@@ -13,7 +13,7 @@
 //!
 //! * `T = 11110` → ±Infinity (sign from bit 127)
 //! * `T = 11111` → NaN. Bit 121 = 1 ⇒ signaling NaN, 0 ⇒ quiet NaN.
-//!                Trailing 110 bits are the payload.
+//!   Trailing 110 bits are the payload.
 //! * `T[4..3] ∈ {00,01,10}` → Form A:
 //!     * `biased_exp = T[4..3] || ec`  (14 bits)
 //!     * `coefficient = 0 || T[2..0] || trailing_significand` (113 bits)
@@ -67,7 +67,7 @@ pub(crate) const E_MAX: i32 = 6144;
 pub(crate) const E_MIN: i32 = 1 - E_MAX;
 /// Bias added to the unbiased quantum exponent for storage.
 pub(crate) const BIAS: u32 = 6176;
-/// Largest valid biased exponent (Q_MAX - Q_MIN where Q_MIN = -BIAS).
+/// Largest valid biased exponent (`Q_MAX` - `Q_MIN` where `Q_MIN` = -BIAS).
 pub(crate) const BIASED_EXP_MAX: u32 = 12287;
 /// `10^34` — the strict upper bound on a canonical coefficient.
 pub(crate) const COEFFICIENT_LIMIT: u128 = 10u128.pow(34);

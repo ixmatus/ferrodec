@@ -7,7 +7,7 @@
 //! * `±∞` → `Infinity` / `-Infinity`.
 //! * Finite, in the "comfortable" range `1e-6 ≤ |x| < 1e21`: fixed
 //!   notation, e.g. `0.001`, `42`, `12345.6789`. The 1e-6 lower bound
-//!   matches f64::Display in `std`.
+//!   matches `f64::Display` in `std`.
 //! * Otherwise: scientific, e.g. `1.234E-100`, `9.99E+6144`.
 //!
 //! The fixed-buffer scratch is at most 50 bytes (sign + 34 digits +
@@ -136,7 +136,7 @@ fn format_fixed(
         return Ok(());
     }
     // Fractional. `unbiased < 0`, so |unbiased| digits sit after the point.
-    let frac = (-unbiased) as i32;
+    let frac = -unbiased;
     if frac >= digits {
         // Whole value is fractional. Pad with leading zeros: 0.00...0d_1d_2...
         f.write_str("0.")?;
@@ -281,7 +281,7 @@ mod tests {
     fn format_roundtrip_small_integers() {
         for v in [-1000i64, -7, -1, 0, 1, 7, 1000, 1_000_000].iter().copied() {
             let d = Decimal128::from_i64(v);
-            let s = format!("{}", d);
+            let s = format!("{d}");
             let back = parse(&s);
             let (cmp, _) = back.partial_cmp(d);
             assert_eq!(cmp, Some(core::cmp::Ordering::Equal), "{v} round-trip");
@@ -302,7 +302,7 @@ mod tests {
             "100.500",
         ] {
             let d = parse(s);
-            let formatted = format!("{}", d);
+            let formatted = format!("{d}");
             let back = parse(&formatted);
             let (cmp, _) = back.partial_cmp(d);
             assert_eq!(

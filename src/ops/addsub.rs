@@ -302,7 +302,7 @@ fn add_finite_finite(a: Decimal128, b: Decimal128, rm: RoundingMode) -> (Decimal
 ///
 /// Rounding direction is determined by the IEEE rounding mode plus a
 /// comparison of `2 · cs` to `10^(diff − k)` (i.e. `epsilon` vs
-/// `0.5 ULP`). For sign-asymmetric modes (TowardZero / Positive /
+/// `0.5 ULP`). For sign-asymmetric modes (`TowardZero` / Positive /
 /// Negative) only the result's sign matters.
 fn sub_ulp_effective_sub(
     cl: u128,

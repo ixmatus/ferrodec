@@ -86,7 +86,7 @@ fn log2_two() {
         "log2",
         "2",
         |x| x.log2(RoundingMode::NearestEven),
-        |x, p, rm, cc| x.log2(p, rm, cc),
+        astro_float::BigFloat::log2,
         1,
     );
 }
@@ -96,7 +96,7 @@ fn log2_eight() {
         "log2",
         "8",
         |x| x.log2(RoundingMode::NearestEven),
-        |x, p, rm, cc| x.log2(p, rm, cc),
+        astro_float::BigFloat::log2,
         1,
     );
 }
@@ -106,7 +106,7 @@ fn log2_half() {
         "log2",
         "0.5",
         |x| x.log2(RoundingMode::NearestEven),
-        |x, p, rm, cc| x.log2(p, rm, cc),
+        astro_float::BigFloat::log2,
         1,
     );
 }
@@ -116,7 +116,7 @@ fn log2_pi() {
         "log2",
         "3.14159265358979323846264338327950288",
         |x| x.log2(RoundingMode::NearestEven),
-        |x, p, rm, cc| x.log2(p, rm, cc),
+        astro_float::BigFloat::log2,
         1,
     );
 }
@@ -126,7 +126,7 @@ fn log2_huge() {
         "log2",
         "1e1000",
         |x| x.log2(RoundingMode::NearestEven),
-        |x, p, rm, cc| x.log2(p, rm, cc),
+        astro_float::BigFloat::log2,
         1,
     );
 }
@@ -223,7 +223,7 @@ fn tan_pi_over_four() {
         "tan",
         "0.7853981633974483096156608458198757",
         |x| x.tan(RoundingMode::NearestEven),
-        |x, p, rm, cc| x.tan(p, rm, cc),
+        astro_float::BigFloat::tan,
         1,
     );
 }
@@ -233,7 +233,7 @@ fn tan_one() {
         "tan",
         "1",
         |x| x.tan(RoundingMode::NearestEven),
-        |x, p, rm, cc| x.tan(p, rm, cc),
+        astro_float::BigFloat::tan,
         1,
     );
 }
@@ -243,7 +243,7 @@ fn tan_minus_one() {
         "tan",
         "-1",
         |x| x.tan(RoundingMode::NearestEven),
-        |x, p, rm, cc| x.tan(p, rm, cc),
+        astro_float::BigFloat::tan,
         1,
     );
 }
@@ -255,7 +255,7 @@ fn tan_pi() {
         "tan",
         "3.141592653589793238462643383279503",
         |x| x.tan(RoundingMode::NearestEven),
-        |x, p, rm, cc| x.tan(p, rm, cc),
+        astro_float::BigFloat::tan,
         1,
     );
 }

@@ -18,7 +18,7 @@
 //!    (and below `2/3` for the symmetric branch). After this,
 //!    `m ∈ [2/3, 3/2]`, so the Taylor series for
 //!    `ln(1 + u)` (`u = m − 1`, `|u| ≤ 1/2`) converges to
-//!    EXT_PRECISION = 50 digits in well under 200 terms.
+//!    `EXT_PRECISION` = 50 digits in well under 200 terms.
 //! 4. `ln(1 + u) = u − u²/2 + u³/3 − u⁴/4 + …`. Halt when terms fall
 //!    below `EXT_PRECISION` significance.
 //!

@@ -439,7 +439,7 @@ impl Extended {
     /// and non-zero.
     ///
     /// One Newton iteration `x → 0.5 · (x + self/x)` doubles precision
-    /// from the 33-digit seed to ~66 digits — past EXT_PRECISION = 50.
+    /// from the 33-digit seed to ~66 digits — past `EXT_PRECISION` = 50.
     pub fn sqrt(self) -> Self {
         debug_assert!(!self.sign, "Extended::sqrt of negative");
         if self.is_zero() {

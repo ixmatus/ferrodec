@@ -7,9 +7,9 @@
 //! * `0 × ∞` and `∞ × 0` are *invalid* operations and yield NaN with
 //!   the `INVALID` flag set (IEEE 754-2019 §7.2 — these are the only
 //!   "invalid finite × infinite" mixes).
-//! * `∞ × ∞` and `∞ × finite_non_zero` give `±∞` with the XORed sign.
+//! * `∞ × ∞` and `∞ × finite_non_zero` give `±∞` with the `XORed` sign.
 //! * `0 × 0`, `0 × finite`, and `finite × 0` all give `±0` with the
-//!   XORed sign — IEEE 754 sign rule applies even to zero results.
+//!   `XORed` sign — IEEE 754 sign rule applies even to zero results.
 //!
 //! Result quantum: `q_a + q_b`. The coefficient product is up to
 //! 226 bits, so the alignment intermediate buys nothing — we just

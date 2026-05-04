@@ -253,7 +253,7 @@ mod tests {
 
     #[test]
     fn from_f64_round_trip() {
-        let cases = [1.0f64, -1.0, 1.5, -3.14159, 6.022e23, 1e-100, 9.876e50];
+        let cases = [1.0f64, -1.0, 1.5, -7.654_321, 6.022e23, 1e-100, 9.876e50];
         for &f in &cases {
             let d = Decimal128::from_f64(f);
             let (back, _) = d.to_f64(RoundingMode::NearestEven);

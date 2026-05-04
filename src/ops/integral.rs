@@ -138,7 +138,7 @@ fn round_to_integral_kernel(
                 }
                 let last_kept = 0u32; // result so far is 0
                 let round_up = should_round_up_int(rm, sign, last_kept, round_digit, sticky);
-                let coef_out: u128 = if round_up { 1 } else { 0 };
+                let coef_out: u128 = u128::from(round_up);
                 let status = if signal_inexact && (round_digit != 0 || sticky) {
                     Status::INEXACT
                 } else {

@@ -212,7 +212,6 @@ mod tests {
     use crate::math::consts::pi;
     extern crate alloc;
     use alloc::format;
-    use alloc::string::ToString;
 
     fn parse(s: &str) -> Decimal128 {
         Decimal128::parse_str(s, RoundingMode::NearestEven)

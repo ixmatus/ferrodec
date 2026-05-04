@@ -107,7 +107,7 @@ impl U256 {
         let lo_bot = (self.lo & 0xFFFF_FFFF_FFFF_FFFF) | ((r2 as u128) << 64);
         let (q_bot, r3) = div_rem_u128_by_small(lo_bot, 10);
         let q_lo = (q_top << 64) | q_bot;
-        (Self { lo: q_lo, hi: q_hi }, r3 as u32)
+        (Self { lo: q_lo, hi: q_hi }, r3)
     }
 
     /// Long-division `self / divisor` returning `(quotient, remainder)`.
@@ -186,7 +186,7 @@ impl U256 {
         } else {
             256 - self.hi.leading_zeros()
         };
-        let half_bits = (bit_len + 1) / 2;
+        let half_bits = bit_len.div_ceil(2);
         debug_assert!(half_bits < 128, "isqrt input exceeds supported range");
 
         let mut x: u128 = 1u128 << half_bits;
@@ -456,7 +456,7 @@ mod tests {
         ];
         for &(a, b) in cases {
             let (hi, lo) = widening_mul_u128(a, b);
-            let n = U256 { hi, lo };
+            let n = U256 { lo, hi };
             // Divide back by `b` (assume b != 0).
             let (q, r) = n.div_rem_u128(b);
             assert_eq!(q, U256::from_u128(a), "a={a}, b={b}");
@@ -471,7 +471,7 @@ mod tests {
         let b = 7u128;
         let r_in = 3u128;
         let (hi, lo) = widening_mul_u128(a, b);
-        let n = U256 { hi, lo }.add(U256::from_u128(r_in));
+        let n = U256 { lo, hi }.add(U256::from_u128(r_in));
         let (q, r) = n.div_rem_u128(b);
         assert_eq!(q, U256::from_u128(a));
         assert_eq!(r, r_in);
@@ -500,7 +500,7 @@ mod tests {
         for &x in &[1u128, 2, 3, 7, 16, 100, 1_000_000, u128::from(u32::MAX)] {
             let n = U256::from_u128(x * x);
             let (s, r) = n.isqrt();
-            assert_eq!(s, x, "sqrt({}^2)", x);
+            assert_eq!(s, x, "sqrt({x}^2)");
             assert!(r.is_zero(), "remainder of perfect square {x}^2");
         }
     }
@@ -512,7 +512,7 @@ mod tests {
             for k in 0..=(2 * x) {
                 let n = x * x + k;
                 let (s, _) = U256::from_u128(n).isqrt();
-                assert_eq!(s, x, "sqrt({}) ≠ {}", n, x);
+                assert_eq!(s, x, "sqrt({n}) ≠ {x}");
             }
             // x^2 + 2x + 1 = (x+1)^2.
             let (s, _) = U256::from_u128(x * x + 2 * x + 1).isqrt();

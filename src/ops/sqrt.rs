@@ -80,16 +80,16 @@ fn sqrt_special_cases(a: Decimal128) -> Option<(Decimal128, Status)> {
 
 fn sqrt_finite(a: Decimal128, rm: RoundingMode) -> (Decimal128, Status) {
     let cls = classify_bits(a.to_bits());
-    let (sign, ea, ca) = match cls {
-        Class::Finite {
-            sign,
-            biased_exp,
-            coefficient,
-        } => (sign, biased_exp, coefficient),
-        _ => {
-            debug_assert!(false, "sqrt_finite called on non-finite-positive");
-            return (Decimal128::NAN, Status::INVALID);
-        }
+    let (sign, ea, ca) = if let Class::Finite {
+        sign,
+        biased_exp,
+        coefficient,
+    } = cls
+    {
+        (sign, biased_exp, coefficient)
+    } else {
+        debug_assert!(false, "sqrt_finite called on non-finite-positive");
+        return (Decimal128::NAN, Status::INVALID);
     };
     debug_assert!(!sign);
     debug_assert!(ca > 0);

@@ -326,7 +326,7 @@ fn round_to_integer(coef: u128, unbiased: i32, sign: bool, rm: RoundingMode) -> 
         if round_digit != 0 || sticky {
             status |= Status::INEXACT;
         }
-        return (if round_up { 1 } else { 0 }, status);
+        return (u128::from(round_up), status);
     }
     // drop < digits: extract integer part and round.
     let divisor = 10u128.pow(drop);

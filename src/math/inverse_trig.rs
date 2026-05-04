@@ -14,7 +14,7 @@
 //! After reduction, the Taylor series
 //! `atan(y) = y − y³/3 + y⁵/5 − y⁷/7 + …` converges in ≤ 200
 //! iterations for `|y| ≤ tan(π/8)` (`0.414^200 ≈ 10^{-77}` —
-//! comfortably past EXT_PRECISION = 50). Sign of `x` is folded back
+//! comfortably past `EXT_PRECISION` = 50). Sign of `x` is folded back
 //! at the end (`atan` is odd).
 //!
 //! ## asin / acos

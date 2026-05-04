@@ -52,9 +52,9 @@ proptest! {
     /// `format → parse` round-trips numerically for any finite operand.
     #[test]
     fn format_parse_roundtrip(d in arbitrary_finite()) {
-        let s = format!("{}", d);
+        let s = format!("{d}");
         let (parsed, _) = Decimal128::parse_str(&s, RoundingMode::default())
-            .expect(&format!("parse {s:?}"));
+            .unwrap_or_else(|_| panic!("parse {s:?}"));
         let (cmp, _) = parsed.partial_cmp(d);
         prop_assert_eq!(
             cmp,
@@ -67,9 +67,9 @@ proptest! {
     /// the same `Decimal128` as the first.
     #[test]
     fn parse_format_parse_idempotent(d in arbitrary_finite()) {
-        let s1 = format!("{}", d);
+        let s1 = format!("{d}");
         let (p1, _) = Decimal128::parse_str(&s1, RoundingMode::default()).unwrap();
-        let s2 = format!("{}", p1);
+        let s2 = format!("{p1}");
         prop_assert_eq!(s1, s2.clone(), "format not stable: {:?} -> {:?}", p1, s2);
         let (p2, _) = Decimal128::parse_str(&s2, RoundingMode::default()).unwrap();
         prop_assert_eq!(p1.to_bits(), p2.to_bits());
@@ -90,7 +90,7 @@ proptest! {
             } else {
                 prop_assert_eq!(parsed.to_bits(), expected.to_bits());
             }
-            let formatted = format!("{}", parsed);
+            let formatted = format!("{parsed}");
             prop_assert_eq!(formatted, s);
         }
     }

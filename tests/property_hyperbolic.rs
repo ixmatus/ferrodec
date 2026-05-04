@@ -85,7 +85,7 @@ fn sinh_one() {
         "sinh",
         "1",
         |x| x.sinh(RoundingMode::NearestEven),
-        |x, p, rm, cc| x.sinh(p, rm, cc),
+        astro_float::BigFloat::sinh,
         ULPS,
     );
 }
@@ -95,7 +95,7 @@ fn sinh_two() {
         "sinh",
         "2",
         |x| x.sinh(RoundingMode::NearestEven),
-        |x, p, rm, cc| x.sinh(p, rm, cc),
+        astro_float::BigFloat::sinh,
         ULPS,
     );
 }
@@ -105,7 +105,7 @@ fn sinh_tiny() {
         "sinh",
         "0.001",
         |x| x.sinh(RoundingMode::NearestEven),
-        |x, p, rm, cc| x.sinh(p, rm, cc),
+        astro_float::BigFloat::sinh,
         ULPS,
     );
 }
@@ -115,7 +115,7 @@ fn sinh_neg() {
         "sinh",
         "-1.5",
         |x| x.sinh(RoundingMode::NearestEven),
-        |x, p, rm, cc| x.sinh(p, rm, cc),
+        astro_float::BigFloat::sinh,
         ULPS,
     );
 }
@@ -126,7 +126,7 @@ fn cosh_one() {
         "cosh",
         "1",
         |x| x.cosh(RoundingMode::NearestEven),
-        |x, p, rm, cc| x.cosh(p, rm, cc),
+        astro_float::BigFloat::cosh,
         ULPS,
     );
 }
@@ -136,7 +136,7 @@ fn cosh_two() {
         "cosh",
         "2",
         |x| x.cosh(RoundingMode::NearestEven),
-        |x, p, rm, cc| x.cosh(p, rm, cc),
+        astro_float::BigFloat::cosh,
         ULPS,
     );
 }
@@ -146,7 +146,7 @@ fn cosh_tiny() {
         "cosh",
         "0.001",
         |x| x.cosh(RoundingMode::NearestEven),
-        |x, p, rm, cc| x.cosh(p, rm, cc),
+        astro_float::BigFloat::cosh,
         ULPS,
     );
 }
@@ -157,7 +157,7 @@ fn tanh_half() {
         "tanh",
         "0.5",
         |x| x.tanh(RoundingMode::NearestEven),
-        |x, p, rm, cc| x.tanh(p, rm, cc),
+        astro_float::BigFloat::tanh,
         ULPS,
     );
 }
@@ -167,7 +167,7 @@ fn tanh_one() {
         "tanh",
         "1",
         |x| x.tanh(RoundingMode::NearestEven),
-        |x, p, rm, cc| x.tanh(p, rm, cc),
+        astro_float::BigFloat::tanh,
         ULPS,
     );
 }
@@ -177,7 +177,7 @@ fn tanh_three() {
         "tanh",
         "3",
         |x| x.tanh(RoundingMode::NearestEven),
-        |x, p, rm, cc| x.tanh(p, rm, cc),
+        astro_float::BigFloat::tanh,
         ULPS,
     );
 }
@@ -188,7 +188,7 @@ fn asinh_one() {
         "asinh",
         "1",
         |x| x.asinh(RoundingMode::NearestEven),
-        |x, p, rm, cc| x.asinh(p, rm, cc),
+        astro_float::BigFloat::asinh,
         ULPS,
     );
 }
@@ -198,7 +198,7 @@ fn asinh_huge() {
         "asinh",
         "1e30",
         |x| x.asinh(RoundingMode::NearestEven),
-        |x, p, rm, cc| x.asinh(p, rm, cc),
+        astro_float::BigFloat::asinh,
         ULPS,
     );
 }
@@ -208,7 +208,7 @@ fn asinh_tiny() {
         "asinh",
         "1e-15",
         |x| x.asinh(RoundingMode::NearestEven),
-        |x, p, rm, cc| x.asinh(p, rm, cc),
+        astro_float::BigFloat::asinh,
         ULPS,
     );
 }
@@ -219,7 +219,7 @@ fn acosh_two() {
         "acosh",
         "2",
         |x| x.acosh(RoundingMode::NearestEven),
-        |x, p, rm, cc| x.acosh(p, rm, cc),
+        astro_float::BigFloat::acosh,
         ULPS,
     );
 }
@@ -229,7 +229,7 @@ fn acosh_huge() {
         "acosh",
         "1e30",
         |x| x.acosh(RoundingMode::NearestEven),
-        |x, p, rm, cc| x.acosh(p, rm, cc),
+        astro_float::BigFloat::acosh,
         ULPS,
     );
 }
@@ -240,7 +240,7 @@ fn atanh_half() {
         "atanh",
         "0.5",
         |x| x.atanh(RoundingMode::NearestEven),
-        |x, p, rm, cc| x.atanh(p, rm, cc),
+        astro_float::BigFloat::atanh,
         ULPS,
     );
 }
@@ -250,7 +250,7 @@ fn atanh_quarter() {
         "atanh",
         "0.25",
         |x| x.atanh(RoundingMode::NearestEven),
-        |x, p, rm, cc| x.atanh(p, rm, cc),
+        astro_float::BigFloat::atanh,
         ULPS,
     );
 }
@@ -260,7 +260,7 @@ fn atanh_neg_three_quarter() {
         "atanh",
         "-0.75",
         |x| x.atanh(RoundingMode::NearestEven),
-        |x, p, rm, cc| x.atanh(p, rm, cc),
+        astro_float::BigFloat::atanh,
         ULPS,
     );
 }

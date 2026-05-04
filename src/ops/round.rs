@@ -253,7 +253,7 @@ fn finalize_finite(
             debug_assert!(kept.is_zero(), "all digits should drop");
             let last_kept = 0;
             let round_up = should_round_up(rm, sign, last_kept, round_digit, sticky_eff);
-            let result_coef = if round_up { 1u128 } else { 0u128 };
+            let result_coef = u128::from(round_up);
             status |= Status::UNDERFLOW | Status::INEXACT;
             return (
                 Decimal128::from_bits(pack_finite(sign, 0, result_coef)),

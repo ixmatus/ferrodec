@@ -13,11 +13,11 @@ fn parse(s: &str) -> Decimal128 {
 }
 
 fn oracle_ln(x_str: &str) -> String {
-    oracle_apply(x_str, |x, p, rm, cc| x.ln(p, rm, cc))
+    oracle_apply(x_str, astro_float::BigFloat::ln)
 }
 
 fn oracle_log10(x_str: &str) -> String {
-    oracle_apply(x_str, |x, p, rm, cc| x.log10(p, rm, cc))
+    oracle_apply(x_str, astro_float::BigFloat::log10)
 }
 
 fn oracle_apply<F>(x_str: &str, f: F) -> String
@@ -169,7 +169,7 @@ proptest! {
         // Build a positive Decimal128 with a 34-digit-or-less coefficient.
         let coef = coef_bits % (10u128.pow(34));
         if coef == 0 { return Ok(()); }
-        let value_str = format!("{}e{}", coef, exp);
+        let value_str = format!("{coef}e{exp}");
         let x = parse(&value_str);
         let exact_str = format!("{x}");
         let (got, _) = x.ln(RoundingMode::NearestEven);
@@ -188,7 +188,7 @@ proptest! {
     ) {
         let coef = coef_bits % (10u128.pow(34));
         if coef == 0 { return Ok(()); }
-        let value_str = format!("{}e{}", coef, exp);
+        let value_str = format!("{coef}e{exp}");
         let x = parse(&value_str);
         let exact_str = format!("{x}");
         let (got, _) = x.log10(RoundingMode::NearestEven);

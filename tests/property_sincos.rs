@@ -20,11 +20,11 @@ fn parse(s: &str) -> Decimal128 {
 }
 
 fn oracle_sin(x_str: &str) -> String {
-    oracle_apply(x_str, |x, p, rm, cc| x.sin(p, rm, cc))
+    oracle_apply(x_str, astro_float::BigFloat::sin)
 }
 
 fn oracle_cos(x_str: &str) -> String {
-    oracle_apply(x_str, |x, p, rm, cc| x.cos(p, rm, cc))
+    oracle_apply(x_str, astro_float::BigFloat::cos)
 }
 
 fn oracle_apply<F>(x_str: &str, f: F) -> String
