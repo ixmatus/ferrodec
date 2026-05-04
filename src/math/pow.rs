@@ -21,17 +21,23 @@
 //!    * `|x| < 1, y = +∞` ⇒ `+0`; `y = −∞` ⇒ `+∞`.
 //!    * `|x| = 1, y = ±∞` ⇒ `1` (handled by rule 2 above).
 //! 7. `pow(negative_finite, non_integer)` → `NaN + INVALID`.
-//! 8. Otherwise: positive-base path via `exp(y · ln(x))`.
-//!    Negative-integer-y over negative base applies the sign of `(-1)^y`.
+//! 8. Otherwise: positive-base path via `exp(y · ln(x))` evaluated at
+//!    `Extended` precision and rounded once at the end. Negative-
+//!    integer-y over negative base applies the sign of `(-1)^y`.
 //!
-//! ## v1 accuracy
+//! ## Accuracy
 //!
-//! Same envelope as `exp` and `ln` in this module — `≤ 5 ULP` for
-//! typical inputs. Integer exponents go through a separate
-//! square-and-multiply path that's bit-exact when no overflow occurs.
+//! Faithfully rounded (≤ 1 ULP at 34 digits) for typical inputs via
+//! the `Extended` pipeline. Integer exponents up to `±256` use a
+//! square-and-multiply path that's still rounded at each multiply
+//! (so a few ULP at most) — exact only when the product is exactly
+//! representable.
 
 use crate::bid::{classify_bits, decimal_digit_count, Class, BIAS};
 use crate::decimal::Decimal128;
+use crate::math::exp::exp_from_extended;
+use crate::math::extended::Extended;
+use crate::math::ln::ln_extended;
 use crate::status::{RoundingMode, Status};
 
 impl Decimal128 {
@@ -163,19 +169,19 @@ fn pow_kernel(x: Decimal128, y: Decimal128, rm: RoundingMode) -> (Decimal128, St
         return (v, status);
     }
 
-    // General path: pow(x, y) = exp(y * ln(|x|)). Sign of result for
-    // negative integer base handled below.
+    // General path: pow(x, y) = exp(y · ln(|x|)) evaluated entirely at
+    // Extended precision. Single round when converting back to
+    // `Decimal128`, so the final result is faithfully rounded
+    // (≤ 1 ULP) for typical inputs.
     let abs_x = x.abs();
-    let (ln_x, st_ln) = abs_x.ln(rm);
-    let (y_ln_x, st_mul) = y.mul(ln_x, rm);
-    let (result, st_exp) = y_ln_x.exp(rm);
-    let mut status = st_ln | st_mul | st_exp;
+    let ln_x_ext = ln_extended(abs_x);
+    let y_ext = Extended::from_decimal128(y);
+    let y_ln_x_ext = y_ext.mul(ln_x_ext);
+    let (result, mut status) = exp_from_extended(y_ln_x_ext, rm);
 
     let sign_neg = x.is_sign_negative() && matches!(y_int, IntegerKind::OddInteger);
     let signed = if sign_neg { result.neg() } else { result };
 
-    // Mark INEXACT — even when the integer-y path could be exact, the
-    // exp(y·ln) route is rounding twice, so we always flag.
     status |= Status::INEXACT;
     (signed, status)
 }

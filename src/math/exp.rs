@@ -61,36 +61,42 @@ fn exp_kernel(x: Decimal128, rm: RoundingMode) -> (Decimal128, Status) {
         return early;
     }
 
-    // ---- Reduction at extended precision --------------------------------
     let x_ext = Extended::from_decimal128(x);
-    let ln10 = ln10_ext();
-    let inv_ln10 = inv_ln10_ext();
+    exp_from_extended(x_ext, rm)
+}
 
-    // q = x / ln(10) ≈ x · (1/ln(10)). The Decimal128 input has 34
-    // digits of precision; multiplied by 50-digit `inv_ln10` gives a
-    // result with ≥ 34 digits of precision in q — plenty to recover
-    // `k = round(q)` exactly for |x| ≤ 14149.
-    let q = x_ext.mul(inv_ln10);
+/// Compute `exp(x_ext)` and round to `Decimal128`. Used by the public
+/// `Decimal128::exp` and by `pow`'s general `exp(y · ln(x))` path.
+///
+/// Caller is responsible for filtering NaN / Inf / Zero inputs (those
+/// have shortcuts that don't go through Taylor). For finite inputs of
+/// any magnitude this routine handles the OVERFLOW / UNDERFLOW
+/// thresholds internally.
+pub(super) fn exp_from_extended(x_ext: Extended, rm: RoundingMode) -> (Decimal128, Status) {
+    // Magnitude gate: `exp` overflows to +∞ at x ≈ +14149 and
+    // underflows to +0 at x ≈ −14150. Compare directly at extended
+    // precision (no Decimal128 round-trip needed).
+    let limit = Extended::parse_str("14150");
+    if x_ext.abs().cmp(limit) == core::cmp::Ordering::Greater {
+        return if x_ext.sign {
+            (Decimal128::ZERO, Status::UNDERFLOW | Status::INEXACT)
+        } else {
+            (Decimal128::INFINITY, Status::OVERFLOW | Status::INEXACT)
+        };
+    }
+
+    // Reduction: x = k · ln(10) + r, with |r| ≤ ln(10)/2.
+    let q = x_ext.mul(inv_ln10_ext());
     let k = round_to_i32(q);
-    let r = x_ext.sub(Extended::from_i32(k).mul(ln10));
+    let r = x_ext.sub(Extended::from_i32(k).mul(ln10_ext()));
 
-    // ---- Taylor series at extended precision ----------------------------
+    // Taylor series at extended precision.
     let exp_r = taylor_exp_ext(r);
 
-    // exp(x) = exp(r) · 10^k — pure quantum shift.
+    // exp(x) = exp(r) · 10^k.
     let result_ext = exp_r.mul_pow10_exp(k);
-
-    // ---- Round to Decimal128 -------------------------------------------
-    let (mut result, mut status) = result_ext.to_decimal128(0, rm);
-    // The reduction + Taylor are inherently inexact for irrational `r`.
-    status |= Status::INEXACT;
-    // OVERFLOW / UNDERFLOW are signalled by `to_decimal128` if the
-    // packed result lands outside the representable range; the early
-    // `saturate_extreme` gate keeps us well inside it for any input
-    // that survived to here, so any flags from `to_decimal128` are
-    // genuine (e.g. underflow into subnormals near `x ≈ -14149`).
-    let _ = &mut result;
-    (result, status)
+    let (result, status) = result_ext.to_decimal128(0, rm);
+    (result, status | Status::INEXACT)
 }
 
 /// Round an Extended to the nearest `i32`. Used to recover the
