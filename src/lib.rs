@@ -6,9 +6,14 @@ mod classify;
 mod cmp;
 mod convert;
 mod decimal;
+#[cfg(feature = "transcendentals")]
+mod math;
 mod multiword;
 mod ops;
 mod status;
+
+#[cfg(feature = "transcendentals")]
+pub use math::{e, ln10, ln2, pi};
 
 pub use decimal::Decimal128;
 pub use status::{RoundingMode, Status};
