@@ -4,11 +4,11 @@ An IEEE 754 (2019) Decimal128 library for Rust, written for embedded targets tha
 
 ## What ferrodec is
 
-ferrodec implements the BID 128 (Binary Integer Decimal) format from IEEE 754:2019. The encoding gives 34 decimal digits of precision, an exponent range from 10⁻⁶¹⁴³ through 10⁺⁶¹⁴⁴, every IEEE special value (signed zero, signed infinity, quiet and signaling NaN), and the full classification surface. The crate is `no_std`, allocates nothing on its own, and compiles cleanly down to Cortex M0+ (ARMv6 M, no floating point unit, no hardware divide).
+ferrodec implements the BID 128 (Binary Integer Decimal) format from IEEE 754:2019. The encoding gives 34 decimal digits of precision, an exponent range from 10⁻⁶¹⁴³ through 10⁺⁶¹⁴⁴, every IEEE special value (signed zero, signed infinity, quiet and signaling NaN), and the full classification surface. The crate is `no_std`, allocates nothing on its own, and compiles cleanly down to Cortex M0+ (`ARMv6` M, no floating point unit, no hardware divide).
 
 Three design choices shape the library.
 
-1. **Per operation status, never global flags.** Every operation returns `(Decimal128, Status)`. The `Status` records the IEEE flags raised by that one call: INVALID, DIV_BY_ZERO, OVERFLOW, UNDERFLOW, INEXACT. Callers compose flags however they like; ferrodec never reads or writes a thread local register.
+1. **Per operation status, never global flags.** Every operation returns `(Decimal128, Status)`. The `Status` records the IEEE flags raised by that one call: INVALID, `DIV_BY_ZERO`, OVERFLOW, UNDERFLOW, INEXACT. Callers compose flags however they like; ferrodec never reads or writes a thread local register.
 2. **Methods, not operators.** ferrodec does not implement `core::ops::Add` or its siblings. An operator would silently swallow the `Status`, hide the `RoundingMode` parameter, and pretend that decimal arithmetic is as forgiving as integer arithmetic. It is not. Spelling each operation out (`a.add(b, rm)`, `x.sqrt(rm)`, `y.cos(rm)`) keeps the contract visible at every call site.
 3. **Explicit rounding.** Every inexact operation takes a `RoundingMode` argument. The five IEEE 754:2019 directions are supported: `NearestEven` (the default), `NearestAway`, `TowardZero`, `TowardPositive`, and `TowardNegative`.
 
@@ -84,7 +84,7 @@ ferrodec promises faithful rounding, meaning ≤ 1 ULP at 34 digits, for the cor
 
 * **Hyperbolic forwards on `|x| ≥ 0.5`** compose two `exp` calls and combine. Each call rounds correctly, but the composition stretches the envelope to about 5 ULP at the upper edge. Inside `|x| < 0.5` the kernel uses a direct Taylor series and stays at 1 ULP.
 * **Inverse hyperbolics** compose `ln(x + sqrt(x² ± 1))` and inherit the same envelope (≤ 5 ULP) as the hyperbolic forwards.
-* **`tan(x)` near the asymptotes** at odd multiples of π/2 returns ±∞. Note the absence of a DIV_BY_ZERO flag: `tan` produces a transcendental asymptote, not a literal IEEE division by zero.
+* **`tan(x)` near the asymptotes** at odd multiples of π/2 returns ±∞. Note the absence of a `DIV_BY_ZERO` flag: `tan` produces a transcendental asymptote, not a literal IEEE division by zero.
 
 The trigonometric reduction handles the full Decimal128 magnitude range. `sin(10^15)` and `sin(10^3000)` round as accurately as `sin(0.5)` does, because argument reduction uses the algorithm of Payne and Hanek with a 6 300 digit table of 2/π. Inputs that fall within one ULP of an integer multiple of π/2 (the rounded value of π itself, for example) cancel down to a 33 digit residual; the windowed multiplication widens to U512 to recover the remaining 50 digits, so even those boundary points round at ≤ 1 ULP.
 
