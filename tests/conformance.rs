@@ -82,10 +82,15 @@ fn dectest_conformance() {
 
     // Regression guard: any change that drops pass count below the
     // floor or raises fail count above the ceiling fails the test.
-    // Bumped as known-issue categories get fixed; the remaining gap
-    // is dqFMA's separated-rounding 1-ULP envelope (Phase 8 follow-up).
-    const PASS_FLOOR: usize = 6150;
-    const FAIL_CEILING: usize = 70;
+    // Bumped as known-issue categories get fixed. The remaining 6
+    // dqFMA failures all hit the conformance runner's missing
+    // mappings for decTest's `up` (round-away-from-zero) and `05up`
+    // rounding modes — IEEE 754 doesn't define those, and ferrodec's
+    // `RoundingMode` doesn't include them, so they fall through with
+    // the previous directive's mode and produce mode-mismatched
+    // results. Fixing this is a runner-side follow-up.
+    const PASS_FLOOR: usize = 6240;
+    const FAIL_CEILING: usize = 10;
 
     if totals.passed < PASS_FLOOR {
         panic!(

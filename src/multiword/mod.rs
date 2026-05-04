@@ -15,5 +15,7 @@
 //! optimisation.
 
 pub(crate) mod u256;
+pub(crate) mod u384;
 
 pub(crate) use u256::U256;
+pub(crate) use u384::U384;
