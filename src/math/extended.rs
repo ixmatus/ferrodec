@@ -138,6 +138,92 @@ impl Extended {
         }
     }
 
+    /// Parse a decimal string. Accepts optional sign, integer / fractional
+    /// digits, and an optional `eN` / `e+N` / `e-N` exponent. The string
+    /// is assumed to be a hand-curated constant — invalid input panics.
+    /// No rounding: the full digit sequence (up to ~75 digits, the U256
+    /// capacity) is preserved exactly. Caller is responsible for keeping
+    /// the literal within `EXT_PRECISION + small` if they want
+    /// invariant preservation.
+    pub fn parse_str(s: &str) -> Self {
+        let bytes = s.as_bytes();
+        let mut i = 0;
+        let mut sign = false;
+        if i < bytes.len() && (bytes[i] == b'+' || bytes[i] == b'-') {
+            if bytes[i] == b'-' {
+                sign = true;
+            }
+            i += 1;
+        }
+
+        let mut coef = U256::ZERO;
+        let mut decimal_seen = false;
+        let mut digits_after_point: i32 = 0;
+        while i < bytes.len() && bytes[i] != b'e' && bytes[i] != b'E' {
+            match bytes[i] {
+                b'0'..=b'9' => {
+                    let d = (bytes[i] - b'0') as u128;
+                    coef = coef.mul10().add(U256::from_u128(d));
+                    if decimal_seen {
+                        digits_after_point += 1;
+                    }
+                    i += 1;
+                }
+                b'.' => {
+                    assert!(!decimal_seen, "Extended::parse_str: duplicate '.'");
+                    decimal_seen = true;
+                    i += 1;
+                }
+                _ => panic!("Extended::parse_str: invalid character"),
+            }
+        }
+
+        let mut exp_explicit: i32 = 0;
+        if i < bytes.len() && (bytes[i] == b'e' || bytes[i] == b'E') {
+            i += 1;
+            let mut exp_sign = false;
+            if i < bytes.len() && (bytes[i] == b'+' || bytes[i] == b'-') {
+                if bytes[i] == b'-' {
+                    exp_sign = true;
+                }
+                i += 1;
+            }
+            let mut digits = 0i32;
+            while i < bytes.len() {
+                match bytes[i] {
+                    b'0'..=b'9' => {
+                        digits = digits * 10 + (bytes[i] - b'0') as i32;
+                        i += 1;
+                    }
+                    _ => panic!("Extended::parse_str: invalid char in exponent"),
+                }
+            }
+            exp_explicit = if exp_sign { -digits } else { digits };
+        }
+
+        if coef.is_zero() {
+            return Self::ZERO;
+        }
+        Self {
+            coef,
+            exp: exp_explicit - digits_after_point,
+            sign,
+        }
+    }
+
+    /// Multiply by `10^k` (k may be negative). This is a pure
+    /// exponent shift — no rounding, no coefficient change.
+    pub fn mul_pow10_exp(self, k: i32) -> Self {
+        if self.is_zero() {
+            return self;
+        }
+        Self {
+            coef: self.coef,
+            exp: self.exp + k,
+            sign: self.sign,
+        }
+    }
+
     /// Convert to a `Decimal128`. `q_preferred` is the IEEE 754 §6.3
     /// preferred quantum exponent for the operation that built this
     /// value (callers typically pass `0` for transcendentals or pass
@@ -215,10 +301,17 @@ impl Extended {
         };
         let delta = (hi_op.exp - lo_op.exp) as u32;
 
-        // If `delta` is huge (`hi_op` dominates by > EXT_PRECISION + 5
-        // decades), `lo_op` falls below the rounding boundary — return
-        // `hi_op` as-is. Saves the U384 alignment work.
-        if delta > EXT_PRECISION + 5 {
+        // Short-circuit only when shifting `hi_op` up by `delta` would
+        // overflow `U384`'s ~115-digit envelope. By construction, in
+        // those cases `lo_op`'s MSD is far below the sum's LSB at
+        // EXT_PRECISION, so the omission is below the rounding
+        // boundary. The naive "delta > EXT_PRECISION" check is wrong
+        // because it ignores the actual digit-count of `hi_op` —
+        // when `hi_op.coef` has only a few digits, the sum can carry
+        // information from `lo_op` even at large `delta`.
+        let dig_hi = hi_op.coef.decimal_digit_count();
+        let max_delta_for_u384: u32 = 115u32.saturating_sub(dig_hi);
+        if delta > max_delta_for_u384 {
             return hi_op;
         }
 

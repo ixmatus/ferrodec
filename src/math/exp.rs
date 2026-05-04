@@ -3,35 +3,32 @@
 //! ## Algorithm
 //!
 //! 1. Special cases: NaN / sNaN / ±∞ / ±0.
-//! 2. Range reduction. We split `x = k · ln(10) + r` with `|r| ≤ ln(10)/2`
+//! 2. Range reduction. Split `x = k · ln(10) + r` with `|r| ≤ ln(10)/2`,
 //!    so `r` lives in roughly `[-1.151, 1.151]`. Then
 //!
 //!    ```text
 //!    exp(x) = 10^k · exp(r)
 //!    ```
 //!
-//!    where `10^k` is a quantum shift on `Decimal128`.
-//! 3. `exp(r)` via Taylor series. The radius is bounded so 30–35 terms
-//!    converge below the 34-digit envelope.
-//! 4. Multiply by `10^k` (quantum shift) — no rounding loss.
+//!    where `10^k` is a quantum shift on the `Extended` (and the final
+//!    `Decimal128`).
+//! 3. Compute `exp(r)` via Taylor series at extended precision
+//!    (`Extended` — see [`super::extended`]). 50-digit working
+//!    precision keeps the cumulative series error below the
+//!    34-digit envelope.
+//! 4. Round to `Decimal128` once at the end via
+//!    `round_and_pack_finite`, threading through OVERFLOW / UNDERFLOW.
 //!
-//! ## v1 accuracy
+//! ## Accuracy
 //!
-//! Native Decimal128 arithmetic throughout. Each Taylor term involves a
-//! `mul` and a `div` by a small integer; both are correctly-rounded but
-//! the accumulating sum can drift up to ~5 ULP for inputs near the
-//! edges of the reduction window. Tracked as a follow-up — closing the
-//! gap to faithful rounding needs a wider intermediate type.
-//!
-//! ## Domain
-//!
-//! `exp` overflows at roughly `x ≈ 14149` (`exp(x) ≈ 10^6144`) and
-//! underflows to `±0` at `x ≈ -14150`. We detect both and emit the
-//! IEEE 754 flags accordingly without going through Taylor.
+//! Faithfully rounded (≤ 1 ULP at 34 digits) against `astro-float`
+//! across the supported domain `|x| ≤ 14149`. Values past the domain
+//! short-circuit to ±∞ / ±0 with the appropriate IEEE 754 flags.
 
-use crate::bid::{classify_bits, pack_finite, Class, BIAS, BIASED_EXP_MAX};
+use crate::bid::{classify_bits, Class};
 use crate::decimal::Decimal128;
-use crate::math::consts::ln10;
+use crate::math::consts::{inv_ln10_ext, ln10_ext};
+use crate::math::extended::Extended;
 use crate::status::{RoundingMode, Status};
 
 impl Decimal128 {
@@ -60,37 +57,117 @@ fn exp_kernel(x: Decimal128, rm: RoundingMode) -> (Decimal128, Status) {
         Class::Finite { .. } => {}
     }
 
-    // Cheap overflow / underflow gate via a coarse magnitude estimate.
-    // We want a bound that's fast to compute, so we read the unbiased
-    // exponent and digit count and approximate `log10(|x|)`. If
-    // `|x| > 14149.6` we can skip the Taylor work.
-    if let Some((value, status)) = saturate_extreme(x) {
-        return (value, status);
+    if let Some(early) = saturate_extreme(x) {
+        return early;
     }
 
-    // Range reduction: x = k * ln(10) + r, |r| ≤ ln(10)/2.
-    let ln10_v = ln10();
-    let (k, r, reduce_status) = reduce_to_window(x, ln10_v, rm);
+    // ---- Reduction at extended precision --------------------------------
+    let x_ext = Extended::from_decimal128(x);
+    let ln10 = ln10_ext();
+    let inv_ln10 = inv_ln10_ext();
 
-    // Compute exp(r) via Taylor.
-    let (exp_r, taylor_status) = taylor_exp(r, rm);
+    // q = x / ln(10) ≈ x · (1/ln(10)). The Decimal128 input has 34
+    // digits of precision; multiplied by 50-digit `inv_ln10` gives a
+    // result with ≥ 34 digits of precision in q — plenty to recover
+    // `k = round(q)` exactly for |x| ≤ 14149.
+    let q = x_ext.mul(inv_ln10);
+    let k = round_to_i32(q);
+    let r = x_ext.sub(Extended::from_i32(k).mul(ln10));
 
-    // Final result: exp(r) × 10^k. `10^k` is a pure quantum shift —
-    // we encode it as a multiplication by `Decimal128::from(10).pow(k)`
-    // approximation; here we re-emit `exp_r` with adjusted quantum,
-    // which is exact when no precision is lost.
-    let (result, scale_status) = scale_by_pow10(exp_r, k, rm);
+    // ---- Taylor series at extended precision ----------------------------
+    let exp_r = taylor_exp_ext(r);
 
-    let status = reduce_status | taylor_status | scale_status;
+    // exp(x) = exp(r) · 10^k — pure quantum shift.
+    let result_ext = exp_r.mul_pow10_exp(k);
+
+    // ---- Round to Decimal128 -------------------------------------------
+    let (mut result, mut status) = result_ext.to_decimal128(0, rm);
+    // The reduction + Taylor are inherently inexact for irrational `r`.
+    status |= Status::INEXACT;
+    // OVERFLOW / UNDERFLOW are signalled by `to_decimal128` if the
+    // packed result lands outside the representable range; the early
+    // `saturate_extreme` gate keeps us well inside it for any input
+    // that survived to here, so any flags from `to_decimal128` are
+    // genuine (e.g. underflow into subnormals near `x ≈ -14149`).
+    let _ = &mut result;
     (result, status)
+}
+
+/// Round an Extended to the nearest `i32`. Used to recover the
+/// reduction integer `k` from `q = x / ln(10)`.
+fn round_to_i32(q: Extended) -> i32 {
+    if q.is_zero() {
+        return 0;
+    }
+    // Add ±0.5 (depending on sign), then truncate toward zero.
+    let half = Extended::parse_str("0.5");
+    let nudged = if q.sign { q.sub(half) } else { q.add(half) };
+    truncate_to_i32(nudged)
+}
+
+/// Truncate an Extended toward zero into an `i32`. Caller guarantees
+/// the magnitude is well within `i32::MAX`.
+fn truncate_to_i32(v: Extended) -> i32 {
+    if v.is_zero() {
+        return 0;
+    }
+    // Shift coef by exp to recover the integer value.
+    if v.exp >= 0 {
+        // coef · 10^exp — but for our `k` reduction, exp should
+        // always be ≤ 0 (since |x| ≤ 14149 → |q| ≤ 6145 < 10^4 and
+        // the .mul produced ~50-digit coef with exp ≈ -50).
+        // Defensively widen: scale up.
+        let mut c = v.coef;
+        for _ in 0..(v.exp as u32) {
+            c = c.mul10();
+        }
+        let val = c.lo as i64;
+        return if v.sign { -(val as i32) } else { val as i32 };
+    }
+    // exp < 0: shift right.
+    let mut c = v.coef;
+    for _ in 0..((-v.exp) as u32) {
+        let (q, _) = c.div_rem10();
+        c = q;
+    }
+    let val = c.lo as i64;
+    if v.sign {
+        -(val as i32)
+    } else {
+        val as i32
+    }
+}
+
+/// `exp(r) = Σ r^n / n!` evaluated at `Extended` precision.
+///
+/// Convergence: `|r| ≤ ln(10)/2 ≈ 1.151`, and `|r|^n / n!` decays
+/// faster than geometrically once `n > |r|`. ~36 terms drives the
+/// term magnitude below `10^{-49}`, well past `EXT_PRECISION = 50`.
+fn taylor_exp_ext(r: Extended) -> Extended {
+    let mut sum = Extended::ONE;
+    let mut term = Extended::ONE;
+    // Halt early if `term` falls below ~10^{-55} (well below
+    // EXT_PRECISION's significance).
+    for n in 1u32..=60 {
+        term = term.mul(r).div_u32(n);
+        let next_sum = sum.add(term);
+        // Early exit: if `next_sum` matches `sum` at extended
+        // precision, further terms will round to zero contribution.
+        if next_sum.cmp(sum) == core::cmp::Ordering::Equal {
+            sum = next_sum;
+            break;
+        }
+        sum = next_sum;
+        if term.is_zero() {
+            break;
+        }
+    }
+    sum
 }
 
 /// Coarse extreme-magnitude detection. Returns `Some((±∞ or ±0, status))`
 /// when the input is way outside the convergence window.
 fn saturate_extreme(x: Decimal128) -> Option<(Decimal128, Status)> {
-    // Compare x against ±OVERFLOW_THRESHOLD. We do this by parsing the
-    // threshold as a Decimal128 once; since the threshold is constant
-    // and small, rounding doesn't matter.
     let positive = !x.is_sign_negative();
     let abs_x = x.abs();
     let threshold = Decimal128::parse_str("14150", RoundingMode::NearestEven)
@@ -101,136 +178,9 @@ fn saturate_extreme(x: Decimal128) -> Option<(Decimal128, Status)> {
         return None;
     }
     if positive {
-        // Overflow: exp(x) = +∞, raise OVERFLOW + INEXACT.
         Some((Decimal128::INFINITY, Status::OVERFLOW | Status::INEXACT))
     } else {
-        // Underflow: exp(x) = +0, raise UNDERFLOW + INEXACT.
-        Some((
-            Decimal128::ZERO,
-            Status::UNDERFLOW | Status::INEXACT,
-        ))
-    }
-}
-
-/// `x = k · ln(10) + r`. Returns `(k, r, status)`.
-///
-/// `k` is `round(x / ln(10))` rounded to nearest even, and the residue
-/// `r ∈ [-ln(10)/2, ln(10)/2]`.
-fn reduce_to_window(
-    x: Decimal128,
-    ln10_v: Decimal128,
-    rm: RoundingMode,
-) -> (i32, Decimal128, Status) {
-    let mut status = Status::OK;
-    // q = x / ln(10).
-    let (q, _) = x.div(ln10_v, RoundingMode::NearestEven);
-    // k = round-to-nearest-even integer of q.
-    let (k, _) = q.to_i32(RoundingMode::NearestEven);
-    let k_dec = Decimal128::from_i32(k);
-    // Build `k · ln(10)` and subtract from x.
-    let (k_ln10, st_mul) = k_dec.mul(ln10_v, RoundingMode::NearestEven);
-    status |= st_mul;
-    let (r, st_sub) = x.sub(k_ln10, rm);
-    status |= st_sub;
-    (k, r, status)
-}
-
-/// Taylor series: `exp(r) = Σ r^n / n!`. The factorial denominator is
-/// updated iteratively (`1/(n+1)! = (1/n!) / (n+1)`) so we never need a
-/// separate factorial constant table.
-///
-/// Bounds the term count: max ~36 iterations covers `|r| ≤ ln(10)/2`
-/// to ~36 digits of precision. We early-exit once the term magnitude
-/// drops below `~10^-37`.
-fn taylor_exp(r: Decimal128, rm: RoundingMode) -> (Decimal128, Status) {
-    let mut status = Status::OK;
-    let mut sum = Decimal128::ONE; // term n=0
-    let mut term = Decimal128::ONE;
-    let one = Decimal128::ONE;
-
-    // Halt when the next term won't change the sum at our precision.
-    // `term` decays by `r/(n+1)` each step; with |r| ≤ 1.151 and n
-    // ≥ ~33 the magnitude is below 10^-35.
-    let max_iterations = 60;
-    let mut n: i32 = 0;
-    while n < max_iterations {
-        n += 1;
-        // term = term * r / n
-        let n_dec = Decimal128::from_i32(n);
-        let (mul_term, st1) = term.mul(r, RoundingMode::NearestEven);
-        let (next_term, st2) = mul_term.div(n_dec, RoundingMode::NearestEven);
-        status |= st1 | st2;
-        term = next_term;
-        // sum += term
-        let (next_sum, st3) = sum.add(term, RoundingMode::NearestEven);
-        status |= st3;
-        // Halt when adding `term` no longer changes `sum` (cohort match
-        // is overly strict; numeric equality is the right check).
-        let (cmp, _) = next_sum.partial_cmp(sum);
-        sum = next_sum;
-        if cmp == Some(core::cmp::Ordering::Equal) {
-            break;
-        }
-        // Also halt if `term` underflows to zero.
-        if term.is_zero() {
-            break;
-        }
-        let _ = one;
-    }
-
-    // Final round in the requested mode. Since we computed in
-    // round-to-nearest-even internally, this is the user-visible
-    // rounding step. For most rounding modes the result is already
-    // close enough that re-rounding doesn't change much, but we
-    // honour `rm` for at least the sign-asymmetric cases.
-    let _ = rm;
-    (sum, status | Status::INEXACT)
-}
-
-/// Multiply `value` by `10^k` (k may be negative). For any
-/// well-encoded finite `value`, this is purely a quantum shift —
-/// we adjust the biased exponent and check overflow/underflow,
-/// without touching the coefficient.
-fn scale_by_pow10(
-    value: Decimal128,
-    k: i32,
-    rm: RoundingMode,
-) -> (Decimal128, Status) {
-    if !value.is_finite() || value.is_zero() {
-        return (value, Status::OK);
-    }
-    match classify_bits(value.to_bits()) {
-        Class::Finite {
-            sign,
-            biased_exp,
-            coefficient,
-        } => {
-            let new_biased = (biased_exp as i32) + k;
-            if new_biased > BIASED_EXP_MAX as i32 {
-                // Overflow.
-                let result = if sign {
-                    Decimal128::NEG_INFINITY
-                } else {
-                    Decimal128::INFINITY
-                };
-                let _ = rm;
-                return (result, Status::OVERFLOW | Status::INEXACT);
-            }
-            if new_biased < 0 {
-                // Underflow toward zero (subnormals not handled with
-                // full precision here — v1 limitation).
-                let _ = rm;
-                return (
-                    Decimal128::from_bits(pack_finite(sign, 0, 0)),
-                    Status::UNDERFLOW | Status::INEXACT,
-                );
-            }
-            (
-                Decimal128::from_bits(pack_finite(sign, new_biased as u32, coefficient)),
-                Status::OK,
-            )
-        }
-        _ => (value, Status::OK),
+        Some((Decimal128::ZERO, Status::UNDERFLOW | Status::INEXACT))
     }
 }
 
@@ -242,20 +192,25 @@ mod tests {
         Decimal128::parse_str(s, RoundingMode::NearestEven).unwrap().0
     }
 
-    fn approx_equal(a: Decimal128, b: Decimal128, ulps: u32) -> bool {
-        // Coarse ULP comparison: difference / b should be below
-        // ulps × 10^-33 (1 ULP at PRECISION = 34 ≈ 10^-33).
-        let (diff, _) = a.sub(b, RoundingMode::NearestEven);
+    fn within_ulps(got: Decimal128, want: Decimal128, ulps: u32) -> bool {
+        let (diff, _) = got.sub(want, RoundingMode::NearestEven);
         let diff = diff.abs();
-        let bound = parse(&match ulps {
-            1 => "1e-33".to_string(),
-            5 => "5e-33".to_string(),
-            n => alloc::format!("{n}e-32"),
-        });
-        let abs_b = b.abs();
-        let (rel, _) = diff.div(abs_b, RoundingMode::NearestEven);
+        let abs_want = want.abs();
+        if abs_want.is_zero() {
+            let bound = parse(&alloc::format!("{ulps}e-30"));
+            let (cmp, _) = diff.partial_cmp(bound);
+            return matches!(
+                cmp,
+                Some(core::cmp::Ordering::Less | core::cmp::Ordering::Equal)
+            );
+        }
+        let (rel, _) = diff.div(abs_want, RoundingMode::NearestEven);
+        let bound = parse(&alloc::format!("{ulps}e-33"));
         let (cmp, _) = rel.partial_cmp(bound);
-        matches!(cmp, Some(core::cmp::Ordering::Less | core::cmp::Ordering::Equal))
+        matches!(
+            cmp,
+            Some(core::cmp::Ordering::Less | core::cmp::Ordering::Equal)
+        )
     }
 
     #[test]
@@ -268,17 +223,14 @@ mod tests {
     fn exp_one_is_e() {
         let (r, _) = Decimal128::ONE.exp(RoundingMode::NearestEven);
         let target = parse("2.718281828459045235360287471352662");
-        assert!(
-            approx_equal(r, target, 5),
-            "exp(1) = {r:?}, want ≈ {target:?}"
-        );
+        assert!(within_ulps(r, target, 1), "exp(1) = {r:?}, want ≈ {target:?}");
     }
 
     #[test]
     fn exp_neg_one() {
         let (r, _) = Decimal128::NEG_ONE.exp(RoundingMode::NearestEven);
         let target = parse("0.3678794411714423215955237701614608");
-        assert!(approx_equal(r, target, 5));
+        assert!(within_ulps(r, target, 1));
     }
 
     #[test]
@@ -286,7 +238,7 @@ mod tests {
         let two = parse("2");
         let (r, _) = two.exp(RoundingMode::NearestEven);
         let target = parse("7.389056098930650227230427460575008");
-        assert!(approx_equal(r, target, 5));
+        assert!(within_ulps(r, target, 1));
     }
 
     #[test]
@@ -329,5 +281,4 @@ mod tests {
     }
 
     extern crate alloc;
-    use alloc::string::ToString;
 }
