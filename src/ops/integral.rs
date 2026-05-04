@@ -216,7 +216,7 @@ fn should_round_up_int(
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "fmt"))]
 mod tests {
     use super::*;
 

@@ -1,3 +1,4 @@
+#![cfg(feature = "fmt")]
 //! Conformance test runner for the vendored Mike Cowlishaw decTest
 //! suite (`tests/vectors/dq*.decTest`).
 //!

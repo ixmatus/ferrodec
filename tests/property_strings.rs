@@ -1,3 +1,4 @@
+#![cfg(feature = "fmt")]
 //! Property tests for the `&str` parser and `Display` formatter.
 //!
 //! Two roundtrip directions:

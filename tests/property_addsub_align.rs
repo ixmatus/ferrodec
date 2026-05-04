@@ -1,3 +1,4 @@
+#![cfg(feature = "fmt")]
 //! Regression tests for the sub-ULP effective-subtract path in
 //! `src/ops/addsub.rs`.
 //!

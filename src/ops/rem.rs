@@ -335,6 +335,7 @@ mod tests {
         assert_eq!(r.to_bits(), Decimal128::ONE.to_bits());
     }
 
+    #[cfg(feature = "fmt")]
     #[test]
     fn rem_division_impossible_at_buffer_boundary() {
         // Mirrors dqRemainderNear vectors dqrmn1051..1054. The aligned
@@ -354,6 +355,7 @@ mod tests {
         assert!(s.invalid(), "expected INVALID, got {s:?}");
     }
 
+    #[cfg(feature = "fmt")]
     #[test]
     fn rem_division_impossible_in_band() {
         // The in-band check (integer quotient too wide despite fitting

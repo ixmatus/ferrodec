@@ -20,6 +20,8 @@ ferrodec = "0"
 ```
 
 ```rust
+# #[cfg(feature = "fmt")]
+# fn main() {
 use ferrodec::{Decimal128, RoundingMode};
 
 let rm = RoundingMode::NearestEven;
@@ -27,6 +29,9 @@ let a = Decimal128::parse_str("1.1", rm).unwrap().0;
 let b = Decimal128::parse_str("2.2", rm).unwrap().0;
 let (sum, _status) = a.add(b, rm);
 assert_eq!(format!("{sum}"), "3.3");
+# }
+# #[cfg(not(feature = "fmt"))]
+# fn main() {}
 ```
 
 Notice what this short example demonstrates. Decimal addition gives the exact result a human would expect (`1.1 + 2.2 = 3.3`), without the `0.30000000000000004` artifact that binary floating point produces. The status flag records that the inputs were inexact representations of `1.1` and `2.2`, not that the addition itself was, and the `Display` output preserves the quantum that the input strings implied.

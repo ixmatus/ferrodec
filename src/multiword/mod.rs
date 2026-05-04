@@ -20,4 +20,5 @@ pub(crate) mod u512;
 
 pub(crate) use u256::U256;
 pub(crate) use u384::U384;
+#[cfg(feature = "transcendentals")]
 pub(crate) use u512::U512;
