@@ -4,12 +4,16 @@
 //!
 //! 1. Special cases: NaN / sNaN propagate; `sin(±0) = ±0`;
 //!    `cos(±0) = +1`; `sin(±∞) = cos(±∞) = NaN + INVALID`.
-//! 2. Range reduction. Let `k = round(x / (π/2))` and
-//!    `r = x − k·(π/2)`, so `|r| ≤ π/4 ≈ 0.7854`. Then which of
-//!    `±sin(r)`, `±cos(r)` to return is determined by `k mod 4`:
+//! 2. Range reduction via Payne-Hanek (see [`super::argred`]):
+//!    compute `k = round(|x| · 2/π) mod 4` and the residual `r` such
+//!    that `|x| = k · π/2 + r` and `|r| ≤ π/4`. The reduction works
+//!    across the full `Decimal128` magnitude range — there's no
+//!    `|x| ≤ 10^9` cap.
+//! 3. Taylor series for `sin(r)` and `cos(r)` on `|r| ≤ π/4`. Then
+//!    rotate by `k mod 4`:
 //!
 //!    ```text
-//!    k mod 4   sin(x)     cos(x)
+//!    k mod 4   sin(|x|)   cos(|x|)
 //!    -------  --------   --------
 //!         0    sin(r)     cos(r)
 //!         1    cos(r)    -sin(r)
@@ -17,23 +21,12 @@
 //!         3   -cos(r)     sin(r)
 //!    ```
 //!
-//! 3. Taylor series for `sin(r)` and `cos(r)` on `|r| ≤ π/4`.
-//!    Convergence is fast — degree ~25 covers the 34-digit envelope.
-//!
-//! ## v1 domain
-//!
-//! Range reduction uses native `Decimal128` arithmetic for `π/2`.
-//! For `|x| ≤ 10^9` the reduction error stays in single ULPs of the
-//! result. Above that, accumulated cancellation eats precision and
-//! results may drift well beyond the documented 5-ULP envelope.
-//!
-//! Closing the gap (Payne-Hanek with extended-precision π) is a
-//! follow-up; for calculator workloads `|x| ≤ 10^9` is more than
-//! sufficient.
+//!    `sin` is odd, so `sin(x) = -sin(|x|)` when `x < 0`. `cos` is
+//!    even, so `cos(x) = cos(|x|)` regardless of sign.
 
 use crate::bid::{classify_bits, Class};
 use crate::decimal::Decimal128;
-use crate::math::consts::pi;
+use crate::math::argred;
 use crate::status::{RoundingMode, Status};
 
 impl Decimal128 {
@@ -73,29 +66,23 @@ impl Decimal128 {
 /// reduction. Returns them as `((sin, sin_status), (cos, cos_status))`.
 fn sincos_kernel(
     x: Decimal128,
-    _rm: RoundingMode,
+    rm: RoundingMode,
 ) -> ((Decimal128, Status), (Decimal128, Status)) {
-    let pi_v = pi();
-    let two = Decimal128::from_i32(2);
-    let (half_pi, _) = pi_v.div(two, RoundingMode::NearestEven);
+    // Sign handling: reduce `|x|`, then flip the sin result for negative
+    // inputs (sin is odd; cos is even).
+    let neg = match classify_bits(x.to_bits()) {
+        Class::Finite { sign, .. } => sign,
+        _ => false,
+    };
+    let abs_x = if neg { x.neg() } else { x };
 
-    // k = round_half_even(x / (π/2)).
-    let (q, _) = x.div(half_pi, RoundingMode::NearestEven);
-    let (k_i32, _) = q.to_i32(RoundingMode::NearestEven);
-    let k_dec = Decimal128::from_i32(k_i32);
-
-    // r = x - k * (π/2).
-    let mut status = Status::OK;
-    let (k_half_pi, s1) = k_dec.mul(half_pi, RoundingMode::NearestEven);
-    status |= s1;
-    let (r, s2) = x.sub(k_half_pi, RoundingMode::NearestEven);
-    status |= s2;
+    let (k_mod_4, r, status_red) = argred::reduce(abs_x, rm);
 
     let (sin_r, s_sin) = taylor_sin(r);
     let (cos_r, s_cos) = taylor_cos(r);
-    status |= s_sin | s_cos;
+    let status = status_red | s_sin | s_cos | Status::INEXACT;
 
-    let (sin_x, cos_x) = match k_i32.rem_euclid(4) {
+    let (mut sin_abs, cos_abs) = match k_mod_4 {
         0 => (sin_r, cos_r),
         1 => (cos_r, sin_r.neg()),
         2 => (sin_r.neg(), cos_r.neg()),
@@ -103,10 +90,11 @@ fn sincos_kernel(
         _ => unreachable!(),
     };
 
-    (
-        (sin_x, status | Status::INEXACT),
-        (cos_x, status | Status::INEXACT),
-    )
+    if neg {
+        sin_abs = sin_abs.neg();
+    }
+
+    ((sin_abs, status), (cos_abs, status))
 }
 
 /// `sin(r) = r − r³/3! + r⁵/5! − …` for `|r| ≤ π/4`.
@@ -179,6 +167,7 @@ fn taylor_cos(r: Decimal128) -> (Decimal128, Status) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::math::consts::pi;
     extern crate alloc;
     use alloc::format;
     use alloc::string::ToString;
