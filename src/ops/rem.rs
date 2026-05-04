@@ -12,7 +12,7 @@
 //! * `x / ±∞` (finite `x`) → `x` (the result equals `x` exactly).
 //! * `x = ±0` → `±0` with the sign of `x`.
 //!
-//! ## v1 scope
+//! ## Implementation
 //!
 //! The finite-finite kernel aligns both operands to a common quantum
 //! `q_min = min(q_x, q_y)`. If the aligned numerator and denominator
@@ -20,19 +20,25 @@
 //! `u128`), we do an exact `div_rem_u128` and round the quotient
 //! to nearest-even, returning `x − n·y` packed at `q_min`.
 //!
-//! Two cases are deferred to a follow-up:
+//! Two boundary cases short-circuit:
 //!
-//! 1. `q_y − q_x` so large that the aligned divisor overflows `u128`
-//!    (≥ 39 decimal digits). In this case `|y| ≫ |x|`, so `n = 0` and
-//!    the remainder is exactly `x` — we return `self` directly.
-//!    Mathematically correct.
-//! 2. `q_x − q_y` so large that the aligned numerator overflows U256
-//!    (≥ 76 decimal digits). This is the truly unsupported case;
-//!    proper handling requires modular exponentiation
-//!    (`10^Δ mod y` via repeated squaring) to fold the alignment
-//!    into the divisor's residue. Tracked as a TODO. The current
-//!    fallback returns NaN with `INVALID` raised so the limitation
-//!    surfaces loudly.
+//! 1. **Aligned divisor overflows `u128`** (`cy_digits > 38`). This
+//!    only happens when `q_y > q_x`, so the aligned dividend has
+//!    `cx_digits ≤ 34` while the aligned divisor exceeds `10^38`.
+//!    Therefore `|y_scaled| > |x_scaled|`, the integer quotient `n`
+//!    is zero, and the remainder is exactly `x`. We return `self`.
+//! 2. **Aligned numerator overflows `U256`** (`cx_digits > 75`). The
+//!    bound `cy_digits ≤ 38` (already enforced by the previous check)
+//!    forces `n_digits ≥ cx_digits − cy_digits ≥ 76 − 38 = 38`, which
+//!    always exceeds `PRECISION = 34`. The dec-spec
+//!    [`Division_impossible`] condition therefore applies in every
+//!    case that hits this branch, so we return `NaN + INVALID`. This
+//!    is the same answer the in-band `q.decimal_digit_count() >
+//!    PRECISION` check produces when the operation does fit U256 —
+//!    the early-return is purely a working-buffer-size guard, not a
+//!    semantic limitation.
+//!
+//! [`Division_impossible`]: https://speleotrove.com/decimal/daops.html#refrema
 
 use crate::bid::{
     classify_bits, decimal_digit_count, pack_finite, Class, BIAS, BIASED_EXP_MAX,
@@ -132,8 +138,11 @@ fn rem_finite(a: Decimal128, b: Decimal128) -> (Decimal128, Status) {
     if cy_digits > 38 {
         return (a, Status::OK);
     }
-    // Case 2: |x| so much wider than |y| that aligned numerator overflows
-    // U256. Tracked as a v1 follow-up — see module docs.
+    // Case 2: aligned numerator overflows U256. With cy_digits ≤ 38
+    // (enforced above), n_digits ≥ cx_digits − cy_digits ≥ 38, which
+    // always trips dec-spec Division_impossible. NaN + INVALID is the
+    // same answer the in-band check below produces; this is just a
+    // working-buffer-size guard. See module docs.
     if cx_digits > 75 {
         return (Decimal128::NAN, Status::INVALID);
     }
@@ -333,6 +342,44 @@ mod tests {
         let huge_y = d_finite(false, BIAS + 100, 1);
         let (r, _) = Decimal128::ONE.rem(huge_y);
         assert_eq!(r.to_bits(), Decimal128::ONE.to_bits());
+    }
+
+    #[test]
+    fn rem_division_impossible_at_buffer_boundary() {
+        // Mirrors dqRemainderNear vectors dqrmn1051..1054. The aligned
+        // numerator for `1e+277 rem 1e-311` would need ≈ 589 digits,
+        // far beyond U256. The integer quotient is 10^588, which is
+        // well over PRECISION=34 digits, so dec-spec
+        // Division_impossible applies and the early-return is the
+        // semantically correct answer.
+        let big = Decimal128::parse_str("1E+277", crate::RoundingMode::NearestEven)
+            .expect("parse")
+            .0;
+        let tiny = Decimal128::parse_str("1E-311", crate::RoundingMode::NearestEven)
+            .expect("parse")
+            .0;
+        let (r, s) = big.rem(tiny);
+        assert!(r.is_nan(), "expected NaN, got {r}");
+        assert!(s.invalid(), "expected INVALID, got {s:?}");
+    }
+
+    #[test]
+    fn rem_division_impossible_in_band() {
+        // The in-band check (integer quotient too wide despite fitting
+        // U256) covers the same dec-spec condition for less-extreme
+        // ratios. Mirrors dqrmn772.
+        let x = Decimal128::parse_str(
+            "1234500000000000000000067890123456",
+            crate::RoundingMode::NearestEven,
+        )
+        .expect("parse")
+        .0;
+        let y = Decimal128::parse_str("0.1", crate::RoundingMode::NearestEven)
+            .expect("parse")
+            .0;
+        let (r, s) = x.rem(y);
+        assert!(r.is_nan());
+        assert!(s.invalid());
     }
 
     #[test]
