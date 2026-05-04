@@ -152,6 +152,7 @@ fn from_unsigned_with_rounding(
     round_and_pack_finite(
         U256::from_u128(abs),
         0,
+        0, // preferred quantum: integer constants want q = 0
         sign,
         false,
         rm,

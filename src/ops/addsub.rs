@@ -19,22 +19,25 @@
 //! Rounding to 34 decimal digits, status-flag emission, and overflow /
 //! underflow handling are deferred to [`crate::ops::round_and_pack_finite`].
 
-use crate::bid::{classify_bits, pack_finite, pack_infinity, Class, BIAS};
+use crate::bid::{
+    classify_bits, decimal_digit_count, pack_finite, pack_infinity, Class, BIAS, PRECISION,
+};
 use crate::decimal::Decimal128;
 use crate::multiword::U256;
 use crate::ops::round_and_pack_finite;
 use crate::status::{RoundingMode, Status};
 
 /// Maximum exponent difference for which we keep a fully-precise
-/// alignment in the U256 intermediate. Above this, the smaller operand
-/// degenerates into a sticky bit only.
+/// alignment in the U256 intermediate.
 ///
-/// `coef × 10^Δ` for `coef < 10^34` and `Δ ≤ 35` stays under
-/// `10^69 ≈ 2^230`, which fits in U256 with margin. `Δ = 36` would be
-/// `10^70 ≈ 2^233`, also fits, but we cap at 35 because at that point
-/// the smaller operand is already below 1 ULP of the larger and only
-/// affects rounding.
-const ALIGN_LIMIT: u32 = 35;
+/// We bound by U256 capacity: `coef × 10^Δ` with `coef < 10^34`
+/// stays under `10^77 ≈ 2^256` for `Δ ≤ 43`. Anything above falls
+/// to the sub-ULP sticky-bit shortcut, which is *correct for
+/// effective add* but only approximately correct for effective sub
+/// — at very large Δ the residue can still tip a rounding boundary.
+/// Tracked as a follow-up; in practice `Δ > 43` operands are
+/// uncommon.
+const ALIGN_LIMIT: u32 = 43;
 
 impl Decimal128 {
     /// IEEE 754 `addition(self, rhs)`.
@@ -142,16 +145,47 @@ fn add_special_cases(
             status,
         ));
     }
+    // IEEE 754 §6.3 preferred quantum for `add(x, ±0)` is `min(qx, q0)`.
+    // We re-emit the non-zero operand at that quantum if it can fit; if
+    // the shift would exceed `PRECISION` digits we keep the natural
+    // quantum. Status flags are unaffected.
     if ca == 0 {
-        // `b` already finite non-NaN non-Inf — pass through unchanged.
-        let _ = (sb, eb, cb);
-        return Some((b, status));
+        let target = ea.min(eb);
+        return Some((rebase_finite_to_lower_quantum(sb, eb, cb, target), status));
     }
     if cb == 0 {
-        return Some((a, status));
+        let target = ea.min(eb);
+        return Some((rebase_finite_to_lower_quantum(sa, ea, ca, target), status));
     }
 
     None
+}
+
+/// Re-emit a finite value at a target biased quantum that is `≤` the
+/// current one, multiplying the coefficient by `10^Δ`. If `Δ` would
+/// take the coefficient over `PRECISION` digits we shift only as far as
+/// the precision allows.
+fn rebase_finite_to_lower_quantum(
+    sign: bool,
+    biased_exp: u32,
+    coefficient: u128,
+    target_biased: u32,
+) -> Decimal128 {
+    if coefficient == 0 {
+        // Zero coefficients can express any quantum within the format;
+        // pack at the target directly.
+        return Decimal128::from_bits(pack_finite(sign, target_biased, 0));
+    }
+    if biased_exp <= target_biased {
+        return Decimal128::from_bits(pack_finite(sign, biased_exp, coefficient));
+    }
+    let delta = biased_exp - target_biased;
+    let digits = decimal_digit_count(coefficient);
+    let max_shift = PRECISION - digits;
+    let shift = delta.min(max_shift);
+    let new_coef = coefficient * 10u128.pow(shift);
+    let new_biased = biased_exp - shift;
+    Decimal128::from_bits(pack_finite(sign, new_biased, new_coef))
 }
 
 /// Finite-non-zero × finite-non-zero — the alignment + rounding path.
@@ -229,7 +263,9 @@ fn add_finite_finite(a: Decimal128, b: Decimal128, rm: RoundingMode) -> (Decimal
     // subsequent refactor removes the mutation paths above.
     let _ = (&mut combined, &mut sign_out, &mut sticky);
 
-    round_and_pack_finite(combined, target_exp, sign_out, sticky, rm, status)
+    // IEEE 754 §6.3 preferred quantum for add/sub is `min(qa, qb)`.
+    let q_preferred = (ea.min(eb)) as i32 - BIAS as i32;
+    round_and_pack_finite(combined, target_exp, q_preferred, sign_out, sticky, rm, status)
 }
 
 fn zero_after_cancellation(

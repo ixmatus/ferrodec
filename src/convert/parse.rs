@@ -209,6 +209,7 @@ fn parse_str_inner(
     let (value, status) = round_and_pack_finite(
         coef,
         unbiased_exp,
+        unbiased_exp, // preferred quantum: the parsed input's quantum
         sign,
         sticky,
         rm,

@@ -143,7 +143,17 @@ fn div_finite_finite(a: Decimal128, b: Decimal128, rm: RoundingMode) -> (Decimal
 
     let pre_sticky = remainder != 0;
 
-    round_and_pack_finite(quotient, unbiased_exp, sign, pre_sticky, rm, Status::OK)
+    // IEEE 754 §6.3 preferred quantum for div is `qa - qb` (when exact).
+    let q_preferred = (ea as i32 - BIAS as i32) - (eb as i32 - BIAS as i32);
+    round_and_pack_finite(
+        quotient,
+        unbiased_exp,
+        q_preferred,
+        sign,
+        pre_sticky,
+        rm,
+        Status::OK,
+    )
 }
 
 fn sign_of(c: Class) -> bool {

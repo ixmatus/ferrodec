@@ -29,9 +29,17 @@ use crate::status::{RoundingMode, Status};
 
 /// Round `coef × 10^unbiased_exp` (with sign `sign`) to a canonical
 /// `Decimal128`, accumulating the operation's prior `status`.
+///
+/// `q_preferred` is the IEEE 754-2019 §6.3 *preferred* quantum exponent
+/// for the operation (e.g. `min(qa, qb)` for add, `qa + qb` for mul).
+/// After rounding we adjust the coefficient toward `q_preferred` —
+/// padding with trailing zeros on inexact results so the encoded
+/// coefficient reaches `PRECISION` digits, or shifting down to
+/// `q_preferred` directly when that fits without exceeding precision.
 pub(crate) fn round_and_pack_finite(
     coef: U256,
     unbiased_exp: i32,
+    q_preferred: i32,
     sign: bool,
     pre_sticky: bool,
     rm: RoundingMode,
@@ -40,8 +48,9 @@ pub(crate) fn round_and_pack_finite(
     if coef.is_zero() && !pre_sticky {
         // Pure zero — let caller decide sign for cancellation; here we
         // honour the sign passed in.
+        let q = q_preferred.min(unbiased_exp);
         return (
-            Decimal128::from_bits(pack_finite(sign, biased(unbiased_exp), 0)),
+            Decimal128::from_bits(pack_finite(sign, biased(q), 0)),
             status,
         );
     }
@@ -73,6 +82,23 @@ pub(crate) fn round_and_pack_finite(
             let (q, _) = rounded.div_rem10();
             rounded = q;
             exp_after += 1;
+        }
+    }
+
+    // Step 3.5: shift toward the preferred quantum.
+    //
+    // IEEE 754-2019 §6.3: target quantum = MAX(q_preferred, q_emin),
+    // where q_emin is the lowest quantum at which the coefficient still
+    // has ≤ PRECISION digits. Shifting the coefficient *down* by one
+    // quantum multiplies it by 10 — bounded by `PRECISION − digit_count`.
+    if exp_after > q_preferred && !rounded.is_zero() {
+        let digits_now = rounded.decimal_digit_count() as i32;
+        let max_shift = PRECISION as i32 - digits_now;
+        let want_shift = exp_after - q_preferred;
+        let shift = want_shift.min(max_shift);
+        if shift > 0 {
+            rounded = rounded.mul_pow10(shift as u32);
+            exp_after -= shift;
         }
     }
 

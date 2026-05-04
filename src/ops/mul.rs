@@ -117,7 +117,9 @@ fn mul_finite_finite(a: Decimal128, b: Decimal128, rm: RoundingMode) -> (Decimal
     // Quantum of the product is the sum of operand quanta.
     let unbiased_exp = (ea as i32 - BIAS as i32) + (eb as i32 - BIAS as i32);
 
-    round_and_pack_finite(coef, unbiased_exp, sign, false, rm, Status::OK)
+    // IEEE 754 §6.3 preferred quantum for mul is `qa + qb`, which is
+    // exactly `unbiased_exp` here.
+    round_and_pack_finite(coef, unbiased_exp, unbiased_exp, sign, false, rm, Status::OK)
 }
 
 /// Decompose a Zero / Finite [`Class`] into `(sign, biased_exp, coefficient)`.

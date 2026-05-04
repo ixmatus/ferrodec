@@ -113,9 +113,12 @@ fn sqrt_finite(a: Decimal128, rm: RoundingMode) -> (Decimal128, Status) {
     let result_unbiased_exp = (q_a - k) / 2;
     let pre_sticky = !rem.is_zero();
 
+    // IEEE 754 §6.3 preferred quantum for sqrt is `floor(qa / 2)`.
+    let q_preferred = q_a.div_euclid(2);
     round_and_pack_finite(
         U256::from_u128(root),
         result_unbiased_exp,
+        q_preferred,
         false,
         pre_sticky,
         rm,
