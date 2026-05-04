@@ -101,10 +101,24 @@ fn div_special_cases(a: Decimal128, b: Decimal128) -> Option<(Decimal128, Status
     if inf_a {
         return Some((Decimal128::from_bits(pack_infinity(result_sign)), status));
     }
-    // 0 / finite_non_zero, finite / ∞: result is ±0.
-    if zero_a || inf_b {
+    // x / ∞ → ±0. Per IEEE 754 / dec-spec the preferred quantum is
+    // `qa − q_inf`, but ∞ has no quantum so the spec clamps to the
+    // smallest representable quantum (`Q_MIN`, biased 0). We emit
+    // that directly.
+    if inf_b {
         return Some((
-            Decimal128::from_bits(pack_finite(result_sign, BIAS, 0)),
+            Decimal128::from_bits(pack_finite(result_sign, 0, 0)),
+            status,
+        ));
+    }
+    // 0 / finite_non_zero: result is ±0 with preferred quantum `qa − qb`.
+    if zero_a {
+        let (_, ea, _) = decompose_finite(cls_a);
+        let (_, eb, _) = decompose_finite(cls_b);
+        let q = (ea as i32 - eb as i32) + BIAS as i32;
+        let biased = q.clamp(0, crate::bid::BIASED_EXP_MAX as i32) as u32;
+        return Some((
+            Decimal128::from_bits(pack_finite(result_sign, biased, 0)),
             status,
         ));
     }

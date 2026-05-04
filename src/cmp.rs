@@ -105,66 +105,89 @@ impl Decimal128 {
         }
     }
 
-    /// IEEE 754 `minimum(x, y)`. NaN is propagated.
+    /// `min(x, y)` per the General Decimal Arithmetic Specification
+    /// (IEEE 754-2008 `minNum`).
     ///
-    /// * If either operand is a NaN, the result is NaN. Signaling-NaN
-    ///   operands raise `INVALID`.
-    /// * Otherwise returns the operand with the smaller numeric value
-    ///   (`−0` is less than `+0`).
+    /// * Any signaling NaN poisons the result: returns NaN with
+    ///   `INVALID` raised.
+    /// * Both operands quiet NaN → NaN.
+    /// * One operand quiet NaN, the other finite → the finite
+    ///   operand (qNaN is "missing value").
+    /// * Otherwise → the operand that is *smaller in totalOrder*.
+    ///   This handles equal-magnitude cohort tie-breaking (e.g.
+    ///   `min(0, 0.0) = 0.0`, `min(-0, -0.0) = -0`).
     #[inline]
     #[must_use]
     pub fn min(self, other: Self) -> (Self, Status) {
-        let mut status = Status::OK;
         if self.is_signaling_nan() || other.is_signaling_nan() {
-            status |= Status::INVALID;
+            return (Self::NAN, Status::INVALID);
         }
-        if self.is_nan() || other.is_nan() {
-            return (Self::NAN, status);
+        if self.is_nan() && other.is_nan() {
+            return (Self::NAN, Status::OK);
         }
-        let result = match numeric_cmp(self, other) {
+        if self.is_nan() {
+            return (other, Status::OK);
+        }
+        if other.is_nan() {
+            return (self, Status::OK);
+        }
+        let result = match self.total_cmp(other) {
             Ordering::Less | Ordering::Equal => self,
             Ordering::Greater => other,
         };
-        (result, status)
+        (result, Status::OK)
     }
 
-    /// IEEE 754 `maximum(x, y)`. NaN is propagated.
+    /// `max(x, y)` — symmetric to [`Decimal128::min`].
     #[inline]
     #[must_use]
     pub fn max(self, other: Self) -> (Self, Status) {
-        let mut status = Status::OK;
         if self.is_signaling_nan() || other.is_signaling_nan() {
-            status |= Status::INVALID;
+            return (Self::NAN, Status::INVALID);
         }
-        if self.is_nan() || other.is_nan() {
-            return (Self::NAN, status);
+        if self.is_nan() && other.is_nan() {
+            return (Self::NAN, Status::OK);
         }
-        let result = match numeric_cmp(self, other) {
+        if self.is_nan() {
+            return (other, Status::OK);
+        }
+        if other.is_nan() {
+            return (self, Status::OK);
+        }
+        let result = match self.total_cmp(other) {
             Ordering::Greater | Ordering::Equal => self,
             Ordering::Less => other,
         };
-        (result, status)
+        (result, Status::OK)
     }
 }
 
 // ---------------------------------------------------------------------------
 // Helpers
 
-/// Major-class ordering. Ranks are dense from `−5` (-sNaN) to `+5` (+sNaN).
+/// Major-class ordering for IEEE 754-2019 totalOrder.
 ///
-/// Inside each rank, additional tie-breaking is applied (cohorts, payloads).
+/// The decimal-arithmetic specification places `qNaN` at the outermost
+/// rank on both sides, with `sNaN` sitting between `qNaN` and `±∞`:
+///
+/// ```text
+/// -qNaN < -sNaN < -∞ < … < -0 < +0 < … < +∞ < +sNaN < +qNaN
+/// ```
+///
+/// (Equivalently: a quiet NaN is "further from zero" than the
+/// matching signaling NaN.)
 const fn total_order_rank(c: &Class) -> i8 {
     match c {
-        Class::SignalingNaN { sign: true, .. } => -5,
-        Class::QuietNaN { sign: true, .. } => -4,
+        Class::QuietNaN { sign: true, .. } => -5,
+        Class::SignalingNaN { sign: true, .. } => -4,
         Class::Infinity { sign: true } => -3,
         Class::Finite { sign: true, .. } => -2,
         Class::Zero { sign: true, .. } => -1,
         Class::Zero { sign: false, .. } => 1,
         Class::Finite { sign: false, .. } => 2,
         Class::Infinity { sign: false } => 3,
-        Class::QuietNaN { sign: false, .. } => 4,
-        Class::SignalingNaN { sign: false, .. } => 5,
+        Class::SignalingNaN { sign: false, .. } => 4,
+        Class::QuietNaN { sign: false, .. } => 5,
     }
 }
 
@@ -344,10 +367,13 @@ mod tests {
 
     #[test]
     fn total_cmp_orders_extremes() {
-        // -sNaN < -qNaN < -Inf < MIN < -1 < -0 < 0 < 1 < MAX < +Inf < qNaN < sNaN
+        // Per the dec-arith spec: qNaN is outermost on both sides,
+        // sNaN sits between qNaN and ±∞:
+        //   -qNaN < -sNaN < -Inf < MIN < -1 < -0 < 0 < 1 < MAX < +Inf
+        //                                                  < +sNaN < +qNaN
         let order = [
-            Decimal128::SIGNALING_NAN.neg(),
             Decimal128::NAN.neg(),
+            Decimal128::SIGNALING_NAN.neg(),
             Decimal128::NEG_INFINITY,
             Decimal128::MIN,
             Decimal128::NEG_ONE,
@@ -356,8 +382,8 @@ mod tests {
             Decimal128::ONE,
             Decimal128::MAX,
             Decimal128::INFINITY,
-            Decimal128::NAN,
             Decimal128::SIGNALING_NAN,
+            Decimal128::NAN,
         ];
         for w in order.windows(2) {
             assert_total_lt(w[0], w[1]);
@@ -475,14 +501,20 @@ mod tests {
     }
 
     #[test]
-    fn min_max_nan_propagation() {
+    fn min_max_nan_handling() {
+        // dec-spec / minNum: qNaN treated as "missing value", returns
+        // the other operand. sNaN ALWAYS poisons (NaN result + INVALID).
         let (r, st) = Decimal128::ONE.min(Decimal128::NAN);
-        assert!(r.is_nan());
+        assert_eq!(r.to_bits(), Decimal128::ONE.to_bits());
         assert!(st.is_ok());
 
         let (r, st) = Decimal128::ONE.max(Decimal128::SIGNALING_NAN);
         assert!(r.is_nan());
         assert!(st.invalid());
+
+        // Both NaN → NaN.
+        let (r, _) = Decimal128::NAN.min(Decimal128::NAN);
+        assert!(r.is_nan());
     }
 
     #[test]

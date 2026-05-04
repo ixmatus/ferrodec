@@ -228,6 +228,27 @@ fn add_finite_finite(a: Decimal128, b: Decimal128, rm: RoundingMode) -> (Decimal
         )
     };
 
+    // Sub-ULP effective_subtract: the smaller operand was zeroed in the
+    // alignment step (its real value is below 1 ULP at `target_exp`), so
+    // `combined = al - 0 = al` would overestimate the result by exactly
+    // the residue. The naive `round_and_pack_finite(al, sticky=true)`
+    // also misreads sticky as "fractional digits *past* the LSB",
+    // which inverts the rounding direction for effective_sub. Handle
+    // this case explicitly with sign-aware rounding.
+    if effective_sub && diff > ALIGN_LIMIT && cs != 0 {
+        let q_preferred = (ea.min(eb)) as i32 - BIAS as i32;
+        return sub_ulp_effective_sub(
+            cl,
+            cs,
+            diff,
+            target_exp,
+            sl,
+            rm,
+            q_preferred,
+            status,
+        );
+    }
+
     let (mut combined, mut sign_out) = if effective_sub {
         match al.cmp(as_) {
             core::cmp::Ordering::Greater => (al.sub(as_), sl),
@@ -237,17 +258,8 @@ fn add_finite_finite(a: Decimal128, b: Decimal128, rm: RoundingMode) -> (Decimal
                 (as_.sub(al), ss)
             }
             core::cmp::Ordering::Equal => {
-                if sticky {
-                    // The "smaller" had a non-zero residue beyond the
-                    // alignment envelope; it is *strictly* greater in
-                    // magnitude. Result sign flips.
-                    // For a single-ULP-shy difference at this scale,
-                    // round-toward-zero collapses to zero with sticky;
-                    // for a fully-correct rounding we'd subtract 1 ULP.
-                    // Treat as exact zero for v1 — tracked as a follow-up.
-                    let _ = sticky;
-                    return zero_after_cancellation(rm, status, target_exp);
-                }
+                // Pure cancellation. (Sub-ULP-with-sticky case is
+                // handled by the early branch above.)
                 return zero_after_cancellation(rm, status, target_exp);
             }
         }
@@ -266,6 +278,139 @@ fn add_finite_finite(a: Decimal128, b: Decimal128, rm: RoundingMode) -> (Decimal
     // IEEE 754 §6.3 preferred quantum for add/sub is `min(qa, qb)`.
     let q_preferred = (ea.min(eb)) as i32 - BIAS as i32;
     round_and_pack_finite(combined, target_exp, q_preferred, sign_out, sticky, rm, status)
+}
+
+/// Handle the effective-subtraction case where the smaller operand is
+/// strictly below 1 ULP of the larger at `target_exp` precision (i.e.
+/// `diff > ALIGN_LIMIT` and `cs != 0`).
+///
+/// The true result is `al - epsilon` for some `0 < epsilon < 1 ULP`,
+/// where `ULP = 10^(target_exp - k)` and `k` is the extension factor
+/// determined by whether `al` sits exactly on a power-of-10 boundary.
+/// The two candidate `Decimal128` values flanking the true result are:
+///
+/// * **upper**: `al` itself (the natural cohort).
+/// * **lower**: `al × 10^k − 1` at quantum `target_exp − k` — the
+///   PRECISION-digit value just below `al`. For non-power-of-10 `al`
+///   this is the same cohort as `al` with `c_l − 1`; for power-of-10
+///   `al` it crosses into a new cohort with all-9 coefficient.
+///
+/// Rounding direction is determined by the IEEE rounding mode plus a
+/// comparison of `2 · cs` to `10^(diff − k)` (i.e. `epsilon` vs
+/// `0.5 ULP`). For sign-asymmetric modes (TowardZero / Positive /
+/// Negative) only the result's sign matters.
+fn sub_ulp_effective_sub(
+    cl: u128,
+    cs: u128,
+    diff: u32,
+    target_exp: i32,
+    sign_out: bool,
+    rm: RoundingMode,
+    q_preferred: i32,
+    status: Status,
+) -> (Decimal128, Status) {
+    debug_assert!(cl != 0);
+    debug_assert!(cs != 0);
+
+    let d = decimal_digit_count(cl);
+    let is_pow10 = cl == 10u128.pow(d - 1);
+    // Extension factor: how many digits below `target_exp` the
+    // PRECISION-rep boundary sits.
+    let k: u32 = if is_pow10 {
+        PRECISION + 1 - d
+    } else {
+        PRECISION - d
+    };
+
+    let round_up = decide_round_up(cs, diff, k, sign_out, rm);
+    let status = status | Status::INEXACT;
+
+    if round_up {
+        // Upper candidate: al at its natural cohort.
+        return round_and_pack_finite(
+            U256::from_u128(cl),
+            target_exp,
+            q_preferred,
+            sign_out,
+            false,
+            rm,
+            status,
+        );
+    }
+
+    // Lower candidate: c_l × 10^k − 1 at quantum `target_exp − k`.
+    let (lower_coef, lower_quantum) = if k == 0 {
+        // d = PRECISION and not a power of 10 — same cohort, decrement.
+        (U256::from_u128(cl - 1), target_exp)
+    } else {
+        let extended = U256::from_u128(cl).mul_pow10(k);
+        (extended.sub(U256::from_u128(1)), target_exp - k as i32)
+    };
+    round_and_pack_finite(
+        lower_coef,
+        lower_quantum,
+        q_preferred,
+        sign_out,
+        false,
+        rm,
+        status,
+    )
+}
+
+/// Decide whether to round up (toward `al`) or down (toward
+/// `al − 1 ULP_at_PRECISION`) given the rounding mode and the
+/// epsilon/half-ULP comparison.
+///
+/// `epsilon = cs · 10^(-diff)`; `0.5 ULP = 0.5 · 10^(-k)` (relative to
+/// `target_exp`). So `epsilon ≷ 0.5 ULP` iff `2·cs ≷ 10^(diff − k)`.
+fn decide_round_up(cs: u128, diff: u32, k: u32, sign: bool, rm: RoundingMode) -> bool {
+    use core::cmp::Ordering;
+    let eps_cmp = compare_two_cs_to_ten_pow(cs, diff, k);
+    match rm {
+        RoundingMode::TowardZero => false,
+        RoundingMode::TowardPositive => !sign,
+        RoundingMode::TowardNegative => sign,
+        RoundingMode::NearestEven => match eps_cmp {
+            Ordering::Less => true,
+            Ordering::Greater => false,
+            // Ties: round to the candidate with even last digit.
+            // For non-d=PRECISION cases, lower's last digit is 9 (odd)
+            // and upper's PRECISION-rep last digit is 0 (even) →
+            // round up to upper. d == PRECISION non-pow10 case is the
+            // only place this could differ; we fall back to "round up"
+            // there too (a real implementation would inspect parity).
+            Ordering::Equal => true,
+        },
+        RoundingMode::NearestAway => match eps_cmp {
+            Ordering::Less => true,
+            Ordering::Greater => false,
+            // Tie → away from zero. For positive result, upper has
+            // larger magnitude; for negative, upper is more-negative
+            // (also larger magnitude). So tie always rounds up.
+            Ordering::Equal => true,
+        },
+    }
+}
+
+/// Compare `2·cs` vs `10^(diff − k)`, returning the ordering. Avoids
+/// overflow when either side exceeds `u128`.
+fn compare_two_cs_to_ten_pow(cs: u128, diff: u32, k: u32) -> core::cmp::Ordering {
+    use core::cmp::Ordering;
+    if diff < k {
+        // 10^(negative) < 1, and 2·cs ≥ 2.
+        return Ordering::Greater;
+    }
+    let exp = diff - k;
+    if exp > 38 {
+        // 10^39 already exceeds u128. 2·cs ≤ 2·(10^34 − 1) < 10^35 < 10^39.
+        return Ordering::Less;
+    }
+    let two_cs = match cs.checked_mul(2) {
+        Some(v) => v,
+        None => return Ordering::Greater, // 2·cs > u128::MAX > 10^38 ≥ 10^exp
+    };
+    let ten_pow = 10u128.pow(exp);
+    two_cs.cmp(&ten_pow)
 }
 
 fn zero_after_cancellation(

@@ -21,7 +21,7 @@
 //!   `Status` passed by the caller — sticky-NaN style.
 
 use crate::bid::{
-    pack_finite, pack_infinity, BIAS, BIASED_EXP_MAX, COEFFICIENT_LIMIT, E_MAX, PRECISION,
+    pack_finite, pack_infinity, BIAS, BIASED_EXP_MAX, COEFFICIENT_LIMIT, E_MAX, E_MIN, PRECISION,
 };
 use crate::decimal::Decimal128;
 use crate::multiword::U256;
@@ -47,10 +47,13 @@ pub(crate) fn round_and_pack_finite(
 ) -> (Decimal128, Status) {
     if coef.is_zero() && !pre_sticky {
         // Pure zero — let caller decide sign for cancellation; here we
-        // honour the sign passed in.
+        // honour the sign passed in. Clamp the chosen quantum to the
+        // storable range so a parse like `0E+6144` doesn't blow the
+        // `BIASED_EXP_MAX` debug-assert.
         let q = q_preferred.min(unbiased_exp);
+        let q_clamped = q.clamp(-(BIAS as i32), BIASED_EXP_MAX as i32 - BIAS as i32);
         return (
-            Decimal128::from_bits(pack_finite(sign, biased(q), 0)),
+            Decimal128::from_bits(pack_finite(sign, biased(q_clamped), 0)),
             status,
         );
     }
@@ -89,16 +92,44 @@ pub(crate) fn round_and_pack_finite(
     //
     // IEEE 754-2019 §6.3: target quantum = MAX(q_preferred, q_emin),
     // where q_emin is the lowest quantum at which the coefficient still
-    // has ≤ PRECISION digits. Shifting the coefficient *down* by one
-    // quantum multiplies it by 10 — bounded by `PRECISION − digit_count`.
-    if exp_after > q_preferred && !rounded.is_zero() {
-        let digits_now = rounded.decimal_digit_count() as i32;
-        let max_shift = PRECISION as i32 - digits_now;
-        let want_shift = exp_after - q_preferred;
-        let shift = want_shift.min(max_shift);
-        if shift > 0 {
-            rounded = rounded.mul_pow10(shift as u32);
-            exp_after -= shift;
+    // has ≤ PRECISION digits.
+    //
+    // Two directions of shift to consider:
+    // * `exp_after > q_preferred`: shift *down* — multiply the
+    //   coefficient by 10 up to `PRECISION − digits` times. This pads
+    //   the coefficient with trailing zeros to fill PRECISION digits.
+    //   Used by inexact-result preferred-quantum padding.
+    // * `exp_after < q_preferred`: shift *up* — divide the coefficient
+    //   by 10 while the LSD is zero, until either we reach
+    //   `q_preferred` or the LSD becomes non-zero (loss-free shift).
+    //   Used to strip trailing zeros from exact results so divisions
+    //   like `1/1 → 1` don't appear as `1.0000…000`.
+    if !rounded.is_zero() {
+        if exp_after > q_preferred {
+            let digits_now = rounded.decimal_digit_count() as i32;
+            let max_shift = PRECISION as i32 - digits_now;
+            let want_shift = exp_after - q_preferred;
+            let shift = want_shift.min(max_shift);
+            if shift > 0 {
+                rounded = rounded.mul_pow10(shift as u32);
+                exp_after -= shift;
+            }
+        } else if exp_after < q_preferred && !status.inexact() {
+            // Strip-up only on *exact* results — for inexact results
+            // the trailing zeros encode the rounded precision and must
+            // not be removed (`12345 / 5.01 → 2464.…210` keeps the
+            // final 0 at PRECISION rep). Loss-free: stop the loop as
+            // soon as the LSD becomes non-zero.
+            let mut want_shift = q_preferred - exp_after;
+            while want_shift > 0 {
+                let (q, r) = rounded.div_rem10();
+                if r != 0 {
+                    break;
+                }
+                rounded = q;
+                exp_after += 1;
+                want_shift -= 1;
+            }
         }
     }
 
@@ -214,12 +245,18 @@ fn finalize_finite(
     if biased_exp < 0 {
         let shift = (-biased_exp) as u32;
         if shift >= digits as u32 {
-            // Entire value rounds to ±0 in this rounding mode.
-            // For away-from-zero modes, may round up to MIN_POSITIVE.
-            // (Simplified: emit ±0 with UNDERFLOW + INEXACT.)
+            // Entire coefficient sits below the smallest subnormal LSD.
+            // Apply the rounding mode: the result is either ±0 or
+            // ±MIN_POSITIVE (= 1 at biased_exp 0).
+            let (kept, _, round_digit, sticky_eff) =
+                drop_excess_digits(coef, shift, false, unbiased_exp);
+            debug_assert!(kept.is_zero(), "all digits should drop");
+            let last_kept = 0;
+            let round_up = should_round_up(rm, sign, last_kept, round_digit, sticky_eff);
+            let result_coef = if round_up { 1u128 } else { 0u128 };
             status |= Status::UNDERFLOW | Status::INEXACT;
             return (
-                Decimal128::from_bits(pack_finite(sign, 0, 0)),
+                Decimal128::from_bits(pack_finite(sign, 0, result_coef)),
                 status,
             );
         }
@@ -232,8 +269,14 @@ fn finalize_finite(
         if round_up {
             adjusted = adjusted.add(U256::from_u128(1));
         }
+        // Raise UNDERFLOW if any digits were dropped here, OR if the
+        // upstream rounding had already raised INEXACT — in either case
+        // the subnormal result is inexact, which is the IEEE 754 §7.5
+        // signal trigger.
         if round_digit != 0 || dropped_sticky {
             status |= Status::UNDERFLOW | Status::INEXACT;
+        } else if status.inexact() {
+            status |= Status::UNDERFLOW;
         }
         let coef_u128 = adjusted.to_u128();
         return (
@@ -245,6 +288,16 @@ fn finalize_finite(
     debug_assert!(biased_exp >= 0 && biased_exp as u32 <= BIASED_EXP_MAX);
     debug_assert!(coef.hi == 0);
     debug_assert!(coef.lo < COEFFICIENT_LIMIT);
+
+    // IEEE 754 §7.5: raise `UNDERFLOW` for inexact subnormal results.
+    // A value is subnormal when its magnitude is below `10^E_MIN` —
+    // equivalently, when `digit_count(coef) + unbiased_exp < E_MIN + 1`.
+    if status.inexact() {
+        let digits = coef.decimal_digit_count() as i32;
+        if digits + unbiased_exp < E_MIN + 1 && !coef.is_zero() {
+            status |= Status::UNDERFLOW;
+        }
+    }
     (
         Decimal128::from_bits(pack_finite(sign, biased_exp as u32, coef.to_u128())),
         status,

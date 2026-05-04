@@ -94,10 +94,16 @@ fn rem_special_cases(a: Decimal128, b: Decimal128) -> Option<(Decimal128, Status
     if matches!(cls_b, Class::Infinity { .. }) {
         return Some((a, status));
     }
-    // ±0 / y_finite_nonzero = ±0 with sign of x.
+    // ±0 / y_finite_nonzero = ±0 with sign of x. Preferred quantum
+    // per dec spec is `min(qx, qy)`.
     if let Class::Zero { sign, biased_exp } = cls_a {
+        let qy = match cls_b {
+            Class::Zero { biased_exp, .. } | Class::Finite { biased_exp, .. } => biased_exp,
+            _ => biased_exp,
+        };
+        let q = biased_exp.min(qy);
         return Some((
-            Decimal128::from_bits(pack_finite(sign, biased_exp, 0)),
+            Decimal128::from_bits(pack_finite(sign, q, 0)),
             status,
         ));
     }
@@ -136,6 +142,14 @@ fn rem_finite(a: Decimal128, b: Decimal128) -> (Decimal128, Status) {
     let x_scaled = U256::from_u128(cx).mul_pow10(dq_x);
 
     let (q, r) = x_scaled.div_rem_u128(y_scaled);
+
+    // dec-spec "Division_impossible": if the integer quotient would
+    // exceed PRECISION digits, the remainder operation is undefined
+    // and we return NaN+INVALID. This matters for cases like
+    // `remaindernear (10^33) 0.1` where the integer quotient is 10^34.
+    if q.decimal_digit_count() > crate::bid::PRECISION {
+        return (Decimal128::NAN, Status::INVALID);
+    }
 
     // Round-to-nearest-even adjustment of the integer quotient.
     let n_lsb = (q.lo & 1) as u32;

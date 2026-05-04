@@ -140,18 +140,56 @@ impl Decimal128 {
         }
     }
 
-    /// Absolute value. NaN passes through (with sign cleared on the bit pattern).
+    /// Absolute value. NaN passes through (with sign cleared on the bit
+    /// pattern). **No status flags raised** — matches `f64::abs`. For the
+    /// IEEE 754 §5.5.1 compliant variant that raises `INVALID` on
+    /// signaling NaN, use [`Decimal128::abs_with_status`].
     #[inline]
     #[must_use]
     pub const fn abs(self) -> Self {
         Self(self.0 & !(1u128 << SIGN_SHIFT))
     }
 
-    /// Negate. Flips the sign bit, even on NaN.
+    /// IEEE 754 §5.5.1 compliant absolute value: raises `INVALID` for
+    /// signaling-NaN inputs and quietens the result. Otherwise
+    /// equivalent to [`Decimal128::abs`].
+    #[inline]
+    #[must_use]
+    pub fn abs_with_status(self) -> (Self, crate::status::Status) {
+        if self.is_signaling_nan() {
+            return (Self::NAN, crate::status::Status::INVALID);
+        }
+        (self.abs(), crate::status::Status::OK)
+    }
+
+    /// Negate. Flips the sign bit, even on NaN. **No status flags raised.**
+    /// For the IEEE 754 §5.5.1 compliant variant, see
+    /// [`Decimal128::neg_with_status`].
     #[inline]
     #[must_use]
     pub const fn neg(self) -> Self {
         Self(self.0 ^ (1u128 << SIGN_SHIFT))
+    }
+
+    /// IEEE 754 §5.5.1 compliant negation: raises `INVALID` for
+    /// signaling-NaN inputs and quietens the result.
+    ///
+    /// Per the General Decimal Arithmetic Specification, `minus(x)` is
+    /// defined as `subtract(0, x)` under the active rounding context,
+    /// which yields `+0` for zero operands under round-to-nearest-even
+    /// (the default). We preserve that here: zeros return `+0` with
+    /// the same cohort as `self`. Non-zero finite values bit-flip the
+    /// sign as `Decimal128::neg` does.
+    #[inline]
+    #[must_use]
+    pub fn neg_with_status(self) -> (Self, crate::status::Status) {
+        if self.is_signaling_nan() {
+            return (Self::NAN, crate::status::Status::INVALID);
+        }
+        if self.is_zero() {
+            return (self.abs(), crate::status::Status::OK);
+        }
+        (self.neg(), crate::status::Status::OK)
     }
 
     /// Copy the sign of `sign` onto `self`. NaN payload preserved.

@@ -62,11 +62,11 @@ fn dectest_conformance() {
         totals.skipped,
     );
 
-    // Print first 30 failures for triage. The remaining ones are tracked
+    // Print up to 200 failures for triage. The remaining ones are tracked
     // by category in `KNOWN_ISSUES.md` (TODO).
     if !failures.is_empty() {
-        eprintln!("\nFirst 30 failures (of {}):", failures.len());
-        for f in failures.iter().take(30) {
+        eprintln!("\nFirst 200 failures (of {}):", failures.len());
+        for f in failures.iter().take(200) {
             eprintln!(
                 "  {}:{} [{}] {}",
                 f.file
@@ -80,13 +80,12 @@ fn dectest_conformance() {
         }
     }
 
-    // Regression guard: the current baseline of passes/failures was
-    // captured at Phase 6 v1. We track a strict floor on pass count and
-    // a strict ceiling on failure count so any code change that makes
-    // either worse trips this test. Periodically nudge the floor up as
-    // the known-issue categories get fixed.
-    const PASS_FLOOR: usize = 5300;
-    const FAIL_CEILING: usize = 1100;
+    // Regression guard: any change that drops pass count below the
+    // floor or raises fail count above the ceiling fails the test.
+    // Bumped as known-issue categories get fixed; the remaining gap
+    // is dqFMA's separated-rounding 1-ULP envelope (Phase 8 follow-up).
+    const PASS_FLOOR: usize = 6150;
+    const FAIL_CEILING: usize = 70;
 
     if totals.passed < PASS_FLOOR {
         panic!(
@@ -457,18 +456,14 @@ fn invoke(op: OpKind, operands: &[String], rm: RoundingMode) -> Option<OpResult>
         }
         OpKind::Abs => {
             let a = parse_value(&operands[0], rm)?.0;
-            // dec spec abs is "round result of magnitude to current precision"
-            // — for a finite already representable, that's just abs(). We
-            // don't re-round here, which can produce cohort mismatches; the
-            // runner expected_status check still holds.
-            Some(OpResult::Value(a.abs(), Status::OK))
+            // IEEE 754 §5.5.1: abs raises INVALID on signaling NaN.
+            let (v, s) = a.abs_with_status();
+            Some(OpResult::Value(v, s))
         }
         OpKind::Minus => {
             let a = parse_value(&operands[0], rm)?.0;
-            // Per spec, `minus(x) = subtract(0, x)`; for finite this is
-            // numerically equal to `-x` but with potential cohort shift.
-            // We approximate with bit-flip.
-            Some(OpResult::Value(a.neg(), Status::OK))
+            let (v, s) = a.neg_with_status();
+            Some(OpResult::Value(v, s))
         }
         OpKind::Plus => {
             let a = parse_value(&operands[0], rm)?.0;
@@ -540,7 +535,12 @@ fn expected_status(conditions: &[String]) -> Status {
             "underflow" => s |= Status::UNDERFLOW | Status::INEXACT,
             "overflow" => s |= Status::OVERFLOW | Status::INEXACT,
             "division_by_zero" => s |= Status::DIV_BY_ZERO,
-            "invalid_operation" => s |= Status::INVALID,
+            // Per dec-arith spec, "division_undefined" (0/0, Inf/Inf,
+            // 0*Inf for fma) and "division_impossible" (integer divide
+            // overflow) are subtypes of Invalid_operation.
+            "invalid_operation" | "division_undefined" | "division_impossible" => {
+                s |= Status::INVALID
+            }
             // Ignore: rounded, clamped, subnormal, lost_digits, conversion_syntax
             _ => {}
         }
