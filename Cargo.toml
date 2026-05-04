@@ -17,7 +17,9 @@ fmt = []
 # because the constants are loaded via `parse_str`.
 transcendentals = ["fmt"]
 # f32 / f64 conversions. Opt-in for soft-float-only targets.
-binary-float = []
+# Pulls in `fmt` because the conversion routes Decimal128 ↔ f64 via
+# the canonical decimal-string round-trip.
+binary-float = ["fmt"]
 # Compile Kani proof harnesses. Off in normal builds.
 kani = []
 

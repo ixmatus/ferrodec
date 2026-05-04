@@ -433,6 +433,32 @@ impl Extended {
         self.mul(other.recip())
     }
 
+    /// Square root via Newton's method, seeded from
+    /// [`Decimal128::sqrt`]. Caller must ensure `self` is non-negative
+    /// and non-zero.
+    ///
+    /// One Newton iteration `x → 0.5 · (x + self/x)` doubles precision
+    /// from the 33-digit seed to ~66 digits — past EXT_PRECISION = 50.
+    pub fn sqrt(self) -> Self {
+        debug_assert!(!self.sign, "Extended::sqrt of negative");
+        if self.is_zero() {
+            return self;
+        }
+        let (self_d, _) = self.to_decimal128(0, RoundingMode::NearestEven);
+        let (seed_d, _) = self_d.sqrt(RoundingMode::NearestEven);
+        let mut x = Self::from_decimal128(seed_d);
+        let half = Self {
+            coef: U256::from_u128(5),
+            exp: -1,
+            sign: false,
+        };
+        for _ in 0..2 {
+            let q = self.div(x);
+            x = half.mul(x.add(q));
+        }
+        x
+    }
+
     /// Divide by a small positive `u32` divisor. Used for Taylor
     /// coefficient sequences `term · r² / ((2n)(2n+1))` where the
     /// denominator is an integer.

@@ -30,6 +30,14 @@ const INV_LN10_EXT_STR: &str =
     "0.4342944819032518276511289189166050822943970058036665661";
 const INV_LN2_EXT_STR: &str =
     "1.442695040888963407359924681001892137426645954152985934";
+// π/4, π/2, and tan(π/8) at extended precision. Used by atan's
+// argument reduction.
+const PI_OVER_TWO_EXT_STR: &str =
+    "1.570796326794896619231321691639751442098584699687552910";
+const PI_OVER_FOUR_EXT_STR: &str =
+    "0.7853981633974483096156608458198757210492923498437764552";
+const TAN_PI_OVER_EIGHT_EXT_STR: &str =
+    "0.4142135623730950488016887242096980785696718753769480732";
 
 /// `π` to 35 significant digits, rounded to Decimal128 precision.
 #[must_use]
@@ -94,6 +102,26 @@ pub(crate) fn inv_ln10_ext() -> Extended {
 #[must_use]
 pub(crate) fn inv_ln2_ext() -> Extended {
     Extended::parse_str(INV_LN2_EXT_STR)
+}
+
+/// `π/2` at extended precision. Used by atan / asin / acos /
+/// atan2 quadrant adjustments.
+#[must_use]
+pub(crate) fn pi_over_two_ext() -> Extended {
+    Extended::parse_str(PI_OVER_TWO_EXT_STR)
+}
+
+/// `π/4` at extended precision.
+#[must_use]
+pub(crate) fn pi_over_four_ext() -> Extended {
+    Extended::parse_str(PI_OVER_FOUR_EXT_STR)
+}
+
+/// `tan(π/8)` at extended precision — the threshold for atan's
+/// inner argument reduction.
+#[must_use]
+pub(crate) fn tan_pi_over_eight_ext() -> Extended {
+    Extended::parse_str(TAN_PI_OVER_EIGHT_EXT_STR)
 }
 
 /// Shared parse helper. The constants are hand-curated, so a parse

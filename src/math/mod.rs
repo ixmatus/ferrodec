@@ -29,6 +29,8 @@ mod cbrt;
 mod consts;
 pub(crate) mod exp;
 pub(crate) mod extended;
+mod hyperbolic;
+mod inverse_trig;
 pub(crate) mod ln;
 mod pow;
 mod sincos;
