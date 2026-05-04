@@ -6,8 +6,7 @@ use crate::bid;
 ///
 /// `Decimal128` carries 34 decimal digits of precision and an exponent range
 /// of `10^−6143 ..= 10^+6144`. The representation is the IEEE 754 BID-128
-/// bit pattern: see the [`bid`](crate::bid) module documentation for the
-/// exact layout.
+/// (Binary Integer Decimal) bit pattern.
 ///
 /// ## NaN and equality
 ///
@@ -28,7 +27,8 @@ pub struct Decimal128(pub(crate) u128);
 impl Decimal128 {
     /// Reinterpret a raw 128-bit pattern as a `Decimal128` without checking
     /// canonicality. Non-canonical inputs (Form B, biased_exp > 12287,
-    /// coefficient ≥ 10^34) decode according to IEEE 754: see [`bid::Class`].
+    /// coefficient ≥ 10^34) decode according to IEEE 754 — typically as
+    /// zero with an unusual quantum.
     #[inline]
     #[must_use]
     pub const fn from_bits(bits: u128) -> Self {

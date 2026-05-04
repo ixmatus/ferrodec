@@ -29,7 +29,7 @@
 
 use crate::bid::{classify_bits, decimal_digit_count, pack_finite, Class, BIAS};
 use crate::decimal::Decimal128;
-use crate::math::consts::{inv_ln10_ext, inv_ln2_ext, ln10, ln10_ext, ln2_ext};
+use crate::math::consts::{inv_ln10_ext, inv_ln2_ext, ln10_ext, ln2_ext};
 use crate::math::extended::Extended;
 use crate::status::{RoundingMode, Status};
 
@@ -222,6 +222,7 @@ fn taylor_log1p_ext(u: Extended) -> Extended {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::math::consts::ln10;
     extern crate alloc;
 
     fn parse(s: &str) -> Decimal128 {

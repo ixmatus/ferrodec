@@ -43,6 +43,20 @@ cast_lossless = "allow"
 cast_sign_loss = "allow"
 cast_possible_wrap = "allow"
 
+[[bench]]
+name = "core_ops"
+harness = false
+
+[[bench]]
+name = "transcendentals"
+harness = false
+required-features = ["transcendentals"]
+
+[[bench]]
+name = "conversions"
+harness = false
+required-features = ["fmt"]
+
 [profile.release]
 lto = "thin"
 codegen-units = 1

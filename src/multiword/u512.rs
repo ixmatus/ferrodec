@@ -12,6 +12,12 @@
 //! `mul_pow10`, `div_rem10`, `decimal_digit_count`, plus
 //! [`U512::shift_right_to_u256`] for the collapse step.
 
+// Most of `U512`'s surface mirrors `U384` for symmetry — only a
+// subset is exercised by `argred` today (struct construction +
+// `div_rem10`). Keep the rest available for future use; silence the
+// dead-code lint at module scope.
+#![allow(dead_code)]
+
 use crate::multiword::{U256, U384};
 use core::cmp::Ordering;
 
