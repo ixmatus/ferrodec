@@ -1,4 +1,4 @@
-//! `ln(x)` — natural logarithm, plus `log10(x)` derived as `ln(x)/ln(10)`.
+//! `ln(x)` — natural logarithm, plus `log10(x)` derived as `ln(x) · (1/ln(10))`.
 //!
 //! ## Algorithm
 //!
@@ -14,21 +14,23 @@
 //!    ln(x) = ln(m) + q · ln(10)
 //!    ```
 //!
-//! 3. Reduce `m` further: while `m > sqrt(2) ≈ 1.414`, divide by 2 and
-//!    add `ln(2)`. (Equivalent reduction below `1/sqrt(2)` for the
-//!    `m < 1` branch.) After this, `m ∈ [1/sqrt(2), sqrt(2)]`, so the
-//!    Taylor series for `ln(1 + u)` (`u = m - 1`) converges in well
-//!    under 100 terms at 34-digit precision.
-//! 4. `ln(1 + u) = u − u^2/2 + u^3/3 − u^4/4 + …`. Halt when terms
-//!    fall below the precision threshold.
+//! 3. Reduce `m` further: while `m > 1.5`, divide by 2 and add `ln(2)`
+//!    (and below `2/3` for the symmetric branch). After this,
+//!    `m ∈ [2/3, 3/2]`, so the Taylor series for
+//!    `ln(1 + u)` (`u = m − 1`, `|u| ≤ 1/2`) converges to
+//!    EXT_PRECISION = 50 digits in well under 200 terms.
+//! 4. `ln(1 + u) = u − u²/2 + u³/3 − u⁴/4 + …`. Halt when terms fall
+//!    below `EXT_PRECISION` significance.
 //!
-//! Same v1 accuracy caveats as `exp`: native Decimal128 arithmetic
-//! everywhere, so the result drifts up to a few ULP. Faithful rounding
-//! is a follow-up that needs a wider intermediate type.
+//! All intermediate work runs at extended precision (`Extended`, see
+//! [`super::extended`]). The final rounding to `Decimal128` happens
+//! once at the end via `round_and_pack_finite`, so the result is
+//! faithfully rounded (≤ 1 ULP) against `astro-float`.
 
-use crate::bid::{classify_bits, Class, BIAS};
+use crate::bid::{classify_bits, decimal_digit_count, pack_finite, Class, BIAS};
 use crate::decimal::Decimal128;
-use crate::math::consts::{ln10, ln2};
+use crate::math::consts::{inv_ln10_ext, ln10, ln10_ext, ln2_ext};
+use crate::math::extended::Extended;
 use crate::status::{RoundingMode, Status};
 
 impl Decimal128 {
@@ -38,64 +40,111 @@ impl Decimal128 {
         ln_kernel(self, rm)
     }
 
-    /// Base-10 logarithm `log10(self)`. Computed as `ln(self) / ln(10)`.
+    /// Base-10 logarithm `log10(self)`. Computed as
+    /// `ln_extended(self) · (1/ln(10))_extended`, then rounded once.
     #[must_use]
     pub fn log10(self, rm: RoundingMode) -> (Self, Status) {
-        let (l, s1) = self.ln(rm);
-        if !l.is_finite() {
-            // NaN / ±∞ propagate without the divide.
-            return (l, s1);
-        }
-        let (r, s2) = l.div(ln10(), rm);
-        (r, s1 | s2)
+        log10_kernel(self, rm)
     }
 }
 
 fn ln_kernel(x: Decimal128, rm: RoundingMode) -> (Decimal128, Status) {
-    match classify_bits(x.to_bits()) {
-        Class::SignalingNaN { .. } => return (Decimal128::NAN, Status::INVALID),
-        Class::QuietNaN { .. } => return (x, Status::OK),
-        Class::Infinity { sign } => {
-            return if sign {
-                (Decimal128::NAN, Status::INVALID)
-            } else {
-                (Decimal128::INFINITY, Status::OK)
-            };
-        }
-        Class::Zero { .. } => {
-            return (Decimal128::NEG_INFINITY, Status::DIV_BY_ZERO);
-        }
-        Class::Finite { sign, .. } if sign => {
-            return (Decimal128::NAN, Status::INVALID);
-        }
-        Class::Finite { .. } => {}
+    if let Some(early) = ln_special_cases(x) {
+        return early;
     }
-
-    if matches!(x.partial_cmp(Decimal128::ONE).0, Some(core::cmp::Ordering::Equal)) {
+    if matches!(
+        x.partial_cmp(Decimal128::ONE).0,
+        Some(core::cmp::Ordering::Equal)
+    ) {
         return (Decimal128::ZERO, Status::OK);
     }
-
-    // Decompose x = m × 10^q with m ∈ [1, 10).
-    let (m, q) = decompose_to_decade(x);
-
-    // Compute ln(m).
-    let (ln_m, mut status) = ln_in_decade(m, rm);
-
-    // Combine: ln(x) = ln(m) + q · ln(10).
-    let q_dec = Decimal128::from_i32(q);
-    let (q_ln10, s1) = q_dec.mul(ln10(), RoundingMode::NearestEven);
-    status |= s1;
-    let (result, s2) = ln_m.add(q_ln10, rm);
-    status |= s2;
-    (result, status)
+    let result_ext = ln_extended(x);
+    let (result, status) = result_ext.to_decimal128(0, rm);
+    (result, status | Status::INEXACT)
 }
 
-/// `x = m × 10^q` with `m ∈ [1, 10)`. We extract `q` from the bid
-/// decomposition (digit count + biased exponent) and re-encode `m` at
-/// quantum 0... or rather, at the natural quantum that places one
-/// significant digit before the decimal point.
+fn log10_kernel(x: Decimal128, rm: RoundingMode) -> (Decimal128, Status) {
+    if let Some(early) = ln_special_cases(x) {
+        return early;
+    }
+    if matches!(
+        x.partial_cmp(Decimal128::ONE).0,
+        Some(core::cmp::Ordering::Equal)
+    ) {
+        return (Decimal128::ZERO, Status::OK);
+    }
+    // log10(x) = ln(x) · (1/ln(10)) at extended precision.
+    let ln_ext = ln_extended(x);
+    let result_ext = ln_ext.mul(inv_ln10_ext());
+    let (result, status) = result_ext.to_decimal128(0, rm);
+    (result, status | Status::INEXACT)
+}
+
+/// Short-circuit the special cases shared by `ln` and `log10`.
+fn ln_special_cases(x: Decimal128) -> Option<(Decimal128, Status)> {
+    match classify_bits(x.to_bits()) {
+        Class::SignalingNaN { .. } => Some((Decimal128::NAN, Status::INVALID)),
+        Class::QuietNaN { .. } => Some((x, Status::OK)),
+        Class::Infinity { sign } => Some(if sign {
+            (Decimal128::NAN, Status::INVALID)
+        } else {
+            (Decimal128::INFINITY, Status::OK)
+        }),
+        Class::Zero { .. } => Some((Decimal128::NEG_INFINITY, Status::DIV_BY_ZERO)),
+        Class::Finite { sign, .. } if sign => Some((Decimal128::NAN, Status::INVALID)),
+        Class::Finite { .. } => None,
+    }
+}
+
+/// Compute `ln(x)` at extended precision. Caller has already filtered
+/// NaN / Inf / zero / negative inputs and the `x == 1` edge case.
+pub(super) fn ln_extended(x: Decimal128) -> Extended {
+    let (m, q) = decompose_to_decade(x);
+
+    // Reduce m into [2/3, 3/2] by halving/doubling.
+    let mut m_ext = Extended::from_decimal128(m);
+    let mut additional = Extended::ZERO;
+    let ln2_v = ln2_ext();
+    let upper = Extended::parse_str("1.5");
+    let lower = Extended::parse_str("0.6666666666666666666666666666666666666666666666666667");
+
+    // At most ~5 iterations to reach the target window (each halve/double
+    // contracts by 2× and m starts in [1, 10)).
+    let mut guard = 0u32;
+    while guard < 20 {
+        guard += 1;
+        if m_ext.cmp(upper) == core::cmp::Ordering::Greater {
+            m_ext = m_ext.div_u32(2);
+            additional = additional.add(ln2_v);
+            continue;
+        }
+        if m_ext.cmp(lower) == core::cmp::Ordering::Less {
+            m_ext = m_ext.mul(Extended::from_i32(2));
+            additional = additional.sub(ln2_v);
+            continue;
+        }
+        break;
+    }
+
+    // u = m − 1, |u| ≤ 0.5.
+    let u = m_ext.sub(Extended::ONE);
+    let ln_m = taylor_log1p_ext(u);
+
+    // ln(original_m) = ln_m + accumulated halve/double corrections.
+    let ln_orig_m = ln_m.add(additional);
+
+    // Combine: ln(x) = ln(m) + q · ln(10).
+    if q == 0 {
+        return ln_orig_m;
+    }
+    let q_ln10 = Extended::from_i32(q).mul(ln10_ext());
+    ln_orig_m.add(q_ln10)
+}
+
+/// `x = m × 10^q` with `m ∈ [1, 10)`. Same logic as the legacy
+/// implementation; reused verbatim because the input handling is
+/// orthogonal to the precision of the work that follows.
 fn decompose_to_decade(x: Decimal128) -> (Decimal128, i32) {
-    use crate::bid::{decimal_digit_count, pack_finite};
     match classify_bits(x.to_bits()) {
         Class::Finite {
             sign,
@@ -104,15 +153,8 @@ fn decompose_to_decade(x: Decimal128) -> (Decimal128, i32) {
         } => {
             let unbiased = biased_exp as i32 - BIAS as i32;
             let digits = decimal_digit_count(coefficient) as i32;
-            // Magnitude = c × 10^unbiased, in [10^(unbiased + digits − 1),
-            // 10^(unbiased + digits)). For m ∈ [1, 10) we want
-            // m_quantum = -(digits − 1), so coefficient at that quantum
-            // gives a value in [1, 10).
             let m_quantum = -(digits - 1);
             let q = unbiased + digits - 1;
-            // Re-encode coefficient with the new quantum. The biased
-            // exponent for m_quantum is m_quantum + BIAS; coefficient
-            // unchanged.
             let m = Decimal128::from_bits(pack_finite(
                 sign,
                 (m_quantum + BIAS as i32) as u32,
@@ -124,116 +166,50 @@ fn decompose_to_decade(x: Decimal128) -> (Decimal128, i32) {
     }
 }
 
-/// Compute `ln(m)` where `m ∈ [1, 10)`.
-///
-/// Reduce by repeated division by 2: while `m > 1.5`, divide by 2 and
-/// add `ln(2)`. This contracts `m` into roughly `[0.75, 1.5]` where
-/// the Taylor series converges quickly.
-fn ln_in_decade(m: Decimal128, rm: RoundingMode) -> (Decimal128, Status) {
-    let _ = rm;
-    let mut status = Status::OK;
-    let mut m = m;
-    let mut additional = Decimal128::ZERO;
-    let two = Decimal128::from_i32(2);
-    let upper = Decimal128::parse_str("1.5", RoundingMode::NearestEven)
-        .expect("literal")
-        .0;
-    let lower = Decimal128::parse_str("0.6666666666666666666666666666666667", RoundingMode::NearestEven)
-        .expect("literal")
-        .0;
-
-    let ln2_v = ln2();
-
-    // Pull `m` into [lower, upper] by halving / doubling. Bounded:
-    // each step at most 2× contraction, so at most ~5 iterations to
-    // reach the target window starting from m ∈ [1, 10).
-    let mut guard = 0;
-    while guard < 20 {
-        guard += 1;
-        let (cmp_hi, _) = m.partial_cmp(upper);
-        if matches!(cmp_hi, Some(core::cmp::Ordering::Greater)) {
-            let (next, st) = m.div(two, RoundingMode::NearestEven);
-            status |= st;
-            m = next;
-            let (next_add, st) = additional.add(ln2_v, RoundingMode::NearestEven);
-            status |= st;
-            additional = next_add;
-            continue;
-        }
-        let (cmp_lo, _) = m.partial_cmp(lower);
-        if matches!(cmp_lo, Some(core::cmp::Ordering::Less)) {
-            let (next, st) = m.mul(two, RoundingMode::NearestEven);
-            status |= st;
-            m = next;
-            let (next_add, st) = additional.sub(ln2_v, RoundingMode::NearestEven);
-            status |= st;
-            additional = next_add;
-            continue;
-        }
-        break;
-    }
-
-    // u = m - 1, |u| ≤ 0.5.
-    let (u, st_u) = m.sub(Decimal128::ONE, RoundingMode::NearestEven);
-    status |= st_u;
-
-    // Taylor: ln(1 + u) = u - u²/2 + u³/3 - ...
-    let (ln_m, st_taylor) = taylor_log1p(u);
-    status |= st_taylor;
-
-    // ln(original_m) = ln_m + additional
-    let (combined, st_add) = ln_m.add(additional, RoundingMode::NearestEven);
-    status |= st_add;
-    (combined, status)
-}
-
-/// Taylor series for `ln(1 + u)`. Halts when adding the next term
-/// no longer changes the partial sum at Decimal128 precision.
-fn taylor_log1p(u: Decimal128) -> (Decimal128, Status) {
-    let mut status = Status::INEXACT;
-    let mut sum = Decimal128::ZERO;
-    let mut power = Decimal128::ONE; // u^0; updated to u^n inside loop
+/// Taylor series `ln(1 + u) = u − u²/2 + u³/3 − u⁴/4 + …` at
+/// extended precision. Halts when adding the next term doesn't change
+/// the partial sum at 50-digit precision.
+fn taylor_log1p_ext(u: Extended) -> Extended {
+    let mut sum = Extended::ZERO;
+    let mut power = Extended::ONE; // u^0; updated to u^n inside the loop
     let mut sign_alt = false;
-    let max_iterations = 200;
-    for n in 1..=max_iterations {
-        let (new_power, s1) = power.mul(u, RoundingMode::NearestEven);
-        status |= s1;
+
+    // |u| ≤ 0.5 → |u^n / n| ≤ 0.5^n / n. To drive the term below
+    // 10^{-50} we need n large enough that 0.5^n < 10^{-50} · n,
+    // i.e. n ≳ 50 · log2(10) / 1 ≈ 166. Cap at 250 for safety.
+    for n in 1u32..=250 {
+        let new_power = power.mul(u);
         power = new_power;
-        let n_dec = Decimal128::from_i32(n);
-        let (term, s2) = power.div(n_dec, RoundingMode::NearestEven);
-        status |= s2;
-        let signed_term = if sign_alt { term.neg() } else { term };
-        let (next_sum, s3) = sum.add(signed_term, RoundingMode::NearestEven);
-        status |= s3;
-        let (cmp, _) = next_sum.partial_cmp(sum);
-        sum = next_sum;
+        let term = power.div_u32(n);
+        let signed = if sign_alt { term.neg() } else { term };
+        let next_sum = sum.add(signed);
         sign_alt = !sign_alt;
-        if cmp == Some(core::cmp::Ordering::Equal) {
+        if next_sum.cmp(sum) == core::cmp::Ordering::Equal {
+            sum = next_sum;
             break;
         }
+        sum = next_sum;
         if power.is_zero() {
             break;
         }
     }
-    (sum, status)
+    sum
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     extern crate alloc;
-    use alloc::string::ToString;
 
     fn parse(s: &str) -> Decimal128 {
         Decimal128::parse_str(s, RoundingMode::NearestEven).unwrap().0
     }
 
-    fn approx_equal_ulps(a: Decimal128, b: Decimal128, ulps: u32) -> bool {
-        let (diff, _) = a.sub(b, RoundingMode::NearestEven);
+    fn within_ulps(got: Decimal128, want: Decimal128, ulps: u32) -> bool {
+        let (diff, _) = got.sub(want, RoundingMode::NearestEven);
         let diff = diff.abs();
-        let abs_b = b.abs();
-        if abs_b.is_zero() {
-            // Compare to absolute tolerance instead.
+        let abs_want = want.abs();
+        if abs_want.is_zero() {
             let bound = parse(&alloc::format!("{ulps}e-33"));
             let (cmp, _) = diff.partial_cmp(bound);
             return matches!(
@@ -241,7 +217,7 @@ mod tests {
                 Some(core::cmp::Ordering::Less | core::cmp::Ordering::Equal)
             );
         }
-        let (rel, _) = diff.div(abs_b, RoundingMode::NearestEven);
+        let (rel, _) = diff.div(abs_want, RoundingMode::NearestEven);
         let bound = parse(&alloc::format!("{ulps}e-33"));
         let (cmp, _) = rel.partial_cmp(bound);
         matches!(
@@ -260,7 +236,7 @@ mod tests {
     fn ln_e_is_one() {
         let e_val = crate::math::e();
         let (r, _) = e_val.ln(RoundingMode::NearestEven);
-        assert!(approx_equal_ulps(r, Decimal128::ONE, 10));
+        assert!(within_ulps(r, Decimal128::ONE, 1));
     }
 
     #[test]
@@ -268,15 +244,15 @@ mod tests {
         let ten = Decimal128::TEN;
         let (r, _) = ten.ln(RoundingMode::NearestEven);
         let target = ln10();
-        assert!(approx_equal_ulps(r, target, 10));
+        assert!(within_ulps(r, target, 1));
     }
 
     #[test]
     fn ln_two_is_ln2_const() {
         let two = Decimal128::from_i32(2);
         let (r, _) = two.ln(RoundingMode::NearestEven);
-        let target = ln2();
-        assert!(approx_equal_ulps(r, target, 10));
+        let target = parse("0.693147180559945309417232121458176568");
+        assert!(within_ulps(r, target, 1));
     }
 
     #[test]
@@ -316,12 +292,12 @@ mod tests {
 
     #[test]
     fn log10_powers_of_ten() {
-        for &p in &[1i32, 2, 3, 4, 5, 10, -1, -3] {
+        for &p in &[1i32, 2, 3, 4, 5, 10, -1, -3, 100, -100] {
             let x = parse(&alloc::format!("1e{p}"));
             let (r, _) = x.log10(RoundingMode::NearestEven);
             let target = Decimal128::from_i32(p);
             assert!(
-                approx_equal_ulps(r, target, 50),
+                within_ulps(r, target, 1),
                 "log10(1e{p}) = {r:?}, want {target:?}"
             );
         }
@@ -334,7 +310,7 @@ mod tests {
             let (lx, _) = x.ln(RoundingMode::NearestEven);
             let (back, _) = lx.exp(RoundingMode::NearestEven);
             assert!(
-                approx_equal_ulps(back, x, 100),
+                within_ulps(back, x, 5),
                 "exp(ln({v})) = {back:?}, want {x:?}"
             );
         }
