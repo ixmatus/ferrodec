@@ -28,15 +28,24 @@ use crate::ops::round_and_pack_finite;
 use crate::status::{RoundingMode, Status};
 
 /// Maximum exponent difference for which we keep a fully-precise
-/// alignment in the U256 intermediate.
+/// alignment in the `U256` intermediate.
 ///
-/// We bound by U256 capacity: `coef × 10^Δ` with `coef < 10^34`
-/// stays under `10^77 ≈ 2^256` for `Δ ≤ 43`. Anything above falls
-/// to the sub-ULP sticky-bit shortcut, which is *correct for
-/// effective add* but only approximately correct for effective sub
-/// — at very large Δ the residue can still tip a rounding boundary.
-/// Tracked as a follow-up; in practice `Δ > 43` operands are
-/// uncommon.
+/// We bound by `U256` capacity: `coef × 10^Δ` with `coef < 10^34`
+/// stays under `10^77 ≈ 2^256` for `Δ ≤ 43`. Above this:
+///
+/// * **Effective add** with `Δ > 43`: the smaller operand sits below
+///   1 ULP of the larger, so `coef_l + tiny = coef_l` modulo the
+///   sticky bit. `round_and_pack_finite` consumes the sticky for
+///   round-half-even / -toward-X correctness.
+/// * **Effective sub** with `Δ > 43`: the naive sticky path would
+///   round the wrong direction (sticky encodes "fractional digits
+///   below the LSB", but for subtract the residue tips the rounding
+///   *down* into the previous representable). Handled explicitly by
+///   `sub_ulp_effective_sub`, which evaluates the IEEE rounding rule
+///   on the `2·cs` ⋛ `10^(Δ−k)` boundary directly.
+///
+/// Verified against `astro-float` over Δ ∈ [44, 80] in
+/// `tests/property_addsub_align.rs`.
 const ALIGN_LIMIT: u32 = 43;
 
 impl Decimal128 {
