@@ -13,7 +13,9 @@ use astro_float::{BigFloat, Consts, Radix, RoundingMode as AfRm, Sign};
 use ferrodec::{Decimal128, RoundingMode};
 
 fn parse(s: &str) -> Decimal128 {
-    Decimal128::parse_str(s, RoundingMode::NearestEven).unwrap().0
+    Decimal128::parse_str(s, RoundingMode::NearestEven)
+        .unwrap()
+        .0
 }
 
 fn bigfloat_to_decimal_string(v: &BigFloat, cc: &mut Consts, digits: usize) -> String {
@@ -77,62 +79,188 @@ where
 
 const ULPS: u32 = 5;
 
-#[test] fn sinh_one() { check_unary("sinh", "1",
-    |x| x.sinh(RoundingMode::NearestEven),
-    |x, p, rm, cc| x.sinh(p, rm, cc), ULPS); }
-#[test] fn sinh_two() { check_unary("sinh", "2",
-    |x| x.sinh(RoundingMode::NearestEven),
-    |x, p, rm, cc| x.sinh(p, rm, cc), ULPS); }
-#[test] fn sinh_tiny() { check_unary("sinh", "0.001",
-    |x| x.sinh(RoundingMode::NearestEven),
-    |x, p, rm, cc| x.sinh(p, rm, cc), ULPS); }
-#[test] fn sinh_neg() { check_unary("sinh", "-1.5",
-    |x| x.sinh(RoundingMode::NearestEven),
-    |x, p, rm, cc| x.sinh(p, rm, cc), ULPS); }
+#[test]
+fn sinh_one() {
+    check_unary(
+        "sinh",
+        "1",
+        |x| x.sinh(RoundingMode::NearestEven),
+        |x, p, rm, cc| x.sinh(p, rm, cc),
+        ULPS,
+    );
+}
+#[test]
+fn sinh_two() {
+    check_unary(
+        "sinh",
+        "2",
+        |x| x.sinh(RoundingMode::NearestEven),
+        |x, p, rm, cc| x.sinh(p, rm, cc),
+        ULPS,
+    );
+}
+#[test]
+fn sinh_tiny() {
+    check_unary(
+        "sinh",
+        "0.001",
+        |x| x.sinh(RoundingMode::NearestEven),
+        |x, p, rm, cc| x.sinh(p, rm, cc),
+        ULPS,
+    );
+}
+#[test]
+fn sinh_neg() {
+    check_unary(
+        "sinh",
+        "-1.5",
+        |x| x.sinh(RoundingMode::NearestEven),
+        |x, p, rm, cc| x.sinh(p, rm, cc),
+        ULPS,
+    );
+}
 
-#[test] fn cosh_one() { check_unary("cosh", "1",
-    |x| x.cosh(RoundingMode::NearestEven),
-    |x, p, rm, cc| x.cosh(p, rm, cc), ULPS); }
-#[test] fn cosh_two() { check_unary("cosh", "2",
-    |x| x.cosh(RoundingMode::NearestEven),
-    |x, p, rm, cc| x.cosh(p, rm, cc), ULPS); }
-#[test] fn cosh_tiny() { check_unary("cosh", "0.001",
-    |x| x.cosh(RoundingMode::NearestEven),
-    |x, p, rm, cc| x.cosh(p, rm, cc), ULPS); }
+#[test]
+fn cosh_one() {
+    check_unary(
+        "cosh",
+        "1",
+        |x| x.cosh(RoundingMode::NearestEven),
+        |x, p, rm, cc| x.cosh(p, rm, cc),
+        ULPS,
+    );
+}
+#[test]
+fn cosh_two() {
+    check_unary(
+        "cosh",
+        "2",
+        |x| x.cosh(RoundingMode::NearestEven),
+        |x, p, rm, cc| x.cosh(p, rm, cc),
+        ULPS,
+    );
+}
+#[test]
+fn cosh_tiny() {
+    check_unary(
+        "cosh",
+        "0.001",
+        |x| x.cosh(RoundingMode::NearestEven),
+        |x, p, rm, cc| x.cosh(p, rm, cc),
+        ULPS,
+    );
+}
 
-#[test] fn tanh_half() { check_unary("tanh", "0.5",
-    |x| x.tanh(RoundingMode::NearestEven),
-    |x, p, rm, cc| x.tanh(p, rm, cc), ULPS); }
-#[test] fn tanh_one() { check_unary("tanh", "1",
-    |x| x.tanh(RoundingMode::NearestEven),
-    |x, p, rm, cc| x.tanh(p, rm, cc), ULPS); }
-#[test] fn tanh_three() { check_unary("tanh", "3",
-    |x| x.tanh(RoundingMode::NearestEven),
-    |x, p, rm, cc| x.tanh(p, rm, cc), ULPS); }
+#[test]
+fn tanh_half() {
+    check_unary(
+        "tanh",
+        "0.5",
+        |x| x.tanh(RoundingMode::NearestEven),
+        |x, p, rm, cc| x.tanh(p, rm, cc),
+        ULPS,
+    );
+}
+#[test]
+fn tanh_one() {
+    check_unary(
+        "tanh",
+        "1",
+        |x| x.tanh(RoundingMode::NearestEven),
+        |x, p, rm, cc| x.tanh(p, rm, cc),
+        ULPS,
+    );
+}
+#[test]
+fn tanh_three() {
+    check_unary(
+        "tanh",
+        "3",
+        |x| x.tanh(RoundingMode::NearestEven),
+        |x, p, rm, cc| x.tanh(p, rm, cc),
+        ULPS,
+    );
+}
 
-#[test] fn asinh_one() { check_unary("asinh", "1",
-    |x| x.asinh(RoundingMode::NearestEven),
-    |x, p, rm, cc| x.asinh(p, rm, cc), ULPS); }
-#[test] fn asinh_huge() { check_unary("asinh", "1e30",
-    |x| x.asinh(RoundingMode::NearestEven),
-    |x, p, rm, cc| x.asinh(p, rm, cc), ULPS); }
-#[test] fn asinh_tiny() { check_unary("asinh", "1e-15",
-    |x| x.asinh(RoundingMode::NearestEven),
-    |x, p, rm, cc| x.asinh(p, rm, cc), ULPS); }
+#[test]
+fn asinh_one() {
+    check_unary(
+        "asinh",
+        "1",
+        |x| x.asinh(RoundingMode::NearestEven),
+        |x, p, rm, cc| x.asinh(p, rm, cc),
+        ULPS,
+    );
+}
+#[test]
+fn asinh_huge() {
+    check_unary(
+        "asinh",
+        "1e30",
+        |x| x.asinh(RoundingMode::NearestEven),
+        |x, p, rm, cc| x.asinh(p, rm, cc),
+        ULPS,
+    );
+}
+#[test]
+fn asinh_tiny() {
+    check_unary(
+        "asinh",
+        "1e-15",
+        |x| x.asinh(RoundingMode::NearestEven),
+        |x, p, rm, cc| x.asinh(p, rm, cc),
+        ULPS,
+    );
+}
 
-#[test] fn acosh_two() { check_unary("acosh", "2",
-    |x| x.acosh(RoundingMode::NearestEven),
-    |x, p, rm, cc| x.acosh(p, rm, cc), ULPS); }
-#[test] fn acosh_huge() { check_unary("acosh", "1e30",
-    |x| x.acosh(RoundingMode::NearestEven),
-    |x, p, rm, cc| x.acosh(p, rm, cc), ULPS); }
+#[test]
+fn acosh_two() {
+    check_unary(
+        "acosh",
+        "2",
+        |x| x.acosh(RoundingMode::NearestEven),
+        |x, p, rm, cc| x.acosh(p, rm, cc),
+        ULPS,
+    );
+}
+#[test]
+fn acosh_huge() {
+    check_unary(
+        "acosh",
+        "1e30",
+        |x| x.acosh(RoundingMode::NearestEven),
+        |x, p, rm, cc| x.acosh(p, rm, cc),
+        ULPS,
+    );
+}
 
-#[test] fn atanh_half() { check_unary("atanh", "0.5",
-    |x| x.atanh(RoundingMode::NearestEven),
-    |x, p, rm, cc| x.atanh(p, rm, cc), ULPS); }
-#[test] fn atanh_quarter() { check_unary("atanh", "0.25",
-    |x| x.atanh(RoundingMode::NearestEven),
-    |x, p, rm, cc| x.atanh(p, rm, cc), ULPS); }
-#[test] fn atanh_neg_three_quarter() { check_unary("atanh", "-0.75",
-    |x| x.atanh(RoundingMode::NearestEven),
-    |x, p, rm, cc| x.atanh(p, rm, cc), ULPS); }
+#[test]
+fn atanh_half() {
+    check_unary(
+        "atanh",
+        "0.5",
+        |x| x.atanh(RoundingMode::NearestEven),
+        |x, p, rm, cc| x.atanh(p, rm, cc),
+        ULPS,
+    );
+}
+#[test]
+fn atanh_quarter() {
+    check_unary(
+        "atanh",
+        "0.25",
+        |x| x.atanh(RoundingMode::NearestEven),
+        |x, p, rm, cc| x.atanh(p, rm, cc),
+        ULPS,
+    );
+}
+#[test]
+fn atanh_neg_three_quarter() {
+    check_unary(
+        "atanh",
+        "-0.75",
+        |x| x.atanh(RoundingMode::NearestEven),
+        |x, p, rm, cc| x.atanh(p, rm, cc),
+        ULPS,
+    );
+}

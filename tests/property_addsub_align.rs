@@ -13,7 +13,9 @@ use ferrodec::{Decimal128, RoundingMode};
 use proptest::prelude::*;
 
 fn parse(s: &str) -> Decimal128 {
-    Decimal128::parse_str(s, RoundingMode::NearestEven).unwrap().0
+    Decimal128::parse_str(s, RoundingMode::NearestEven)
+        .unwrap()
+        .0
 }
 
 fn bigfloat_to_decimal(bf: &BigFloat, cc: &mut Consts) -> Decimal128 {

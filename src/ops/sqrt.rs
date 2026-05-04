@@ -195,7 +195,14 @@ mod tests {
     #[test]
     fn perfect_squares() {
         // sqrt(4) = 2, sqrt(9) = 3, sqrt(16) = 4, …
-        for &(n, root) in &[(4i128, 2i128), (9, 3), (16, 4), (25, 5), (100, 10), (10_000, 100)] {
+        for &(n, root) in &[
+            (4i128, 2i128),
+            (9, 3),
+            (16, 4),
+            (25, 5),
+            (100, 10),
+            (10_000, 100),
+        ] {
             let (r, _) = d_int(n).sqrt(RoundingMode::default());
             let (cmp, _) = r.partial_cmp(d_int(root));
             assert_eq!(cmp, Some(core::cmp::Ordering::Equal), "sqrt({n})");

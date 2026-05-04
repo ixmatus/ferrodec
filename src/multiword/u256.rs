@@ -107,13 +107,7 @@ impl U256 {
         let lo_bot = (self.lo & 0xFFFF_FFFF_FFFF_FFFF) | ((r2 as u128) << 64);
         let (q_bot, r3) = div_rem_u128_by_small(lo_bot, 10);
         let q_lo = (q_top << 64) | q_bot;
-        (
-            Self {
-                lo: q_lo,
-                hi: q_hi,
-            },
-            r3 as u32,
-        )
+        (Self { lo: q_lo, hi: q_hi }, r3 as u32)
     }
 
     /// Long-division `self / divisor` returning `(quotient, remainder)`.
@@ -211,7 +205,10 @@ impl U256 {
         }
 
         let (sq_hi, sq_lo) = widening_mul_u128(x, x);
-        let rem = self.sub(Self { lo: sq_lo, hi: sq_hi });
+        let rem = self.sub(Self {
+            lo: sq_lo,
+            hi: sq_hi,
+        });
         (x, rem)
     }
 
@@ -314,7 +311,10 @@ mod tests {
 
     #[test]
     fn cmp_orders_by_hi_then_lo() {
-        let small = U256 { lo: u128::MAX, hi: 0 };
+        let small = U256 {
+            lo: u128::MAX,
+            hi: 0,
+        };
         let big = U256 { lo: 0, hi: 1 };
         assert_eq!(small.cmp(big), Ordering::Less);
         let same_hi_small = U256 { lo: 1, hi: 7 };
@@ -532,7 +532,11 @@ mod tests {
         let n = U256::from_u128(1).mul_pow10(70).sub(U256::from_u128(1));
         let (s, r) = n.isqrt();
         let (sq_hi, sq_lo) = widening_mul_u128(s, s);
-        let recombined = U256 { lo: sq_lo, hi: sq_hi }.add(r);
+        let recombined = U256 {
+            lo: sq_lo,
+            hi: sq_hi,
+        }
+        .add(r);
         assert_eq!(recombined, n);
     }
 

@@ -81,7 +81,8 @@ impl Decimal128 {
     ///
     /// Numbers below this magnitude (but above zero) are subnormal —
     /// representable but with reduced precision.
-    pub const MIN_POSITIVE_NORMAL: Self = Self(bid::pack_finite(false, bid::BIAS - bid::PRECISION + 1, 1));
+    pub const MIN_POSITIVE_NORMAL: Self =
+        Self(bid::pack_finite(false, bid::BIAS - bid::PRECISION + 1, 1));
 
     /// Canonical quiet NaN with sign bit clear and a zero payload.
     pub const NAN: Self = Self(bid::pack_quiet_nan(false, 0));

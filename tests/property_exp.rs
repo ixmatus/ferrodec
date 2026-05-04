@@ -10,7 +10,9 @@ use ferrodec::{Decimal128, RoundingMode};
 use proptest::prelude::*;
 
 fn parse(s: &str) -> Decimal128 {
-    Decimal128::parse_str(s, RoundingMode::NearestEven).unwrap().0
+    Decimal128::parse_str(s, RoundingMode::NearestEven)
+        .unwrap()
+        .0
 }
 
 /// Compute `exp(x_str)` via astro-float at 200-bit precision (~60
@@ -76,20 +78,62 @@ fn check_exp_at(x_str: &str, ulps: u32) {
 
 // Spot tests --------------------------------------------------------------
 
-#[test] fn spot_zero() { check_exp_at("0", 1); }
-#[test] fn spot_one() { check_exp_at("1", 1); }
-#[test] fn spot_neg_one() { check_exp_at("-1", 1); }
-#[test] fn spot_ten() { check_exp_at("10", 1); }
-#[test] fn spot_neg_ten() { check_exp_at("-10", 1); }
-#[test] fn spot_hundred() { check_exp_at("100", 1); }
-#[test] fn spot_pi() { check_exp_at("3.14159265358979323846264338327950288", 1); }
-#[test] fn spot_neg_pi() { check_exp_at("-3.14159265358979323846264338327950288", 1); }
-#[test] fn spot_small_pos() { check_exp_at("0.00001", 1); }
-#[test] fn spot_small_neg() { check_exp_at("-0.00001", 1); }
-#[test] fn spot_near_overflow() { check_exp_at("14149", 1); }
-#[test] fn spot_near_underflow() { check_exp_at("-14149", 1); }
-#[test] fn spot_large_positive() { check_exp_at("5000.123456789", 1); }
-#[test] fn spot_large_negative() { check_exp_at("-5000.123456789", 1); }
+#[test]
+fn spot_zero() {
+    check_exp_at("0", 1);
+}
+#[test]
+fn spot_one() {
+    check_exp_at("1", 1);
+}
+#[test]
+fn spot_neg_one() {
+    check_exp_at("-1", 1);
+}
+#[test]
+fn spot_ten() {
+    check_exp_at("10", 1);
+}
+#[test]
+fn spot_neg_ten() {
+    check_exp_at("-10", 1);
+}
+#[test]
+fn spot_hundred() {
+    check_exp_at("100", 1);
+}
+#[test]
+fn spot_pi() {
+    check_exp_at("3.14159265358979323846264338327950288", 1);
+}
+#[test]
+fn spot_neg_pi() {
+    check_exp_at("-3.14159265358979323846264338327950288", 1);
+}
+#[test]
+fn spot_small_pos() {
+    check_exp_at("0.00001", 1);
+}
+#[test]
+fn spot_small_neg() {
+    check_exp_at("-0.00001", 1);
+}
+#[test]
+fn spot_near_overflow() {
+    check_exp_at("14149", 1);
+}
+#[test]
+fn spot_near_underflow() {
+    check_exp_at("-14149", 1);
+}
+#[test]
+fn spot_large_positive() {
+    check_exp_at("5000.123456789", 1);
+}
+#[test]
+fn spot_large_negative() {
+    check_exp_at("-5000.123456789", 1);
+}
 
 // Property sweep ----------------------------------------------------------
 

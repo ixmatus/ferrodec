@@ -60,7 +60,10 @@ fn pack_quiet_nan_roundtrip() {
     // Payload is masked to 110 bits inside pack_quiet_nan.
     let bits = pack_quiet_nan(sign, payload);
     match classify_bits(bits) {
-        Class::QuietNaN { sign: s, payload: p } => {
+        Class::QuietNaN {
+            sign: s,
+            payload: p,
+        } => {
             assert!(s == sign);
             assert!(p == payload & ((1u128 << 110) - 1));
         }
@@ -75,7 +78,10 @@ fn pack_signaling_nan_roundtrip() {
     let payload: u128 = kani::any();
     let bits = pack_signaling_nan(sign, payload);
     match classify_bits(bits) {
-        Class::SignalingNaN { sign: s, payload: p } => {
+        Class::SignalingNaN {
+            sign: s,
+            payload: p,
+        } => {
             assert!(s == sign);
             assert!(p == payload & ((1u128 << 110) - 1));
         }

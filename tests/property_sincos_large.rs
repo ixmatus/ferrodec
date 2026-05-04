@@ -61,7 +61,9 @@ fn bigfloat_to_decimal_string(v: &BigFloat, cc: &mut Consts, digits: usize) -> S
 }
 
 fn parse(s: &str) -> Decimal128 {
-    Decimal128::parse_str(s, RoundingMode::NearestEven).unwrap().0
+    Decimal128::parse_str(s, RoundingMode::NearestEven)
+        .unwrap()
+        .0
 }
 
 /// Check that `got` and `want` agree to within `ulps` ULPs, using
@@ -157,11 +159,7 @@ fn sincos_oracle_1e500_specific() {
     // reduction has to extract a small residual from a large
     // magnitude, exercising the windowed multiplication's high-i
     // digits of `2/π`.
-    check_sin_cos_at(
-        "3.14159265358979323846264338327950288e500",
-        500,
-        10,
-    );
+    check_sin_cos_at("3.14159265358979323846264338327950288e500", 500, 10);
 }
 
 #[test]

@@ -120,13 +120,5 @@ fn fma_bench(c: &mut Criterion) {
     });
 }
 
-criterion_group!(
-    benches,
-    add_bench,
-    sub_bench,
-    mul_bench,
-    div_bench,
-    sqrt_bench,
-    fma_bench
-);
+criterion_group!(benches, add_bench, sub_bench, mul_bench, div_bench, sqrt_bench, fma_bench);
 criterion_main!(benches);

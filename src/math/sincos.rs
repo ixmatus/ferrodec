@@ -116,10 +116,7 @@ impl Decimal128 {
 
 /// Compute both `(sin(x), status)` and `(cos(x), status)` from one
 /// reduction. Returns them as `((sin, sin_status), (cos, cos_status))`.
-fn sincos_kernel(
-    x: Decimal128,
-    rm: RoundingMode,
-) -> ((Decimal128, Status), (Decimal128, Status)) {
+fn sincos_kernel(x: Decimal128, rm: RoundingMode) -> ((Decimal128, Status), (Decimal128, Status)) {
     let (sin_x_ext, cos_x_ext, status_red) = sincos_extended(x);
     let (sin_d, sin_status) = sin_x_ext.to_decimal128(0, rm);
     let (cos_d, cos_status) = cos_x_ext.to_decimal128(0, rm);
@@ -162,8 +159,8 @@ fn taylor_sin_ext(r: Extended, r_sq: Extended) -> Extended {
     let mut sum = r;
     let mut term = r;
     let mut alt = true; // next term subtracts.
-    // n indexes the term series (term_n = r^{2n-1} / (2n-1)!).
-    // Update: term_{n+1} = term_n · r² / ((2n)(2n+1)).
+                        // n indexes the term series (term_n = r^{2n-1} / (2n-1)!).
+                        // Update: term_{n+1} = term_n · r² / ((2n)(2n+1)).
     let mut n: u32 = 1;
     for _ in 0..120 {
         n += 1;
@@ -218,7 +215,9 @@ mod tests {
     use alloc::string::ToString;
 
     fn parse(s: &str) -> Decimal128 {
-        Decimal128::parse_str(s, RoundingMode::NearestEven).unwrap().0
+        Decimal128::parse_str(s, RoundingMode::NearestEven)
+            .unwrap()
+            .0
     }
 
     fn approx_equal_ulps(a: Decimal128, b: Decimal128, ulps: u32) -> bool {
@@ -344,10 +343,7 @@ mod tests {
             let x = parse(s);
             let (cos_x, _) = x.cos(RoundingMode::NearestEven);
             let (cos_neg, _) = x.neg().cos(RoundingMode::NearestEven);
-            assert!(
-                approx_equal_ulps(cos_neg, cos_x, 50),
-                "cos(-{s}) symmetry"
-            );
+            assert!(approx_equal_ulps(cos_neg, cos_x, 50), "cos(-{s}) symmetry");
         }
     }
 }

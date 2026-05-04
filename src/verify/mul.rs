@@ -96,8 +96,16 @@ fn zero_times_inf_is_nan_invalid() {
     let inf_sign: bool = kani::any();
     let zero_first: bool = kani::any();
 
-    let zero = if zero_sign { Decimal128::NEG_ZERO } else { Decimal128::ZERO };
-    let inf = if inf_sign { Decimal128::NEG_INFINITY } else { Decimal128::INFINITY };
+    let zero = if zero_sign {
+        Decimal128::NEG_ZERO
+    } else {
+        Decimal128::ZERO
+    };
+    let inf = if inf_sign {
+        Decimal128::NEG_INFINITY
+    } else {
+        Decimal128::INFINITY
+    };
 
     let (a, b) = if zero_first { (zero, inf) } else { (inf, zero) };
 
@@ -113,7 +121,11 @@ fn zero_times_inf_is_nan_invalid() {
 #[kani::proof]
 fn inf_times_anything_nonzero_is_inf_signed() {
     let sa: bool = kani::any();
-    let inf = if sa { Decimal128::NEG_INFINITY } else { Decimal128::INFINITY };
+    let inf = if sa {
+        Decimal128::NEG_INFINITY
+    } else {
+        Decimal128::INFINITY
+    };
 
     // Other operand: any non-NaN, non-zero. Restrict to representatives that
     // are not zero / NaN / sNaN.
@@ -136,7 +148,11 @@ fn inf_times_anything_nonzero_is_inf_signed() {
 #[kani::proof]
 fn zero_times_finite_is_signed_zero() {
     let sa: bool = kani::any();
-    let zero = if sa { Decimal128::NEG_ZERO } else { Decimal128::ZERO };
+    let zero = if sa {
+        Decimal128::NEG_ZERO
+    } else {
+        Decimal128::ZERO
+    };
 
     // Other operand: zero or finite-non-zero (not NaN, not Inf).
     let oi: u8 = kani::any();

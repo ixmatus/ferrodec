@@ -216,7 +216,9 @@ mod tests {
     use super::*;
 
     fn parse(s: &str) -> Decimal128 {
-        Decimal128::parse_str(s, RoundingMode::NearestEven).unwrap().0
+        Decimal128::parse_str(s, RoundingMode::NearestEven)
+            .unwrap()
+            .0
     }
 
     fn within_ulps(got: Decimal128, want: Decimal128, ulps: u32) -> bool {
@@ -250,7 +252,10 @@ mod tests {
     fn exp_one_is_e() {
         let (r, _) = Decimal128::ONE.exp(RoundingMode::NearestEven);
         let target = parse("2.718281828459045235360287471352662");
-        assert!(within_ulps(r, target, 1), "exp(1) = {r:?}, want ≈ {target:?}");
+        assert!(
+            within_ulps(r, target, 1),
+            "exp(1) = {r:?}, want ≈ {target:?}"
+        );
     }
 
     #[test]

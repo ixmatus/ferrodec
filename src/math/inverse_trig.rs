@@ -30,9 +30,7 @@
 
 use crate::bid::{classify_bits, Class};
 use crate::decimal::Decimal128;
-use crate::math::consts::{
-    pi_ext, pi_over_four_ext, pi_over_two_ext, tan_pi_over_eight_ext,
-};
+use crate::math::consts::{pi_ext, pi_over_four_ext, pi_over_two_ext, tan_pi_over_eight_ext};
 use crate::math::extended::Extended;
 use crate::status::{RoundingMode, Status};
 
@@ -45,10 +43,7 @@ impl Decimal128 {
             Class::QuietNaN { .. } => return (self, Status::OK),
             Class::Infinity { sign } => {
                 let half_pi = pi_over_two_ext().to_decimal128(0, rm).0;
-                return (
-                    if sign { half_pi.neg() } else { half_pi },
-                    Status::INEXACT,
-                );
+                return (if sign { half_pi.neg() } else { half_pi }, Status::INEXACT);
             }
             Class::Zero { .. } => return (self, Status::OK),
             Class::Finite { .. } => {}
@@ -276,11 +271,7 @@ fn atan_ext(x: Extended) -> Extended {
     }
 
     // Apply Stage 2 shift.
-    let mut result = if shift.is_zero() {
-        sum
-    } else {
-        sum.add(shift)
-    };
+    let mut result = if shift.is_zero() { sum } else { sum.add(shift) };
     // Apply Stage 1 inversion.
     if inverted {
         result = pi_over_two_ext().sub(result);
@@ -312,7 +303,9 @@ mod tests {
     use super::*;
 
     fn parse(s: &str) -> Decimal128 {
-        Decimal128::parse_str(s, RoundingMode::NearestEven).unwrap().0
+        Decimal128::parse_str(s, RoundingMode::NearestEven)
+            .unwrap()
+            .0
     }
 
     fn within_ulps(got: Decimal128, want: Decimal128, ulps: u32) -> bool {

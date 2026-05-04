@@ -6,7 +6,9 @@ use astro_float::{BigFloat, Consts, Radix, RoundingMode as AfRm, Sign};
 use ferrodec::{Decimal128, RoundingMode};
 
 fn parse(s: &str) -> Decimal128 {
-    Decimal128::parse_str(s, RoundingMode::NearestEven).unwrap().0
+    Decimal128::parse_str(s, RoundingMode::NearestEven)
+        .unwrap()
+        .0
 }
 
 fn bigfloat_to_decimal_string(v: &BigFloat, cc: &mut Consts, digits: usize) -> String {
@@ -70,51 +72,142 @@ where
 
 // atan -------------------------------------------------------------------
 
-#[test] fn atan_one() { check_unary("atan", "1",
-    |x| x.atan(RoundingMode::NearestEven),
-    |x, p, rm, cc| x.atan(p, rm, cc), 1); }
-#[test] fn atan_two() { check_unary("atan", "2",
-    |x| x.atan(RoundingMode::NearestEven),
-    |x, p, rm, cc| x.atan(p, rm, cc), 1); }
-#[test] fn atan_huge() { check_unary("atan", "1e30",
-    |x| x.atan(RoundingMode::NearestEven),
-    |x, p, rm, cc| x.atan(p, rm, cc), 1); }
-#[test] fn atan_tiny() { check_unary("atan", "1e-30",
-    |x| x.atan(RoundingMode::NearestEven),
-    |x, p, rm, cc| x.atan(p, rm, cc), 1); }
-#[test] fn atan_half() { check_unary("atan", "0.5",
-    |x| x.atan(RoundingMode::NearestEven),
-    |x, p, rm, cc| x.atan(p, rm, cc), 1); }
-#[test] fn atan_pi() { check_unary("atan", "3.14159265358979323846264338327950288",
-    |x| x.atan(RoundingMode::NearestEven),
-    |x, p, rm, cc| x.atan(p, rm, cc), 1); }
+#[test]
+fn atan_one() {
+    check_unary(
+        "atan",
+        "1",
+        |x| x.atan(RoundingMode::NearestEven),
+        |x, p, rm, cc| x.atan(p, rm, cc),
+        1,
+    );
+}
+#[test]
+fn atan_two() {
+    check_unary(
+        "atan",
+        "2",
+        |x| x.atan(RoundingMode::NearestEven),
+        |x, p, rm, cc| x.atan(p, rm, cc),
+        1,
+    );
+}
+#[test]
+fn atan_huge() {
+    check_unary(
+        "atan",
+        "1e30",
+        |x| x.atan(RoundingMode::NearestEven),
+        |x, p, rm, cc| x.atan(p, rm, cc),
+        1,
+    );
+}
+#[test]
+fn atan_tiny() {
+    check_unary(
+        "atan",
+        "1e-30",
+        |x| x.atan(RoundingMode::NearestEven),
+        |x, p, rm, cc| x.atan(p, rm, cc),
+        1,
+    );
+}
+#[test]
+fn atan_half() {
+    check_unary(
+        "atan",
+        "0.5",
+        |x| x.atan(RoundingMode::NearestEven),
+        |x, p, rm, cc| x.atan(p, rm, cc),
+        1,
+    );
+}
+#[test]
+fn atan_pi() {
+    check_unary(
+        "atan",
+        "3.14159265358979323846264338327950288",
+        |x| x.atan(RoundingMode::NearestEven),
+        |x, p, rm, cc| x.atan(p, rm, cc),
+        1,
+    );
+}
 
 // asin -------------------------------------------------------------------
 
-#[test] fn asin_half() { check_unary("asin", "0.5",
-    |x| x.asin(RoundingMode::NearestEven),
-    |x, p, rm, cc| x.asin(p, rm, cc), 1); }
-#[test] fn asin_neg_half() { check_unary("asin", "-0.5",
-    |x| x.asin(RoundingMode::NearestEven),
-    |x, p, rm, cc| x.asin(p, rm, cc), 1); }
-#[test] fn asin_near_one() { check_unary("asin", "0.999",
-    |x| x.asin(RoundingMode::NearestEven),
-    |x, p, rm, cc| x.asin(p, rm, cc), 1); }
-#[test] fn asin_tiny() { check_unary("asin", "1e-15",
-    |x| x.asin(RoundingMode::NearestEven),
-    |x, p, rm, cc| x.asin(p, rm, cc), 1); }
+#[test]
+fn asin_half() {
+    check_unary(
+        "asin",
+        "0.5",
+        |x| x.asin(RoundingMode::NearestEven),
+        |x, p, rm, cc| x.asin(p, rm, cc),
+        1,
+    );
+}
+#[test]
+fn asin_neg_half() {
+    check_unary(
+        "asin",
+        "-0.5",
+        |x| x.asin(RoundingMode::NearestEven),
+        |x, p, rm, cc| x.asin(p, rm, cc),
+        1,
+    );
+}
+#[test]
+fn asin_near_one() {
+    check_unary(
+        "asin",
+        "0.999",
+        |x| x.asin(RoundingMode::NearestEven),
+        |x, p, rm, cc| x.asin(p, rm, cc),
+        1,
+    );
+}
+#[test]
+fn asin_tiny() {
+    check_unary(
+        "asin",
+        "1e-15",
+        |x| x.asin(RoundingMode::NearestEven),
+        |x, p, rm, cc| x.asin(p, rm, cc),
+        1,
+    );
+}
 
 // acos -------------------------------------------------------------------
 
-#[test] fn acos_half() { check_unary("acos", "0.5",
-    |x| x.acos(RoundingMode::NearestEven),
-    |x, p, rm, cc| x.acos(p, rm, cc), 1); }
-#[test] fn acos_quarter() { check_unary("acos", "0.25",
-    |x| x.acos(RoundingMode::NearestEven),
-    |x, p, rm, cc| x.acos(p, rm, cc), 1); }
-#[test] fn acos_neg_half() { check_unary("acos", "-0.5",
-    |x| x.acos(RoundingMode::NearestEven),
-    |x, p, rm, cc| x.acos(p, rm, cc), 1); }
+#[test]
+fn acos_half() {
+    check_unary(
+        "acos",
+        "0.5",
+        |x| x.acos(RoundingMode::NearestEven),
+        |x, p, rm, cc| x.acos(p, rm, cc),
+        1,
+    );
+}
+#[test]
+fn acos_quarter() {
+    check_unary(
+        "acos",
+        "0.25",
+        |x| x.acos(RoundingMode::NearestEven),
+        |x, p, rm, cc| x.acos(p, rm, cc),
+        1,
+    );
+}
+#[test]
+fn acos_neg_half() {
+    check_unary(
+        "acos",
+        "-0.5",
+        |x| x.acos(RoundingMode::NearestEven),
+        |x, p, rm, cc| x.acos(p, rm, cc),
+        1,
+    );
+}
 
 // atan2 ------------------------------------------------------------------
 
@@ -149,8 +242,23 @@ fn check_atan2(y_str: &str, x_str: &str, ulps: u32) {
     );
 }
 
-#[test] fn atan2_one_one() { check_atan2("1", "1", 1); }
-#[test] fn atan2_one_two() { check_atan2("1", "2", 1); }
-#[test] fn atan2_neg_one_neg_two() { check_atan2("-1", "-2", 1); }
-#[test] fn atan2_three_four() { check_atan2("3", "4", 1); }
-#[test] fn atan2_neg_one_one() { check_atan2("-1", "1", 1); }
+#[test]
+fn atan2_one_one() {
+    check_atan2("1", "1", 1);
+}
+#[test]
+fn atan2_one_two() {
+    check_atan2("1", "2", 1);
+}
+#[test]
+fn atan2_neg_one_neg_two() {
+    check_atan2("-1", "-2", 1);
+}
+#[test]
+fn atan2_three_four() {
+    check_atan2("3", "4", 1);
+}
+#[test]
+fn atan2_neg_one_one() {
+    check_atan2("-1", "1", 1);
+}

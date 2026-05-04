@@ -85,13 +85,19 @@ impl Extended {
         if self.is_zero() {
             self
         } else {
-            Self { sign: !self.sign, ..self }
+            Self {
+                sign: !self.sign,
+                ..self
+            }
         }
     }
 
     #[inline]
     pub fn abs(self) -> Self {
-        Self { sign: false, ..self }
+        Self {
+            sign: false,
+            ..self
+        }
     }
 
     /// Build from a finite or zero `Decimal128`. Panics on NaN / Inf —
@@ -237,12 +243,7 @@ impl Extended {
     /// flag for digits already dropped before this call (e.g. by a
     /// `U384 → U256` shift). Round-half-even uses both this sticky and
     /// any further-dropped digits.
-    pub fn from_components_with_sticky(
-        coef: U256,
-        exp: i32,
-        sign: bool,
-        pre_sticky: bool,
-    ) -> Self {
+    pub fn from_components_with_sticky(coef: U256, exp: i32, sign: bool, pre_sticky: bool) -> Self {
         if coef.is_zero() {
             return Self::ZERO;
         }
@@ -530,7 +531,10 @@ fn u256_mul_u256(a: U256, b: U256) -> U384 {
 #[inline]
 fn u384_to_u256(c: U384) -> U256 {
     debug_assert!(c.hi == 0, "u384_to_u256: top limb must be zero");
-    U256 { lo: c.lo, hi: c.mid }
+    U256 {
+        lo: c.lo,
+        hi: c.mid,
+    }
 }
 
 /// Round a `U384` coefficient down to ≤ `EXT_PRECISION` digits using
@@ -620,7 +624,9 @@ mod tests {
     use super::*;
 
     fn parse(s: &str) -> Decimal128 {
-        Decimal128::parse_str(s, RoundingMode::NearestEven).unwrap().0
+        Decimal128::parse_str(s, RoundingMode::NearestEven)
+            .unwrap()
+            .0
     }
 
     fn ext(s: &str) -> Extended {
@@ -629,12 +635,25 @@ mod tests {
 
     #[test]
     fn round_trip_decimal128() {
-        for s in &["0", "1", "-1", "1.5", "12345.6789", "-0.000001", "1e30", "-1e-30"] {
+        for s in &[
+            "0",
+            "1",
+            "-1",
+            "1.5",
+            "12345.6789",
+            "-0.000001",
+            "1e30",
+            "-1e-30",
+        ] {
             let d = parse(s);
             let e = Extended::from_decimal128(d);
             let (back, _) = e.to_decimal128(0, RoundingMode::NearestEven);
             let (cmp, _) = back.partial_cmp(d);
-            assert_eq!(cmp, Some(core::cmp::Ordering::Equal), "roundtrip failed for {s}");
+            assert_eq!(
+                cmp,
+                Some(core::cmp::Ordering::Equal),
+                "roundtrip failed for {s}"
+            );
         }
     }
 

@@ -55,17 +55,13 @@ fn div_special_cases(a: Decimal128, b: Decimal128) -> Option<(Decimal128, Status
     let cls_a = classify_bits(a.to_bits());
     let cls_b = classify_bits(b.to_bits());
 
-    let snan = matches!(cls_a, Class::SignalingNaN { .. })
-        || matches!(cls_b, Class::SignalingNaN { .. });
+    let snan =
+        matches!(cls_a, Class::SignalingNaN { .. }) || matches!(cls_b, Class::SignalingNaN { .. });
     let status = if snan { Status::INVALID } else { Status::OK };
 
-    if matches!(
-        cls_a,
-        Class::QuietNaN { .. } | Class::SignalingNaN { .. }
-    ) || matches!(
-        cls_b,
-        Class::QuietNaN { .. } | Class::SignalingNaN { .. }
-    ) {
+    if matches!(cls_a, Class::QuietNaN { .. } | Class::SignalingNaN { .. })
+        || matches!(cls_b, Class::QuietNaN { .. } | Class::SignalingNaN { .. })
+    {
         return Some((Decimal128::NAN, status));
     }
 
@@ -340,7 +336,11 @@ mod tests {
                 let a = d_finite(a_sign, BIAS, 12);
                 let b = d_finite(b_sign, BIAS, 4);
                 let (r, _) = a.div(b, RoundingMode::default());
-                assert_eq!(r.is_sign_negative(), a_sign ^ b_sign, "sign of {a:?} / {b:?}");
+                assert_eq!(
+                    r.is_sign_negative(),
+                    a_sign ^ b_sign,
+                    "sign of {a:?} / {b:?}"
+                );
             }
         }
     }

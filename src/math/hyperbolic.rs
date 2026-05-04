@@ -243,9 +243,9 @@ fn sinh_ext(x: Extended) -> Extended {
         // Saturate: sinh of large |x| → ±∞ with sign of x.
         let sign = x.sign;
         return if sign {
-            Extended::from_decimal128(Decimal128::ZERO).neg().add(
-                Extended::from_decimal128(Decimal128::INFINITY).neg(),
-            )
+            Extended::from_decimal128(Decimal128::ZERO)
+                .neg()
+                .add(Extended::from_decimal128(Decimal128::INFINITY).neg())
         } else {
             Extended::from_decimal128(Decimal128::INFINITY)
         };
@@ -334,7 +334,9 @@ mod tests {
     use super::*;
 
     fn parse(s: &str) -> Decimal128 {
-        Decimal128::parse_str(s, RoundingMode::NearestEven).unwrap().0
+        Decimal128::parse_str(s, RoundingMode::NearestEven)
+            .unwrap()
+            .0
     }
 
     fn within_ulps(got: Decimal128, want: Decimal128, ulps: u32) -> bool {

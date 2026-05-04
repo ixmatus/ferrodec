@@ -394,8 +394,7 @@ mod tests {
         // 100-digit number: trailing digits feed the sticky bit; INEXACT raised.
         let s100 = "1".to_string() + &"0".repeat(33) + &"5".repeat(66);
         assert_eq!(s100.len(), 100);
-        let (_, status) =
-            Decimal128::parse_str(&s100, RoundingMode::NearestEven).unwrap();
+        let (_, status) = Decimal128::parse_str(&s100, RoundingMode::NearestEven).unwrap();
         assert!(status.inexact());
     }
 
@@ -409,7 +408,10 @@ mod tests {
 
         let (d, s) = Decimal128::parse_str("1e-6176", RoundingMode::default()).unwrap();
         assert!(d.is_finite());
-        assert!(!d.is_zero(), "1e-6176 should be representable, got {d:?} status={s:?}");
+        assert!(
+            !d.is_zero(),
+            "1e-6176 should be representable, got {d:?} status={s:?}"
+        );
     }
 
     #[test]
@@ -418,8 +420,7 @@ mod tests {
         // Just under MAX — should be finite.
         assert!(d.is_finite());
 
-        let (d, s) =
-            Decimal128::parse_str("1e6145", RoundingMode::NearestEven).unwrap();
+        let (d, s) = Decimal128::parse_str("1e6145", RoundingMode::NearestEven).unwrap();
         // Above MAX — overflows to +Inf.
         assert!(d.is_infinite());
         assert!(s.overflow());

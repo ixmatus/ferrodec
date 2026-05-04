@@ -309,12 +309,18 @@ mod tests {
 
     #[test]
     fn signum_basics() {
-        assert_eq!(Decimal128::ONE.signum().to_bits(), Decimal128::ONE.to_bits());
+        assert_eq!(
+            Decimal128::ONE.signum().to_bits(),
+            Decimal128::ONE.to_bits()
+        );
         assert_eq!(
             Decimal128::NEG_ONE.signum().to_bits(),
             Decimal128::NEG_ONE.to_bits()
         );
-        assert_eq!(Decimal128::TEN.signum().to_bits(), Decimal128::ONE.to_bits());
+        assert_eq!(
+            Decimal128::TEN.signum().to_bits(),
+            Decimal128::ONE.to_bits()
+        );
         assert_eq!(
             Decimal128::INFINITY.signum().to_bits(),
             Decimal128::ONE.to_bits()
@@ -336,7 +342,10 @@ mod tests {
 
     #[test]
     fn abs_clears_sign() {
-        assert_eq!(Decimal128::NEG_ONE.abs().to_bits(), Decimal128::ONE.to_bits());
+        assert_eq!(
+            Decimal128::NEG_ONE.abs().to_bits(),
+            Decimal128::ONE.to_bits()
+        );
         assert_eq!(Decimal128::ONE.abs().to_bits(), Decimal128::ONE.to_bits());
         assert_eq!(
             Decimal128::NEG_ZERO.abs().to_bits(),
@@ -350,13 +359,22 @@ mod tests {
 
     #[test]
     fn neg_flips_sign() {
-        assert_eq!(Decimal128::ONE.neg().to_bits(), Decimal128::NEG_ONE.to_bits());
-        assert_eq!(Decimal128::NEG_ONE.neg().to_bits(), Decimal128::ONE.to_bits());
+        assert_eq!(
+            Decimal128::ONE.neg().to_bits(),
+            Decimal128::NEG_ONE.to_bits()
+        );
+        assert_eq!(
+            Decimal128::NEG_ONE.neg().to_bits(),
+            Decimal128::ONE.to_bits()
+        );
         assert_eq!(
             Decimal128::INFINITY.neg().to_bits(),
             Decimal128::NEG_INFINITY.to_bits()
         );
-        assert_eq!(Decimal128::ZERO.neg().to_bits(), Decimal128::NEG_ZERO.to_bits());
+        assert_eq!(
+            Decimal128::ZERO.neg().to_bits(),
+            Decimal128::NEG_ZERO.to_bits()
+        );
     }
 
     #[test]

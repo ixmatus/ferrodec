@@ -194,8 +194,16 @@ fn zero_plus_zero_sign_rule_via_special() {
     let rmi: u8 = kani::any();
     kani::assume(rmi <= 4);
 
-    let a = if sa { Decimal128::NEG_ZERO } else { Decimal128::ZERO };
-    let b = if sb { Decimal128::NEG_ZERO } else { Decimal128::ZERO };
+    let a = if sa {
+        Decimal128::NEG_ZERO
+    } else {
+        Decimal128::ZERO
+    };
+    let b = if sb {
+        Decimal128::NEG_ZERO
+    } else {
+        Decimal128::ZERO
+    };
     let mode = rm_from_u8(rmi);
 
     let (r, _) = a
@@ -250,9 +258,8 @@ fn special_status_only_invalid_for_snan() {
     if let Some((_, status)) = a.add_special_only_for_kani(b, mode) {
         // INVALID can be set by sNaN inputs OR by Inf-Inf cancellation.
         let snan_in = a.is_signaling_nan() || b.is_signaling_nan();
-        let inf_minus_inf = a.is_infinite()
-            && b.is_infinite()
-            && a.is_sign_negative() != b.is_sign_negative();
+        let inf_minus_inf =
+            a.is_infinite() && b.is_infinite() && a.is_sign_negative() != b.is_sign_negative();
         if !snan_in && !inf_minus_inf {
             assert!(!status.invalid());
         }

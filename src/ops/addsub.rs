@@ -76,11 +76,7 @@ impl Decimal128 {
     #[cfg(kani)]
     #[doc(hidden)]
     #[must_use]
-    pub fn add_special_only_for_kani(
-        self,
-        rhs: Self,
-        rm: RoundingMode,
-    ) -> Option<(Self, Status)> {
+    pub fn add_special_only_for_kani(self, rhs: Self, rm: RoundingMode) -> Option<(Self, Status)> {
         add_special_cases(self, rhs, rm)
     }
 }
@@ -111,17 +107,13 @@ fn add_special_cases(
     let cls_a = classify_bits(a.to_bits());
     let cls_b = classify_bits(b.to_bits());
 
-    let snan = matches!(cls_a, Class::SignalingNaN { .. })
-        || matches!(cls_b, Class::SignalingNaN { .. });
+    let snan =
+        matches!(cls_a, Class::SignalingNaN { .. }) || matches!(cls_b, Class::SignalingNaN { .. });
     let status = if snan { Status::INVALID } else { Status::OK };
 
-    if matches!(
-        cls_a,
-        Class::QuietNaN { .. } | Class::SignalingNaN { .. }
-    ) || matches!(
-        cls_b,
-        Class::QuietNaN { .. } | Class::SignalingNaN { .. }
-    ) {
+    if matches!(cls_a, Class::QuietNaN { .. } | Class::SignalingNaN { .. })
+        || matches!(cls_b, Class::QuietNaN { .. } | Class::SignalingNaN { .. })
+    {
         return Some((Decimal128::NAN, status));
     }
 
@@ -225,7 +217,12 @@ fn add_finite_finite(a: Decimal128, b: Decimal128, rm: RoundingMode) -> (Decimal
     // sticky bit.
     let (al, as_, target_exp, mut sticky) = if diff <= ALIGN_LIMIT {
         let aligned_l = U256::from_u128(cl).mul_pow10(diff);
-        (aligned_l, U256::from_u128(cs), es as i32 - BIAS as i32, false)
+        (
+            aligned_l,
+            U256::from_u128(cs),
+            es as i32 - BIAS as i32,
+            false,
+        )
     } else {
         // Smaller is sub-ULP relative to the larger. The larger keeps its
         // own exponent; the smaller becomes a sticky bit.
@@ -246,16 +243,7 @@ fn add_finite_finite(a: Decimal128, b: Decimal128, rm: RoundingMode) -> (Decimal
     // this case explicitly with sign-aware rounding.
     if effective_sub && diff > ALIGN_LIMIT && cs != 0 {
         let q_preferred = (ea.min(eb)) as i32 - BIAS as i32;
-        return sub_ulp_effective_sub(
-            cl,
-            cs,
-            diff,
-            target_exp,
-            sl,
-            rm,
-            q_preferred,
-            status,
-        );
+        return sub_ulp_effective_sub(cl, cs, diff, target_exp, sl, rm, q_preferred, status);
     }
 
     let (mut combined, mut sign_out) = if effective_sub {
@@ -286,7 +274,15 @@ fn add_finite_finite(a: Decimal128, b: Decimal128, rm: RoundingMode) -> (Decimal
 
     // IEEE 754 §6.3 preferred quantum for add/sub is `min(qa, qb)`.
     let q_preferred = (ea.min(eb)) as i32 - BIAS as i32;
-    round_and_pack_finite(combined, target_exp, q_preferred, sign_out, sticky, rm, status)
+    round_and_pack_finite(
+        combined,
+        target_exp,
+        q_preferred,
+        sign_out,
+        sticky,
+        rm,
+        status,
+    )
 }
 
 /// Handle the effective-subtraction case where the smaller operand is
@@ -430,8 +426,8 @@ fn zero_after_cancellation(
     // IEEE 754 §6.3: cancellation of equal-magnitude opposite-sign
     // operands yields +0 except under round-toward-negative.
     let sign = rm == RoundingMode::TowardNegative;
-    let biased_exp = (target_unbiased_exp + BIAS as i32)
-        .clamp(0, crate::bid::BIASED_EXP_MAX as i32) as u32;
+    let biased_exp =
+        (target_unbiased_exp + BIAS as i32).clamp(0, crate::bid::BIASED_EXP_MAX as i32) as u32;
     (
         Decimal128::from_bits(pack_finite(sign, biased_exp, 0)),
         status,
@@ -609,7 +605,11 @@ mod tests {
         let expected = d_from_int(false, BIAS, 101);
         // Numerically equal (cohort may differ).
         let (ord, _) = sum.partial_cmp(expected);
-        assert_eq!(ord, Some(core::cmp::Ordering::Equal), "sum={sum:?}, expected={expected:?}");
+        assert_eq!(
+            ord,
+            Some(core::cmp::Ordering::Equal),
+            "sum={sum:?}, expected={expected:?}"
+        );
     }
 
     #[test]

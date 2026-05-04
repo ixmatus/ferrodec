@@ -13,8 +13,7 @@
 //! `INVALID` is only ever raised when the input is a signaling NaN.
 
 use crate::bid::{
-    classify_bits, decimal_digit_count, pack_finite, pack_quiet_nan, Class, BIAS,
-    COEFFICIENT_LIMIT,
+    classify_bits, decimal_digit_count, pack_finite, pack_quiet_nan, Class, BIAS, COEFFICIENT_LIMIT,
 };
 use crate::decimal::Decimal128;
 use crate::status::{RoundingMode, Status};
@@ -222,7 +221,9 @@ mod tests {
     use super::*;
 
     fn parse(s: &str) -> Decimal128 {
-        Decimal128::parse_str(s, RoundingMode::NearestEven).unwrap().0
+        Decimal128::parse_str(s, RoundingMode::NearestEven)
+            .unwrap()
+            .0
     }
 
     fn d_eq(a: Decimal128, b: Decimal128) -> bool {

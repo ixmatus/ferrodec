@@ -69,10 +69,7 @@ fn dectest_conformance() {
         for f in failures.iter().take(200) {
             eprintln!(
                 "  {}:{} [{}] {}",
-                f.file
-                    .file_name()
-                    .unwrap_or_default()
-                    .to_string_lossy(),
+                f.file.file_name().unwrap_or_default().to_string_lossy(),
                 f.line,
                 f.id,
                 f.reason,
@@ -195,11 +192,7 @@ fn parse_directive(line: &str) -> Option<(String, String)> {
     let colon = line.find(':')?;
     let name = line[..colon].trim();
     let value = line[colon + 1..].trim();
-    if name
-        .chars()
-        .any(|c| !(c.is_ascii_alphabetic() || c == '_'))
-        || name.is_empty()
-    {
+    if name.chars().any(|c| !(c.is_ascii_alphabetic() || c == '_')) || name.is_empty() {
         return None;
     }
     Some((name.to_lowercase(), value.to_lowercase()))
@@ -414,12 +407,7 @@ fn run_case(case: &TestCase, ctx: &Context) -> Outcome {
     // mode where one applies and NearestEven otherwise.
     let (expected, _) = match parse_value(&case.expected, ctx.rounding.for_parse()) {
         Some(v) => v,
-        None => {
-            return Outcome::Fail(format!(
-                "couldn't parse expected {:?}",
-                case.expected
-            ))
-        }
+        None => return Outcome::Fail(format!("couldn't parse expected {:?}", case.expected)),
     };
 
     let expected_flags = expected_status(&case.conditions);

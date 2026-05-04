@@ -31,7 +31,12 @@ fn rem_special_resolves() {
     let a = operand(ai);
     let b = operand(bi);
     kani::assume(
-        a.is_nan() || a.is_infinite() || a.is_zero() || b.is_nan() || b.is_infinite() || b.is_zero(),
+        a.is_nan()
+            || a.is_infinite()
+            || a.is_zero()
+            || b.is_nan()
+            || b.is_infinite()
+            || b.is_zero(),
     );
 
     assert!(a.rem_special_only_for_kani(b).is_some());
@@ -47,7 +52,9 @@ fn rem_nan_propagates() {
     let b = operand(bi);
     kani::assume(a.is_nan() || b.is_nan());
 
-    let (r, _) = a.rem_special_only_for_kani(b).expect("NaN path special-cased");
+    let (r, _) = a
+        .rem_special_only_for_kani(b)
+        .expect("NaN path special-cased");
     assert!(r.is_nan());
 }
 
@@ -60,7 +67,9 @@ fn rem_snan_raises_invalid() {
     let a = operand(ai);
     let b = operand(bi);
     kani::assume(a.is_signaling_nan() || b.is_signaling_nan());
-    let (_, s) = a.rem_special_only_for_kani(b).expect("sNaN path special-cased");
+    let (_, s) = a
+        .rem_special_only_for_kani(b)
+        .expect("sNaN path special-cased");
     assert!(s.invalid());
 }
 
@@ -70,7 +79,11 @@ fn rem_x_over_zero_invalid() {
     let xi: u8 = kani::any();
     kani::assume(xi >= 6 && xi < NUM_OPERANDS); // ONE / NEG_ONE / MAX / MIN
     let zb: bool = kani::any();
-    let zero = if zb { Decimal128::NEG_ZERO } else { Decimal128::ZERO };
+    let zero = if zb {
+        Decimal128::NEG_ZERO
+    } else {
+        Decimal128::ZERO
+    };
     let (r, s) = operand(xi)
         .rem_special_only_for_kani(zero)
         .expect("x/0 special-cased");
@@ -82,7 +95,11 @@ fn rem_x_over_zero_invalid() {
 #[kani::proof]
 fn rem_inf_over_y_invalid() {
     let sa: bool = kani::any();
-    let inf = if sa { Decimal128::NEG_INFINITY } else { Decimal128::INFINITY };
+    let inf = if sa {
+        Decimal128::NEG_INFINITY
+    } else {
+        Decimal128::INFINITY
+    };
     let bi: u8 = kani::any();
     kani::assume(bi >= 2 && bi < NUM_OPERANDS); // not NaN/sNaN
     let (r, s) = inf
@@ -98,12 +115,14 @@ fn rem_x_over_inf_returns_x() {
     let xi: u8 = kani::any();
     kani::assume(xi == 4 || xi == 5 || xi == 6 || xi == 7 || xi == 8 || xi == 9);
     let sb: bool = kani::any();
-    let inf = if sb { Decimal128::NEG_INFINITY } else { Decimal128::INFINITY };
+    let inf = if sb {
+        Decimal128::NEG_INFINITY
+    } else {
+        Decimal128::INFINITY
+    };
 
     let x = operand(xi);
-    let (r, s) = x
-        .rem_special_only_for_kani(inf)
-        .expect("x/∞ special-cased");
+    let (r, s) = x.rem_special_only_for_kani(inf).expect("x/∞ special-cased");
     assert!(r.to_bits() == x.to_bits());
     assert!(!s.invalid());
 }

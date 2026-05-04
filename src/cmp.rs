@@ -425,17 +425,11 @@ mod tests {
     #[test]
     fn partial_cmp_orders_finite_values() {
         assert_eq!(
-            Decimal128::NEG_ONE
-                .partial_cmp(Decimal128::ONE)
-                .0
-                .unwrap(),
+            Decimal128::NEG_ONE.partial_cmp(Decimal128::ONE).0.unwrap(),
             Ordering::Less
         );
         assert_eq!(
-            Decimal128::ONE
-                .partial_cmp(Decimal128::NEG_ONE)
-                .0
-                .unwrap(),
+            Decimal128::ONE.partial_cmp(Decimal128::NEG_ONE).0.unwrap(),
             Ordering::Greater
         );
         assert_eq!(
@@ -461,10 +455,7 @@ mod tests {
             Ordering::Equal
         );
         assert_eq!(
-            Decimal128::INFINITY
-                .partial_cmp(Decimal128::MAX)
-                .0
-                .unwrap(),
+            Decimal128::INFINITY.partial_cmp(Decimal128::MAX).0.unwrap(),
             Ordering::Greater
         );
         assert_eq!(

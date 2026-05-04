@@ -253,7 +253,10 @@ mod tests {
         assert_eq!(format!("{}", Decimal128::NEG_ONE), "-1");
         assert_eq!(format!("{}", Decimal128::TEN), "10");
         assert_eq!(format!("{}", Decimal128::from_i64(123_456)), "123456");
-        assert_eq!(format!("{}", Decimal128::from_i64(-987_654_321)), "-987654321");
+        assert_eq!(
+            format!("{}", Decimal128::from_i64(-987_654_321)),
+            "-987654321"
+        );
     }
 
     #[test]
@@ -302,8 +305,11 @@ mod tests {
             let formatted = format!("{}", d);
             let back = parse(&formatted);
             let (cmp, _) = back.partial_cmp(d);
-            assert_eq!(cmp, Some(core::cmp::Ordering::Equal),
-                "{s} -> {formatted} -> not equal");
+            assert_eq!(
+                cmp,
+                Some(core::cmp::Ordering::Equal),
+                "{s} -> {formatted} -> not equal"
+            );
         }
     }
 }

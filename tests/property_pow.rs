@@ -7,7 +7,9 @@ use ferrodec::{Decimal128, RoundingMode};
 use proptest::prelude::*;
 
 fn parse(s: &str) -> Decimal128 {
-    Decimal128::parse_str(s, RoundingMode::NearestEven).unwrap().0
+    Decimal128::parse_str(s, RoundingMode::NearestEven)
+        .unwrap()
+        .0
 }
 
 fn oracle_pow(x_str: &str, y_str: &str) -> String {
@@ -74,16 +76,54 @@ fn check_pow(x_str: &str, y_str: &str, ulps: u32) {
 
 // Spot tests --------------------------------------------------------------
 
-#[test] fn spot_two_to_ten() { check_pow("2", "10", 1); }
-#[test] fn spot_e_to_pi() { check_pow("2.718281828459045235360287471352662", "3.141592653589793238462643383279503", 1); }
-#[test] fn spot_pi_to_e() { check_pow("3.141592653589793238462643383279503", "2.718281828459045235360287471352662", 1); }
-#[test] fn spot_half_to_half() { check_pow("0.5", "0.5", 1); }
-#[test] fn spot_two_to_neg_three() { check_pow("2", "-3", 1); }
-#[test] fn spot_ten_to_zero_point_five() { check_pow("10", "0.5", 1); }
-#[test] fn spot_one_point_five_to_one_point_five() { check_pow("1.5", "1.5", 1); }
-#[test] fn spot_small_base_small_exponent() { check_pow("0.001", "0.7", 1); }
-#[test] fn spot_large_base_negative_exponent() { check_pow("1000", "-2.5", 1); }
-#[test] fn spot_close_to_one() { check_pow("1.0001", "1000", 1); }
+#[test]
+fn spot_two_to_ten() {
+    check_pow("2", "10", 1);
+}
+#[test]
+fn spot_e_to_pi() {
+    check_pow(
+        "2.718281828459045235360287471352662",
+        "3.141592653589793238462643383279503",
+        1,
+    );
+}
+#[test]
+fn spot_pi_to_e() {
+    check_pow(
+        "3.141592653589793238462643383279503",
+        "2.718281828459045235360287471352662",
+        1,
+    );
+}
+#[test]
+fn spot_half_to_half() {
+    check_pow("0.5", "0.5", 1);
+}
+#[test]
+fn spot_two_to_neg_three() {
+    check_pow("2", "-3", 1);
+}
+#[test]
+fn spot_ten_to_zero_point_five() {
+    check_pow("10", "0.5", 1);
+}
+#[test]
+fn spot_one_point_five_to_one_point_five() {
+    check_pow("1.5", "1.5", 1);
+}
+#[test]
+fn spot_small_base_small_exponent() {
+    check_pow("0.001", "0.7", 1);
+}
+#[test]
+fn spot_large_base_negative_exponent() {
+    check_pow("1000", "-2.5", 1);
+}
+#[test]
+fn spot_close_to_one() {
+    check_pow("1.0001", "1000", 1);
+}
 
 // Property sweep ----------------------------------------------------------
 

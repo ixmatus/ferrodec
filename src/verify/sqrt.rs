@@ -50,9 +50,7 @@ fn sqrt_snan_raises_invalid() {
     kani::assume(i < NUM_OPERANDS);
     let a = operand(i);
     kani::assume(a.is_signaling_nan());
-    let (_, s) = a
-        .sqrt_special_only_for_kani()
-        .expect("sNaN path resolved");
+    let (_, s) = a.sqrt_special_only_for_kani().expect("sNaN path resolved");
     assert!(s.invalid());
 }
 
@@ -92,10 +90,12 @@ fn sqrt_pos_inf_is_pos_inf() {
 #[kani::proof]
 fn sqrt_zero_preserves_sign() {
     let s: bool = kani::any();
-    let z = if s { Decimal128::NEG_ZERO } else { Decimal128::ZERO };
-    let (r, _) = z
-        .sqrt_special_only_for_kani()
-        .expect("0 is special-cased");
+    let z = if s {
+        Decimal128::NEG_ZERO
+    } else {
+        Decimal128::ZERO
+    };
+    let (r, _) = z.sqrt_special_only_for_kani().expect("0 is special-cased");
     assert!(r.is_zero());
     assert!(r.is_sign_negative() == s);
 }

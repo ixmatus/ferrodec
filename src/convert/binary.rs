@@ -93,10 +93,7 @@ impl Decimal128 {
             );
         }
         if self.is_zero() {
-            return (
-                if self.is_sign_negative() { -0.0 } else { 0.0 },
-                Status::OK,
-            );
+            return (if self.is_sign_negative() { -0.0 } else { 0.0 }, Status::OK);
         }
         // Finite: render to canonical decimal string, parse as f64.
         let mut buf = StrBuf::new();

@@ -29,16 +29,28 @@ pub(crate) struct U384 {
 
 impl U384 {
     #[allow(dead_code)] // symmetric with U256::ZERO; used by future helpers
-    pub(crate) const ZERO: Self = Self { lo: 0, mid: 0, hi: 0 };
+    pub(crate) const ZERO: Self = Self {
+        lo: 0,
+        mid: 0,
+        hi: 0,
+    };
 
     #[inline]
     pub(crate) const fn from_u128(x: u128) -> Self {
-        Self { lo: x, mid: 0, hi: 0 }
+        Self {
+            lo: x,
+            mid: 0,
+            hi: 0,
+        }
     }
 
     #[inline]
     pub(crate) const fn from_u256(u: U256) -> Self {
-        Self { lo: u.lo, mid: u.hi, hi: 0 }
+        Self {
+            lo: u.lo,
+            mid: u.hi,
+            hi: 0,
+        }
     }
 
     #[inline]
@@ -261,7 +273,11 @@ mod tests {
 
     #[test]
     fn sub_borrow_through_limbs() {
-        let a = U384 { lo: 0, mid: 0, hi: 1 };
+        let a = U384 {
+            lo: 0,
+            mid: 0,
+            hi: 1,
+        };
         let b = U384::from_u128(1);
         let c = a.sub(b);
         assert_eq!(c.lo, u128::MAX);
@@ -271,11 +287,27 @@ mod tests {
 
     #[test]
     fn cmp_orders_top_down() {
-        let small = U384 { lo: u128::MAX, mid: u128::MAX, hi: 0 };
-        let big = U384 { lo: 0, mid: 0, hi: 1 };
+        let small = U384 {
+            lo: u128::MAX,
+            mid: u128::MAX,
+            hi: 0,
+        };
+        let big = U384 {
+            lo: 0,
+            mid: 0,
+            hi: 1,
+        };
         assert_eq!(small.cmp(big), Ordering::Less);
-        let same_hi_small = U384 { lo: 1, mid: 0, hi: 7 };
-        let same_hi_big = U384 { lo: 0, mid: 1, hi: 7 };
+        let same_hi_small = U384 {
+            lo: 1,
+            mid: 0,
+            hi: 7,
+        };
+        let same_hi_big = U384 {
+            lo: 0,
+            mid: 1,
+            hi: 7,
+        };
         assert_eq!(same_hi_small.cmp(same_hi_big), Ordering::Less);
     }
 
@@ -407,7 +439,10 @@ mod tests {
 
     #[test]
     fn from_u256_preserves_value() {
-        let u = U256 { lo: 0xDEADBEEF, hi: 0xCAFEBABE };
+        let u = U256 {
+            lo: 0xDEADBEEF,
+            hi: 0xCAFEBABE,
+        };
         let f = U384::from_u256(u);
         assert_eq!(f.lo, 0xDEADBEEF);
         assert_eq!(f.mid, 0xCAFEBABE);

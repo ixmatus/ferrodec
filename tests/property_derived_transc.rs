@@ -7,7 +7,9 @@ use astro_float::{BigFloat, Consts, Radix, RoundingMode as AfRm, Sign};
 use ferrodec::{Decimal128, RoundingMode};
 
 fn parse(s: &str) -> Decimal128 {
-    Decimal128::parse_str(s, RoundingMode::NearestEven).unwrap().0
+    Decimal128::parse_str(s, RoundingMode::NearestEven)
+        .unwrap()
+        .0
 }
 
 fn oracle_apply<F>(x_str: &str, f: F) -> String
@@ -80,33 +82,53 @@ where
 
 #[test]
 fn log2_two() {
-    check_unary("log2", "2",
+    check_unary(
+        "log2",
+        "2",
         |x| x.log2(RoundingMode::NearestEven),
-        |x, p, rm, cc| x.log2(p, rm, cc), 1);
+        |x, p, rm, cc| x.log2(p, rm, cc),
+        1,
+    );
 }
 #[test]
 fn log2_eight() {
-    check_unary("log2", "8",
+    check_unary(
+        "log2",
+        "8",
         |x| x.log2(RoundingMode::NearestEven),
-        |x, p, rm, cc| x.log2(p, rm, cc), 1);
+        |x, p, rm, cc| x.log2(p, rm, cc),
+        1,
+    );
 }
 #[test]
 fn log2_half() {
-    check_unary("log2", "0.5",
+    check_unary(
+        "log2",
+        "0.5",
         |x| x.log2(RoundingMode::NearestEven),
-        |x, p, rm, cc| x.log2(p, rm, cc), 1);
+        |x, p, rm, cc| x.log2(p, rm, cc),
+        1,
+    );
 }
 #[test]
 fn log2_pi() {
-    check_unary("log2", "3.14159265358979323846264338327950288",
+    check_unary(
+        "log2",
+        "3.14159265358979323846264338327950288",
         |x| x.log2(RoundingMode::NearestEven),
-        |x, p, rm, cc| x.log2(p, rm, cc), 1);
+        |x, p, rm, cc| x.log2(p, rm, cc),
+        1,
+    );
 }
 #[test]
 fn log2_huge() {
-    check_unary("log2", "1e1000",
+    check_unary(
+        "log2",
+        "1e1000",
         |x| x.log2(RoundingMode::NearestEven),
-        |x, p, rm, cc| x.log2(p, rm, cc), 1);
+        |x, p, rm, cc| x.log2(p, rm, cc),
+        1,
+    );
 }
 
 // exp2 -------------------------------------------------------------------
@@ -131,11 +153,26 @@ fn check_exp2(x_str: &str, ulps: u32) {
     );
 }
 
-#[test] fn exp2_zero() { check_exp2("0", 1); }
-#[test] fn exp2_one() { check_exp2("1", 1); }
-#[test] fn exp2_ten() { check_exp2("10", 1); }
-#[test] fn exp2_neg_one() { check_exp2("-1", 1); }
-#[test] fn exp2_pi() { check_exp2("3.14159265358979323846264338327950288", 1); }
+#[test]
+fn exp2_zero() {
+    check_exp2("0", 1);
+}
+#[test]
+fn exp2_one() {
+    check_exp2("1", 1);
+}
+#[test]
+fn exp2_ten() {
+    check_exp2("10", 1);
+}
+#[test]
+fn exp2_neg_one() {
+    check_exp2("-1", 1);
+}
+#[test]
+fn exp2_pi() {
+    check_exp2("3.14159265358979323846264338327950288", 1);
+}
 
 // cbrt -------------------------------------------------------------------
 
@@ -156,10 +193,22 @@ fn check_cbrt(x_str: &str, ulps: u32) {
     );
 }
 
-#[test] fn cbrt_two() { check_cbrt("2", 1); }
-#[test] fn cbrt_minus_two() { check_cbrt("-2", 1); }
-#[test] fn cbrt_huge() { check_cbrt("1e90", 1); }
-#[test] fn cbrt_tiny() { check_cbrt("1e-90", 1); }
+#[test]
+fn cbrt_two() {
+    check_cbrt("2", 1);
+}
+#[test]
+fn cbrt_minus_two() {
+    check_cbrt("-2", 1);
+}
+#[test]
+fn cbrt_huge() {
+    check_cbrt("1e90", 1);
+}
+#[test]
+fn cbrt_tiny() {
+    check_cbrt("1e-90", 1);
+}
 
 // tan --------------------------------------------------------------------
 
@@ -170,27 +219,43 @@ fn tan_zero() {
 }
 #[test]
 fn tan_pi_over_four() {
-    check_unary("tan", "0.7853981633974483096156608458198757",
+    check_unary(
+        "tan",
+        "0.7853981633974483096156608458198757",
         |x| x.tan(RoundingMode::NearestEven),
-        |x, p, rm, cc| x.tan(p, rm, cc), 1);
+        |x, p, rm, cc| x.tan(p, rm, cc),
+        1,
+    );
 }
 #[test]
 fn tan_one() {
-    check_unary("tan", "1",
+    check_unary(
+        "tan",
+        "1",
         |x| x.tan(RoundingMode::NearestEven),
-        |x, p, rm, cc| x.tan(p, rm, cc), 1);
+        |x, p, rm, cc| x.tan(p, rm, cc),
+        1,
+    );
 }
 #[test]
 fn tan_minus_one() {
-    check_unary("tan", "-1",
+    check_unary(
+        "tan",
+        "-1",
         |x| x.tan(RoundingMode::NearestEven),
-        |x, p, rm, cc| x.tan(p, rm, cc), 1);
+        |x, p, rm, cc| x.tan(p, rm, cc),
+        1,
+    );
 }
 #[test]
 fn tan_pi() {
     // tan(π) ≈ 0 — but the rounded π input gives a tiny non-zero
     // residual. Check that we're within ULPs of astro-float's view.
-    check_unary("tan", "3.141592653589793238462643383279503",
+    check_unary(
+        "tan",
+        "3.141592653589793238462643383279503",
         |x| x.tan(RoundingMode::NearestEven),
-        |x, p, rm, cc| x.tan(p, rm, cc), 1);
+        |x, p, rm, cc| x.tan(p, rm, cc),
+        1,
+    );
 }

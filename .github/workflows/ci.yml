@@ -72,14 +72,22 @@ jobs:
       - run: cargo build --target thumbv6m-none-eabi --no-default-features --features=transcendentals --verbose
       - run: cargo build --target thumbv6m-none-eabi --no-default-features --features=transcendentals,binary-float --verbose
 
-  # ---------- Lint ----------
-  #
-  # `cargo fmt` is intentionally NOT enforced — the codebase predates a
-  # consistent `rustfmt` pass. Clippy is informational only (the
-  # project's [lints.clippy] config in Cargo.toml uses `pedantic =
-  # "warn"`, so a `-D warnings` gate would conflict with that posture).
-  # The job surfaces new lints in PRs without blocking merges on
-  # pedantic style points.
+  # ---------- Format / lint ----------
+  format:
+    name: rustfmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --all -- --check
+
+  # Clippy is informational only for now — the project's
+  # [lints.clippy] config in `Cargo.toml` uses `pedantic = "warn"`
+  # and there are pre-existing pedantic lints that a `-D warnings`
+  # gate would block work on. The job surfaces new lints in PRs
+  # without blocking merges.
   clippy:
     name: clippy (informational)
     runs-on: ubuntu-latest

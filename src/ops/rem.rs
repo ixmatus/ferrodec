@@ -40,9 +40,7 @@
 //!
 //! [`Division_impossible`]: https://speleotrove.com/decimal/daops.html#refrema
 
-use crate::bid::{
-    classify_bits, decimal_digit_count, pack_finite, Class, BIAS, BIASED_EXP_MAX,
-};
+use crate::bid::{classify_bits, decimal_digit_count, pack_finite, Class, BIAS, BIASED_EXP_MAX};
 use crate::decimal::Decimal128;
 use crate::multiword::U256;
 use crate::status::Status;
@@ -74,17 +72,13 @@ fn rem_special_cases(a: Decimal128, b: Decimal128) -> Option<(Decimal128, Status
     let cls_a = classify_bits(a.to_bits());
     let cls_b = classify_bits(b.to_bits());
 
-    let snan = matches!(cls_a, Class::SignalingNaN { .. })
-        || matches!(cls_b, Class::SignalingNaN { .. });
+    let snan =
+        matches!(cls_a, Class::SignalingNaN { .. }) || matches!(cls_b, Class::SignalingNaN { .. });
     let status = if snan { Status::INVALID } else { Status::OK };
 
-    if matches!(
-        cls_a,
-        Class::QuietNaN { .. } | Class::SignalingNaN { .. }
-    ) || matches!(
-        cls_b,
-        Class::QuietNaN { .. } | Class::SignalingNaN { .. }
-    ) {
+    if matches!(cls_a, Class::QuietNaN { .. } | Class::SignalingNaN { .. })
+        || matches!(cls_b, Class::QuietNaN { .. } | Class::SignalingNaN { .. })
+    {
         return Some((Decimal128::NAN, status));
     }
 
@@ -108,10 +102,7 @@ fn rem_special_cases(a: Decimal128, b: Decimal128) -> Option<(Decimal128, Status
             _ => biased_exp,
         };
         let q = biased_exp.min(qy);
-        return Some((
-            Decimal128::from_bits(pack_finite(sign, q, 0)),
-            status,
-        ));
+        return Some((Decimal128::from_bits(pack_finite(sign, q, 0)), status));
     }
 
     None

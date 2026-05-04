@@ -51,17 +51,13 @@ fn mul_special_cases(a: Decimal128, b: Decimal128) -> Option<(Decimal128, Status
     let cls_a = classify_bits(a.to_bits());
     let cls_b = classify_bits(b.to_bits());
 
-    let snan = matches!(cls_a, Class::SignalingNaN { .. })
-        || matches!(cls_b, Class::SignalingNaN { .. });
+    let snan =
+        matches!(cls_a, Class::SignalingNaN { .. }) || matches!(cls_b, Class::SignalingNaN { .. });
     let mut status = if snan { Status::INVALID } else { Status::OK };
 
-    if matches!(
-        cls_a,
-        Class::QuietNaN { .. } | Class::SignalingNaN { .. }
-    ) || matches!(
-        cls_b,
-        Class::QuietNaN { .. } | Class::SignalingNaN { .. }
-    ) {
+    if matches!(cls_a, Class::QuietNaN { .. } | Class::SignalingNaN { .. })
+        || matches!(cls_b, Class::QuietNaN { .. } | Class::SignalingNaN { .. })
+    {
         return Some((Decimal128::NAN, status));
     }
 
@@ -90,8 +86,8 @@ fn mul_special_cases(a: Decimal128, b: Decimal128) -> Option<(Decimal128, Status
         // quantum after clamp is fine for ±0.
         let (_, ea, _) = decompose_finite_or_zero(cls_a);
         let (_, eb, _) = decompose_finite_or_zero(cls_b);
-        let exp = (ea as i32 + eb as i32 - BIAS as i32)
-            .clamp(0, crate::bid::BIASED_EXP_MAX as i32) as u32;
+        let exp = (ea as i32 + eb as i32 - BIAS as i32).clamp(0, crate::bid::BIASED_EXP_MAX as i32)
+            as u32;
         return Some((
             Decimal128::from_bits(pack_finite(result_sign, exp, 0)),
             status,
@@ -119,7 +115,15 @@ fn mul_finite_finite(a: Decimal128, b: Decimal128, rm: RoundingMode) -> (Decimal
 
     // IEEE 754 §6.3 preferred quantum for mul is `qa + qb`, which is
     // exactly `unbiased_exp` here.
-    round_and_pack_finite(coef, unbiased_exp, unbiased_exp, sign, false, rm, Status::OK)
+    round_and_pack_finite(
+        coef,
+        unbiased_exp,
+        unbiased_exp,
+        sign,
+        false,
+        rm,
+        Status::OK,
+    )
 }
 
 /// Decompose a Zero / Finite [`Class`] into `(sign, biased_exp, coefficient)`.
@@ -205,27 +209,24 @@ mod tests {
         let (r, s) = Decimal128::NEG_ZERO.mul(Decimal128::INFINITY, RoundingMode::default());
         assert!(r.is_nan());
         assert!(s.invalid());
-        let (r, s) =
-            Decimal128::NEG_INFINITY.mul(Decimal128::NEG_ZERO, RoundingMode::default());
+        let (r, s) = Decimal128::NEG_INFINITY.mul(Decimal128::NEG_ZERO, RoundingMode::default());
         assert!(r.is_nan());
         assert!(s.invalid());
     }
 
     #[test]
     fn inf_times_inf_sign_xor() {
-        let (r, s) =
-            Decimal128::INFINITY.mul(Decimal128::INFINITY, RoundingMode::default());
+        let (r, s) = Decimal128::INFINITY.mul(Decimal128::INFINITY, RoundingMode::default());
         assert!(r.is_infinite());
         assert!(!r.is_sign_negative());
         assert!(s.is_ok());
 
-        let (r, _) =
-            Decimal128::INFINITY.mul(Decimal128::NEG_INFINITY, RoundingMode::default());
+        let (r, _) = Decimal128::INFINITY.mul(Decimal128::NEG_INFINITY, RoundingMode::default());
         assert!(r.is_infinite());
         assert!(r.is_sign_negative());
 
-        let (r, _) = Decimal128::NEG_INFINITY
-            .mul(Decimal128::NEG_INFINITY, RoundingMode::default());
+        let (r, _) =
+            Decimal128::NEG_INFINITY.mul(Decimal128::NEG_INFINITY, RoundingMode::default());
         assert!(r.is_infinite());
         assert!(!r.is_sign_negative());
     }
@@ -236,13 +237,11 @@ mod tests {
         assert!(r.is_infinite());
         assert!(!r.is_sign_negative());
 
-        let (r, _) =
-            Decimal128::INFINITY.mul(Decimal128::NEG_ONE, RoundingMode::default());
+        let (r, _) = Decimal128::INFINITY.mul(Decimal128::NEG_ONE, RoundingMode::default());
         assert!(r.is_infinite());
         assert!(r.is_sign_negative());
 
-        let (r, _) =
-            Decimal128::NEG_ONE.mul(Decimal128::NEG_INFINITY, RoundingMode::default());
+        let (r, _) = Decimal128::NEG_ONE.mul(Decimal128::NEG_INFINITY, RoundingMode::default());
         assert!(r.is_infinite());
         assert!(!r.is_sign_negative());
     }
@@ -261,8 +260,7 @@ mod tests {
         assert!(r.is_zero());
         assert!(r.is_sign_negative());
 
-        let (r, _) =
-            Decimal128::NEG_ZERO.mul(Decimal128::NEG_ONE, RoundingMode::default());
+        let (r, _) = Decimal128::NEG_ZERO.mul(Decimal128::NEG_ONE, RoundingMode::default());
         assert!(r.is_zero());
         assert!(!r.is_sign_negative());
     }

@@ -23,8 +23,8 @@
 //! * In-range integer-valued → exact, no flags.
 
 use crate::bid::{
-    classify_bits, decimal_digit_count, pack_finite, Class, BIAS, COEFFICIENT_LIMIT,
-    COEFFICIENT_FIELD_LIMIT, PRECISION,
+    classify_bits, decimal_digit_count, pack_finite, Class, BIAS, COEFFICIENT_FIELD_LIMIT,
+    COEFFICIENT_LIMIT, PRECISION,
 };
 use crate::decimal::Decimal128;
 use crate::multiword::U256;
@@ -135,11 +135,7 @@ const fn from_unsigned_small(n: u128) -> Decimal128 {
     Decimal128::from_bits(pack_finite(false, BIAS, n))
 }
 
-fn from_unsigned_with_rounding(
-    sign: bool,
-    abs: u128,
-    rm: RoundingMode,
-) -> (Decimal128, Status) {
+fn from_unsigned_with_rounding(sign: bool, abs: u128, rm: RoundingMode) -> (Decimal128, Status) {
     if abs < COEFFICIENT_LIMIT {
         // Fits exactly in 34 digits.
         return (
@@ -278,12 +274,7 @@ impl Decimal128 {
 /// rounding mode and emitting `INEXACT` when digits are dropped.
 ///
 /// Returns `(rounded_abs, status)`. Caller applies the sign separately.
-fn round_to_integer(
-    coef: u128,
-    unbiased: i32,
-    sign: bool,
-    rm: RoundingMode,
-) -> (u128, Status) {
+fn round_to_integer(coef: u128, unbiased: i32, sign: bool, rm: RoundingMode) -> (u128, Status) {
     if unbiased >= 0 {
         // Integer or larger: shift the coefficient up. May overflow u128
         // for very-large unbiased exponents — caller will catch via
@@ -346,7 +337,11 @@ fn round_to_integer(
     } else {
         ((frac / 10u128.pow(drop - 1)) as u32) % 10
     };
-    let sticky = if drop <= 1 { false } else { (frac % 10u128.pow(drop - 1)) != 0 };
+    let sticky = if drop <= 1 {
+        false
+    } else {
+        (frac % 10u128.pow(drop - 1)) != 0
+    };
     let last_kept = (int_part % 10) as u32;
     let mut rounded = int_part;
     let round_up = should_round_up_int(rm, sign, last_kept, round_digit, sticky);
@@ -397,8 +392,14 @@ mod tests {
 
     #[test]
     fn from_zero() {
-        assert_eq!(Decimal128::from_i32(0).to_bits(), Decimal128::ZERO.to_bits());
-        assert_eq!(Decimal128::from_u64(0).to_bits(), Decimal128::ZERO.to_bits());
+        assert_eq!(
+            Decimal128::from_i32(0).to_bits(),
+            Decimal128::ZERO.to_bits()
+        );
+        assert_eq!(
+            Decimal128::from_u64(0).to_bits(),
+            Decimal128::ZERO.to_bits()
+        );
     }
 
     #[test]

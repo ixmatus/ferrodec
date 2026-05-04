@@ -7,7 +7,9 @@ use ferrodec::{Decimal128, RoundingMode};
 use proptest::prelude::*;
 
 fn parse(s: &str) -> Decimal128 {
-    Decimal128::parse_str(s, RoundingMode::NearestEven).unwrap().0
+    Decimal128::parse_str(s, RoundingMode::NearestEven)
+        .unwrap()
+        .0
 }
 
 fn oracle_ln(x_str: &str) -> String {
@@ -94,21 +96,61 @@ fn check_log10_at(x_str: &str, ulps: u32) {
 
 // Spot tests --------------------------------------------------------------
 
-#[test] fn spot_ln_two() { check_ln_at("2", 1); }
-#[test] fn spot_ln_e() { check_ln_at("2.718281828459045235360287471352662", 1); }
-#[test] fn spot_ln_ten() { check_ln_at("10", 1); }
-#[test] fn spot_ln_pi() { check_ln_at("3.14159265358979323846264338327950288", 1); }
-#[test] fn spot_ln_half() { check_ln_at("0.5", 1); }
-#[test] fn spot_ln_tiny() { check_ln_at("1e-30", 1); }
-#[test] fn spot_ln_huge() { check_ln_at("1e6000", 1); }
-#[test] fn spot_ln_near_one_above() { check_ln_at("1.0000000000001", 1); }
-#[test] fn spot_ln_near_one_below() { check_ln_at("0.9999999999999", 1); }
-#[test] fn spot_ln_random_finite() { check_ln_at("123.456789012345", 1); }
+#[test]
+fn spot_ln_two() {
+    check_ln_at("2", 1);
+}
+#[test]
+fn spot_ln_e() {
+    check_ln_at("2.718281828459045235360287471352662", 1);
+}
+#[test]
+fn spot_ln_ten() {
+    check_ln_at("10", 1);
+}
+#[test]
+fn spot_ln_pi() {
+    check_ln_at("3.14159265358979323846264338327950288", 1);
+}
+#[test]
+fn spot_ln_half() {
+    check_ln_at("0.5", 1);
+}
+#[test]
+fn spot_ln_tiny() {
+    check_ln_at("1e-30", 1);
+}
+#[test]
+fn spot_ln_huge() {
+    check_ln_at("1e6000", 1);
+}
+#[test]
+fn spot_ln_near_one_above() {
+    check_ln_at("1.0000000000001", 1);
+}
+#[test]
+fn spot_ln_near_one_below() {
+    check_ln_at("0.9999999999999", 1);
+}
+#[test]
+fn spot_ln_random_finite() {
+    check_ln_at("123.456789012345", 1);
+}
 
-#[test] fn spot_log10_two() { check_log10_at("2", 1); }
-#[test] fn spot_log10_e() { check_log10_at("2.718281828459045235360287471352662", 1); }
-#[test] fn spot_log10_pi() { check_log10_at("3.14159265358979323846264338327950288", 1); }
-#[test] fn spot_log10_powers() {
+#[test]
+fn spot_log10_two() {
+    check_log10_at("2", 1);
+}
+#[test]
+fn spot_log10_e() {
+    check_log10_at("2.718281828459045235360287471352662", 1);
+}
+#[test]
+fn spot_log10_pi() {
+    check_log10_at("3.14159265358979323846264338327950288", 1);
+}
+#[test]
+fn spot_log10_powers() {
     for p in [-100, -10, -1, 1, 10, 100, 1000] {
         check_log10_at(&format!("1e{p}"), 1);
     }

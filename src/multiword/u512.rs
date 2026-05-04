@@ -158,8 +158,7 @@ impl U512 {
     /// `self / 10` returning `(quotient, remainder_digit)`.
     pub(crate) fn div_rem10(self) -> (Self, u32) {
         let (q_hi, r_after_hi) = div_rem_u128_by_10(self.hi);
-        let (q_mid_hi, r_after_mid_hi) =
-            div_rem_u128_with_carry_in_by_10(self.mid_hi, r_after_hi);
+        let (q_mid_hi, r_after_mid_hi) = div_rem_u128_with_carry_in_by_10(self.mid_hi, r_after_hi);
         let (q_mid_lo, r_after_mid_lo) =
             div_rem_u128_with_carry_in_by_10(self.mid_lo, r_after_mid_hi);
         let (q_lo, r_after_lo) = div_rem_u128_with_carry_in_by_10(self.lo, r_after_mid_lo);
@@ -353,10 +352,7 @@ mod tests {
         assert_eq!(U512::ZERO.decimal_digit_count(), 1);
         assert_eq!(U512::from_u128(1).decimal_digit_count(), 1);
         assert_eq!(U512::from_u128(10).decimal_digit_count(), 2);
-        assert_eq!(
-            U512::from_u128(1).mul_pow10(150).decimal_digit_count(),
-            151
-        );
+        assert_eq!(U512::from_u128(1).mul_pow10(150).decimal_digit_count(), 151);
     }
 
     #[test]
@@ -376,7 +372,9 @@ mod tests {
     #[test]
     fn shift_right_to_u256_sets_sticky_for_dropped_nonzero() {
         // Tail with non-zero low digit.
-        let v = U512::from_u128(12345).mul_pow10(120).add(U512::from_u128(7));
+        let v = U512::from_u128(12345)
+            .mul_pow10(120)
+            .add(U512::from_u128(7));
         let (_, shift, sticky) = v.shift_right_to_u256(false);
         assert!(shift > 0);
         assert!(sticky);

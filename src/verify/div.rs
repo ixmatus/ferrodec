@@ -79,8 +79,16 @@ fn div_snan_raises_invalid() {
 fn zero_over_zero_and_inf_over_inf_invalid() {
     let za: bool = kani::any();
     let zb: bool = kani::any();
-    let zero_a = if za { Decimal128::NEG_ZERO } else { Decimal128::ZERO };
-    let zero_b = if zb { Decimal128::NEG_ZERO } else { Decimal128::ZERO };
+    let zero_a = if za {
+        Decimal128::NEG_ZERO
+    } else {
+        Decimal128::ZERO
+    };
+    let zero_b = if zb {
+        Decimal128::NEG_ZERO
+    } else {
+        Decimal128::ZERO
+    };
 
     let (r, s) = zero_a
         .div_special_only_for_kani(zero_b)
@@ -88,8 +96,16 @@ fn zero_over_zero_and_inf_over_inf_invalid() {
     assert!(r.is_nan());
     assert!(s.invalid());
 
-    let inf_a = if za { Decimal128::NEG_INFINITY } else { Decimal128::INFINITY };
-    let inf_b = if zb { Decimal128::NEG_INFINITY } else { Decimal128::INFINITY };
+    let inf_a = if za {
+        Decimal128::NEG_INFINITY
+    } else {
+        Decimal128::INFINITY
+    };
+    let inf_b = if zb {
+        Decimal128::NEG_INFINITY
+    } else {
+        Decimal128::INFINITY
+    };
     let (r, s) = inf_a
         .div_special_only_for_kani(inf_b)
         .expect("∞/∞ is special-cased");
@@ -102,8 +118,16 @@ fn zero_over_zero_and_inf_over_inf_invalid() {
 fn finite_over_zero_div_by_zero() {
     let sa: bool = kani::any();
     let sb: bool = kani::any();
-    let a = if sa { Decimal128::NEG_ONE } else { Decimal128::ONE };
-    let zero = if sb { Decimal128::NEG_ZERO } else { Decimal128::ZERO };
+    let a = if sa {
+        Decimal128::NEG_ONE
+    } else {
+        Decimal128::ONE
+    };
+    let zero = if sb {
+        Decimal128::NEG_ZERO
+    } else {
+        Decimal128::ZERO
+    };
 
     let (r, s) = a
         .div_special_only_for_kani(zero)
@@ -118,8 +142,16 @@ fn finite_over_zero_div_by_zero() {
 fn inf_over_zero_no_div_by_zero() {
     let sa: bool = kani::any();
     let sb: bool = kani::any();
-    let inf = if sa { Decimal128::NEG_INFINITY } else { Decimal128::INFINITY };
-    let zero = if sb { Decimal128::NEG_ZERO } else { Decimal128::ZERO };
+    let inf = if sa {
+        Decimal128::NEG_INFINITY
+    } else {
+        Decimal128::INFINITY
+    };
+    let zero = if sb {
+        Decimal128::NEG_ZERO
+    } else {
+        Decimal128::ZERO
+    };
 
     let (r, s) = inf
         .div_special_only_for_kani(zero)

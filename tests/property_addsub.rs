@@ -78,9 +78,9 @@ fn arbitrary_finite() -> impl Strategy<Value = Decimal128> {
         // Cover the full biased exponent range, biased toward "useful"
         // central values to keep diff manageable.
         prop_oneof![
-            0u32..=64u32,                            // far underflow
-            (BIAS_U32 - 100)..=(BIAS_U32 + 100),     // central
-            (12287u32 - 64)..=12287u32,              // far overflow
+            0u32..=64u32,                        // far underflow
+            (BIAS_U32 - 100)..=(BIAS_U32 + 100), // central
+            (12287u32 - 64)..=12287u32,          // far overflow
         ],
         // Coefficient distribution: small, medium, large.
         prop_oneof![

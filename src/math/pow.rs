@@ -312,7 +312,9 @@ mod tests {
     use alloc::format;
 
     fn parse(s: &str) -> Decimal128 {
-        Decimal128::parse_str(s, RoundingMode::NearestEven).unwrap().0
+        Decimal128::parse_str(s, RoundingMode::NearestEven)
+            .unwrap()
+            .0
     }
 
     fn approx_equal_ulps(a: Decimal128, b: Decimal128, ulps: u32) -> bool {
@@ -384,13 +386,11 @@ mod tests {
         let (r, _) = Decimal128::ZERO.pow(Decimal128::ONE, RoundingMode::NearestEven);
         assert!(r.is_zero());
 
-        let (r, _) =
-            Decimal128::NEG_ZERO.pow(Decimal128::from_i32(3), RoundingMode::NearestEven);
+        let (r, _) = Decimal128::NEG_ZERO.pow(Decimal128::from_i32(3), RoundingMode::NearestEven);
         assert!(r.is_zero());
         assert!(r.is_sign_negative());
 
-        let (r, _) =
-            Decimal128::NEG_ZERO.pow(Decimal128::from_i32(2), RoundingMode::NearestEven);
+        let (r, _) = Decimal128::NEG_ZERO.pow(Decimal128::from_i32(2), RoundingMode::NearestEven);
         assert!(r.is_zero());
         assert!(!r.is_sign_negative());
     }
@@ -412,7 +412,8 @@ mod tests {
         assert_eq!(cmp, Some(core::cmp::Ordering::Equal), "2^10 = {r:?}");
 
         // 3^3 = 27
-        let (r, _) = Decimal128::from_i32(3).pow(Decimal128::from_i32(3), RoundingMode::NearestEven);
+        let (r, _) =
+            Decimal128::from_i32(3).pow(Decimal128::from_i32(3), RoundingMode::NearestEven);
         let (cmp, _) = r.partial_cmp(Decimal128::from_i32(27));
         assert_eq!(cmp, Some(core::cmp::Ordering::Equal));
 
@@ -441,8 +442,7 @@ mod tests {
     #[test]
     fn pow_inf_inf_rules() {
         // 2^Inf = Inf
-        let (r, _) =
-            Decimal128::from_i32(2).pow(Decimal128::INFINITY, RoundingMode::NearestEven);
+        let (r, _) = Decimal128::from_i32(2).pow(Decimal128::INFINITY, RoundingMode::NearestEven);
         assert!(r.is_infinite());
 
         // 0.5^Inf = 0

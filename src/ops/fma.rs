@@ -42,8 +42,8 @@
 //!   `+0` except under `TowardNegative`.
 
 use crate::bid::{
-    classify_bits, decimal_digit_count, pack_finite, pack_infinity, Class, BIAS,
-    BIASED_EXP_MAX, PRECISION,
+    classify_bits, decimal_digit_count, pack_finite, pack_infinity, Class, BIAS, BIASED_EXP_MAX,
+    PRECISION,
 };
 use crate::decimal::Decimal128;
 use crate::multiword::{u256::widening_mul_u128, U256, U384};
@@ -150,17 +150,11 @@ fn fma_special_cases(
                     status |= Status::INVALID;
                     return Some((Decimal128::NAN, status));
                 }
-                return Some((
-                    Decimal128::from_bits(pack_infinity(product_sign)),
-                    status,
-                ));
+                return Some((Decimal128::from_bits(pack_infinity(product_sign)), status));
             }
             // Finite c (zero or non-zero) is dominated by ±Inf.
             _ => {
-                return Some((
-                    Decimal128::from_bits(pack_infinity(product_sign)),
-                    status,
-                ));
+                return Some((Decimal128::from_bits(pack_infinity(product_sign)), status));
             }
         }
     }
@@ -244,8 +238,7 @@ fn combine_zero_product_with_c(
         } => {
             let qc = ec as i32 - BIAS as i32;
             let target = qab.min(qc);
-            let target_clamped =
-                target.clamp(-(BIAS as i32), BIASED_EXP_MAX as i32 - BIAS as i32);
+            let target_clamped = target.clamp(-(BIAS as i32), BIASED_EXP_MAX as i32 - BIAS as i32);
             let result_sign = if product_sign == sc {
                 product_sign
             } else {
@@ -340,7 +333,20 @@ fn fma_finite_kernel(
 
     if ab_too_wide || c_too_wide {
         let _ = effective_sub;
-        return fma_sub_ulp(a, b, c, cab, qab, sab, cc, qc, sc, rm, ab_too_wide, c_too_wide);
+        return fma_sub_ulp(
+            a,
+            b,
+            c,
+            cab,
+            qab,
+            sab,
+            cc,
+            qc,
+            sc,
+            rm,
+            ab_too_wide,
+            c_too_wide,
+        );
     }
 
     // Common path: both shifts fit. Promote into U384.
@@ -367,7 +373,15 @@ fn fma_finite_kernel(
     let (residue, exp_shift, sticky) = combined.shift_right_to_u256(false);
     let target_after = target + exp_shift as i32;
 
-    round_and_pack_finite(residue, target_after, q_pref, sign_out, sticky, rm, Status::OK)
+    round_and_pack_finite(
+        residue,
+        target_after,
+        q_pref,
+        sign_out,
+        sticky,
+        rm,
+        Status::OK,
+    )
 }
 
 /// Sub-ULP path: the smaller summand is below 1 ULP of the larger at
@@ -463,7 +477,11 @@ fn sub_ulp_round(
     // when `digits ≥ PRECISION`. The pad multiplications by 10 are
     // exact and preserve the value.
     let digits = dom.decimal_digit_count();
-    let pad = if digits < PRECISION { PRECISION - digits } else { 0 };
+    let pad = if digits < PRECISION {
+        PRECISION - digits
+    } else {
+        0
+    };
     let padded = if pad > 0 { dom.mul_pow10(pad) } else { dom };
     let q_padded = q_dom - pad as i32;
 
@@ -476,8 +494,7 @@ fn zero_after_cancellation(
     target_unbiased_exp: i32,
 ) -> (Decimal128, Status) {
     let sign = rm == RoundingMode::TowardNegative;
-    let biased_exp = (target_unbiased_exp + BIAS as i32)
-        .clamp(0, BIASED_EXP_MAX as i32) as u32;
+    let biased_exp = (target_unbiased_exp + BIAS as i32).clamp(0, BIASED_EXP_MAX as i32) as u32;
     (
         Decimal128::from_bits(pack_finite(sign, biased_exp, 0)),
         status,
@@ -571,8 +588,7 @@ mod tests {
     #[test]
     fn fma_with_one_multiplier() {
         for &v in &[1i128, -1, 7, -42] {
-            let (r, _) =
-                Decimal128::ONE.fma(d_int(v), Decimal128::ZERO, RoundingMode::default());
+            let (r, _) = Decimal128::ONE.fma(d_int(v), Decimal128::ZERO, RoundingMode::default());
             let (cmp, _) = r.partial_cmp(d_int(v));
             assert_eq!(cmp, Some(core::cmp::Ordering::Equal));
         }
