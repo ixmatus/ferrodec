@@ -27,6 +27,7 @@
 mod argred;
 mod consts;
 mod exp;
+mod extended;
 mod ln;
 mod pow;
 mod sincos;
