@@ -7,6 +7,7 @@
 mod addsub;
 mod div;
 mod fma;
+mod integral;
 mod mul;
 mod rem;
 mod round;

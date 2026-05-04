@@ -67,6 +67,51 @@ impl Decimal128 {
             Class::Finite { .. } => sincos_kernel(self, rm).1,
         }
     }
+
+    /// Tangent, in radians.
+    ///
+    /// `tan(x) = sin(x) / cos(x)`, computed by dividing the two
+    /// extended-precision sin/cos values before rounding to
+    /// `Decimal128`. At `cos(x) = 0` (odd multiples of π/2) the
+    /// result diverges; we return `±∞` without raising
+    /// `DIV_BY_ZERO` (since `tan` of a finite input doesn't fit the
+    /// IEEE 754 §7.3 division-by-zero condition — it's just an
+    /// asymptote).
+    #[must_use]
+    pub fn tan(self, rm: RoundingMode) -> (Self, Status) {
+        match classify_bits(self.to_bits()) {
+            Class::SignalingNaN { .. } => return (Decimal128::NAN, Status::INVALID),
+            Class::QuietNaN { .. } => return (self, Status::OK),
+            Class::Infinity { .. } => return (Decimal128::NAN, Status::INVALID),
+            Class::Zero { sign, .. } => {
+                return (
+                    if sign {
+                        Decimal128::NEG_ZERO
+                    } else {
+                        Decimal128::ZERO
+                    },
+                    Status::OK,
+                );
+            }
+            Class::Finite { .. } => {}
+        }
+        let (sin_ext, cos_ext, status_red) = sincos_extended(self);
+        if cos_ext.is_zero() {
+            // sin/cos at the asymptote: return ±∞ with the sign of sin.
+            let sign = sin_ext.sign;
+            return (
+                if sign {
+                    Decimal128::NEG_INFINITY
+                } else {
+                    Decimal128::INFINITY
+                },
+                status_red | Status::INEXACT,
+            );
+        }
+        let tan_ext = sin_ext.div(cos_ext);
+        let (tan_d, st) = tan_ext.to_decimal128(0, rm);
+        (tan_d, st | status_red | Status::INEXACT)
+    }
 }
 
 /// Compute both `(sin(x), status)` and `(cos(x), status)` from one
@@ -75,8 +120,18 @@ fn sincos_kernel(
     x: Decimal128,
     rm: RoundingMode,
 ) -> ((Decimal128, Status), (Decimal128, Status)) {
-    // Sign handling: reduce `|x|`, then flip the sin result for negative
-    // inputs (sin is odd; cos is even).
+    let (sin_x_ext, cos_x_ext, status_red) = sincos_extended(x);
+    let (sin_d, sin_status) = sin_x_ext.to_decimal128(0, rm);
+    let (cos_d, cos_status) = cos_x_ext.to_decimal128(0, rm);
+    let status = status_red | Status::INEXACT;
+    ((sin_d, sin_status | status), (cos_d, cos_status | status))
+}
+
+/// Compute `(sin(x), cos(x))` at `Extended` precision. Used directly
+/// by the public `sin` / `cos` (after rounding) and by `tan(x) =
+/// sin(x) / cos(x)` (which divides the two extended values before
+/// rounding). Caller filters NaN / Inf / Zero.
+pub(super) fn sincos_extended(x: Decimal128) -> (Extended, Extended, Status) {
     let neg = match classify_bits(x.to_bits()) {
         Class::Finite { sign, .. } => sign,
         _ => false,
@@ -84,7 +139,6 @@ fn sincos_kernel(
     let abs_x = if neg { x.neg() } else { x };
 
     let (k_mod_4, r, status_red) = argred::reduce(abs_x);
-
     let r_sq = r.square();
     let sin_r = taylor_sin_ext(r, r_sq);
     let cos_r = taylor_cos_ext(r_sq);
@@ -98,12 +152,7 @@ fn sincos_kernel(
     };
 
     let sin_x_ext = if neg { sin_abs_ext.neg() } else { sin_abs_ext };
-    let cos_x_ext = cos_abs_ext;
-
-    let (sin_d, sin_status) = sin_x_ext.to_decimal128(0, rm);
-    let (cos_d, cos_status) = cos_x_ext.to_decimal128(0, rm);
-    let status = status_red | Status::INEXACT;
-    ((sin_d, sin_status | status), (cos_d, cos_status | status))
+    (sin_x_ext, cos_abs_ext, status_red)
 }
 
 /// `sin(r) = r − r³/3! + r⁵/5! − …` for `|r| ≤ π/4`. Evaluated at

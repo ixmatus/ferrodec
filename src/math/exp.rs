@@ -27,7 +27,7 @@
 
 use crate::bid::{classify_bits, Class};
 use crate::decimal::Decimal128;
-use crate::math::consts::{inv_ln10_ext, ln10_ext};
+use crate::math::consts::{inv_ln10_ext, ln10_ext, ln2_ext};
 use crate::math::extended::Extended;
 use crate::status::{RoundingMode, Status};
 
@@ -39,6 +39,27 @@ impl Decimal128 {
     #[must_use]
     pub fn exp(self, rm: RoundingMode) -> (Self, Status) {
         exp_kernel(self, rm)
+    }
+
+    /// Base-2 exponential `2^self`. Computed as
+    /// `exp(self · ln(2))` at extended precision.
+    #[must_use]
+    pub fn exp2(self, rm: RoundingMode) -> (Self, Status) {
+        match classify_bits(self.to_bits()) {
+            Class::SignalingNaN { .. } => return (Decimal128::NAN, Status::INVALID),
+            Class::QuietNaN { .. } => return (self, Status::OK),
+            Class::Infinity { sign } => {
+                return if sign {
+                    (Decimal128::ZERO, Status::OK)
+                } else {
+                    (Decimal128::INFINITY, Status::OK)
+                };
+            }
+            Class::Zero { .. } => return (Decimal128::ONE, Status::OK),
+            Class::Finite { .. } => {}
+        }
+        let arg_ext = Extended::from_decimal128(self).mul(ln2_ext());
+        exp_from_extended(arg_ext, rm)
     }
 }
 

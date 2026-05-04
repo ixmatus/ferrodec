@@ -28,6 +28,8 @@ const LN2_EXT_STR: &str = "0.693147180559945309417232121458176568075500134360255
 const LN10_EXT_STR: &str = "2.302585092994045684017991454684364207601101488628772976";
 const INV_LN10_EXT_STR: &str =
     "0.4342944819032518276511289189166050822943970058036665661";
+const INV_LN2_EXT_STR: &str =
+    "1.442695040888963407359924681001892137426645954152985934";
 
 /// `π` to 35 significant digits, rounded to Decimal128 precision.
 #[must_use]
@@ -86,6 +88,12 @@ pub(crate) fn ln10_ext() -> Extended {
 #[must_use]
 pub(crate) fn inv_ln10_ext() -> Extended {
     Extended::parse_str(INV_LN10_EXT_STR)
+}
+
+/// `1/ln(2)` at extended precision. Used by `log2(x) = ln(x) · 1/ln(2)`.
+#[must_use]
+pub(crate) fn inv_ln2_ext() -> Extended {
+    Extended::parse_str(INV_LN2_EXT_STR)
 }
 
 /// Shared parse helper. The constants are hand-curated, so a parse

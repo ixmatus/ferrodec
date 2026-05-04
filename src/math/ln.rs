@@ -29,7 +29,7 @@
 
 use crate::bid::{classify_bits, decimal_digit_count, pack_finite, Class, BIAS};
 use crate::decimal::Decimal128;
-use crate::math::consts::{inv_ln10_ext, ln10, ln10_ext, ln2_ext};
+use crate::math::consts::{inv_ln10_ext, inv_ln2_ext, ln10, ln10_ext, ln2_ext};
 use crate::math::extended::Extended;
 use crate::status::{RoundingMode, Status};
 
@@ -45,6 +45,13 @@ impl Decimal128 {
     #[must_use]
     pub fn log10(self, rm: RoundingMode) -> (Self, Status) {
         log10_kernel(self, rm)
+    }
+
+    /// Base-2 logarithm `log2(self)`. Computed as
+    /// `ln_extended(self) · (1/ln(2))_extended`, then rounded once.
+    #[must_use]
+    pub fn log2(self, rm: RoundingMode) -> (Self, Status) {
+        log2_kernel(self, rm)
     }
 }
 
@@ -76,6 +83,22 @@ fn log10_kernel(x: Decimal128, rm: RoundingMode) -> (Decimal128, Status) {
     // log10(x) = ln(x) · (1/ln(10)) at extended precision.
     let ln_ext = ln_extended(x);
     let result_ext = ln_ext.mul(inv_ln10_ext());
+    let (result, status) = result_ext.to_decimal128(0, rm);
+    (result, status | Status::INEXACT)
+}
+
+fn log2_kernel(x: Decimal128, rm: RoundingMode) -> (Decimal128, Status) {
+    if let Some(early) = ln_special_cases(x) {
+        return early;
+    }
+    if matches!(
+        x.partial_cmp(Decimal128::ONE).0,
+        Some(core::cmp::Ordering::Equal)
+    ) {
+        return (Decimal128::ZERO, Status::OK);
+    }
+    let ln_ext = ln_extended(x);
+    let result_ext = ln_ext.mul(inv_ln2_ext());
     let (result, status) = result_ext.to_decimal128(0, rm);
     (result, status | Status::INEXACT)
 }

@@ -25,10 +25,11 @@
 //! commit.
 
 mod argred;
+mod cbrt;
 mod consts;
-mod exp;
-mod extended;
-mod ln;
+pub(crate) mod exp;
+pub(crate) mod extended;
+pub(crate) mod ln;
 mod pow;
 mod sincos;
 

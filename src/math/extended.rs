@@ -401,6 +401,38 @@ impl Extended {
         self.mul(self)
     }
 
+    /// Reciprocal (`1 / self`) via Newton-Raphson refinement.
+    ///
+    /// Seed with the Decimal128-rounded reciprocal (≥ 33 digits of
+    /// initial precision). Each Newton step `x → x · (2 − b · x)`
+    /// roughly doubles the precision; two steps take 33 → ~66 → ~132
+    /// digits, comfortably past `EXT_PRECISION = 50`.
+    ///
+    /// Caller must ensure `self` is non-zero.
+    pub fn recip(self) -> Self {
+        debug_assert!(!self.is_zero(), "Extended::recip on zero");
+        // Seed: 1 / self at Decimal128 precision.
+        let (self_d, _) = self.to_decimal128(0, RoundingMode::NearestEven);
+        let (recip_d, _) = Decimal128::ONE.div(self_d, RoundingMode::NearestEven);
+        let mut x = Self::from_decimal128(recip_d);
+        let two = Self::from_i32(2);
+
+        for _ in 0..2 {
+            let bx = self.mul(x);
+            let correction = two.sub(bx);
+            x = x.mul(correction);
+        }
+        x
+    }
+
+    /// Divide `self / other` at extended precision.
+    pub fn div(self, other: Self) -> Self {
+        if self.is_zero() {
+            return Self::ZERO;
+        }
+        self.mul(other.recip())
+    }
+
     /// Divide by a small positive `u32` divisor. Used for Taylor
     /// coefficient sequences `term · r² / ((2n)(2n+1))` where the
     /// denominator is an integer.
