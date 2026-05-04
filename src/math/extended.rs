@@ -224,6 +224,23 @@ impl Extended {
         }
     }
 
+    /// Build an `Extended` from raw components, rounding the
+    /// coefficient down to ≤ `EXT_PRECISION` digits via round-half-
+    /// even. The resulting value is `(-1)^sign · coef_rounded ·
+    /// 10^(exp + drop_count)` — i.e. rounding shifts `exp` upward
+    /// when digits are dropped.
+    pub fn from_components(coef: U256, exp: i32, sign: bool) -> Self {
+        if coef.is_zero() {
+            return Self::ZERO;
+        }
+        let (rounded, exp_shift) = round_u256_to_ext(coef, false);
+        Self {
+            coef: rounded,
+            exp: exp + exp_shift as i32,
+            sign,
+        }
+    }
+
     /// Convert to a `Decimal128`. `q_preferred` is the IEEE 754 §6.3
     /// preferred quantum exponent for the operation that built this
     /// value (callers typically pass `0` for transcendentals or pass

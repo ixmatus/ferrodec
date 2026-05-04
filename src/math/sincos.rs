@@ -8,9 +8,12 @@
 //!    compute `k = round(|x| · 2/π) mod 4` and the residual `r` such
 //!    that `|x| = k · π/2 + r` and `|r| ≤ π/4`. The reduction works
 //!    across the full `Decimal128` magnitude range — there's no
-//!    `|x| ≤ 10^9` cap.
-//! 3. Taylor series for `sin(r)` and `cos(r)` on `|r| ≤ π/4`. Then
-//!    rotate by `k mod 4`:
+//!    `|x| ≤ 10^9` cap. `r` is returned as an [`Extended`] so the
+//!    Taylor body below sees ~38-40 digits of fractional residual,
+//!    not just 34.
+//! 3. Taylor series for `sin(r)` and `cos(r)` on `|r| ≤ π/4`,
+//!    evaluated at `Extended` (50-digit) precision. Then rotate by
+//!    `k mod 4`:
 //!
 //!    ```text
 //!    k mod 4   sin(|x|)   cos(|x|)
@@ -23,10 +26,14 @@
 //!
 //!    `sin` is odd, so `sin(x) = -sin(|x|)` when `x < 0`. `cos` is
 //!    even, so `cos(x) = cos(|x|)` regardless of sign.
+//! 4. Round once to `Decimal128` at the end via
+//!    [`Extended::to_decimal128`]. Result is faithfully rounded
+//!    (≤ 1 ULP) against `astro-float`.
 
 use crate::bid::{classify_bits, Class};
 use crate::decimal::Decimal128;
 use crate::math::argred;
+use crate::math::extended::Extended;
 use crate::status::{RoundingMode, Status};
 
 impl Decimal128 {
@@ -76,13 +83,13 @@ fn sincos_kernel(
     };
     let abs_x = if neg { x.neg() } else { x };
 
-    let (k_mod_4, r, status_red) = argred::reduce(abs_x, rm);
+    let (k_mod_4, r, status_red) = argred::reduce(abs_x);
 
-    let (sin_r, s_sin) = taylor_sin(r);
-    let (cos_r, s_cos) = taylor_cos(r);
-    let status = status_red | s_sin | s_cos | Status::INEXACT;
+    let r_sq = r.square();
+    let sin_r = taylor_sin_ext(r, r_sq);
+    let cos_r = taylor_cos_ext(r_sq);
 
-    let (mut sin_abs, cos_abs) = match k_mod_4 {
+    let (sin_abs_ext, cos_abs_ext) = match k_mod_4 {
         0 => (sin_r, cos_r),
         1 => (cos_r, sin_r.neg()),
         2 => (sin_r.neg(), cos_r.neg()),
@@ -90,78 +97,67 @@ fn sincos_kernel(
         _ => unreachable!(),
     };
 
-    if neg {
-        sin_abs = sin_abs.neg();
-    }
+    let sin_x_ext = if neg { sin_abs_ext.neg() } else { sin_abs_ext };
+    let cos_x_ext = cos_abs_ext;
 
-    ((sin_abs, status), (cos_abs, status))
+    let (sin_d, sin_status) = sin_x_ext.to_decimal128(0, rm);
+    let (cos_d, cos_status) = cos_x_ext.to_decimal128(0, rm);
+    let status = status_red | Status::INEXACT;
+    ((sin_d, sin_status | status), (cos_d, cos_status | status))
 }
 
-/// `sin(r) = r − r³/3! + r⁵/5! − …` for `|r| ≤ π/4`.
-fn taylor_sin(r: Decimal128) -> (Decimal128, Status) {
-    let mut status = Status::OK;
+/// `sin(r) = r − r³/3! + r⁵/5! − …` for `|r| ≤ π/4`. Evaluated at
+/// `Extended` precision; caller passes `r²` so it can be shared with
+/// the cosine evaluation.
+fn taylor_sin_ext(r: Extended, r_sq: Extended) -> Extended {
     let mut sum = r;
     let mut term = r;
-    let r_squared = {
-        let (rs, s) = r.mul(r, RoundingMode::NearestEven);
-        status |= s;
-        rs
-    };
-    let mut alt = true; // first added term is positive `r`; next is negative.
-    let mut n: i32 = 1; // current term index = (2n - 1)!
-    let max_iters = 100;
-    for _ in 0..max_iters {
-        // term_{k+1} = -term_k * r² / ((2n)(2n+1))
+    let mut alt = true; // next term subtracts.
+    // n indexes the term series (term_n = r^{2n-1} / (2n-1)!).
+    // Update: term_{n+1} = term_n · r² / ((2n)(2n+1)).
+    let mut n: u32 = 1;
+    for _ in 0..120 {
         n += 1;
-        let denom = Decimal128::from_i32((2 * n - 2) * (2 * n - 1));
-        let (numer, s1) = term.mul(r_squared, RoundingMode::NearestEven);
-        let (next_term, s2) = numer.div(denom, RoundingMode::NearestEven);
-        status |= s1 | s2;
-        term = next_term;
+        let denom = (2 * n - 2) * (2 * n - 1); // u32, fits up to n ≈ 32k
+        term = term.mul(r_sq).div_u32(denom);
         let signed = if alt { term.neg() } else { term };
         alt = !alt;
-        let (next_sum, s3) = sum.add(signed, RoundingMode::NearestEven);
-        status |= s3;
-        let (cmp, _) = next_sum.partial_cmp(sum);
+        let next_sum = sum.add(signed);
+        if next_sum.cmp(sum) == core::cmp::Ordering::Equal {
+            sum = next_sum;
+            break;
+        }
         sum = next_sum;
-        if cmp == Some(core::cmp::Ordering::Equal) || term.is_zero() {
+        if term.is_zero() {
             break;
         }
     }
-    (sum, status)
+    sum
 }
 
 /// `cos(r) = 1 − r²/2! + r⁴/4! − …` for `|r| ≤ π/4`.
-fn taylor_cos(r: Decimal128) -> (Decimal128, Status) {
-    let mut status = Status::OK;
-    let mut sum = Decimal128::ONE;
-    let mut term = Decimal128::ONE;
-    let r_squared = {
-        let (rs, s) = r.mul(r, RoundingMode::NearestEven);
-        status |= s;
-        rs
-    };
-    let mut alt = true; // first added term is +1; next is -r²/2.
-    let mut n: i32 = 0;
-    let max_iters = 100;
-    for _ in 0..max_iters {
+fn taylor_cos_ext(r_sq: Extended) -> Extended {
+    let mut sum = Extended::ONE;
+    let mut term = Extended::ONE;
+    let mut alt = true; // next term subtracts.
+    let mut n: u32 = 0;
+    for _ in 0..120 {
         n += 1;
-        let denom = Decimal128::from_i32((2 * n - 1) * (2 * n));
-        let (numer, s1) = term.mul(r_squared, RoundingMode::NearestEven);
-        let (next_term, s2) = numer.div(denom, RoundingMode::NearestEven);
-        status |= s1 | s2;
-        term = next_term;
+        let denom = (2 * n - 1) * (2 * n);
+        term = term.mul(r_sq).div_u32(denom);
         let signed = if alt { term.neg() } else { term };
         alt = !alt;
-        let (next_sum, s3) = sum.add(signed, RoundingMode::NearestEven);
-        status |= s3;
-        let (cmp, _) = next_sum.partial_cmp(sum);
+        let next_sum = sum.add(signed);
+        if next_sum.cmp(sum) == core::cmp::Ordering::Equal {
+            sum = next_sum;
+            break;
+        }
         sum = next_sum;
-        if cmp == Some(core::cmp::Ordering::Equal) || term.is_zero() {
+        if term.is_zero() {
             break;
         }
     }
-    (sum, status)
+    sum
 }
 
 #[cfg(test)]
