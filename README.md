@@ -16,8 +16,10 @@ Three design choices shape the library.
 
 ```toml
 [dependencies]
-ferrodec = "0"
+ferrodec = "1"
 ```
+
+The headline case is decimal arithmetic that rounds the way humans do.
 
 ```rust
 # #[cfg(feature = "fmt")]
@@ -34,7 +36,32 @@ assert_eq!(format!("{sum}"), "3.3");
 # fn main() {}
 ```
 
-Notice what this short example demonstrates. Decimal addition gives the exact result a human would expect (`1.1 + 2.2 = 3.3`), without the `0.30000000000000004` artifact that binary floating point produces. The status flag records that the inputs were inexact representations of `1.1` and `2.2`, not that the addition itself was, and the `Display` output preserves the quantum that the input strings implied.
+Decimal addition gives the result a human would expect (`1.1 + 2.2 = 3.3`), without the `0.30000000000000004` artifact that binary floating point produces. The status flag records that the inputs were inexact representations of `1.1` and `2.2`, not that the addition itself was, and the `Display` output preserves the quantum that the input strings implied.
+
+Constructing values without going through a string:
+
+```rust
+use ferrodec::Decimal128;
+
+// 1.23 = 123 × 10^-2
+let price = Decimal128::try_new(123, -2).unwrap();
+let three_pence = Decimal128::try_new(3, -2).unwrap();
+assert!(price.same_quantum(three_pence));
+```
+
+`try_new(coefficient, exponent)` takes the integer pair directly. No allocator, no parser, no `fmt` feature required: useful on the embedded floor where the parse path's working buffers are themselves a code size cost.
+
+Inspecting the status flags:
+
+```rust
+use ferrodec::{Decimal128, RoundingMode};
+
+let (q, status) = Decimal128::ONE.div(Decimal128::ZERO, RoundingMode::NearestEven);
+assert!(q.is_infinite());
+assert!(status.div_by_zero());
+```
+
+Every operation produces a per call `Status`, never a global flag word. Callers compose flags however they like; ferrodec never reads or writes a thread local register.
 
 ## Feature surface
 
@@ -53,15 +80,15 @@ The public API divides into five clusters.
 
 ### Construction and conversion
 
-The named constants: `Decimal128::ZERO`, `NEG_ZERO`, `ONE`, `NEG_ONE`, `TEN`, `MAX`, `MIN`, `MIN_POSITIVE`, `MIN_POSITIVE_NORMAL`, `INFINITY`, `NEG_INFINITY`, `NAN`, `SIGNALING_NAN`. The integer round trip: `from_i32`, `from_i64`, `from_i128`, `from_u32`, `from_u64`, `from_u128`, plus the `to_i32` … `to_u128` family that the reverse direction provides. The raw bit pattern: `from_bits` and `to_bits` for the 128 bit BID encoding. With `binary-float` enabled: `from_f32`, `from_f64`, `to_f32`, `to_f64`. With `fmt` enabled: `parse_str` and `Display`.
+The named constants: `Decimal128::ZERO`, `NEG_ZERO`, `ONE`, `NEG_ONE`, `TEN`, `MAX`, `MIN`, `MIN_POSITIVE`, `MIN_POSITIVE_NORMAL`, `INFINITY`, `NEG_INFINITY`, `NAN`, `SIGNALING_NAN`. Direct construction from integer parts: `try_new(coefficient, exponent)`. The integer round trip: `from_i32`, `from_i64`, `from_i128`, `from_u32`, `from_u64`, `from_u128`, plus the `to_i32` … `to_u128` family that the reverse direction provides. The raw bit pattern: `from_bits` and `to_bits` for the 128 bit BID encoding. With `binary-float` enabled: `from_f32`, `from_f64`, `to_f32`, `to_f64`. With `fmt` enabled: `parse_str` and `Display`.
 
 ### Classification
 
-`is_nan`, `is_signaling_nan`, `is_quiet_nan`, `is_infinite`, `is_finite`, `is_zero`, `is_normal`, `is_subnormal`, `is_sign_negative`, `is_sign_positive`, and `classify` (which returns `core::num::FpCategory`).
+`is_nan`, `is_signaling_nan`, `is_quiet_nan`, `is_infinite`, `is_finite`, `is_zero`, `is_normal`, `is_subnormal`, `is_sign_negative`, `is_sign_positive`, and `classify` (which returns `core::num::FpCategory`). The IEEE 754 §5.7.2 / §5.4.2 canonical pair: `is_canonical` and `canonicalize`.
 
 ### Sign and ordering
 
-`abs`, `neg`, `copysign`, `signum`. For ordering, `partial_cmp` provides numeric comparison and returns `(Option<Ordering>, Status)`; `total_cmp` provides the IEEE 754:2019 totalOrder predicate over all bit patterns, including NaN payloads.
+`abs`, `neg`, `copysign`, `signum`. For ordering, `partial_cmp` provides numeric comparison and returns `(Option<Ordering>, Status)`; `total_cmp` provides the IEEE 754:2019 totalOrder predicate over all bit patterns, including NaN payloads. `compare_total_magnitude(other)` does the same on `|self|` and `|other|`.
 
 ### Arithmetic
 
@@ -70,6 +97,10 @@ The named constants: `Decimal128::ZERO`, `NEG_ZERO`, `ONE`, `NEG_ONE`, `TEN`, `M
 ### Rounding to integral
 
 `floor`, `ceil`, `trunc`, `round` (ties away from zero), and `round_ties_even` give the conventional API. The IEEE 754:2019 §5.3 family lives alongside as `round_to_integral(rm)` and `round_to_integral_exact(rm)`; the second variant raises `INEXACT` for non integer inputs.
+
+### Quantum operations
+
+The IEEE 754:2019 §5.3 quantum surface: `quantize(target, rm)` rescales `self` to `target`'s quantum exponent; `same_quantum(other)` tests whether two values share an exponent; `scaleb(n, rm)` shifts the exponent by an integer; `logb()` returns `floor(log10(|x|))`; `next_up()` and `next_down()` step to the numerically adjacent representable value; `radix()` returns 10.
 
 ### Transcendentals (feature `transcendentals`)
 
@@ -107,9 +138,9 @@ ferrodec compiles for any target Rust 1.84 supports. Three targets exercise on e
 
 ferrodec leans on four overlapping verification stacks.
 
-1. **Unit tests** (`cargo test`). 330 tests in the library plus per module integration suites.
+1. **Unit tests** (`cargo test`). 376 tests in the library plus per module integration suites and a doctest set on the public API.
 2. **Property tests** (proptest). Twelve files cover add/sub/mul/div/sqrt/rem, exp, ln, sincos, the inverse and hyperbolic functions, pow, the binary float conversions, and the addsub alignment edge case. Each cross checks against `astro-float`, a pure Rust arbitrary precision oracle, at the documented per function envelope.
-3. **Conformance vectors** (`tests/conformance.rs`). The runner consumes every `dq*.decTest` file from Mike Cowlishaw's [General Decimal Arithmetic Testcases](https://speleotrove.com/decimal/dectest.html), 6 610 cases total. Pass/fail/skip totals act as regression guards: any drop below the floor or rise above the ceiling fails the build. Current totals are 6 216 pass, 0 fail, 394 skip. The skips are operations and rounding modes outside IEEE 754:2019.
+3. **Conformance vectors** (`tests/conformance.rs`). The runner consumes every `dq*.decTest` file from Mike Cowlishaw's [General Decimal Arithmetic Testcases](https://speleotrove.com/decimal/dectest.html), 8 721 cases total. Pass/fail/skip totals act as regression guards: any drop below the floor or rise above the ceiling fails the build. Current totals are 8 149 pass, 0 fail, 572 skip. The skips are operations and rounding modes outside IEEE 754:2019.
 4. **Formal verification** (Kani, behind `--features=kani`). 50 harnesses prove NaN propagation, sign rules, special value invariants, encode/decode round trips, and basic arithmetic identities for the IEEE special case dispatch paths. The harnesses use bounded operand shims (`*_special_only_for_kani`) so CBMC need not reason about the alignment and rounding loops.
 
 ## Performance
