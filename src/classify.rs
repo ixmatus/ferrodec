@@ -231,7 +231,23 @@ impl Decimal128 {
     ///   encoding; the eleven bits between it and the payload must be
     ///   zero.
     ///
-    /// No status flags raised.
+    /// No status flags raised. See [`Decimal128::canonicalize`] for the
+    /// rewrite operation.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use ferrodec::Decimal128;
+    ///
+    /// // Distinguished constants are canonical.
+    /// assert!(Decimal128::ONE.is_canonical());
+    /// assert!(Decimal128::INFINITY.is_canonical());
+    /// assert!(Decimal128::NAN.is_canonical());
+    ///
+    /// // Junk bits below the Inf type field break canonicity.
+    /// let dirty = Decimal128::from_bits(Decimal128::INFINITY.to_bits() | 0xFF);
+    /// assert!(!dirty.is_canonical());
+    /// ```
     #[inline]
     #[must_use]
     pub const fn is_canonical(self) -> bool {
@@ -269,7 +285,24 @@ impl Decimal128 {
     ///   NaN with sign and signaling preserved; payload preserved iff
     ///   `< 10^33`, otherwise zeroed.
     ///
-    /// Already-canonical inputs are returned unchanged.
+    /// Already-canonical inputs are returned unchanged. See
+    /// [`Decimal128::is_canonical`] for the predicate.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use ferrodec::Decimal128;
+    ///
+    /// // Already canonical: bit-identical round-trip.
+    /// assert_eq!(
+    ///     Decimal128::ONE.canonicalize().to_bits(),
+    ///     Decimal128::ONE.to_bits(),
+    /// );
+    ///
+    /// // Junk bits on Infinity are stripped.
+    /// let dirty = Decimal128::from_bits(Decimal128::INFINITY.to_bits() | 0xFF);
+    /// assert_eq!(dirty.canonicalize().to_bits(), Decimal128::INFINITY.to_bits());
+    /// ```
     #[inline]
     #[must_use]
     pub const fn canonicalize(self) -> Self {

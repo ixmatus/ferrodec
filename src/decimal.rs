@@ -51,6 +51,20 @@ impl Decimal128 {
     /// This is a direct alternative to round-tripping through
     /// `parse_str(format!("{coef}E{exp}"))` for callers that already have
     /// the coefficient and exponent as integers.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use ferrodec::{Decimal128, Decimal128BuildError};
+    ///
+    /// // 1.23 = 123 × 10^-2.
+    /// let x = Decimal128::try_new(123, -2).unwrap();
+    /// assert!(x.is_finite() && !x.is_zero());
+    ///
+    /// // 35-digit coefficient is out of range.
+    /// let too_big = Decimal128::try_new(10_i128.pow(34), 0);
+    /// assert_eq!(too_big, Err(Decimal128BuildError::CoefficientOutOfRange));
+    /// ```
     pub fn try_new(coefficient: i128, exponent: i32) -> Result<Self, Decimal128BuildError> {
         let sign = coefficient < 0;
         let magnitude = coefficient.unsigned_abs();

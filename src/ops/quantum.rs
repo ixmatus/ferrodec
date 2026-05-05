@@ -34,6 +34,20 @@ impl Decimal128 {
     /// * Either operand is NaN → NaN (INVALID if signaling).
     /// * `self` is ±∞ and `target` is ±∞ → `self`.
     /// * Any other Inf/finite mismatch → NaN + INVALID.
+    ///
+    /// See [`Decimal128::same_quantum`] for the predicate test.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use ferrodec::{Decimal128, RoundingMode};
+    ///
+    /// let x = Decimal128::try_new(1234, -3).unwrap();   // 1.234
+    /// let target = Decimal128::try_new(1, -2).unwrap(); // 0.01 quantum
+    /// let (r, st) = x.quantize(target, RoundingMode::NearestEven);
+    /// assert!(r.same_quantum(target));
+    /// assert!(st.inexact());
+    /// ```
     #[must_use]
     pub fn quantize(self, target: Self, rm: RoundingMode) -> (Self, Status) {
         let snan = self.is_signaling_nan() || target.is_signaling_nan();
@@ -113,6 +127,21 @@ impl Decimal128 {
     /// * Two finite or zero values → `true` iff their biased exponents match.
     ///
     /// No status flags are raised.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use ferrodec::Decimal128;
+    ///
+    /// // 1.23 and 4.56 share quantum 10^-2.
+    /// let a = Decimal128::try_new(123, -2).unwrap();
+    /// let b = Decimal128::try_new(456, -2).unwrap();
+    /// assert!(a.same_quantum(b));
+    ///
+    /// // 1.2 has quantum 10^-1 — different cohort.
+    /// let c = Decimal128::try_new(12, -1).unwrap();
+    /// assert!(!a.same_quantum(c));
+    /// ```
     #[inline]
     #[must_use]
     pub fn same_quantum(self, other: Self) -> bool {
@@ -140,6 +169,18 @@ impl Decimal128 {
     /// Arithmetic spec.
     ///
     /// Signaling NaN raises `INVALID`; quiet NaN and ±∞ pass through.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use ferrodec::{Decimal128, RoundingMode};
+    ///
+    /// // 7 × 10^3 = 7000 (exact, quantum shifted by +3).
+    /// let seven = Decimal128::try_new(7, 0).unwrap();
+    /// let (r, st) = seven.scaleb(3, RoundingMode::NearestEven);
+    /// assert!(st.is_ok());
+    /// assert_eq!(r.to_bits(), Decimal128::try_new(7, 3).unwrap().to_bits());
+    /// ```
     #[must_use]
     pub fn scaleb(self, n: i32, rm: RoundingMode) -> (Self, Status) {
         if self.is_signaling_nan() {
@@ -198,6 +239,17 @@ impl Decimal128 {
     /// * `logb(±0)` → `−∞` with `DIV_BY_ZERO` raised.
     /// * `logb(qNaN)` → the NaN propagated unchanged.
     /// * `logb(sNaN)` → quiet NaN + `INVALID`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use ferrodec::Decimal128;
+    ///
+    /// // floor(log10(10)) = 1.
+    /// let (r, st) = Decimal128::TEN.logb();
+    /// assert!(st.is_ok());
+    /// assert_eq!(r.to_bits(), Decimal128::ONE.to_bits());
+    /// ```
     #[must_use]
     pub fn logb(self) -> (Self, Status) {
         if self.is_signaling_nan() {
@@ -247,6 +299,19 @@ impl Decimal128 {
     /// for subnormals). This matches IEEE / GDA: every adjacent value is
     /// reachable in a single step, regardless of which cohort `self` was
     /// encoded in.
+    ///
+    /// See [`Decimal128::next_down`] for the symmetric op.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use ferrodec::Decimal128;
+    ///
+    /// // The smallest value strictly greater than ±0 is MIN_POSITIVE.
+    /// let (r, st) = Decimal128::ZERO.next_up();
+    /// assert!(st.is_ok());
+    /// assert_eq!(r.to_bits(), Decimal128::MIN_POSITIVE.to_bits());
+    /// ```
     #[must_use]
     pub fn next_up(self) -> (Self, Status) {
         if self.is_signaling_nan() {
@@ -320,6 +385,19 @@ impl Decimal128 {
     }
 
     /// IEEE 754-2019 §5.3.1 `nextDown(x) = −nextUp(−x)`.
+    ///
+    /// See [`Decimal128::next_up`] for the symmetric op.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use ferrodec::Decimal128;
+    ///
+    /// // The largest finite value strictly less than +∞ is MAX.
+    /// let (r, st) = Decimal128::INFINITY.next_down();
+    /// assert!(st.is_ok());
+    /// assert_eq!(r.to_bits(), Decimal128::MAX.to_bits());
+    /// ```
     #[must_use]
     pub fn next_down(self) -> (Self, Status) {
         let (up, st) = self.neg().next_up();
@@ -330,6 +408,24 @@ impl Decimal128 {
     ///
     /// Total-order comparison of `|x|` and `|y|`, equivalent to
     /// `x.abs().total_cmp(y.abs())`. No status flags are raised.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use core::cmp::Ordering;
+    /// use ferrodec::Decimal128;
+    ///
+    /// // |+1| == |-1| in total-magnitude order.
+    /// assert_eq!(
+    ///     Decimal128::ONE.compare_total_magnitude(Decimal128::NEG_ONE),
+    ///     Ordering::Equal,
+    /// );
+    /// // |1| < |10|.
+    /// assert_eq!(
+    ///     Decimal128::ONE.compare_total_magnitude(Decimal128::TEN),
+    ///     Ordering::Less,
+    /// );
+    /// ```
     #[inline]
     #[must_use]
     pub fn compare_total_magnitude(self, other: Self) -> Ordering {
@@ -339,6 +435,14 @@ impl Decimal128 {
     /// IEEE 754-2019 §5.3.4: the radix of the floating-point format.
     ///
     /// Always `10` for `Decimal128`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use ferrodec::Decimal128;
+    ///
+    /// assert_eq!(Decimal128::radix(), 10);
+    /// ```
     #[inline]
     #[must_use]
     pub const fn radix() -> u32 {
