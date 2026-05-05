@@ -15,7 +15,7 @@ mod status;
 #[cfg(feature = "transcendentals")]
 pub use math::{e, ln10, ln2, pi};
 
-pub use decimal::Decimal128;
+pub use decimal::{Decimal128, Decimal128BuildError};
 pub use status::{RoundingMode, Status};
 
 #[cfg(feature = "fmt")]

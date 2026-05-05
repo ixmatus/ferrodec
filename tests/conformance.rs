@@ -18,9 +18,9 @@
 //! `1.0` and `1.00` are distinct), and we hold ourselves to the same
 //! bar — `result.to_bits() == expected.to_bits()` for finite results.
 //!
-//! Ops we don't yet implement (`comparesig`, `tointegral`, `quantize`,
-//! ...) are counted as `skipped`, not failed. When the failures list
-//! is non-empty the test panics with a per-file summary so triage can
+//! Ops we don't yet implement (`comparesig`, `tointegral`, ...) are
+//! counted as `skipped`, not failed. When the failures list is
+//! non-empty the test panics with a per-file summary so triage can
 //! start at a specific test ID.
 
 use std::fs;
@@ -89,7 +89,7 @@ fn dectest_conformance() {
     // Arithmetic modes that are not part of IEEE 754-2019; cases under
     // those directives are skipped rather than coerced into a kernel
     // mode that doesn't match the spec.
-    const PASS_FLOOR: usize = 6200;
+    const PASS_FLOOR: usize = 8149;
     const FAIL_CEILING: usize = 0;
 
     assert!(
@@ -434,9 +434,16 @@ enum OpKind {
     Plus,
     Compare,
     CompareTotal,
+    CompareTotalMag,
     Min,
     Max,
     Class,
+    Quantize,
+    SameQuantum,
+    ScaleB,
+    LogB,
+    NextPlus,
+    NextMinus,
 }
 
 fn dispatch_op(name: &str) -> Option<OpKind> {
@@ -453,9 +460,17 @@ fn dispatch_op(name: &str) -> Option<OpKind> {
         "plus" => OpKind::Plus,
         "compare" => OpKind::Compare,
         "comparetotal" => OpKind::CompareTotal,
+        // decTest spells the magnitude variant `comparetotmag` (no `al`).
+        "comparetotmag" | "comparetotalmag" => OpKind::CompareTotalMag,
         "min" => OpKind::Min,
         "max" => OpKind::Max,
         "class" => OpKind::Class,
+        "quantize" => OpKind::Quantize,
+        "samequantum" => OpKind::SameQuantum,
+        "scaleb" => OpKind::ScaleB,
+        "logb" => OpKind::LogB,
+        "nextplus" => OpKind::NextPlus,
+        "nextminus" => OpKind::NextMinus,
         _ => return None,
     })
 }
@@ -564,6 +579,82 @@ fn invoke(op: OpKind, operands: &[String], rm: RoundingMode) -> Option<OpResult>
             // skips these.
             let _ = parse_value(&operands[0], rm)?.0;
             Some(OpResult::Class(()))
+        }
+        OpKind::Quantize => {
+            let a = parse_value(&operands[0], rm)?.0;
+            let b = parse_value(&operands[1], rm)?.0;
+            let (v, s) = a.quantize(b, rm);
+            Some(OpResult::Value(v, s))
+        }
+        OpKind::SameQuantum => {
+            let a = parse_value(&operands[0], rm)?.0;
+            let b = parse_value(&operands[1], rm)?.0;
+            let same = a.same_quantum(b);
+            // decTest represents the boolean result as "1" or "0".
+            let v = if same {
+                Decimal128::ONE
+            } else {
+                Decimal128::ZERO
+            };
+            Some(OpResult::Value(v, Status::OK))
+        }
+        OpKind::ScaleB => {
+            let a = parse_value(&operands[0], rm)?.0;
+            let n_dec = parse_value(&operands[1], rm)?.0;
+            // Validate the second operand per GDA §5.3:
+            //  • sNaN in either operand    → quiet NaN + INVALID
+            //  • qNaN in either operand    → propagate
+            //  • Inf as second operand     → NaN + INVALID
+            //  • non-integer quantum (i.e. biased_exp != BIAS) → NaN + INVALID
+            // Magnitude bound (|n| > 12356) is enforced by `scaleb` itself.
+            if a.is_signaling_nan() || n_dec.is_signaling_nan() {
+                return Some(OpResult::Value(Decimal128::NAN, Status::INVALID));
+            }
+            if a.is_nan() {
+                return Some(OpResult::Value(a, Status::OK));
+            }
+            if n_dec.is_nan() {
+                return Some(OpResult::Value(n_dec, Status::OK));
+            }
+            if n_dec.is_infinite() {
+                return Some(OpResult::Value(Decimal128::NAN, Status::INVALID));
+            }
+            // Integer-quantum check: same_quantum against ONE (which has
+            // biased_exp = BIAS). Anything with a different quantum (e.g.
+            // 1.00, 1E+1, 0.5) is non-integer per the spec.
+            if !n_dec.same_quantum(Decimal128::ONE) {
+                return Some(OpResult::Value(Decimal128::NAN, Status::INVALID));
+            }
+            // to_i32 saturates on overflow; the saturated value's magnitude
+            // is well above 12356, so scaleb's bound check catches it.
+            let (n_i32, _) = n_dec.to_i32(RoundingMode::TowardZero);
+            let (v, s) = a.scaleb(n_i32, rm);
+            Some(OpResult::Value(v, s))
+        }
+        OpKind::LogB => {
+            let a = parse_value(&operands[0], rm)?.0;
+            let (v, s) = a.logb();
+            Some(OpResult::Value(v, s))
+        }
+        OpKind::NextPlus => {
+            let a = parse_value(&operands[0], rm)?.0;
+            let (v, s) = a.next_up();
+            Some(OpResult::Value(v, s))
+        }
+        OpKind::NextMinus => {
+            let a = parse_value(&operands[0], rm)?.0;
+            let (v, s) = a.next_down();
+            Some(OpResult::Value(v, s))
+        }
+        OpKind::CompareTotalMag => {
+            let a = parse_value(&operands[0], rm)?.0;
+            let b = parse_value(&operands[1], rm)?.0;
+            let v = match a.compare_total_magnitude(b) {
+                core::cmp::Ordering::Less => Decimal128::NEG_ONE,
+                core::cmp::Ordering::Equal => Decimal128::ZERO,
+                core::cmp::Ordering::Greater => Decimal128::ONE,
+            };
+            Some(OpResult::Value(v, Status::OK))
         }
     }
 }

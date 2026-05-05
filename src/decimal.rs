@@ -42,6 +42,28 @@ impl Decimal128 {
         self.0
     }
 
+    /// Construct a `Decimal128` from a `(coefficient, exponent)` pair.
+    ///
+    /// The value is `coefficient × 10^exponent`. Returns `Err` if the
+    /// coefficient's magnitude exceeds 34 decimal digits or the exponent
+    /// is outside the representable range `[−6176, 6111]`.
+    ///
+    /// This is a direct alternative to round-tripping through
+    /// `parse_str(format!("{coef}E{exp}"))` for callers that already have
+    /// the coefficient and exponent as integers.
+    pub fn try_new(coefficient: i128, exponent: i32) -> Result<Self, Decimal128BuildError> {
+        let sign = coefficient < 0;
+        let magnitude = coefficient.unsigned_abs();
+        if magnitude >= bid::COEFFICIENT_LIMIT {
+            return Err(Decimal128BuildError::CoefficientOutOfRange);
+        }
+        let biased = exponent as i64 + bid::BIAS as i64;
+        if biased < 0 || biased > bid::BIASED_EXP_MAX as i64 {
+            return Err(Decimal128BuildError::ExponentOutOfRange);
+        }
+        Ok(Self(bid::pack_finite(sign, biased as u32, magnitude)))
+    }
+
     // -- IEEE 754 distinguished values --------------------------------------
 
     /// `+0` with quantum exponent 0 (encoded as `0E+0`).
@@ -95,6 +117,15 @@ impl Decimal128 {
 
     /// `−∞`.
     pub const NEG_INFINITY: Self = Self(bid::pack_infinity(true));
+}
+
+/// Error returned by [`Decimal128::try_new`].
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Decimal128BuildError {
+    /// The coefficient magnitude is ≥ 10^34 (more than 34 decimal digits).
+    CoefficientOutOfRange,
+    /// The exponent is outside `[−6176, 6111]`.
+    ExponentOutOfRange,
 }
 
 impl core::fmt::Debug for Decimal128 {

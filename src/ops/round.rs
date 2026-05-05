@@ -169,7 +169,7 @@ fn drop_excess_digits(
 
 /// Decide whether to round the kept coefficient up by one ULP, given the
 /// IEEE 754 rounding mode and the bits we discarded.
-fn should_round_up(
+pub(crate) fn should_round_up(
     rm: RoundingMode,
     sign: bool,
     last_kept: u32,

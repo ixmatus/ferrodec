@@ -9,8 +9,9 @@ mod div;
 mod fma;
 mod integral;
 mod mul;
+mod quantum;
 mod rem;
-mod round;
+pub(crate) mod round;
 mod sqrt;
 
 pub(crate) use round::round_and_pack_finite;
