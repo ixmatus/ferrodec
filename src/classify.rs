@@ -6,10 +6,24 @@
 use core::num::FpCategory;
 
 use crate::bid::{
-    classify_bits, decimal_digit_count, pack_finite, pack_quiet_nan, sign_of, type_field, Class,
-    BIAS, NAN_SIGNALING_SHIFT, PRECISION, SIGN_SHIFT,
+    classify_bits, decimal_digit_count, pack_finite, pack_infinity, pack_quiet_nan,
+    pack_signaling_nan, sign_of, type_field, Class, BIAS, COEFFICIENT_LIMIT, NAN_SIGNALING_SHIFT,
+    PRECISION, SIGN_SHIFT, T_BITS, T_MASK,
 };
 use crate::decimal::Decimal128;
+
+/// Maximum canonical NaN payload: `10^33` (i.e. payload representable as a
+/// 33-decimal-digit integer). Used by `is_canonical` and `canonicalize`.
+const MAX_CANONICAL_NAN_PAYLOAD: u128 = 10u128.pow(33);
+
+/// Mask for bits 120..110 — the EC slots that are *unused* in NaN
+/// encodings (the signaling marker is bit 121; the payload occupies bits
+/// 109..0). For canonical NaN these eleven bits must be zero.
+const NAN_HIGH_UNUSED_MASK: u128 = ((1u128 << NAN_SIGNALING_SHIFT) - 1) & !T_MASK;
+
+/// Mask for bits 121..0 — everything below the 5-bit type field. For
+/// canonical Infinity these bits must all be zero.
+const INF_BELOW_TYPE_MASK: u128 = (1u128 << 122) - 1;
 
 impl Decimal128 {
     /// `true` if this value is *any* NaN (quiet or signaling).
@@ -200,6 +214,98 @@ impl Decimal128 {
         Self((self.0 & !(1u128 << SIGN_SHIFT)) | s)
     }
 
+    /// IEEE 754-2019 §5.7.2 `isCanonical(x)`.
+    ///
+    /// For BID-128 a bit pattern is canonical iff:
+    ///
+    /// * **Finite (Form A)**: coefficient `< 10^34`. Form A holds
+    ///   coefficients up to `2^113 − 1 ≈ 1.038 × 10^34`; values in
+    ///   `[10^34, 2^113)` are non-canonical and decode to `±0` per
+    ///   §3.5.2.
+    /// * **Form B**: never canonical for BID-128 (the implicit `100`
+    ///   prefix forces the coefficient ≥ `2^113 > 10^34`).
+    /// * **Infinity**: bits 121..0 are all zero. The trailing significand
+    ///   and exponent continuation are unused in `±∞` encodings.
+    /// * **NaN**: bits 120..110 are zero *and* the payload `< 10^33`.
+    ///   Bit 121 is the signaling marker and is part of the canonical
+    ///   encoding; the eleven bits between it and the payload must be
+    ///   zero.
+    ///
+    /// No status flags raised.
+    #[inline]
+    #[must_use]
+    pub const fn is_canonical(self) -> bool {
+        let bits = self.0;
+        let t = type_field(bits);
+        if t == 0b1_1110 {
+            return (bits & INF_BELOW_TYPE_MASK) == 0;
+        }
+        if t == 0b1_1111 {
+            if (bits & NAN_HIGH_UNUSED_MASK) != 0 {
+                return false;
+            }
+            return (bits & T_MASK) < MAX_CANONICAL_NAN_PAYLOAD;
+        }
+        // Finite branch. Top two bits of the type field separate Form A
+        // (00 / 01 / 10) from Form B (11, with sub-types non-Inf-non-NaN).
+        if (t >> 3) == 0b11 {
+            return false;
+        }
+        let coef = (((t & 0b111) as u128) << T_BITS) | (bits & T_MASK);
+        coef < COEFFICIENT_LIMIT
+    }
+
+    /// IEEE 754-2019 §5.4.2 `canonicalize(x)`.
+    ///
+    /// Returns the canonical encoding of `self`. Quiet — never raises
+    /// any status flag.
+    ///
+    /// Rewrites:
+    /// * Non-canonical finite (Form B, or Form A with coefficient
+    ///   ≥ `10^34`) → `±0` at the same quantum exponent (matches
+    ///   IEEE 754 §3.5.2 decoding behavior).
+    /// * Infinity with junk bits set → canonical `±∞`.
+    /// * NaN with bits 120..110 set or payload ≥ `10^33` → canonical
+    ///   NaN with sign and signaling preserved; payload preserved iff
+    ///   `< 10^33`, otherwise zeroed.
+    ///
+    /// Already-canonical inputs are returned unchanged.
+    #[inline]
+    #[must_use]
+    pub const fn canonicalize(self) -> Self {
+        match classify_bits(self.0) {
+            Class::Finite {
+                sign,
+                biased_exp,
+                coefficient,
+            } => {
+                if coefficient < COEFFICIENT_LIMIT {
+                    Self::from_bits(pack_finite(sign, biased_exp, coefficient))
+                } else {
+                    Self::from_bits(pack_finite(sign, biased_exp, 0))
+                }
+            }
+            Class::Zero { sign, biased_exp } => Self::from_bits(pack_finite(sign, biased_exp, 0)),
+            Class::Infinity { sign } => Self::from_bits(pack_infinity(sign)),
+            Class::QuietNaN { sign, payload } => {
+                let p = if payload < MAX_CANONICAL_NAN_PAYLOAD {
+                    payload
+                } else {
+                    0
+                };
+                Self::from_bits(pack_quiet_nan(sign, p))
+            }
+            Class::SignalingNaN { sign, payload } => {
+                let p = if payload < MAX_CANONICAL_NAN_PAYLOAD {
+                    payload
+                } else {
+                    0
+                };
+                Self::from_bits(pack_signaling_nan(sign, p))
+            }
+        }
+    }
+
     /// Sign indicator.
     ///
     /// * `+1` for any positive value, including `+∞`
@@ -387,6 +493,140 @@ mod tests {
             Decimal128::NEG_ONE.copysign(Decimal128::ONE).to_bits(),
             Decimal128::ONE.to_bits()
         );
+    }
+
+    // ---- is_canonical / canonicalize ----------------------------------
+
+    #[test]
+    fn distinguished_constants_are_canonical() {
+        for c in [
+            Decimal128::ZERO,
+            Decimal128::NEG_ZERO,
+            Decimal128::ONE,
+            Decimal128::NEG_ONE,
+            Decimal128::TEN,
+            Decimal128::MAX,
+            Decimal128::MIN,
+            Decimal128::MIN_POSITIVE,
+            Decimal128::MIN_POSITIVE_NORMAL,
+            Decimal128::INFINITY,
+            Decimal128::NEG_INFINITY,
+            Decimal128::NAN,
+            Decimal128::SIGNALING_NAN,
+        ] {
+            assert!(c.is_canonical(), "expected canonical: {c:?}");
+            assert_eq!(c.canonicalize().to_bits(), c.to_bits());
+        }
+    }
+
+    #[test]
+    fn form_b_is_non_canonical() {
+        // Hand-built Form B: T[4:3] = 11, T[2:1] != 11. Use T = 11000.
+        // Decoder reports Zero with biased_exp = 0x123.
+        let bits = (0b1_1000u128 << 122) | (0x123u128 << 110) | 0xABCD_u128;
+        let d = Decimal128::from_bits(bits);
+        assert!(!d.is_canonical(), "Form B must be non-canonical");
+        // canonicalize → Form A zero at same biased_exp.
+        let c = d.canonicalize();
+        assert!(c.is_canonical());
+        assert!(c.is_zero());
+        // Same biased_exp → same_quantum is true.
+        let target_zero = Decimal128::from_bits(crate::bid::pack_finite(false, 0x123, 0));
+        assert!(c.same_quantum(target_zero));
+    }
+
+    #[test]
+    fn form_a_oversized_coefficient_is_non_canonical() {
+        // Hand-build Form A with coefficient = 2^113 - 1 (above 10^34 - 1).
+        let coef = crate::bid::COEFFICIENT_FIELD_LIMIT - 1;
+        let bits = crate::bid::pack_finite(false, BIAS, coef);
+        let d = Decimal128::from_bits(bits);
+        assert!(
+            !d.is_canonical(),
+            "Form A with coefficient >= 10^34 is not canonical"
+        );
+        // canonicalize → ±0 at same biased_exp.
+        let c = d.canonicalize();
+        assert!(c.is_canonical());
+        assert!(c.is_zero());
+        let zero_at_bias = Decimal128::from_bits(crate::bid::pack_finite(false, BIAS, 0));
+        assert_eq!(c.to_bits(), zero_at_bias.to_bits());
+    }
+
+    #[test]
+    fn infinity_with_junk_bits_is_non_canonical() {
+        // Set some bits below the type field on an Inf encoding.
+        let dirty = Decimal128::INFINITY.to_bits() | 0x0000_0000_0000_0000_0000_0000_0000_00FF;
+        let d = Decimal128::from_bits(dirty);
+        assert!(d.is_infinite());
+        assert!(
+            !d.is_canonical(),
+            "Inf with junk trailing bits is not canonical"
+        );
+        let c = d.canonicalize();
+        assert!(c.is_canonical());
+        assert_eq!(c.to_bits(), Decimal128::INFINITY.to_bits());
+    }
+
+    #[test]
+    fn nan_with_unused_ec_bits_is_non_canonical() {
+        // Set a bit in the 120..110 "unused" range on a NaN encoding.
+        let dirty = Decimal128::NAN.to_bits() | (1u128 << 115);
+        let d = Decimal128::from_bits(dirty);
+        assert!(d.is_nan());
+        assert!(
+            !d.is_canonical(),
+            "NaN with bits 120..110 set is not canonical"
+        );
+        let c = d.canonicalize();
+        assert!(c.is_canonical());
+        assert!(c.is_nan());
+        // Signaling preserved (input was qNaN).
+        assert!(c.is_quiet_nan());
+    }
+
+    #[test]
+    fn nan_with_oversized_payload_is_non_canonical() {
+        // Payload = 10^33 — equals MAX_CANONICAL_NAN_PAYLOAD, so non-canonical.
+        let d = Decimal128::from_bits(crate::bid::pack_quiet_nan(false, 10u128.pow(33)));
+        assert!(!d.is_canonical());
+        let c = d.canonicalize();
+        assert!(c.is_canonical());
+        // Payload zeroed; signaling preserved.
+        assert!(c.is_quiet_nan());
+        assert_eq!(c.to_bits() & crate::bid::T_MASK, 0);
+    }
+
+    #[test]
+    fn signaling_nan_canonicalize_preserves_signaling() {
+        // sNaN with payload = 10^33 → boundary, non-canonical (the spec
+        // requires payload *strictly less than* 10^33). The pack helper
+        // masks by T_MASK = 2^110 - 1, and 10^33 < 2^110, so the value
+        // survives the mask intact.
+        let d = Decimal128::from_bits(crate::bid::pack_signaling_nan(true, 10u128.pow(33)));
+        assert!(!d.is_canonical());
+        let c = d.canonicalize();
+        assert!(c.is_canonical());
+        assert!(c.is_signaling_nan(), "signaling bit must be preserved");
+        assert!(c.is_sign_negative());
+    }
+
+    #[test]
+    fn canonicalize_is_idempotent() {
+        // canonicalize(canonicalize(x)) == canonicalize(x) for arbitrary inputs.
+        let inputs = [
+            Decimal128::ONE.to_bits(),
+            Decimal128::INFINITY.to_bits() | 0x42, // dirty Inf
+            Decimal128::NAN.to_bits() | (1u128 << 115), // dirty qNaN
+            crate::bid::pack_finite(false, BIAS, 10u128.pow(34) + 7), // oversized coef
+            (0b1_1000u128 << 122) | 0xDEAD,        // Form B
+        ];
+        for &b in &inputs {
+            let once = Decimal128::from_bits(b).canonicalize();
+            let twice = once.canonicalize();
+            assert_eq!(once.to_bits(), twice.to_bits());
+            assert!(once.is_canonical());
+        }
     }
 
     #[test]
