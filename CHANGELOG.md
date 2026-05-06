@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-05-05
+
+### Added
+
+- `Decimal128::is_integer(self) -> bool` — `const fn` predicate that
+  returns true iff `self` represents a mathematical integer.
+- `Decimal128::ulp(self) -> Self` — `const fn` returning the unit in
+  the last place at `self`'s stored quantum (cohort-dependent;
+  documented).
+- `TryFrom<f64>` / `TryFrom<f32>` for `Decimal128` (behind
+  `binary-float`). Rejects NaN and ±∞ via the new
+  `Decimal128FromFloatError` enum (`NotANumber` / `Infinite`).
+- `Decimal128::try_new_unsigned(coefficient: u128, exponent: i32)` —
+  mirror of `try_new` for unsigned coefficients. Always produces
+  non-negative values; reuses `Decimal128BuildError`.
+- `tests/common/mod.rs` — shared `parse` / `within_ulps` /
+  `bigfloat_to_decimal_string` helpers consumed by eight property
+  test files.
+
+### Changed
+
+- `acosh(x)` near `x = 1` now uses a `log1p`-based formula
+  (`acosh(x) = log1p((x − 1) + sqrt((x − 1)(x + 1)))`) for inputs
+  with `x − 1 < 10⁻²`. The original `ln(x + sqrt(x² − 1))` form lost
+  up to ~33 digits of precision near the singularity via the `x² − 1`
+  cancellation; the new path keeps the difference explicit and
+  preserves the ≤ 1 ULP envelope down to `1 + 10⁻³³`.
+- `taylor_log1p_ext` (in `src/math/ln.rs`) is now exposed as
+  `pub(super) fn log1p_extended` for the acosh path's reuse.
+- Hot-path runtime string parses removed: `Extended::HALF`,
+  `Extended::EXP_DOMAIN_LIMIT`, and `Extended::saturate_overflow(sign)`
+  replace the inline `Extended::parse_str("0.5")` /
+  `Extended::parse_str("14150")` calls and the magic
+  `(coef = 1, exp = 7000)` struct literals in `exp` / `sinh` / `cosh`.
+- README "Feature surface" table now records concrete byte deltas on
+  `thumbv6m-none-eabi` (release `libferrodec.rlib`): fmt = 401 KB,
+  +exp-log = +84 KB, +trig = +116 KB, +hyperbolic over exp-log =
+  +22 KB, +pow over exp-log = +15 KB, +transcendentals meta = +185 KB.
+
+### Removed
+
+- `_PRECISION_KEEPALIVE` hack in `src/convert/int.rs`. The
+  `PRECISION` import was unused; both went away.
+
 ## [1.2.0] - 2026-05-05
 
 ### Added
@@ -114,7 +158,8 @@ IEEE 754 §5.3 / §5.10 quantum gap-fill.
   results across the speleotrove `dq*.decTest` suite; 50 Kani
   formal-verification harnesses for the IEEE special-case dispatch.
 
-[Unreleased]: https://github.com/ixmatus/ferrodec/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/ixmatus/ferrodec/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/ixmatus/ferrodec/releases/tag/v1.3.0
 [1.2.0]: https://github.com/ixmatus/ferrodec/releases/tag/v1.2.0
 [1.1.1]: https://github.com/ixmatus/ferrodec/releases/tag/v1.1.1
 [1.1.0]: https://github.com/ixmatus/ferrodec/releases/tag/v1.1.0
