@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-05-06
+
+The "user-facing polish" release: format specifiers, engineering
+notation, and a clearer story for prospective users picking between
+ferrodec and `rust_decimal`.
+
+### Added
+
+- `Display` format specifiers. `{:.N}` rounds via `quantize` to `N`
+  digits after the decimal point at `NearestEven` (pads with zeros
+  for short inputs). `{:e}` and `{:E}` force scientific notation
+  with the corresponding exponent letter; combine with `.N` for
+  mantissa precision. `LowerExp` / `UpperExp` impls.
+- `Decimal128::engineering()` — wrapper that formats in engineering
+  notation (scientific with the exponent forced to a multiple of 3,
+  mantissa in `[1, 1000)`). Returns the new public `Engineering`
+  adapter that implements `Display`. Useful for finance and
+  SI-scaled output.
+
+### Changed
+
+- README opens with both audiences (embedded + general decimal
+  arithmetic). The "three design choices" trio acknowledges the
+  opt-in `ops` feature so the prose matches the post-1.4 reality.
+- New "Choosing between ferrodec and `rust_decimal`" section in the
+  README. Honest side-by-side covering precision, conformance,
+  verification, `no_std`, ecosystem maturity, and default ergonomics.
+  Followed by "pick X when" guidance.
+
 ## [1.4.0] - 2026-05-05
 
 The "drop-in alternative to rust_decimal for users who want IEEE 754
@@ -211,7 +240,8 @@ IEEE 754 §5.3 / §5.10 quantum gap-fill.
   results across the speleotrove `dq*.decTest` suite; 50 Kani
   formal-verification harnesses for the IEEE special-case dispatch.
 
-[Unreleased]: https://github.com/ixmatus/ferrodec/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/ixmatus/ferrodec/compare/v1.5.0...HEAD
+[1.5.0]: https://github.com/ixmatus/ferrodec/releases/tag/v1.5.0
 [1.4.0]: https://github.com/ixmatus/ferrodec/releases/tag/v1.4.0
 [1.3.0]: https://github.com/ixmatus/ferrodec/releases/tag/v1.3.0
 [1.2.0]: https://github.com/ixmatus/ferrodec/releases/tag/v1.2.0

@@ -17,6 +17,8 @@ mod parse;
 mod binary;
 
 #[cfg(feature = "fmt")]
+pub use format::Engineering;
+#[cfg(feature = "fmt")]
 pub use parse::ParseDecimalError;
 
 #[cfg(feature = "binary-float")]

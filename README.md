@@ -1,15 +1,15 @@
 # ferrodec
 
-An IEEE 754 (2019) Decimal128 library for Rust, written for embedded targets that need decimal arithmetic without surprises.
+An IEEE 754 (2019) Decimal128 library for Rust, designed for two audiences: embedded targets that need decimal arithmetic without surprises, and general-purpose code that wants IEEE conformance and faithful rounding.
 
 ## What ferrodec is
 
 ferrodec implements the BID 128 (Binary Integer Decimal) format from IEEE 754:2019. The encoding gives 34 decimal digits of precision, an exponent range from 10⁻⁶¹⁴³ through 10⁺⁶¹⁴⁴, every IEEE special value (signed zero, signed infinity, quiet and signaling NaN), and the full classification surface. The crate is `no_std`, allocates nothing on its own, and compiles cleanly down to Cortex M0+ (`ARMv6` M, no floating point unit, no hardware divide).
 
-Three design choices shape the library.
+Three design choices shape the library by default.
 
 1. **Per operation status, never global flags.** Every operation returns `(Decimal128, Status)`. The `Status` records the IEEE flags raised by that one call: INVALID, `DIV_BY_ZERO`, OVERFLOW, UNDERFLOW, INEXACT. Callers compose flags however they like; ferrodec never reads or writes a thread local register.
-2. **Methods, not operators.** ferrodec does not implement `core::ops::Add` or its siblings. An operator would silently swallow the `Status`, hide the `RoundingMode` parameter, and pretend that decimal arithmetic is as forgiving as integer arithmetic. It is not. Spelling each operation out (`a.add(b, rm)`, `x.sqrt(rm)`, `y.cos(rm)`) keeps the contract visible at every call site.
+2. **Methods, not operators (by default).** Callers spell each operation out as `a.add(b, rm)`, `x.sqrt(rm)`, `y.cos(rm)`, which keeps the `RoundingMode` and `Status` visible at every call site. For non-embedded users who accept the trade-off, the opt-in `ops` feature enables the conventional `+`, `-`, `*`, `/`, `%` operators (defaulting to `NearestEven` and discarding `Status`).
 3. **Explicit rounding.** Every inexact operation takes a `RoundingMode` argument. The five IEEE 754:2019 directions are supported: `NearestEven` (the default), `NearestAway`, `TowardZero`, `TowardPositive`, and `TowardNegative`.
 
 ## Quick start
@@ -168,11 +168,32 @@ Three reasons by default. First, every IEEE operation needs a `RoundingMode`; an
 
 The default surface keeps both contracts visible at every call site: `a.add(b, rm)` returns `(Decimal128, Status)`, and you choose what to do with each.
 
-For users who want the ergonomic shape and accept the trade-off, ferrodec ships an `ops` feature flag. Enable it and the `+`, `-`, `*`, `/`, `%` operators (plus `+=`, `-=`, etc., and unary `-`) become available on `Decimal128`. Each operator routes through the corresponding explicit method at `RoundingMode::NearestEven` and discards the per-operation `Status`. Embedded users on the default profile see no change; non-embedded users get rust_decimal-style ergonomics with one feature flag.
+For users who want the ergonomic shape and accept the trade-off, ferrodec ships an `ops` feature flag. Enable it and the `+`, `-`, `*`, `/`, `%` operators (plus `+=`, `-=`, etc., and unary `-`) become available on `Decimal128`. Each operator routes through the corresponding explicit method at `RoundingMode::NearestEven` and discards the per-operation `Status`. Embedded users on the default profile see no change; non-embedded users get `rust_decimal`-style ergonomics with one feature flag.
 
 The `num-traits` feature transitively enables `ops` because `num_traits::Num` requires `Add + Sub + Mul + Div + Rem`.
 
 The same reasoning leads us to implement `Eq` and `PartialEq` as bitwise equality. `partial_cmp` returns the IEEE numeric comparison; `total_cmp` returns the IEEE 754:2019 totalOrder predicate; `==` returns whether the two `u128` representations are identical. That trade keeps `Decimal128` usable as a `HashMap` key, predictable in tests, and trivially `const` comparable.
+
+## Choosing between ferrodec and `rust_decimal`
+
+`rust_decimal` is the established Rust decimal library and the right choice for many projects. Where ferrodec adds value is the IEEE 754 conformance, the precision width, and the verification posture; the cost is the smaller ecosystem and a more deliberate API by default. Honest comparison:
+
+| | ferrodec | `rust_decimal` |
+|---|---|---|
+| Format | IEEE 754:2019 BID-128 | 96-bit fixed-point |
+| Precision | 34 decimal digits | 28 decimal digits |
+| Exponent range | 10⁻⁶¹⁴³ … 10⁺⁶¹⁴⁴ | 10⁻²⁸ … 10⁺²⁸ |
+| Conformance | Full IEEE 754:2019 (NaN, ±∞, signaling NaN, all five rounding modes, total order, quantum ops, faithful-rounded transcendentals) | None — different model, no NaN/Inf, single banker's-rounding mode |
+| Formal verification | 50 Kani harnesses + ≈ 8 700 conformance vectors | None |
+| `no_std` | Real (forbid unsafe, no alloc, fixed-size buffers) | Available with feature flag |
+| Default API | Explicit `RoundingMode` + `(value, Status)` return | `core::ops` operators, banker's rounding |
+| Ergonomic operators | Opt-in via `ops` feature (`NearestEven`, `Status` discarded) | Built-in |
+| `serde` / `num-traits` | Behind feature flags | Built-in / via feature |
+| Maturity | Younger; v1.x as of 2026 | Established, millions of downloads |
+
+**Pick ferrodec when**: you need 34-digit precision, IEEE 754 conformance (NaN handling, multiple rounding modes, transcendentals), formal verification, or hard `no_std`. Financial systems with regulatory requirements; scientific calculators; embedded targets.
+
+**Pick `rust_decimal` when**: you need fast, well-trodden, ecosystem-rich decimal arithmetic for typical money math; you're happy with 28 digits and banker's rounding; you want operators by default without thinking about it.
 
 ## Internals worth knowing
 
