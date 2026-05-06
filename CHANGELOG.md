@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-05-05
+
+### Added
+
+- `trig`, `exp-log`, `hyperbolic`, and `pow` sub-features. Embedded
+  users on flash-tight targets can now pay for only the transcendental
+  clusters they call. The 6 300-digit Payne-Hanek `2/π` table is
+  gated under `trig` and elided when not needed. The pre-1.2
+  `transcendentals` feature is preserved as a meta-feature pulling
+  all four sub-features, so existing dependents are unaffected.
+
+### Changed
+
+- `sinh`, `cosh`, `tanh`, `asinh`, `acosh`, `atanh` now run their
+  inner kernels at 50-digit `Extended` precision end to end, rather
+  than composing `Decimal128`-rounded `exp` and `ln` calls. The result
+  is faithfully rounded (≤ 1 ULP at 34 digits) across the supported
+  domain — down from the prior ≤ 5 ULP envelope at `|x| ≥ 0.5`. The
+  test envelopes in `src/math/hyperbolic.rs` and
+  `tests/property_hyperbolic.rs` are tightened from 5 ULP to 1 ULP.
+- `src/math/exp.rs::exp_extended(Extended) -> Extended` and
+  `src/math/ln.rs::ln_from_extended(Extended) -> Extended` are
+  exposed as crate-internal building blocks that keep intermediate
+  results at extended precision; the existing
+  `exp_from_extended` / `ln_extended` are now thin wrappers.
+- README "Accuracy" section drops the two stale hyperbolic caveats;
+  README "Feature surface" table reflects the four-way split.
+- `src/math/mod.rs` and `docs/PLAN.md` updated to reflect the
+  current state (post-v1 quantum + canonical surface, ≤ 1 ULP
+  transcendentals everywhere).
+
 ## [1.1.1] - 2026-05-05
 
 ### Added
@@ -70,9 +101,10 @@ IEEE 754 §5.3 / §5.10 quantum gap-fill.
   `log2`, `log10`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan`,
   `atan2`, `sinh`, `cosh`, `tanh`, `asinh`, `acosh`, `atanh`, `pow`,
   `cbrt`. Faithful rounding (≤ 1 ULP) on the typical input domain;
-  ≤ 5 ULP on hyperbolic compositions for `|x| ≥ 0.5`. `sin` / `cos`
-  argument reduction handles the full magnitude range via
-  Payne-Hanek with a 6 300-digit table of 2/π.
+  hyperbolic compositions for `|x| ≥ 0.5` shipped at ≤ 5 ULP and
+  were tightened to ≤ 1 ULP in 1.2.0. `sin` / `cos` argument
+  reduction handles the full magnitude range via Payne-Hanek with
+  a 6 300-digit table of 2/π.
 - Binary-float conversions (`binary-float` feature): `to_f32`,
   `to_f64`, `from_f32`, `from_f64`.
 - String parse + format (`fmt` feature, default): `parse_str`,
@@ -82,7 +114,8 @@ IEEE 754 §5.3 / §5.10 quantum gap-fill.
   results across the speleotrove `dq*.decTest` suite; 50 Kani
   formal-verification harnesses for the IEEE special-case dispatch.
 
-[Unreleased]: https://github.com/ixmatus/ferrodec/compare/v1.1.1...HEAD
+[Unreleased]: https://github.com/ixmatus/ferrodec/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/ixmatus/ferrodec/releases/tag/v1.2.0
 [1.1.1]: https://github.com/ixmatus/ferrodec/releases/tag/v1.1.1
 [1.1.0]: https://github.com/ixmatus/ferrodec/releases/tag/v1.1.0
 [1.0.0]: https://github.com/ixmatus/ferrodec/releases/tag/v1.0.0
