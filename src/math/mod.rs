@@ -24,15 +24,27 @@
 //! precomputed minimax polynomial table — both out of scope for this
 //! commit.
 
-mod argred;
-mod cbrt;
 mod consts;
-pub(crate) mod exp;
 pub(crate) mod extended;
-mod hyperbolic;
-mod inverse_trig;
+
+#[cfg(feature = "exp-log")]
+mod cbrt;
+#[cfg(feature = "exp-log")]
+pub(crate) mod exp;
+#[cfg(feature = "exp-log")]
 pub(crate) mod ln;
-mod pow;
+
+#[cfg(feature = "trig")]
+mod argred;
+#[cfg(feature = "trig")]
+mod inverse_trig;
+#[cfg(feature = "trig")]
 mod sincos;
+
+#[cfg(feature = "hyperbolic")]
+mod hyperbolic;
+
+#[cfg(feature = "pow")]
+mod pow;
 
 pub use consts::{e, ln10, ln2, pi};

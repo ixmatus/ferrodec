@@ -20,5 +20,7 @@ pub(crate) mod u512;
 
 pub(crate) use u256::U256;
 pub(crate) use u384::U384;
-#[cfg(feature = "transcendentals")]
+// U512 is only used by the Payne-Hanek argument reduction in
+// src/math/argred.rs, which lives under the `trig` feature.
+#[cfg(feature = "trig")]
 pub(crate) use u512::U512;

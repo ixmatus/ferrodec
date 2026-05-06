@@ -3,7 +3,7 @@
 //! Spot tests at hand-picked inputs plus a 256-case random sweep across
 //! the supported domain. Tolerance is `≤ 1 ULP` at 34-digit precision.
 
-#![cfg(feature = "transcendentals")]
+#![cfg(feature = "exp-log")]
 
 use astro_float::{BigFloat, Consts, Radix, RoundingMode as AfRm, Sign};
 use ferrodec::{Decimal128, RoundingMode};

@@ -7,7 +7,7 @@
 //! argument at `Extended` precision through the `ln` call. Both
 //! deliver ≤ 1 ULP at 34 digits across the supported domain.
 
-#![cfg(feature = "transcendentals")]
+#![cfg(feature = "hyperbolic")]
 
 use astro_float::{BigFloat, Consts, Radix, RoundingMode as AfRm, Sign};
 use ferrodec::{Decimal128, RoundingMode};

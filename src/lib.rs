@@ -6,13 +6,13 @@ mod classify;
 mod cmp;
 mod convert;
 mod decimal;
-#[cfg(feature = "transcendentals")]
+#[cfg(any(feature = "trig", feature = "exp-log"))]
 mod math;
 mod multiword;
 mod ops;
 mod status;
 
-#[cfg(feature = "transcendentals")]
+#[cfg(any(feature = "trig", feature = "exp-log"))]
 pub use math::{e, ln10, ln2, pi};
 
 pub use decimal::{Decimal128, Decimal128BuildError};

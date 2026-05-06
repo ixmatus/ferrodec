@@ -15,7 +15,7 @@
 //! to avoid noise on edge cases where the rounding direction of the
 //! Taylor series differs from the oracle by 1.
 
-#![cfg(feature = "transcendentals")]
+#![cfg(feature = "trig")]
 
 use astro_float::{BigFloat, Consts, Radix, RoundingMode as AfRm, Sign};
 use ferrodec::{Decimal128, RoundingMode};

@@ -10,6 +10,13 @@
 //! into a `no_std` crate. Callers that need many uses of `pi()` or
 //! `ln10()` should cache the result in a local.
 
+// Some accessors are kernel-specific (`ln10_ext` is only called from
+// exp / ln; `pi_ext` only from inverse_trig). Whether each is "used"
+// depends on which sub-feature(s) of `transcendentals` are enabled, so
+// we accept the dead-code analysis at the file level rather than
+// littering each function with #[cfg].
+#![allow(dead_code)]
+
 use crate::decimal::Decimal128;
 use crate::math::extended::Extended;
 use crate::status::RoundingMode;

@@ -13,9 +13,25 @@ categories = ["embedded", "mathematics", "no-std", "no-std::no-alloc"]
 default = ["fmt"]
 # String parse + format. Uses core::fmt::Write, no alloc.
 fmt = []
-# exp / log / sin / cos / pow. Code-size cost; opt-in. Pulls in `fmt`
-# because the constants are loaded via `parse_str`.
-transcendentals = ["fmt"]
+# Transcendental sub-features. Pick the cluster you need; embedded
+# users on flash-tight targets can save the 6 300-digit Payne-Hanek
+# table (under `trig`) plus per-kernel Taylor / Newton bodies they
+# don't call. All of them pull in `fmt` because the constants and
+# property tests round-trip through `parse_str`.
+#
+# `trig`        — sin, cos, tan, asin, acos, atan, atan2.
+# `exp-log`     — exp, exp2, ln, log2, log10, cbrt.
+# `hyperbolic`  — sinh, cosh, tanh, asinh, acosh, atanh. Implies
+#                 `exp-log` because the kernels delegate to exp / ln.
+# `pow`         — pow. Implies `exp-log` (`pow(x, y) = exp(y · ln x)`).
+trig = ["fmt"]
+exp-log = ["fmt"]
+hyperbolic = ["exp-log"]
+pow = ["exp-log"]
+# Convenience meta-feature: enable every transcendental at once. The
+# pre-1.2 `transcendentals = ["fmt"]` shape carried the same effect,
+# so existing dependents that ask for `transcendentals` see no change.
+transcendentals = ["trig", "exp-log", "hyperbolic", "pow"]
 # f32 / f64 conversions. Opt-in for soft-float-only targets.
 # Pulls in `fmt` because the conversion routes Decimal128 ↔ f64 via
 # the canonical decimal-string round-trip.

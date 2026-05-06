@@ -1,6 +1,6 @@
 //! Faithful-rounding cross-check for `Decimal128::pow` vs astro-float.
 
-#![cfg(feature = "transcendentals")]
+#![cfg(feature = "pow")]
 
 use astro_float::{BigFloat, Consts, Radix, RoundingMode as AfRm, Sign};
 use ferrodec::{Decimal128, RoundingMode};

@@ -7,7 +7,7 @@
 //! to 1 ULP across the full domain — including inputs that land
 //! within 1 ULP of a multiple of π/2.
 
-#![cfg(feature = "transcendentals")]
+#![cfg(feature = "trig")]
 
 use astro_float::{BigFloat, Consts, Radix, RoundingMode as AfRm, Sign};
 use ferrodec::{Decimal128, RoundingMode};

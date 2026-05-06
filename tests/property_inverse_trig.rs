@@ -1,6 +1,6 @@
 //! Faithful-rounding cross-check for atan / asin / acos / atan2 vs astro-float.
 
-#![cfg(feature = "transcendentals")]
+#![cfg(feature = "trig")]
 
 use astro_float::{BigFloat, Consts, Radix, RoundingMode as AfRm, Sign};
 use ferrodec::{Decimal128, RoundingMode};
