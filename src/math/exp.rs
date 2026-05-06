@@ -97,8 +97,7 @@ pub(super) fn exp_from_extended(x_ext: Extended, rm: RoundingMode) -> (Decimal12
     // Magnitude gate: `exp` overflows to +∞ at x ≈ +14149 and
     // underflows to +0 at x ≈ −14150. Compare directly at extended
     // precision (no Decimal128 round-trip needed).
-    let limit = Extended::parse_str("14150");
-    if x_ext.abs().cmp(limit) == core::cmp::Ordering::Greater {
+    if x_ext.abs().cmp(Extended::EXP_DOMAIN_LIMIT) == core::cmp::Ordering::Greater {
         return if x_ext.sign {
             (Decimal128::ZERO, Status::UNDERFLOW | Status::INEXACT)
         } else {
@@ -144,8 +143,11 @@ fn round_to_i32(q: Extended) -> i32 {
         return 0;
     }
     // Add ±0.5 (depending on sign), then truncate toward zero.
-    let half = Extended::parse_str("0.5");
-    let nudged = if q.sign { q.sub(half) } else { q.add(half) };
+    let nudged = if q.sign {
+        q.sub(Extended::HALF)
+    } else {
+        q.add(Extended::HALF)
+    };
     truncate_to_i32(nudged)
 }
 

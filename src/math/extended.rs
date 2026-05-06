@@ -74,6 +74,41 @@ impl Extended {
         sign: false,
     };
 
+    /// `0.5`. Used by `exp`'s argument-reduction half-shift and by the
+    /// `|x| < 0.5` Taylor-vs-cancellation switch in `sinh` / `cosh`.
+    pub const HALF: Self = Self {
+        coef: U256::from_u128(5),
+        exp: -1,
+        sign: false,
+    };
+
+    /// Convergence ceiling for `exp(x)`. `e^x` overflows to `+∞` at
+    /// `x ≈ +14149` and underflows to `+0` at `x ≈ −14150`; values
+    /// past this magnitude short-circuit to ±∞ / ±0 with the
+    /// appropriate IEEE flag.
+    pub const EXP_DOMAIN_LIMIT: Self = Self {
+        coef: U256::from_u128(14150),
+        exp: 0,
+        sign: false,
+    };
+
+    /// An `Extended` whose magnitude exceeds `Decimal128::MAX` (`10^6144`)
+    /// by enough that the boundary `to_decimal128` round produces `±∞ +
+    /// OVERFLOW` with `sign`. Used by `sinh` / `cosh` to signal
+    /// saturation when `|x|` is past the `exp` convergence window.
+    ///
+    /// The exponent (`7000`) is chosen comfortably above `E_MAX = 6144`;
+    /// any value past `MAX` rounds the same way at the boundary, so the
+    /// exact figure is just a documentation-friendly margin.
+    #[inline]
+    pub const fn saturate_overflow(sign: bool) -> Self {
+        Self {
+            coef: U256::from_u128(1),
+            exp: 7000,
+            sign,
+        }
+    }
+
     #[inline]
     pub fn is_zero(self) -> bool {
         self.coef.is_zero()

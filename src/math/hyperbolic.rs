@@ -31,7 +31,6 @@ use crate::decimal::Decimal128;
 use crate::math::exp::exp_extended;
 use crate::math::extended::Extended;
 use crate::math::ln::ln_from_extended;
-use crate::multiword::U256;
 use crate::status::{RoundingMode, Status};
 
 impl Decimal128 {
@@ -220,25 +219,14 @@ fn sinh_ext(x: Extended) -> Extended {
     // For |x| < 0.5 use Taylor directly to avoid cancellation in
     // (eˣ − e⁻ˣ)/2. The threshold 0.5 keeps Taylor convergence at
     // ≤ ~40 iterations for 50-digit precision.
-    let half = Extended {
-        coef: U256::from_u128(5),
-        exp: -1,
-        sign: false,
-    };
-    if x.abs().cmp(half) == core::cmp::Ordering::Less {
+    if x.abs().cmp(Extended::HALF) == core::cmp::Ordering::Less {
         return sinh_taylor(x);
     }
-    // Saturation: |x| > ~14150 puts e^x outside Decimal128's range.
-    // Return an Extended whose magnitude exceeds Decimal128::MAX so the
-    // boundary round produces ±∞ + OVERFLOW with the sign of x. We use
-    // exp = 7000 (so the value is 1 × 10^7000, well above 10^6144 = MAX).
-    let saturate_threshold = Extended::parse_str("14150");
-    if x.abs().cmp(saturate_threshold) == core::cmp::Ordering::Greater {
-        return Extended {
-            coef: U256::from_u128(1),
-            exp: 7000,
-            sign: x.sign,
-        };
+    // Saturation: |x| past the exp convergence ceiling lands outside
+    // Decimal128's range. Return a pre-overflow magnitude with the
+    // sign of x; the boundary round produces ±∞ + OVERFLOW.
+    if x.abs().cmp(Extended::EXP_DOMAIN_LIMIT) == core::cmp::Ordering::Greater {
+        return Extended::saturate_overflow(x.sign);
     }
     // sinh(x) = (e^x − e^{-x}) / 2, evaluated entirely at extended
     // precision so the cancellation is bounded by Extended's 50-digit
@@ -282,24 +270,13 @@ fn cosh_ext(abs_x: Extended) -> Extended {
         return Extended::ONE;
     }
     // For small |x| (<0.5), Taylor is more accurate (no cancellation).
-    let half = Extended {
-        coef: U256::from_u128(5),
-        exp: -1,
-        sign: false,
-    };
-    if abs_x.cmp(half) == core::cmp::Ordering::Less {
+    if abs_x.cmp(Extended::HALF) == core::cmp::Ordering::Less {
         return cosh_taylor(abs_x);
     }
-    // Saturation: |x| > ~14150 puts e^x outside Decimal128's range.
-    // Return an Extended whose magnitude rounds to +∞ + OVERFLOW. cosh
-    // is always positive.
-    let saturate_threshold = Extended::parse_str("14150");
-    if abs_x.cmp(saturate_threshold) == core::cmp::Ordering::Greater {
-        return Extended {
-            coef: U256::from_u128(1),
-            exp: 7000,
-            sign: false,
-        };
+    // Saturation: |x| past the exp convergence ceiling lands outside
+    // Decimal128's range. cosh is always positive.
+    if abs_x.cmp(Extended::EXP_DOMAIN_LIMIT) == core::cmp::Ordering::Greater {
+        return Extended::saturate_overflow(false);
     }
     // cosh(x) = (e^x + e^{-x}) / 2, end-to-end at extended precision.
     let e_pos = exp_extended(abs_x);

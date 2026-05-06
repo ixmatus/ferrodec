@@ -24,7 +24,7 @@
 
 use crate::bid::{
     classify_bits, decimal_digit_count, pack_finite, Class, BIAS, COEFFICIENT_FIELD_LIMIT,
-    COEFFICIENT_LIMIT, PRECISION,
+    COEFFICIENT_LIMIT,
 };
 use crate::decimal::Decimal128;
 use crate::multiword::U256;
@@ -380,11 +380,6 @@ fn should_round_up_int(
         },
     }
 }
-
-// Suppress dead-code on the const PRECISION import in case the optimiser
-// drops the assertion in release.
-#[allow(dead_code)]
-const _PRECISION_KEEPALIVE: u32 = PRECISION;
 
 #[cfg(test)]
 mod tests {
