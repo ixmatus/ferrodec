@@ -169,6 +169,17 @@ impl Decimal128 {
 }
 
 /// Error returned by [`Decimal128::try_new`].
+///
+/// # Examples
+///
+/// ```
+/// use ferrodec::{Decimal128, Decimal128BuildError};
+///
+/// let err = Decimal128::try_new(10_i128.pow(34), 0).unwrap_err();
+/// assert_eq!(err, Decimal128BuildError::CoefficientOutOfRange);
+/// // Implements `core::error::Error` and `Display`, composes with `?`.
+/// let _: Box<dyn core::error::Error> = Box::new(err);
+/// ```
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Decimal128BuildError {
     /// The coefficient magnitude is ≥ 10^34 (more than 34 decimal digits).
@@ -176,6 +187,19 @@ pub enum Decimal128BuildError {
     /// The exponent is outside `[−6176, 6111]`.
     ExponentOutOfRange,
 }
+
+impl core::fmt::Display for Decimal128BuildError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::CoefficientOutOfRange => {
+                f.write_str("coefficient magnitude exceeds 34 decimal digits")
+            }
+            Self::ExponentOutOfRange => f.write_str("exponent outside [-6176, 6111]"),
+        }
+    }
+}
+
+impl core::error::Error for Decimal128BuildError {}
 
 impl core::fmt::Debug for Decimal128 {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {

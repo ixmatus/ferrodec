@@ -29,7 +29,11 @@ use crate::status::{RoundingMode, Status};
 ///
 /// Includes a byte index pointing at the offending character (or the
 /// end of input for `Empty` and `InvalidExponent`) to make diagnostics
-/// usable in calculator UIs without forcing a `std::error::Error` impl.
+/// usable in calculator UIs.
+///
+/// Implements [`Display`](core::fmt::Display) and
+/// [`core::error::Error`] so the type composes with `?`,
+/// `Box<dyn Error>`, and `anyhow::Error` chains.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ParseDecimalError {
     /// Empty input or input consisting only of a sign.
@@ -42,6 +46,19 @@ pub enum ParseDecimalError {
     ExponentOutOfRange,
 }
 
+impl core::fmt::Display for ParseDecimalError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Empty => f.write_str("empty decimal literal"),
+            Self::InvalidCharacter(pos) => write!(f, "invalid character at byte {pos}"),
+            Self::InvalidExponent => f.write_str("malformed exponent in decimal literal"),
+            Self::ExponentOutOfRange => f.write_str("exponent magnitude out of range"),
+        }
+    }
+}
+
+impl core::error::Error for ParseDecimalError {}
+
 const MAX_PARSED_DIGITS: u32 = 76;
 const MAX_EXPONENT_MAGNITUDE: u32 = 1_000_000;
 
@@ -53,6 +70,30 @@ impl Decimal128 {
     /// represent at the chosen precision.
     pub fn parse_str(s: &str, rm: RoundingMode) -> Result<(Self, Status), ParseDecimalError> {
         parse_str_inner(s.as_bytes(), rm)
+    }
+}
+
+/// Idiomatic Rust parsing via the `str::parse` extension method.
+///
+/// Defaults to [`RoundingMode::NearestEven`] and discards the
+/// [`Status`] flags from `parse_str`. Callers that need explicit
+/// rounding-mode or status control should keep using
+/// [`Decimal128::parse_str`] directly.
+///
+/// # Examples
+///
+/// ```
+/// use ferrodec::Decimal128;
+///
+/// let x: Decimal128 = "1.23".parse().unwrap();
+/// let bits = Decimal128::try_new(123, -2).unwrap().to_bits();
+/// assert_eq!(x.to_bits(), bits);
+/// ```
+impl core::str::FromStr for Decimal128 {
+    type Err = ParseDecimalError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        parse_str_inner(s.as_bytes(), RoundingMode::NearestEven).map(|(v, _)| v)
     }
 }
 

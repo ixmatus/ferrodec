@@ -36,6 +36,13 @@ transcendentals = ["trig", "exp-log", "hyperbolic", "pow"]
 # Pulls in `fmt` because the conversion routes Decimal128 ↔ f64 via
 # the canonical decimal-string round-trip.
 binary-float = ["fmt"]
+# `core::ops` operator overloads (Add / Sub / Mul / Div / Rem and the
+# *Assign variants). Opt-in: defaults to RoundingMode::NearestEven and
+# drops the per-operation Status. Users who need explicit rounding-
+# mode or status control should keep using the explicit `add` /
+# `sub` / `mul` / `div` / `rem` methods. See the README's "Why no
+# core::ops" section for the design rationale.
+ops = []
 # Compile Kani proof harnesses. Off in normal builds.
 kani = []
 

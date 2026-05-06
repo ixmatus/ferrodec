@@ -193,6 +193,8 @@ impl core::fmt::Display for Decimal128FromFloatError {
     }
 }
 
+impl core::error::Error for Decimal128FromFloatError {}
+
 impl TryFrom<f64> for Decimal128 {
     type Error = Decimal128FromFloatError;
 

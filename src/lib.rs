@@ -6,10 +6,13 @@ mod classify;
 mod cmp;
 mod convert;
 mod decimal;
+mod iter;
 #[cfg(any(feature = "trig", feature = "exp-log"))]
 mod math;
 mod multiword;
 mod ops;
+#[cfg(feature = "ops")]
+mod ops_traits;
 mod status;
 
 #[cfg(any(feature = "trig", feature = "exp-log"))]
