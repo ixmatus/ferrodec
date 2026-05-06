@@ -7,6 +7,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-05-05
+
+The "drop-in alternative to rust_decimal for users who want IEEE 754
+conformance" release. Closes the ecosystem-integration gap.
+
+### Added
+
+- `serde` feature flag. `Serialize` / `Deserialize` route through the
+  canonical decimal string by default (survives every format,
+  human-readable in JSON / TOML / YAML). For binary formats, opt
+  into the new `ferrodec::serde_bid` helper via
+  `#[serde(with = "ferrodec::serde_bid")]` to serialize the raw 128-bit
+  BID pattern. The bid module's deserializer accepts both u128 and a
+  string fallback so the same struct works in both binary and
+  human-readable formats.
+- `num-traits` feature flag. Implements `Zero`, `One`, `Bounded`,
+  `Num`, `Signed`, `FromPrimitive`, `ToPrimitive`. Closes the SMIL
+  adapter ask. Transitively enables `ops` because `Num` requires the
+  `core::ops` traits. New `FromStrRadixError` enum for the
+  `Num::from_str_radix` path.
+- `ops` feature flag. Enables `core::ops::{Add, Sub, Mul, Div, Rem}`,
+  the `*Assign` variants, and unary `Neg` on `Decimal128`. Each
+  operator routes through the corresponding explicit method at
+  `RoundingMode::NearestEven` and discards the per-call `Status`.
+  Default profile is unchanged: the principled API trio stays intact
+  unless callers opt in.
+- `core::str::FromStr` for `Decimal128`. Idiomatic Rust spells
+  parsing as `"1.23".parse::<Decimal128>()`; the impl wraps
+  `parse_str` at NearestEven and drops `Status`.
+- `core::iter::Sum<Self>` / `Sum<&Self>` / `Product<Self>` /
+  `Product<&Self>` for `Decimal128`. Iterator chains like
+  `decimals.iter().sum::<Decimal128>()` and `.product()` now work
+  out of the box. No new feature gate.
+- `core::error::Error` impls for `Decimal128BuildError`,
+  `ParseDecimalError`, and `Decimal128FromFloatError`. Plus
+  `Display` impls for the two that lacked them. Lets these compose
+  with `?`, `Box<dyn Error>`, and `anyhow::Error` chains. (Stable in
+  `core` since Rust 1.81; ferrodec's MSRV is 1.84.)
+
+### Changed
+
+- README "Why no `core::ops`" section retitled to "Why no `core::ops`
+  (and how to opt in)" and extended with the `ops` feature design.
+  The default-rationale prose is unchanged.
+- README "Feature surface" table gains rows for `ops`, `serde`, and
+  `num-traits` with their code-size deltas.
+
+### Note
+
+The default profile (`cargo build --no-default-features --features=fmt`)
+is byte-identical to 1.3.0 on `thumbv6m-none-eabi`. None of the new
+ecosystem features cross the embedded floor unless a user opts in.
+
 ## [1.3.0] - 2026-05-05
 
 ### Added
@@ -158,7 +211,8 @@ IEEE 754 §5.3 / §5.10 quantum gap-fill.
   results across the speleotrove `dq*.decTest` suite; 50 Kani
   formal-verification harnesses for the IEEE special-case dispatch.
 
-[Unreleased]: https://github.com/ixmatus/ferrodec/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/ixmatus/ferrodec/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/ixmatus/ferrodec/releases/tag/v1.4.0
 [1.3.0]: https://github.com/ixmatus/ferrodec/releases/tag/v1.3.0
 [1.2.0]: https://github.com/ixmatus/ferrodec/releases/tag/v1.2.0
 [1.1.1]: https://github.com/ixmatus/ferrodec/releases/tag/v1.1.1
