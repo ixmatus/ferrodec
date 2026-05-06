@@ -76,6 +76,9 @@ ferrodec is feature gated so the embedded floor pays only for what it uses.
 | `pow` | no | `pow`. Implies `exp-log` (`pow(x, y) = exp(y · ln x)`) | +15 KB over `exp-log` |
 | `transcendentals` | no | Meta-feature pulling all four above. The pre-1.2 shape; existing dependents see no change. | +185 KB |
 | `binary-float` | no | `to_f64`, `to_f32`, `from_f64`, `from_f32` (pulls in `fmt`) | small |
+| `ops` | no | `core::ops` operator overloads (`+`, `-`, `*`, `/`, `%`, `Neg`, `*Assign`). Default rounding mode `NearestEven`; status discarded. See *Why no `core::ops`* below. | tiny |
+| `serde` | no | `Serialize` / `Deserialize` via the canonical decimal string. Helper module `ferrodec::serde_bid` for raw 128-bit BID serialization in binary formats. (pulls in `fmt`) | small |
+| `num-traits` | no | `Zero`, `One`, `Bounded`, `Num`, `Signed`, `From|To Primitive`. Implies `ops`. | small (over `ops`) |
 | `kani` | no | Compile the formal verification harnesses; off in normal builds | none in production |
 
 (Sizes are the `libferrodec.rlib` delta in release mode at commit `1.3.0`. The actual `.text` section in a linked binary will be somewhat smaller. Numbers are illustrative; profile your own application before deciding.)
@@ -159,9 +162,15 @@ A tight feedback loop matters more than chasing microseconds, but the criterion 
 
 Run `cargo bench --features=transcendentals --bench transcendentals` for the math kernels and `cargo bench --features=fmt --bench conversions` for parse and format throughput.
 
-## Why no `core::ops`
+## Why no `core::ops` (and how to opt in)
 
-Three reasons. First, every IEEE operation needs a `RoundingMode`; an `Add` impl cannot accept one without departing from the trait. Second, every operation produces a `Status` that callers must be free to inspect or compose; an `Add` impl cannot return one without departing from the trait. Third, the IEEE arithmetic identities that callers expect (`a + 0 == a`, `a × 1 == a`) sometimes hold only modulo cohort, not bit pattern; using `==` for IEEE numeric comparison would silently change the meaning of equality.
+Three reasons by default. First, every IEEE operation needs a `RoundingMode`; an `Add` impl cannot accept one without departing from the trait. Second, every operation produces a `Status` that callers must be free to inspect or compose; an `Add` impl cannot return one without departing from the trait. Third, the IEEE arithmetic identities that callers expect (`a + 0 == a`, `a × 1 == a`) sometimes hold only modulo cohort, not bit pattern; using `==` for IEEE numeric comparison would silently change the meaning of equality.
+
+The default surface keeps both contracts visible at every call site: `a.add(b, rm)` returns `(Decimal128, Status)`, and you choose what to do with each.
+
+For users who want the ergonomic shape and accept the trade-off, ferrodec ships an `ops` feature flag. Enable it and the `+`, `-`, `*`, `/`, `%` operators (plus `+=`, `-=`, etc., and unary `-`) become available on `Decimal128`. Each operator routes through the corresponding explicit method at `RoundingMode::NearestEven` and discards the per-operation `Status`. Embedded users on the default profile see no change; non-embedded users get rust_decimal-style ergonomics with one feature flag.
+
+The `num-traits` feature transitively enables `ops` because `num_traits::Num` requires `Add + Sub + Mul + Div + Rem`.
 
 The same reasoning leads us to implement `Eq` and `PartialEq` as bitwise equality. `partial_cmp` returns the IEEE numeric comparison; `total_cmp` returns the IEEE 754:2019 totalOrder predicate; `==` returns whether the two `u128` representations are identical. That trade keeps `Decimal128` usable as a `HashMap` key, predictable in tests, and trivially `const` comparable.
 

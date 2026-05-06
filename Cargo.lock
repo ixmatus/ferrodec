@@ -228,6 +228,7 @@ version = "1.3.0"
 dependencies = [
  "astro-float",
  "criterion",
+ "num-traits",
  "proptest",
  "serde",
  "serde_json",
