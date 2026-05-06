@@ -43,9 +43,24 @@ conformance vectors, criterion benches on 64-bit hosts.
 
 **Out (v1):** Decimal32 / Decimal64 conversions, DPD ↔ BID conversions, signaling
 NaN payload preservation across all ops (we propagate, but we don't optimize),
-inverse-trig beyond `atan` (asin/acos derivable from atan), hyperbolic
-functions, `core::ops` operator overloads, embedded-target benchmarks, `serde`
-integration. These are listed in `FUTURE.md`-class follow-ups.
+`core::ops` operator overloads, embedded-target benchmarks, `serde` integration.
+
+**Landed post-v1, before 1.0.0 published:** inverse-trig beyond `atan`
+(`asin`, `acos`, `atan2`) and hyperbolic functions (`sinh`/`cosh`/`tanh`
+plus inverses) — both shipped 2026-05-04 (commits `caf8966` + `59fcb4b`)
+ahead of the 1.0.0 publish. The IEEE 754 §5.3 / §5.10 quantum surface
+(`quantize`, `scaleb`, `logb`, `next_up`/`next_down`, `same_quantum`,
+`compare_total_magnitude`, `radix`, `try_new`) and §5.7.2 / §5.4.2
+canonical predicates (`is_canonical`, `canonicalize`) followed in
+1.0.0 / 1.1.0. As of 1.2.0, hyperbolic kernels are also faithfully
+rounded (≤ 1 ULP).
+
+Out-of-scope decisions: DPD and Decimal64 are explicitly excluded — the
+embedded-calculator target has no decimal-float hardware, so DPD buys
+no perf, and a second precision tier would grow the crate without
+shrinking the calculator's binary. `core::ops` overloads remain out
+because every operation needs a `RoundingMode` and returns a `Status`,
+neither of which fit through `Add`/`Mul`/etc.
 
 ## Crate layout
 

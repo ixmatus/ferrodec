@@ -70,7 +70,11 @@ ferrodec is feature gated so the embedded floor pays only for what it uses.
 | Feature | Default | What it adds | Code size |
 |---------|---------|--------------|-----------|
 | `fmt` | yes | `parse_str`, `Display` (uses `core::fmt::Write`, no `alloc`) | small |
-| `transcendentals` | no | `exp`, `exp2`, `ln`, `log2`, `log10`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `sinh`, `cosh`, `tanh`, `asinh`, `acosh`, `atanh`, `pow`, `cbrt` | moderate |
+| `trig` | no | `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`. Pulls the 6 300-digit Payne-Hanek `2/π` table | moderate |
+| `exp-log` | no | `exp`, `exp2`, `ln`, `log2`, `log10`, `cbrt` | moderate |
+| `hyperbolic` | no | `sinh`, `cosh`, `tanh`, `asinh`, `acosh`, `atanh`. Implies `exp-log` | moderate |
+| `pow` | no | `pow`. Implies `exp-log` (`pow(x, y) = exp(y · ln x)`) | small (over `exp-log`) |
+| `transcendentals` | no | Meta-feature pulling all four above. The pre-1.2 shape; existing dependents see no change | moderate |
 | `binary-float` | no | `to_f64`, `to_f32`, `from_f64`, `from_f32` (pulls in `fmt`) | small |
 | `kani` | no | Compile the formal verification harnesses; off in normal builds | none in production |
 
@@ -116,10 +120,8 @@ The IEEE 754:2019 §5.3 quantum surface: `quantize(target, rm)` rescales `self` 
 
 ## Accuracy
 
-ferrodec promises faithful rounding, meaning ≤ 1 ULP at 34 digits, for the core IEEE operations and for every transcendental on the typical input domain. Three caveats apply at the boundaries.
+ferrodec promises faithful rounding, meaning ≤ 1 ULP at 34 digits, for the core IEEE operations and for every transcendental across the supported domain. One behavioural caveat applies at the boundary.
 
-* **Hyperbolic forwards on `|x| ≥ 0.5`** compose two `exp` calls and combine. Each call rounds correctly, but the composition stretches the envelope to about 5 ULP at the upper edge. Inside `|x| < 0.5` the kernel uses a direct Taylor series and stays at 1 ULP.
-* **Inverse hyperbolics** compose `ln(x + sqrt(x² ± 1))` and inherit the same envelope (≤ 5 ULP) as the hyperbolic forwards.
 * **`tan(x)` near the asymptotes** at odd multiples of π/2 returns ±∞. Note the absence of a `DIV_BY_ZERO` flag: `tan` produces a transcendental asymptote, not a literal IEEE division by zero.
 
 The trigonometric reduction handles the full Decimal128 magnitude range. `sin(10^15)` and `sin(10^3000)` round as accurately as `sin(0.5)` does, because argument reduction uses the algorithm of Payne and Hanek with a 6 300 digit table of 2/π. Inputs that fall within one ULP of an integer multiple of π/2 (the rounded value of π itself, for example) cancel down to a 33 digit residual; the windowed multiplication widens to U512 to recover the remaining 50 digits, so even those boundary points round at ≤ 1 ULP.
