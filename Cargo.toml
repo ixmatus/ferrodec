@@ -77,6 +77,18 @@ manual_let_else = "allow"
 enum_variant_names = "allow"
 missing_panics_doc = "allow"
 
+[[example]]
+name = "money"
+required-features = ["fmt"]
+
+[[example]]
+name = "rounding_modes"
+required-features = ["fmt"]
+
+[[example]]
+name = "transcendentals"
+required-features = ["transcendentals"]
+
 [[bench]]
 name = "core_ops"
 harness = false
