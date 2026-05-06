@@ -122,10 +122,22 @@ fn ln_special_cases(x: Decimal128) -> Option<(Decimal128, Status)> {
 /// Compute `ln(x)` at extended precision. Caller has already filtered
 /// NaN / Inf / zero / negative inputs and the `x == 1` edge case.
 pub(super) fn ln_extended(x: Decimal128) -> Extended {
-    let (m, q) = decompose_to_decade(x);
+    ln_from_extended(Extended::from_decimal128(x))
+}
+
+/// Compute `ln(x_ext)` at extended precision, given an extended-
+/// precision argument. Used by inverse hyperbolics (`asinh` / `acosh` /
+/// `atanh`), which build the argument `x + sqrt(x² ± 1)` (or the
+/// `(1+x)/(1−x)` ratio) at extended precision and would otherwise lose
+/// precision rounding to `Decimal128` between operations.
+///
+/// Caller guarantees `x_ext > 0` and finite. Sign and zero are *not*
+/// handled here — they are domain errors at the public-API boundary.
+pub(super) fn ln_from_extended(x_ext: Extended) -> Extended {
+    let (m_ext, q) = decompose_extended_to_decade(x_ext);
 
     // Reduce m into [2/3, 3/2] by halving/doubling.
-    let mut m_ext = Extended::from_decimal128(m);
+    let mut m = m_ext;
     let mut additional = Extended::ZERO;
     let ln2_v = ln2_ext();
     let upper = Extended::parse_str("1.5");
@@ -136,13 +148,13 @@ pub(super) fn ln_extended(x: Decimal128) -> Extended {
     let mut guard = 0u32;
     while guard < 20 {
         guard += 1;
-        if m_ext.cmp(upper) == core::cmp::Ordering::Greater {
-            m_ext = m_ext.div_u32(2);
+        if m.cmp(upper) == core::cmp::Ordering::Greater {
+            m = m.div_u32(2);
             additional = additional.add(ln2_v);
             continue;
         }
-        if m_ext.cmp(lower) == core::cmp::Ordering::Less {
-            m_ext = m_ext.mul(Extended::from_i32(2));
+        if m.cmp(lower) == core::cmp::Ordering::Less {
+            m = m.mul(Extended::from_i32(2));
             additional = additional.sub(ln2_v);
             continue;
         }
@@ -150,7 +162,7 @@ pub(super) fn ln_extended(x: Decimal128) -> Extended {
     }
 
     // u = m − 1, |u| ≤ 0.5.
-    let u = m_ext.sub(Extended::ONE);
+    let u = m.sub(Extended::ONE);
     let ln_m = taylor_log1p_ext(u);
 
     // ln(original_m) = ln_m + accumulated halve/double corrections.
@@ -164,9 +176,22 @@ pub(super) fn ln_extended(x: Decimal128) -> Extended {
     ln_orig_m.add(q_ln10)
 }
 
-/// `x = m × 10^q` with `m ∈ [1, 10)`. Same logic as the legacy
-/// implementation; reused verbatim because the input handling is
-/// orthogonal to the precision of the work that follows.
+/// `x_ext = m_ext × 10^q` with `m_ext ∈ [1, 10)`. Caller guarantees
+/// `x_ext > 0` and finite (zero would have no defined decade).
+fn decompose_extended_to_decade(x_ext: Extended) -> (Extended, i32) {
+    debug_assert!(!x_ext.is_zero());
+    debug_assert!(!x_ext.sign);
+    let digits = x_ext.coef.decimal_digit_count() as i32;
+    let q = x_ext.exp + digits - 1;
+    let m_ext = Extended {
+        coef: x_ext.coef,
+        exp: -(digits - 1),
+        sign: false,
+    };
+    (m_ext, q)
+}
+
+#[allow(dead_code)] // Kept for the Decimal128-input path used elsewhere.
 fn decompose_to_decade(x: Decimal128) -> (Decimal128, i32) {
     match classify_bits(x.to_bits()) {
         Class::Finite {

@@ -28,9 +28,10 @@
 
 use crate::bid::{classify_bits, Class};
 use crate::decimal::Decimal128;
-use crate::math::exp::exp_from_extended;
+use crate::math::exp::exp_extended;
 use crate::math::extended::Extended;
-use crate::math::ln::ln_extended;
+use crate::math::ln::ln_from_extended;
+use crate::multiword::U256;
 use crate::status::{RoundingMode, Status};
 
 impl Decimal128 {
@@ -128,13 +129,11 @@ impl Decimal128 {
         let abs_x_ext = Extended::from_decimal128(self).abs();
         let x_sq_plus_one = abs_x_ext.square().add(Extended::ONE);
         let inner = abs_x_ext.add(x_sq_plus_one.sqrt());
-        // ln_extended takes a Decimal128 argument; round inner to
-        // Decimal128 first. The argument is well above 1, so the
-        // ~50-digit Extended → 34-digit rounding loses ≤ 1 ULP_34
-        // relative — propagating through ln, this stays within 1
-        // ULP_34 of the final result.
-        let (inner_d, _) = inner.to_decimal128(0, RoundingMode::NearestEven);
-        let result_ext = ln_extended(inner_d);
+        // Pass `inner` to `ln_from_extended` directly — keeping the
+        // argument at 50-digit working precision avoids a 34-digit
+        // round trip that would propagate ≤ 1 ULP through `ln` to the
+        // result.
+        let result_ext = ln_from_extended(inner);
         let signed_ext = if neg { result_ext.neg() } else { result_ext };
         let (result, status) = signed_ext.to_decimal128(0, rm);
         (result, status | Status::INEXACT)
@@ -162,12 +161,12 @@ impl Decimal128 {
             Some(core::cmp::Ordering::Equal) => return (Decimal128::ZERO, Status::OK),
             _ => {}
         }
-        // acosh(x) = ln(x + sqrt(x² - 1)).
+        // acosh(x) = ln(x + sqrt(x² - 1)) — argument stays at extended
+        // precision through the ln call.
         let x_ext = Extended::from_decimal128(self);
         let x_sq_minus_one = x_ext.square().sub(Extended::ONE);
         let inner = x_ext.add(x_sq_minus_one.sqrt());
-        let (inner_d, _) = inner.to_decimal128(0, RoundingMode::NearestEven);
-        let result_ext = ln_extended(inner_d);
+        let result_ext = ln_from_extended(inner);
         let (result, status) = result_ext.to_decimal128(0, rm);
         (result, status | Status::INEXACT)
     }
@@ -200,13 +199,13 @@ impl Decimal128 {
             }
             _ => {}
         }
-        // atanh(x) = ½·ln((1 + x) / (1 − x)).
+        // atanh(x) = ½·ln((1 + x) / (1 − x)) — ratio stays at extended
+        // precision through the ln call.
         let x_ext = Extended::from_decimal128(self);
         let one_plus = Extended::ONE.add(x_ext);
         let one_minus = Extended::ONE.sub(x_ext);
         let ratio = one_plus.div(one_minus);
-        let (ratio_d, _) = ratio.to_decimal128(0, RoundingMode::NearestEven);
-        let ln_ratio_ext = ln_extended(ratio_d);
+        let ln_ratio_ext = ln_from_extended(ratio);
         let result_ext = ln_ratio_ext.div_u32(2);
         let (result, status) = result_ext.to_decimal128(0, rm);
         (result, status | Status::INEXACT)
@@ -222,37 +221,33 @@ fn sinh_ext(x: Extended) -> Extended {
     // (eˣ − e⁻ˣ)/2. The threshold 0.5 keeps Taylor convergence at
     // ≤ ~40 iterations for 50-digit precision.
     let half = Extended {
-        coef: crate::multiword::U256::from_u128(5),
+        coef: U256::from_u128(5),
         exp: -1,
         sign: false,
     };
     if x.abs().cmp(half) == core::cmp::Ordering::Less {
         return sinh_taylor(x);
     }
-    // sinh(x) = (e^x - e^{-x}) / 2 — both terms via the same Extended
-    // pipeline. We round each `exp` to Decimal128 (since
-    // exp_from_extended produces Decimal128), losing ≤ 1 ULP_34, but
-    // the difference is then computed at Decimal128 precision via
-    // sub. That gives us ~5 ULP envelope at the boundary; for ≤ 1
-    // ULP we'd want exp at extended-output. Acceptable here because
-    // the |x| < 0.5 branch handles the cancellation-prone region
-    // exactly.
-    let (e_pos, _) = exp_from_extended(x, RoundingMode::NearestEven);
-    let (e_neg, _) = exp_from_extended(x.neg(), RoundingMode::NearestEven);
-    if e_pos.is_infinite() {
-        // Saturate: sinh of large |x| → ±∞ with sign of x.
-        let sign = x.sign;
-        return if sign {
-            Extended::from_decimal128(Decimal128::ZERO)
-                .neg()
-                .add(Extended::from_decimal128(Decimal128::INFINITY).neg())
-        } else {
-            Extended::from_decimal128(Decimal128::INFINITY)
+    // Saturation: |x| > ~14150 puts e^x outside Decimal128's range.
+    // Return an Extended whose magnitude exceeds Decimal128::MAX so the
+    // boundary round produces ±∞ + OVERFLOW with the sign of x. We use
+    // exp = 7000 (so the value is 1 × 10^7000, well above 10^6144 = MAX).
+    let saturate_threshold = Extended::parse_str("14150");
+    if x.abs().cmp(saturate_threshold) == core::cmp::Ordering::Greater {
+        return Extended {
+            coef: U256::from_u128(1),
+            exp: 7000,
+            sign: x.sign,
         };
     }
-    let diff_d = e_pos.sub(e_neg, RoundingMode::NearestEven).0;
-    let two = Extended::from_i32(2);
-    Extended::from_decimal128(diff_d).div(two)
+    // sinh(x) = (e^x − e^{-x}) / 2, evaluated entirely at extended
+    // precision so the cancellation is bounded by Extended's 50-digit
+    // working envelope rather than Decimal128's 34-digit one. Combined
+    // with the |x| < 0.5 Taylor branch above, this gives ≤ 1 ULP at the
+    // 34-digit boundary across the whole representable domain.
+    let e_pos = exp_extended(x);
+    let e_neg = exp_extended(x.neg());
+    e_pos.sub(e_neg).div_u32(2)
 }
 
 /// `sinh(x)` Taylor series for `|x| < 0.5`.
@@ -288,22 +283,28 @@ fn cosh_ext(abs_x: Extended) -> Extended {
     }
     // For small |x| (<0.5), Taylor is more accurate (no cancellation).
     let half = Extended {
-        coef: crate::multiword::U256::from_u128(5),
+        coef: U256::from_u128(5),
         exp: -1,
         sign: false,
     };
     if abs_x.cmp(half) == core::cmp::Ordering::Less {
         return cosh_taylor(abs_x);
     }
-    // cosh(x) = (e^x + e^{-x}) / 2.
-    let (e_pos, _) = exp_from_extended(abs_x, RoundingMode::NearestEven);
-    let (e_neg, _) = exp_from_extended(abs_x.neg(), RoundingMode::NearestEven);
-    if e_pos.is_infinite() {
-        return Extended::from_decimal128(Decimal128::INFINITY);
+    // Saturation: |x| > ~14150 puts e^x outside Decimal128's range.
+    // Return an Extended whose magnitude rounds to +∞ + OVERFLOW. cosh
+    // is always positive.
+    let saturate_threshold = Extended::parse_str("14150");
+    if abs_x.cmp(saturate_threshold) == core::cmp::Ordering::Greater {
+        return Extended {
+            coef: U256::from_u128(1),
+            exp: 7000,
+            sign: false,
+        };
     }
-    let sum_d = e_pos.add(e_neg, RoundingMode::NearestEven).0;
-    let two = Extended::from_i32(2);
-    Extended::from_decimal128(sum_d).div(two)
+    // cosh(x) = (e^x + e^{-x}) / 2, end-to-end at extended precision.
+    let e_pos = exp_extended(abs_x);
+    let e_neg = exp_extended(abs_x.neg());
+    e_pos.add(e_neg).div_u32(2)
 }
 
 /// `cosh(x) = 1 + x²/2! + x⁴/4! + …` for small `|x|`.
@@ -372,7 +373,7 @@ mod tests {
     fn sinh_one() {
         let (r, _) = Decimal128::ONE.sinh(RoundingMode::NearestEven);
         let want = parse("1.175201193643801456882381850595601");
-        assert!(within_ulps(r, want, 5));
+        assert!(within_ulps(r, want, 1));
     }
 
     #[test]
@@ -386,7 +387,7 @@ mod tests {
     fn cosh_one() {
         let (r, _) = Decimal128::ONE.cosh(RoundingMode::NearestEven);
         let want = parse("1.543080634815243778477905620757061");
-        assert!(within_ulps(r, want, 5));
+        assert!(within_ulps(r, want, 1));
     }
 
     #[test]
@@ -421,7 +422,7 @@ mod tests {
     fn asinh_one() {
         let (r, _) = Decimal128::ONE.asinh(RoundingMode::NearestEven);
         let want = parse("0.8813735870195430252326093249797923");
-        assert!(within_ulps(r, want, 5));
+        assert!(within_ulps(r, want, 1));
     }
 
     #[test]
@@ -434,7 +435,7 @@ mod tests {
     fn acosh_two() {
         let (r, _) = parse("2").acosh(RoundingMode::NearestEven);
         let want = parse("1.316957896924816708625046347307969");
-        assert!(within_ulps(r, want, 5));
+        assert!(within_ulps(r, want, 1));
     }
 
     #[test]
@@ -454,7 +455,7 @@ mod tests {
     fn atanh_half() {
         let (r, _) = parse("0.5").atanh(RoundingMode::NearestEven);
         let want = parse("0.5493061443340548456976226184612628");
-        assert!(within_ulps(r, want, 5));
+        assert!(within_ulps(r, want, 1));
     }
 
     #[test]
@@ -476,6 +477,6 @@ mod tests {
         let x = parse("0.7");
         let (s_pos, _) = x.sinh(RoundingMode::NearestEven);
         let (s_neg, _) = x.neg().sinh(RoundingMode::NearestEven);
-        assert!(within_ulps(s_neg, s_pos.neg(), 5));
+        assert!(within_ulps(s_neg, s_pos.neg(), 1));
     }
 }

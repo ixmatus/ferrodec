@@ -106,6 +106,25 @@ pub(super) fn exp_from_extended(x_ext: Extended, rm: RoundingMode) -> (Decimal12
         };
     }
 
+    let result_ext = exp_extended(x_ext);
+    let (result, status) = result_ext.to_decimal128(0, rm);
+    (result, status | Status::INEXACT)
+}
+
+/// Compute `exp(x_ext)` and return the result *at extended precision*.
+/// Distinct from [`exp_from_extended`] in that no rounding to
+/// `Decimal128` happens — the caller composes further at extended
+/// precision and rounds once at the boundary.
+///
+/// Used by `sinh` / `cosh` to compute `(e^x ± e^{-x}) / 2` without
+/// the precision-loss of an intermediate `Decimal128` round-trip.
+///
+/// Caller must guarantee `|x_ext|` is within the convergence window
+/// (`|x| ≤ ~14150`); larger inputs land in [`exp_from_extended`]'s
+/// saturation branch and are not handled here. The returned `Extended`
+/// can have an exponent outside `Decimal128`'s representable range —
+/// the boundary rounder handles that as OVERFLOW.
+pub(super) fn exp_extended(x_ext: Extended) -> Extended {
     // Reduction: x = k · ln(10) + r, with |r| ≤ ln(10)/2.
     let q = x_ext.mul(inv_ln10_ext());
     let k = round_to_i32(q);
@@ -115,9 +134,7 @@ pub(super) fn exp_from_extended(x_ext: Extended, rm: RoundingMode) -> (Decimal12
     let exp_r = taylor_exp_ext(r);
 
     // exp(x) = exp(r) · 10^k.
-    let result_ext = exp_r.mul_pow10_exp(k);
-    let (result, status) = result_ext.to_decimal128(0, rm);
-    (result, status | Status::INEXACT)
+    exp_r.mul_pow10_exp(k)
 }
 
 /// Round an Extended to the nearest `i32`. Used to recover the

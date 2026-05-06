@@ -1,11 +1,11 @@
 //! Faithful-rounding cross-check for sinh/cosh/tanh and inverses.
 //!
-//! Hyperbolic forwards (`sinh`/`cosh` for `|x| ≥ 0.5`) compose two
-//! `exp` calls then round at Decimal128, so ~5 ULP envelope is
-//! expected at the boundary. Inverse hyperbolics compose `ln(x +
-//! sqrt(...))` — same accumulation. Tighter (≤ 1 ULP) bounds would
-//! require keeping `exp` outputs in `Extended` form (out of scope
-//! for this commit).
+//! sinh / cosh / tanh evaluate `(e^x ± e^{-x}) / 2` end to end at
+//! `Extended` (50-digit) precision and round once at the Decimal128
+//! boundary; the |x| < 0.5 branches use direct Taylor series (no
+//! cancellation). Inverse hyperbolics keep the `ln(x + sqrt(...))`
+//! argument at `Extended` precision through the `ln` call. Both
+//! deliver ≤ 1 ULP at 34 digits across the supported domain.
 
 #![cfg(feature = "transcendentals")]
 
@@ -77,7 +77,7 @@ where
     );
 }
 
-const ULPS: u32 = 5;
+const ULPS: u32 = 1;
 
 #[test]
 fn sinh_one() {
