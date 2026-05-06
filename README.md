@@ -67,16 +67,18 @@ Every operation produces a per call `Status`, never a global flag word. Callers 
 
 ferrodec is feature gated so the embedded floor pays only for what it uses.
 
-| Feature | Default | What it adds | Code size |
-|---------|---------|--------------|-----------|
-| `fmt` | yes | `parse_str`, `Display` (uses `core::fmt::Write`, no `alloc`) | small |
-| `trig` | no | `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`. Pulls the 6 300-digit Payne-Hanek `2/π` table | moderate |
-| `exp-log` | no | `exp`, `exp2`, `ln`, `log2`, `log10`, `cbrt` | moderate |
-| `hyperbolic` | no | `sinh`, `cosh`, `tanh`, `asinh`, `acosh`, `atanh`. Implies `exp-log` | moderate |
-| `pow` | no | `pow`. Implies `exp-log` (`pow(x, y) = exp(y · ln x)`) | small (over `exp-log`) |
-| `transcendentals` | no | Meta-feature pulling all four above. The pre-1.2 shape; existing dependents see no change | moderate |
+| Feature | Default | What it adds | Δ on `thumbv6m-none-eabi` |
+|---------|---------|--------------|---------------------------|
+| `fmt` | yes | `parse_str`, `Display` (uses `core::fmt::Write`, no `alloc`). The baseline below is `--features=fmt`. | 401 KB total |
+| `exp-log` | no | `exp`, `exp2`, `ln`, `log2`, `log10`, `cbrt` | +84 KB |
+| `trig` | no | `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`. Pulls the 6 300-digit Payne-Hanek `2/π` table | +116 KB |
+| `hyperbolic` | no | `sinh`, `cosh`, `tanh`, `asinh`, `acosh`, `atanh`. Implies `exp-log` | +22 KB over `exp-log` |
+| `pow` | no | `pow`. Implies `exp-log` (`pow(x, y) = exp(y · ln x)`) | +15 KB over `exp-log` |
+| `transcendentals` | no | Meta-feature pulling all four above. The pre-1.2 shape; existing dependents see no change. | +185 KB |
 | `binary-float` | no | `to_f64`, `to_f32`, `from_f64`, `from_f32` (pulls in `fmt`) | small |
 | `kani` | no | Compile the formal verification harnesses; off in normal builds | none in production |
+
+(Sizes are the `libferrodec.rlib` delta in release mode at commit `1.3.0`. The actual `.text` section in a linked binary will be somewhat smaller. Numbers are illustrative; profile your own application before deciding.)
 
 ## What you can call
 

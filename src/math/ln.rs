@@ -214,6 +214,19 @@ fn decompose_to_decade(x: Decimal128) -> (Decimal128, i32) {
     }
 }
 
+/// `ln(1 + u)` at extended precision via Taylor series.
+///
+/// Used by `ln_extended`'s halve-double loop and exposed for callers
+/// (notably `acosh` near `x = 1`) that compute `ln(1 + small)` and
+/// would otherwise lose precision routing through `ln_from_extended`.
+///
+/// Caller guarantees `|u|` is comfortably below the radius of
+/// convergence (`u < 1`); the 250-iteration cap inside reliably
+/// handles `|u| ≤ ~0.6` to 50-digit precision.
+pub(super) fn log1p_extended(u: Extended) -> Extended {
+    taylor_log1p_ext(u)
+}
+
 /// Taylor series `ln(1 + u) = u − u²/2 + u³/3 − u⁴/4 + …` at
 /// extended precision. Halts when adding the next term doesn't change
 /// the partial sum at 50-digit precision.

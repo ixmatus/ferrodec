@@ -30,7 +30,8 @@ use crate::bid::{classify_bits, Class};
 use crate::decimal::Decimal128;
 use crate::math::exp::exp_extended;
 use crate::math::extended::Extended;
-use crate::math::ln::ln_from_extended;
+use crate::math::ln::{ln_from_extended, log1p_extended};
+use crate::multiword::U256;
 use crate::status::{RoundingMode, Status};
 
 impl Decimal128 {
@@ -160,12 +161,41 @@ impl Decimal128 {
             Some(core::cmp::Ordering::Equal) => return (Decimal128::ZERO, Status::OK),
             _ => {}
         }
-        // acosh(x) = ln(x + sqrt(x² - 1)) — argument stays at extended
-        // precision through the ln call.
+        // Two paths, picked by how close x is to 1:
+        //
+        // * For x near 1, computing `x² − 1` directly cancels and costs
+        //   ~`digit_count(x − 1)` digits of precision. Extended carries
+        //   ~16 digits of headroom over Decimal128, so the original
+        //   formula is fine for `x − 1 ≥ 10⁻¹⁶` but loses the envelope
+        //   below that. The log1p path keeps `(x − 1)` explicit and
+        //   factors `x² − 1 = (x − 1)(x + 1)`, avoiding the cancellation
+        //   entirely:
+        //
+        //       acosh(x) = ln(1 + (x − 1) + sqrt((x − 1)(x + 1)))
+        //                = log1p((x − 1) + sqrt((x − 1)(x + 1)))
+        //
+        // * For x further from 1 the original `ln(x + sqrt(x² − 1))`
+        //   path runs entirely at Extended precision (commit f43ce0e)
+        //   and stays within ≤ 1 ULP at 34 digits.
+        //
+        // The threshold `0.01` keeps `inner` comfortably inside log1p's
+        // Taylor convergence window (`inner ≤ ~0.15` at this y).
         let x_ext = Extended::from_decimal128(self);
-        let x_sq_minus_one = x_ext.square().sub(Extended::ONE);
-        let inner = x_ext.add(x_sq_minus_one.sqrt());
-        let result_ext = ln_from_extended(inner);
+        let y = x_ext.sub(Extended::ONE);
+        const LOG1P_THRESHOLD: Extended = Extended {
+            coef: U256::from_u128(1),
+            exp: -2,
+            sign: false,
+        };
+        let result_ext = if y.cmp(LOG1P_THRESHOLD) == core::cmp::Ordering::Less {
+            let x_plus_one = x_ext.add(Extended::ONE);
+            let inner = y.add(y.mul(x_plus_one).sqrt());
+            log1p_extended(inner)
+        } else {
+            let x_sq_minus_one = x_ext.square().sub(Extended::ONE);
+            let inner = x_ext.add(x_sq_minus_one.sqrt());
+            ln_from_extended(inner)
+        };
         let (result, status) = result_ext.to_decimal128(0, rm);
         (result, status | Status::INEXACT)
     }
@@ -420,6 +450,37 @@ mod tests {
         let (r, st) = parse("0.5").acosh(RoundingMode::NearestEven);
         assert!(r.is_nan());
         assert!(st.invalid());
+    }
+
+    #[test]
+    fn acosh_just_above_one_log1p_path() {
+        // x = 1 + 10⁻³³, the smallest near-1 input the test suite can
+        // build. acosh(1 + ε) ≈ √(2ε); for ε = 10⁻³³ that's √2 × 10⁻¹⁶·⁵
+        // ≈ 4.472_135_954_999_579_392_818_347_337_462_552 × 10⁻¹⁷ at
+        // 34 digits.
+        //
+        // The original `ln(x + sqrt(x² − 1))` formula loses ~33 digits
+        // of precision at this input via the x²−1 cancellation; the
+        // log1p path closes that gap.
+        let x = parse("1.000000000000000000000000000000001");
+        let (r, _) = x.acosh(RoundingMode::NearestEven);
+        let want = parse("4.472135954999579392818347337462552E-17");
+        assert!(
+            within_ulps(r, want, 1),
+            "acosh({x}) = {r:?}, want ≈ {want:?}"
+        );
+    }
+
+    #[test]
+    fn acosh_threshold_boundary_consistent() {
+        // x = 1.01 sits right at the LOG1P_THRESHOLD. acosh(1.01) =
+        // ln(1.01 + sqrt(1.01² − 1)) = ln(1 + 0.14177446878757825…) ≈
+        // 0.141_303_769_485_648_577_351_151_646_974_354_6 at 34 digits.
+        // The threshold's ≥ branch handles this input (y = 0.01 is
+        // not strictly less than LOG1P_THRESHOLD = 0.01).
+        let (r, _) = parse("1.01").acosh(RoundingMode::NearestEven);
+        let want = parse("0.1413037694856485773511516469743546");
+        assert!(within_ulps(r, want, 1));
     }
 
     #[test]

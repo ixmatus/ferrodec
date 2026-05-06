@@ -3,7 +3,7 @@
 #![cfg(feature = "pow")]
 
 use astro_float::{BigFloat, Consts, Radix, RoundingMode as AfRm};
-use ferrodec::{Decimal128, RoundingMode};
+use ferrodec::RoundingMode;
 use proptest::prelude::*;
 
 mod common;

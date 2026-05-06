@@ -18,7 +18,7 @@
 #![cfg(feature = "trig")]
 
 use astro_float::{BigFloat, Consts, Radix, RoundingMode as AfRm};
-use ferrodec::{Decimal128, RoundingMode};
+use ferrodec::RoundingMode;
 
 mod common;
 use common::{bigfloat_to_decimal_string, parse, within_ulps};
