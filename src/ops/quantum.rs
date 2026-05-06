@@ -323,11 +323,19 @@ impl Decimal128 {
         if self.is_zero() {
             return (Self::MIN_POSITIVE, Status::OK);
         }
-        if self == Self::NEG_INFINITY {
-            return (Self::MIN, Status::OK);
-        }
-        if self == Self::INFINITY {
-            return (Self::INFINITY, Status::OK);
+        if self.is_infinite() {
+            // Includes non-canonical infinity encodings (type field
+            // 0b11110, trailing bits non-zero). Bit-equality against
+            // `Self::INFINITY` would miss those and the `unreachable!()`
+            // below would fire on a Form-A Inf with junk bits.
+            return (
+                if self.is_sign_negative() {
+                    Self::MIN
+                } else {
+                    Self::INFINITY
+                },
+                Status::OK,
+            );
         }
         let (sign, bexp, coef) = match classify_bits(self.0) {
             Class::Finite {
@@ -756,6 +764,26 @@ mod tests {
     fn next_up_pos_infinity() {
         let (r, st) = Decimal128::INFINITY.next_up();
         assert_eq!(r.to_bits(), Decimal128::INFINITY.to_bits());
+        assert!(st.is_ok());
+    }
+
+    #[test]
+    fn next_up_non_canonical_infinity() {
+        // Non-canonical Inf encodings (type field 11110, trailing bits
+        // non-zero) decode as Class::Infinity but don't bit-equal the
+        // canonical INFINITY constant. Pre-fix, next_up's
+        // `self == Self::INFINITY` check missed them and the
+        // `unreachable!()` arm in the classify_bits match panicked.
+        // Surface bug Kani found in `next_up_special_dispatch`.
+        let dirty_pos = Decimal128::from_bits(Decimal128::INFINITY.to_bits() | 1);
+        let (r, st) = dirty_pos.next_up();
+        assert!(r.is_infinite() && !r.is_sign_negative());
+        assert!(st.is_ok());
+
+        let dirty_neg = Decimal128::from_bits(Decimal128::NEG_INFINITY.to_bits() | 1);
+        let (r, st) = dirty_neg.next_up();
+        // next_up(-∞) = MIN regardless of which Inf encoding came in.
+        assert_eq!(r.to_bits(), Decimal128::MIN.to_bits());
         assert!(st.is_ok());
     }
 

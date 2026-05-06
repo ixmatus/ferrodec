@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.1] - 2026-05-06
+
+### Fixed
+
+- `next_up` (and `next_down`, which routes through it) panicked on
+  non-canonical Infinity encodings — bit patterns where the type
+  field is `0b11110` but the trailing 122 bits are non-zero (so
+  `is_infinite()` returns true but the value doesn't bit-equal
+  `Decimal128::INFINITY` / `NEG_INFINITY`). The previous code used
+  bit-equality against the canonical Inf constants and hit
+  `unreachable!()` when the equality failed. Replaced with
+  `self.is_infinite()` plus a sign check.
+
+  Surfaced by the `next_up_special_dispatch` Kani harness added
+  in 1.7.0; the harness now passes. Regression test
+  `next_up_non_canonical_infinity` covers both signs.
+
 ## [1.7.0] - 2026-05-06
 
 The "verification depth" release. No public API changes. Closes the
@@ -306,7 +323,8 @@ IEEE 754 §5.3 / §5.10 quantum gap-fill.
   results across the speleotrove `dq*.decTest` suite; 50 Kani
   formal-verification harnesses for the IEEE special-case dispatch.
 
-[Unreleased]: https://github.com/ixmatus/ferrodec/compare/v1.7.0...HEAD
+[Unreleased]: https://github.com/ixmatus/ferrodec/compare/v1.7.1...HEAD
+[1.7.1]: https://github.com/ixmatus/ferrodec/releases/tag/v1.7.1
 [1.7.0]: https://github.com/ixmatus/ferrodec/releases/tag/v1.7.0
 [1.6.0]: https://github.com/ixmatus/ferrodec/releases/tag/v1.6.0
 [1.5.0]: https://github.com/ixmatus/ferrodec/releases/tag/v1.5.0
