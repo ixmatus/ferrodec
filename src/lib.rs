@@ -13,7 +13,12 @@ mod multiword;
 mod ops;
 #[cfg(feature = "ops")]
 mod ops_traits;
+#[cfg(feature = "serde")]
+mod serde_impls;
 mod status;
+
+#[cfg(feature = "serde")]
+pub use serde_impls::serde_bid;
 
 #[cfg(any(feature = "trig", feature = "exp-log"))]
 pub use math::{e, ln10, ln2, pi};
