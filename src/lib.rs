@@ -21,5 +21,8 @@ pub use status::{RoundingMode, Status};
 #[cfg(feature = "fmt")]
 pub use convert::ParseDecimalError;
 
+#[cfg(feature = "binary-float")]
+pub use convert::Decimal128FromFloatError;
+
 #[cfg(kani)]
 mod verify;

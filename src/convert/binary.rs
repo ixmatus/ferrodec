@@ -169,9 +169,87 @@ impl Decimal128 {
     }
 }
 
+/// Error returned by [`TryFrom<f32>`] / [`TryFrom<f64>`] for
+/// [`Decimal128`] when the input is not a finite number.
+///
+/// `from_f32` / `from_f64` route NaN and ±∞ to their `Decimal128`
+/// counterparts silently. The `TryFrom` impls reject those inputs
+/// instead so callers expecting a finite decimal don't have to
+/// re-check the result.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Decimal128FromFloatError {
+    /// The input was NaN.
+    NotANumber,
+    /// The input was `+∞` or `−∞`.
+    Infinite,
+}
+
+impl core::fmt::Display for Decimal128FromFloatError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::NotANumber => f.write_str("cannot convert NaN to Decimal128"),
+            Self::Infinite => f.write_str("cannot convert ±∞ to Decimal128"),
+        }
+    }
+}
+
+impl TryFrom<f64> for Decimal128 {
+    type Error = Decimal128FromFloatError;
+
+    fn try_from(value: f64) -> Result<Self, Self::Error> {
+        if value.is_nan() {
+            return Err(Decimal128FromFloatError::NotANumber);
+        }
+        if value.is_infinite() {
+            return Err(Decimal128FromFloatError::Infinite);
+        }
+        Ok(Self::from_f64(value))
+    }
+}
+
+impl TryFrom<f32> for Decimal128 {
+    type Error = Decimal128FromFloatError;
+
+    fn try_from(value: f32) -> Result<Self, Self::Error> {
+        Self::try_from(f64::from(value))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn try_from_f64_finite_succeeds() {
+        let d = Decimal128::try_from(1.5_f64).unwrap();
+        let (back, _) = d.to_f64(RoundingMode::NearestEven);
+        assert_eq!(back, 1.5);
+    }
+
+    #[test]
+    fn try_from_f64_nan_rejects() {
+        let r = Decimal128::try_from(f64::NAN);
+        assert_eq!(r, Err(Decimal128FromFloatError::NotANumber));
+    }
+
+    #[test]
+    fn try_from_f64_inf_rejects() {
+        let r = Decimal128::try_from(f64::INFINITY);
+        assert_eq!(r, Err(Decimal128FromFloatError::Infinite));
+        let r = Decimal128::try_from(f64::NEG_INFINITY);
+        assert_eq!(r, Err(Decimal128FromFloatError::Infinite));
+    }
+
+    #[test]
+    fn try_from_f32_routes_through_f64() {
+        let d = Decimal128::try_from(2.5_f32).unwrap();
+        let (back, _) = d.to_f32(RoundingMode::NearestEven);
+        assert_eq!(back, 2.5_f32);
+        assert_eq!(
+            Decimal128::try_from(f32::NAN),
+            Err(Decimal128FromFloatError::NotANumber)
+        );
+    }
 
     #[test]
     fn to_f64_zero_signed() {

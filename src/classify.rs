@@ -360,6 +360,94 @@ impl Decimal128 {
         }
         Self(pack_finite(neg, BIAS, 1))
     }
+
+    /// Return `true` iff `self` represents a mathematical integer.
+    ///
+    /// `±0` and any finite value with non-negative quantum exponent
+    /// (`biased_exp ≥ BIAS`) is an integer trivially. For finite values
+    /// with negative quantum (e.g. `1.5` stored as `coef = 15` at
+    /// quantum `−1`), the coefficient must be an exact integer multiple
+    /// of `10^|quantum|`.
+    ///
+    /// `±∞` and NaN return `false`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use ferrodec::Decimal128;
+    ///
+    /// assert!(Decimal128::ONE.is_integer());
+    /// assert!(Decimal128::TEN.is_integer());
+    /// assert!(Decimal128::try_new(20, -1).unwrap().is_integer()); // 2.0
+    /// assert!(!Decimal128::try_new(15, -1).unwrap().is_integer()); // 1.5
+    /// assert!(!Decimal128::INFINITY.is_integer());
+    /// assert!(!Decimal128::NAN.is_integer());
+    /// ```
+    #[inline]
+    #[must_use]
+    pub const fn is_integer(self) -> bool {
+        match classify_bits(self.0) {
+            Class::Zero { .. } => true,
+            Class::Finite {
+                biased_exp,
+                coefficient,
+                ..
+            } => {
+                if biased_exp >= BIAS {
+                    return true;
+                }
+                let drop = BIAS - biased_exp;
+                if drop > 38 {
+                    // 10^39 already exceeds u128. A 34-digit coefficient
+                    // can't be a multiple of 10^39, so not integer.
+                    return false;
+                }
+                let divisor = 10u128.pow(drop);
+                coefficient % divisor == 0
+            }
+            _ => false,
+        }
+    }
+
+    /// Return the unit in the last place at `self`'s stored quantum:
+    /// `10^(biased_exp − BIAS)`.
+    ///
+    /// For finite `self` this is the spacing between values that share
+    /// `self`'s cohort — useful for tolerance bookkeeping at a known
+    /// magnitude. Cohort matters: `Decimal128::ONE.ulp()` returns `1`
+    /// (the unit at the `1E+0` cohort), but `1.0E+0` parsed as `10E−1`
+    /// would return `10⁻¹` instead.
+    ///
+    /// Edge cases:
+    /// * `±0` — returns the smallest positive subnormal magnitude at
+    ///   the stored quantum (`1 × 10^(biased_exp − BIAS)`).
+    /// * `±∞` and NaN — returns `self` (no defined ULP at the
+    ///   non-finite boundary).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use ferrodec::Decimal128;
+    ///
+    /// // ULP at the ONE cohort is 1 — neighbours stay at the same
+    /// // quantum (next_up moves to a finer cohort, but ulp doesn't).
+    /// assert_eq!(Decimal128::ONE.ulp().to_bits(), Decimal128::ONE.to_bits());
+    ///
+    /// // ULP at 1.5 (= 15 × 10⁻¹) is 10⁻¹ = 0.1.
+    /// let x = Decimal128::try_new(15, -1).unwrap();
+    /// let want = Decimal128::try_new(1, -1).unwrap();
+    /// assert_eq!(x.ulp().to_bits(), want.to_bits());
+    /// ```
+    #[inline]
+    #[must_use]
+    pub const fn ulp(self) -> Self {
+        match classify_bits(self.0) {
+            Class::Zero { biased_exp, .. } | Class::Finite { biased_exp, .. } => {
+                Self(pack_finite(false, biased_exp, 1))
+            }
+            _ => self,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -660,6 +748,52 @@ mod tests {
             assert_eq!(once.to_bits(), twice.to_bits());
             assert!(once.is_canonical());
         }
+    }
+
+    #[test]
+    fn is_integer_basics() {
+        assert!(Decimal128::ZERO.is_integer());
+        assert!(Decimal128::NEG_ZERO.is_integer());
+        assert!(Decimal128::ONE.is_integer());
+        assert!(Decimal128::NEG_ONE.is_integer());
+        assert!(Decimal128::TEN.is_integer());
+        assert!(Decimal128::MAX.is_integer()); // MAX is an integer at quantum +6111
+        assert!(!Decimal128::INFINITY.is_integer());
+        assert!(!Decimal128::NEG_INFINITY.is_integer());
+        assert!(!Decimal128::NAN.is_integer());
+        assert!(!Decimal128::SIGNALING_NAN.is_integer());
+
+        // 2.0 (= 20 × 10⁻¹) is an integer; 1.5 (= 15 × 10⁻¹) is not.
+        let two_point_zero = Decimal128::try_new(20, -1).unwrap();
+        assert!(two_point_zero.is_integer());
+        let one_and_a_half = Decimal128::try_new(15, -1).unwrap();
+        assert!(!one_and_a_half.is_integer());
+
+        // 1000 represented at quantum +3 (= 1 × 10³) is an integer.
+        let thousand = Decimal128::try_new(1, 3).unwrap();
+        assert!(thousand.is_integer());
+    }
+
+    #[test]
+    fn ulp_basics() {
+        // ULP at ONE's cohort is 1.
+        assert_eq!(Decimal128::ONE.ulp().to_bits(), Decimal128::ONE.to_bits());
+        // ULP at 1.5 (quantum -1) is 10⁻¹ = 0.1.
+        let one_and_a_half = Decimal128::try_new(15, -1).unwrap();
+        let tenth = Decimal128::try_new(1, -1).unwrap();
+        assert_eq!(one_and_a_half.ulp().to_bits(), tenth.to_bits());
+        // ULP at MIN_POSITIVE is itself (the smallest representable
+        // increment).
+        assert_eq!(
+            Decimal128::MIN_POSITIVE.ulp().to_bits(),
+            Decimal128::MIN_POSITIVE.to_bits()
+        );
+        // NaN / Inf pass through.
+        assert_eq!(
+            Decimal128::INFINITY.ulp().to_bits(),
+            Decimal128::INFINITY.to_bits()
+        );
+        assert!(Decimal128::NAN.ulp().is_nan());
     }
 
     #[test]

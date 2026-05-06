@@ -18,3 +18,6 @@ mod binary;
 
 #[cfg(feature = "fmt")]
 pub use parse::ParseDecimalError;
+
+#[cfg(feature = "binary-float")]
+pub use binary::Decimal128FromFloatError;

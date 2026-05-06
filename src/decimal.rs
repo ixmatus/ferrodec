@@ -78,6 +78,41 @@ impl Decimal128 {
         Ok(Self(bid::pack_finite(sign, biased as u32, magnitude)))
     }
 
+    /// Construct a non-negative `Decimal128` from a `(u128, exponent)`
+    /// pair. The result has `sign = false`; for negative values use
+    /// [`Decimal128::try_new`] (which takes `i128`).
+    ///
+    /// Mirrors `try_new` for callers that already have the coefficient
+    /// in unsigned form. Returns `Err` under the same conditions
+    /// (coefficient ≥ `10^34` or exponent outside `[−6176, 6111]`).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use ferrodec::{Decimal128, Decimal128BuildError};
+    ///
+    /// // The largest representable 34-digit coefficient.
+    /// let x = Decimal128::try_new_unsigned(10u128.pow(34) - 1, 0).unwrap();
+    /// assert!(x.is_finite());
+    ///
+    /// // 10^34 itself is out of range.
+    /// let oob = Decimal128::try_new_unsigned(10u128.pow(34), 0);
+    /// assert_eq!(oob, Err(Decimal128BuildError::CoefficientOutOfRange));
+    /// ```
+    pub fn try_new_unsigned(
+        coefficient: u128,
+        exponent: i32,
+    ) -> Result<Self, Decimal128BuildError> {
+        if coefficient >= bid::COEFFICIENT_LIMIT {
+            return Err(Decimal128BuildError::CoefficientOutOfRange);
+        }
+        let biased = exponent as i64 + bid::BIAS as i64;
+        if biased < 0 || biased > bid::BIASED_EXP_MAX as i64 {
+            return Err(Decimal128BuildError::ExponentOutOfRange);
+        }
+        Ok(Self(bid::pack_finite(false, biased as u32, coefficient)))
+    }
+
     // -- IEEE 754 distinguished values --------------------------------------
 
     /// `+0` with quantum exponent 0 (encoded as `0E+0`).
