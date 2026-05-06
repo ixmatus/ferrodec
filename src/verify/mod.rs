@@ -12,10 +12,13 @@
 //! proof set to terminate within tens of minutes on a developer laptop.
 
 mod addsub;
+mod canonical;
 mod classify;
 mod cmp;
+mod decimal;
 mod div;
 mod encode;
 mod mul;
+mod quantum;
 mod rem;
 mod sqrt;

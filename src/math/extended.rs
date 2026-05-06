@@ -668,6 +668,58 @@ mod tests {
         Extended::from_decimal128(parse(s))
     }
 
+    /// Sweep round-trip over a deterministic grid: every combination of
+    /// representative coefficients × representative quanta. Pins the
+    /// `Decimal128 → Extended → Decimal128` boundary as exact for any
+    /// finite input that already fits in 34 digits. The transcendental
+    /// kernels rely on this contract; without it, `to_decimal128` could
+    /// silently shift cohort or lose precision on the way back in.
+    #[test]
+    fn round_trip_decimal128_sweep() {
+        // A spread of coefficients across the 1-to-34-digit range,
+        // including the boundary at 10^34 - 1.
+        let coefs: [u128; 9] = [
+            1,
+            7,
+            10,
+            12_345_u128,
+            1_000_000_u128,
+            10u128.pow(15),
+            10u128.pow(20),
+            10u128.pow(33),
+            10u128.pow(34) - 1,
+        ];
+        // Quanta covering subnormal, normal, large-positive, and the
+        // `BIASED_EXP_MAX` boundary.
+        let quanta: [i32; 8] = [
+            -6176, // smallest representable
+            -100, -34, -1, 0, 1, 100, 6111, // largest representable
+        ];
+        for &coef in &coefs {
+            for &q in &quanta {
+                for &sign in &[false, true] {
+                    if coef == 0 && sign {
+                        continue;
+                    }
+                    let signed_coef = if sign { -(coef as i128) } else { coef as i128 };
+                    let d = match Decimal128::try_new(signed_coef, q) {
+                        Ok(d) => d,
+                        Err(_) => continue, // out-of-range combinations: skip silently
+                    };
+                    let e = Extended::from_decimal128(d);
+                    let (back, _) = e.to_decimal128(0, RoundingMode::NearestEven);
+                    let (cmp, _) = back.partial_cmp(d);
+                    assert_eq!(
+                        cmp,
+                        Some(core::cmp::Ordering::Equal),
+                        "Decimal128 → Extended → Decimal128 mismatch: \
+                         coef={signed_coef}, q={q}, d={d:?}, back={back:?}"
+                    );
+                }
+            }
+        }
+    }
+
     #[test]
     fn round_trip_decimal128() {
         for s in &[

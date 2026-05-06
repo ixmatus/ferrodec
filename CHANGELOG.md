@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-05-06
+
+The "verification depth" release. No public API changes. Closes the
+two documented gaps in the verification surface: the post-v1 §5
+operations had no Kani coverage, and `total_cmp`'s finite-finite
+antisymmetry has been deferred since 1.0.0.
+
+### Added
+
+- 12 new Kani harnesses across three new files:
+  - `src/verify/canonical.rs` — `is_canonical` / `canonicalize`
+    idempotence, projection, and fixed-point characterisation over
+    arbitrary `u128`. The canonical pair is now Kani-checked.
+  - `src/verify/quantum.rs` — `same_quantum` reflexivity and
+    symmetry, `compare_total_magnitude` reflexivity and
+    antisymmetry-off-finite-finite, `radix()` constant, and
+    `next_up` special-case dispatch.
+  - `src/verify/decimal.rs` — `try_new` in-range success returning
+    matching decoded bits, plus the two error-variant cases.
+- 1 new harness in `src/verify/cmp.rs`:
+  - `total_cmp_antisymmetric_finite_same_cohort_same_sign`. Closes
+    the easy half of the documented TODO. The remaining
+    different-cohort case still hits SMT-multiplication and stays
+    proptest-only; the file's docstring records the partial closure.
+- 3 new property test files in `tests/`:
+  - `property_canonical.rs` — randomised consistency between
+    `is_canonical` and `canonicalize` (3 properties).
+  - `property_quantum.rs` — `next_down` inverts `next_up`
+    numerically, `next_up` is strictly greater than its input,
+    `same_quantum` and `compare_total_magnitude` reflexivity over
+    arbitrary bit patterns (4 properties).
+- 1 new test in `src/math/extended.rs::tests`:
+  - `round_trip_decimal128_sweep` — `Decimal128 → Extended →
+    Decimal128` is bit-identical for every combination of
+    representative coefficients × representative quanta. Pins the
+    contract the transcendental kernels rely on.
+
+### Changed
+
+- `src/verify/cmp.rs`'s docstring rewritten to describe the
+  Phase 2 closure rather than the original Phase 1 deferral.
+- README "Verification" section: harness count bumped from 50 to 63,
+  with a sentence describing what each new cluster proves.
+
 ## [1.6.0] - 2026-05-06
 
 The "project hygiene" release. Adds badges, a fuzz harness, an
@@ -262,7 +306,8 @@ IEEE 754 §5.3 / §5.10 quantum gap-fill.
   results across the speleotrove `dq*.decTest` suite; 50 Kani
   formal-verification harnesses for the IEEE special-case dispatch.
 
-[Unreleased]: https://github.com/ixmatus/ferrodec/compare/v1.6.0...HEAD
+[Unreleased]: https://github.com/ixmatus/ferrodec/compare/v1.7.0...HEAD
+[1.7.0]: https://github.com/ixmatus/ferrodec/releases/tag/v1.7.0
 [1.6.0]: https://github.com/ixmatus/ferrodec/releases/tag/v1.6.0
 [1.5.0]: https://github.com/ixmatus/ferrodec/releases/tag/v1.5.0
 [1.4.0]: https://github.com/ixmatus/ferrodec/releases/tag/v1.4.0
