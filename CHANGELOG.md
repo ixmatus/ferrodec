@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-05-06
+
+The "project hygiene" release. Adds badges, a fuzz harness, an
+MSRV-stability policy, and a crate-level rustdoc lede that opens
+with both audiences.
+
+### Added
+
+- README header badges for CI status, crates.io version, docs.rs,
+  and license.
+- `fuzz/` directory with two `cargo-fuzz` targets (`parse` and
+  `arith`). Catches the long tail of malformed inputs and arbitrary
+  arithmetic operand pairs that Kani's bounded special-case
+  harnesses don't cover. Requires a nightly toolchain plus
+  `cargo install cargo-fuzz`; not part of stable CI.
+- README "MSRV policy" section. ferrodec holds MSRV for at least
+  six months after each Rust release; bumping is a minor-version
+  event, never a patch.
+- Crate-level rustdoc lede in `src/lib.rs` (above the
+  `include_str!("../README.md")`). Opens with the two-audience story
+  so prospective users see immediately whether ferrodec is for them.
+
 ## [1.5.0] - 2026-05-06
 
 The "user-facing polish" release: format specifiers, engineering
@@ -240,7 +262,8 @@ IEEE 754 §5.3 / §5.10 quantum gap-fill.
   results across the speleotrove `dq*.decTest` suite; 50 Kani
   formal-verification harnesses for the IEEE special-case dispatch.
 
-[Unreleased]: https://github.com/ixmatus/ferrodec/compare/v1.5.0...HEAD
+[Unreleased]: https://github.com/ixmatus/ferrodec/compare/v1.6.0...HEAD
+[1.6.0]: https://github.com/ixmatus/ferrodec/releases/tag/v1.6.0
 [1.5.0]: https://github.com/ixmatus/ferrodec/releases/tag/v1.5.0
 [1.4.0]: https://github.com/ixmatus/ferrodec/releases/tag/v1.4.0
 [1.3.0]: https://github.com/ixmatus/ferrodec/releases/tag/v1.3.0

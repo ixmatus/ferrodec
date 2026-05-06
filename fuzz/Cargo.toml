@@ -1,0 +1,33 @@
+[package]
+name = "ferrodec-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+arbitrary = { version = "1", features = ["derive"] }
+
+[dependencies.ferrodec]
+path = ".."
+features = ["fmt", "binary-float", "transcendentals", "ops"]
+
+# Each fuzz target is its own binary. cargo-fuzz auto-discovers them
+# from `fuzz/fuzz_targets/*.rs`.
+
+[[bin]]
+name = "parse"
+path = "fuzz_targets/parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "arith"
+path = "fuzz_targets/arith.rs"
+test = false
+doc = false
+bench = false

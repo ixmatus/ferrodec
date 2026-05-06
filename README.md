@@ -1,5 +1,10 @@
 # ferrodec
 
+[![CI](https://github.com/ixmatus/ferrodec/actions/workflows/ci.yml/badge.svg)](https://github.com/ixmatus/ferrodec/actions/workflows/ci.yml)
+[![crates.io](https://img.shields.io/crates/v/ferrodec.svg)](https://crates.io/crates/ferrodec)
+[![docs.rs](https://docs.rs/ferrodec/badge.svg)](https://docs.rs/ferrodec)
+[![License: MIT OR Apache-2.0](https://img.shields.io/crates/l/ferrodec.svg)](#license)
+
 An IEEE 754 (2019) Decimal128 library for Rust, designed for two audiences: embedded targets that need decimal arithmetic without surprises, and general-purpose code that wants IEEE conformance and faithful rounding.
 
 ## What ferrodec is
@@ -149,6 +154,7 @@ ferrodec leans on four overlapping verification stacks.
 2. **Property tests** (proptest). Twelve files cover add/sub/mul/div/sqrt/rem, exp, ln, sincos, the inverse and hyperbolic functions, pow, the binary float conversions, and the addsub alignment edge case. Each cross checks against `astro-float`, a pure Rust arbitrary precision oracle, at the documented per function envelope.
 3. **Conformance vectors** (`tests/conformance.rs`). The runner consumes every `dq*.decTest` file from Mike Cowlishaw's [General Decimal Arithmetic Testcases](https://speleotrove.com/decimal/dectest.html), 8 721 cases total. Pass/fail/skip totals act as regression guards: any drop below the floor or rise above the ceiling fails the build. Current totals are 8 149 pass, 0 fail, 572 skip. The skips are operations and rounding modes outside IEEE 754:2019.
 4. **Formal verification** (Kani, behind `--features=kani`). 50 harnesses prove NaN propagation, sign rules, special value invariants, encode/decode round trips, and basic arithmetic identities for the IEEE special case dispatch paths. The harnesses use bounded operand shims (`*_special_only_for_kani`) so CBMC need not reason about the alignment and rounding loops.
+5. **Fuzz harness** (`fuzz/`, via `cargo install cargo-fuzz` and a nightly toolchain). Two libFuzzer targets: `parse` feeds arbitrary byte sequences through `Decimal128::parse_str` and asserts no panic plus a Display-then-parse round-trip; `arith` exercises `add` / `sub` / `mul` / `div` on arbitrary `(u128, u128)` operand pairs and asserts the IEEE identities `a + 0 == a`, `a * 1 == a`, `a - a == 0` for finite `a`. Run with `cargo +nightly fuzz run parse` from the `fuzz/` directory.
 
 ## Performance
 
@@ -201,6 +207,10 @@ Code that uses ferrodec rarely needs to know what is inside, but two pieces show
 
 * **The multiword stack.** The IEEE pipeline uses `U256`, `U384`, and `U512` (in `src/multiword/`) as wider intermediates. They mirror each other's surface for symmetry. None ever escapes the crate.
 * **`Extended`** (in `src/math/extended.rs`). Transcendentals run their inner kernels at 50 digits of precision: a U256 backed `coef`, an `i32` exponent, and a sign. The kernel rounds once at the `Decimal128` boundary. The 50 digit envelope absorbs the cumulative error of typical 30 to 200 term Taylor series and lets the final result round faithfully.
+
+## MSRV policy
+
+ferrodec's minimum supported Rust version is **1.84**. The MSRV is held for at least six months after each Rust release; bumping it is a minor-version event, never a patch. Library consumers can pin a minimum ferrodec version against a known MSRV with confidence that a `cargo update` won't silently push their toolchain forward.
 
 ## License
 
