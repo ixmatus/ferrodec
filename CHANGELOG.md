@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-05-05
+
 ### Added
 
 - `examples/`: `money` (quantize-to-cents money math), `rounding_modes`
@@ -80,6 +82,7 @@ IEEE 754 §5.3 / §5.10 quantum gap-fill.
   results across the speleotrove `dq*.decTest` suite; 50 Kani
   formal-verification harnesses for the IEEE special-case dispatch.
 
-[Unreleased]: https://github.com/ixmatus/ferrodec/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/ixmatus/ferrodec/compare/v1.1.1...HEAD
+[1.1.1]: https://github.com/ixmatus/ferrodec/releases/tag/v1.1.1
 [1.1.0]: https://github.com/ixmatus/ferrodec/releases/tag/v1.1.0
 [1.0.0]: https://github.com/ixmatus/ferrodec/releases/tag/v1.0.0
