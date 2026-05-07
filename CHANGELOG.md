@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.1] - 2026-05-06
+
+### Fixed
+
+- `cargo test --no-default-features` failed to compile
+  `tests/property_addsub.rs` and `tests/property_mul.rs` after the
+  1.8.0 astro-float oracle landed. The oracle imports
+  `tests/common/mod.rs` (which uses `Decimal128::parse_str`) and
+  calls `format!("{a}")` (which needs `Display`); both live behind
+  the `fmt` feature. The new oracle items are now gated on
+  `#[cfg(feature = "fmt")]` (the `mod common` import, the
+  `astro_float` imports, the `central_finite` strategy, the
+  `oracle_op` / `oracle_mul` helpers, and the `proptest!` block
+  containing the oracle test). The pre-1.8.0 tests in those files
+  used construct-from-bits helpers plus `partial_cmp` / `to_bits`,
+  none of which need `fmt`, so they still build and run on
+  `--no-default-features`.
+
+  No public API change. Caught by the new
+  `--no-default-features` CI entry — the matrix expansion in 1.8.0
+  was specifically meant to surface this kind of feature-gating
+  oversight.
+
 ## [1.8.0] - 2026-05-06
 
 The "verification depth + addsub correctness" release. Five
