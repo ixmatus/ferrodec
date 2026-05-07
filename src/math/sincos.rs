@@ -34,6 +34,7 @@ use crate::bid::{classify_bits, Class};
 use crate::decimal::Decimal128;
 use crate::math::argred;
 use crate::math::extended::Extended;
+use crate::ops::nan_from;
 use crate::status::{RoundingMode, Status};
 
 impl Decimal128 {
@@ -41,7 +42,7 @@ impl Decimal128 {
     #[must_use]
     pub fn sin(self, rm: RoundingMode) -> (Self, Status) {
         match classify_bits(self.to_bits()) {
-            Class::SignalingNaN { .. } => (Decimal128::NAN, Status::INVALID),
+            Class::SignalingNaN { .. } => (nan_from(self), Status::INVALID),
             Class::QuietNaN { .. } => (self, Status::OK),
             Class::Infinity { .. } => (Decimal128::NAN, Status::INVALID),
             Class::Zero { sign, .. } => (
@@ -60,7 +61,7 @@ impl Decimal128 {
     #[must_use]
     pub fn cos(self, rm: RoundingMode) -> (Self, Status) {
         match classify_bits(self.to_bits()) {
-            Class::SignalingNaN { .. } => (Decimal128::NAN, Status::INVALID),
+            Class::SignalingNaN { .. } => (nan_from(self), Status::INVALID),
             Class::QuietNaN { .. } => (self, Status::OK),
             Class::Infinity { .. } => (Decimal128::NAN, Status::INVALID),
             Class::Zero { .. } => (Decimal128::ONE, Status::OK),
@@ -80,7 +81,7 @@ impl Decimal128 {
     #[must_use]
     pub fn tan(self, rm: RoundingMode) -> (Self, Status) {
         match classify_bits(self.to_bits()) {
-            Class::SignalingNaN { .. } => return (Decimal128::NAN, Status::INVALID),
+            Class::SignalingNaN { .. } => return (nan_from(self), Status::INVALID),
             Class::QuietNaN { .. } => return (self, Status::OK),
             Class::Infinity { .. } => return (Decimal128::NAN, Status::INVALID),
             Class::Zero { sign, .. } => {

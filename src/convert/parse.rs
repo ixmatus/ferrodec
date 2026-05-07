@@ -6,20 +6,26 @@
 //! decimal       := sign? mantissa exponent?
 //!                | sign? "Infinity"
 //!                | sign? "Inf"
-//!                | sign? "NaN"
-//!                | sign? "sNaN"
+//!                | sign? "NaN"  payload?
+//!                | sign? "sNaN" payload?
 //! sign          := "+" | "-"
 //! mantissa      := digits ("." digits?)?
 //!                | "." digits
 //! digits        := DIGIT+
+//! payload       := DIGIT+        // diagnostic NaN payload, ≤ 33 digits
 //! exponent      := ("e" | "E") sign? digits
 //! ```
+//!
+//! NaN payloads encode in the BID significand's trailing 110 bits
+//! (`T_MASK`). Payloads up to `2^110 − 1` ≈ `10^33` round-trip; larger
+//! values are rejected with `InvalidCharacter` at the first overflowing
+//! digit.
 //!
 //! Up to 76 mantissa digits are accumulated exactly; trailing digits
 //! beyond that contribute to the rounding sticky bit. The rounding
 //! direction comes from the supplied [`RoundingMode`].
 
-use crate::bid::pack_quiet_nan;
+use crate::bid::{pack_quiet_nan, pack_signaling_nan, T_MASK};
 use crate::decimal::Decimal128;
 use crate::multiword::U256;
 use crate::ops::round_and_pack_finite;
@@ -116,8 +122,8 @@ fn parse_str_inner(
     }
 
     // Special tokens take priority. Match case-insensitively.
-    if let Some(special) = match_special(&bytes[idx..], sign) {
-        return Ok((special, Status::OK));
+    if let Some(special) = match_special(&bytes[idx..], idx, sign) {
+        return special.map(|d| (d, Status::OK));
     }
 
     // Mantissa: gather digits from before and after the (optional) decimal
@@ -260,27 +266,92 @@ fn parse_str_inner(
 }
 
 /// Match a special-value token (`Infinity`, `Inf`, `NaN`, `sNaN`) at the
-/// start of `rest`. Case-insensitive. Returns `Some(decimal)` if the
-/// entire remaining input is consumed.
-fn match_special(rest: &[u8], sign: bool) -> Option<Decimal128> {
+/// start of `rest`. Case-insensitive. Returns:
+/// * `None` — the input doesn't start with a special token; fall
+///   through to the regular numeric parser.
+/// * `Some(Ok(d))` — token matched, returns the constructed value.
+/// * `Some(Err(e))` — token matched but the trailing payload is
+///   malformed or overflows the 110-bit field.
+///
+/// `start_offset` is the absolute byte position of `rest` within the
+/// original input, used to attribute parse errors to the right column.
+fn match_special(
+    rest: &[u8],
+    start_offset: usize,
+    sign: bool,
+) -> Option<Result<Decimal128, ParseDecimalError>> {
     if eq_ignore_ascii_case(rest, b"infinity") || eq_ignore_ascii_case(rest, b"inf") {
-        return Some(if sign {
+        return Some(Ok(if sign {
             Decimal128::NEG_INFINITY
         } else {
             Decimal128::INFINITY
-        });
+        }));
     }
-    if eq_ignore_ascii_case(rest, b"nan") {
-        return Some(Decimal128::from_bits(pack_quiet_nan(sign, 0)));
+    // NaN / sNaN, optionally followed by a decimal payload.
+    if let Some(payload_bytes) = strip_prefix_ignore_ascii_case(rest, b"nan") {
+        return Some(parse_nan_payload(
+            payload_bytes,
+            start_offset + 3,
+            sign,
+            false,
+        ));
     }
-    if eq_ignore_ascii_case(rest, b"snan") {
-        return Some(if sign {
-            Decimal128::SIGNALING_NAN.neg()
-        } else {
-            Decimal128::SIGNALING_NAN
-        });
+    if let Some(payload_bytes) = strip_prefix_ignore_ascii_case(rest, b"snan") {
+        return Some(parse_nan_payload(
+            payload_bytes,
+            start_offset + 4,
+            sign,
+            true,
+        ));
     }
     None
+}
+
+/// Decode the optional `digits*` payload after a `NaN` / `sNaN` token.
+/// Empty input → canonical zero-payload NaN. Otherwise: pack the
+/// decimal-encoded integer into the BID's 110-bit `T_MASK` field.
+fn parse_nan_payload(
+    digits: &[u8],
+    offset: usize,
+    sign: bool,
+    signaling: bool,
+) -> Result<Decimal128, ParseDecimalError> {
+    let mut payload: u128 = 0;
+    for (i, &c) in digits.iter().enumerate() {
+        if !c.is_ascii_digit() {
+            return Err(ParseDecimalError::InvalidCharacter(offset + i));
+        }
+        let d = (c - b'0') as u128;
+        payload = payload
+            .checked_mul(10)
+            .and_then(|p| p.checked_add(d))
+            .ok_or(ParseDecimalError::InvalidCharacter(offset + i))?;
+        if payload > T_MASK {
+            return Err(ParseDecimalError::InvalidCharacter(offset + i));
+        }
+    }
+    let bits = if signaling {
+        pack_signaling_nan(sign, payload)
+    } else {
+        pack_quiet_nan(sign, payload)
+    };
+    Ok(Decimal128::from_bits(bits))
+}
+
+/// `rest.strip_prefix_ignore_ascii_case(prefix)` — returns the suffix
+/// after `prefix` (case-insensitive ASCII match) if `rest` starts with
+/// `prefix`, else `None`.
+#[inline]
+fn strip_prefix_ignore_ascii_case<'a>(rest: &'a [u8], prefix: &[u8]) -> Option<&'a [u8]> {
+    if rest.len() < prefix.len() {
+        return None;
+    }
+    let (head, tail) = rest.split_at(prefix.len());
+    if eq_ignore_ascii_case(head, prefix) {
+        Some(tail)
+    } else {
+        None
+    }
 }
 
 #[inline]
@@ -367,6 +438,47 @@ mod tests {
         assert!(parse("Inf").is_infinite());
         assert!(parse("-Infinity").is_sign_negative());
         assert!(parse("-Inf").is_sign_negative());
+    }
+
+    #[test]
+    fn parse_nan_payloads() {
+        // Quiet NaN with payload — common decTest shape.
+        let d = parse("NaN22");
+        assert!(d.is_nan() && !d.is_signaling_nan());
+        assert_eq!(d.to_bits() & T_MASK, 22);
+
+        let d = parse("-NaN22");
+        assert!(d.is_nan() && d.is_sign_negative());
+        assert_eq!(d.to_bits() & T_MASK, 22);
+
+        // Signaling NaN with payload.
+        let d = parse("sNaN33");
+        assert!(d.is_signaling_nan());
+        assert_eq!(d.to_bits() & T_MASK, 33);
+
+        // Larger payloads up to the 110-bit envelope (~ 10^33).
+        let big = parse("NaN999999999999999999999999999999999"); // 33 nines
+        assert!(big.is_nan());
+        let want_payload: u128 = (10u128.pow(33)) - 1;
+        assert_eq!(big.to_bits() & T_MASK, want_payload);
+
+        // Empty payload behaves the same as bare `NaN` / `sNaN`.
+        assert_eq!(parse("NaN").to_bits(), parse("NaN0").to_bits());
+        assert_eq!(parse("sNaN").to_bits(), parse("sNaN0").to_bits());
+
+        // Case-insensitive prefix; payload digits stay numeric.
+        assert_eq!(parse("nan22").to_bits(), parse("NaN22").to_bits());
+        assert_eq!(parse("SNAN33").to_bits(), parse("sNaN33").to_bits());
+    }
+
+    #[test]
+    fn parse_nan_payload_overflow() {
+        // 35 nines exceeds the 110-bit field.
+        let res = Decimal128::parse_str(
+            "NaN99999999999999999999999999999999999",
+            RoundingMode::default(),
+        );
+        assert!(matches!(res, Err(ParseDecimalError::InvalidCharacter(_))));
     }
 
     #[test]

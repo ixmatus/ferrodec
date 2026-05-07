@@ -32,6 +32,7 @@ use crate::bid::{classify_bits, Class};
 use crate::decimal::Decimal128;
 use crate::math::consts::{pi_ext, pi_over_four_ext, pi_over_two_ext, tan_pi_over_eight_ext};
 use crate::math::extended::Extended;
+use crate::ops::{nan_from, propagate_nan2};
 use crate::status::{RoundingMode, Status};
 
 impl Decimal128 {
@@ -39,7 +40,7 @@ impl Decimal128 {
     #[must_use]
     pub fn atan(self, rm: RoundingMode) -> (Self, Status) {
         match classify_bits(self.to_bits()) {
-            Class::SignalingNaN { .. } => return (Decimal128::NAN, Status::INVALID),
+            Class::SignalingNaN { .. } => return (nan_from(self), Status::INVALID),
             Class::QuietNaN { .. } => return (self, Status::OK),
             Class::Infinity { sign } => {
                 let half_pi = pi_over_two_ext().to_decimal128(0, rm).0;
@@ -59,7 +60,7 @@ impl Decimal128 {
     #[must_use]
     pub fn asin(self, rm: RoundingMode) -> (Self, Status) {
         match classify_bits(self.to_bits()) {
-            Class::SignalingNaN { .. } => return (Decimal128::NAN, Status::INVALID),
+            Class::SignalingNaN { .. } => return (nan_from(self), Status::INVALID),
             Class::QuietNaN { .. } => return (self, Status::OK),
             Class::Infinity { .. } => return (Decimal128::NAN, Status::INVALID),
             Class::Zero { .. } => return (self, Status::OK),
@@ -92,7 +93,7 @@ impl Decimal128 {
     #[must_use]
     pub fn acos(self, rm: RoundingMode) -> (Self, Status) {
         match classify_bits(self.to_bits()) {
-            Class::SignalingNaN { .. } => return (Decimal128::NAN, Status::INVALID),
+            Class::SignalingNaN { .. } => return (nan_from(self), Status::INVALID),
             Class::QuietNaN { .. } => return (self, Status::OK),
             Class::Infinity { .. } => return (Decimal128::NAN, Status::INVALID),
             Class::Zero { .. } => {
@@ -130,10 +131,10 @@ impl Decimal128 {
         let y = self;
         // NaN propagation (sNaN raises INVALID).
         if y.is_signaling_nan() || x.is_signaling_nan() {
-            return (Decimal128::NAN, Status::INVALID);
+            return (propagate_nan2(y, x), Status::INVALID);
         }
         if y.is_nan() || x.is_nan() {
-            return (Decimal128::NAN, Status::OK);
+            return (propagate_nan2(y, x), Status::OK);
         }
         let pi_d = pi_ext().to_decimal128(0, rm).0;
         let half_pi = pi_over_two_ext().to_decimal128(0, rm).0;

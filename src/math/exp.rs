@@ -29,6 +29,7 @@ use crate::bid::{classify_bits, Class};
 use crate::decimal::Decimal128;
 use crate::math::consts::{inv_ln10_ext, ln10_ext, ln2_ext};
 use crate::math::extended::Extended;
+use crate::ops::nan_from;
 use crate::status::{RoundingMode, Status};
 
 impl Decimal128 {
@@ -46,7 +47,7 @@ impl Decimal128 {
     #[must_use]
     pub fn exp2(self, rm: RoundingMode) -> (Self, Status) {
         match classify_bits(self.to_bits()) {
-            Class::SignalingNaN { .. } => return (Decimal128::NAN, Status::INVALID),
+            Class::SignalingNaN { .. } => return (nan_from(self), Status::INVALID),
             Class::QuietNaN { .. } => return (self, Status::OK),
             Class::Infinity { sign } => {
                 return if sign {
@@ -65,7 +66,7 @@ impl Decimal128 {
 
 fn exp_kernel(x: Decimal128, rm: RoundingMode) -> (Decimal128, Status) {
     match classify_bits(x.to_bits()) {
-        Class::SignalingNaN { .. } => return (Decimal128::NAN, Status::INVALID),
+        Class::SignalingNaN { .. } => return (nan_from(x), Status::INVALID),
         Class::QuietNaN { .. } => return (x, Status::OK),
         Class::Infinity { sign } => {
             return if sign {

@@ -8,6 +8,7 @@ use crate::bid::{classify_bits, Class};
 use crate::decimal::Decimal128;
 use crate::math::exp::exp_from_extended;
 use crate::math::ln::ln_extended;
+use crate::ops::nan_from;
 use crate::status::{RoundingMode, Status};
 
 impl Decimal128 {
@@ -16,7 +17,7 @@ impl Decimal128 {
     #[must_use]
     pub fn cbrt(self, rm: RoundingMode) -> (Self, Status) {
         match classify_bits(self.to_bits()) {
-            Class::SignalingNaN { .. } => return (Decimal128::NAN, Status::INVALID),
+            Class::SignalingNaN { .. } => return (nan_from(self), Status::INVALID),
             Class::QuietNaN { .. } => return (self, Status::OK),
             Class::Infinity { .. } => return (self, Status::OK),
             Class::Zero { .. } => return (self, Status::OK),

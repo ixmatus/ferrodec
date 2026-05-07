@@ -31,6 +31,7 @@ use crate::bid::{classify_bits, decimal_digit_count, pack_finite, Class, BIAS};
 use crate::decimal::Decimal128;
 use crate::math::consts::{inv_ln10_ext, inv_ln2_ext, ln10_ext, ln2_ext};
 use crate::math::extended::Extended;
+use crate::ops::nan_from;
 use crate::status::{RoundingMode, Status};
 
 impl Decimal128 {
@@ -106,7 +107,7 @@ fn log2_kernel(x: Decimal128, rm: RoundingMode) -> (Decimal128, Status) {
 /// Short-circuit the special cases shared by `ln` and `log10`.
 fn ln_special_cases(x: Decimal128) -> Option<(Decimal128, Status)> {
     match classify_bits(x.to_bits()) {
-        Class::SignalingNaN { .. } => Some((Decimal128::NAN, Status::INVALID)),
+        Class::SignalingNaN { .. } => Some((nan_from(x), Status::INVALID)),
         Class::QuietNaN { .. } => Some((x, Status::OK)),
         Class::Infinity { sign } => Some(if sign {
             (Decimal128::NAN, Status::INVALID)

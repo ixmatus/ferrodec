@@ -26,7 +26,7 @@ use crate::bid::{
 };
 use crate::decimal::Decimal128;
 use crate::multiword::U256;
-use crate::ops::round_and_pack_finite;
+use crate::ops::{propagate_nan2, round_and_pack_finite};
 use crate::status::{RoundingMode, Status};
 
 impl Decimal128 {
@@ -62,7 +62,7 @@ fn div_special_cases(a: Decimal128, b: Decimal128) -> Option<(Decimal128, Status
     if matches!(cls_a, Class::QuietNaN { .. } | Class::SignalingNaN { .. })
         || matches!(cls_b, Class::QuietNaN { .. } | Class::SignalingNaN { .. })
     {
-        return Some((Decimal128::NAN, status));
+        return Some((propagate_nan2(a, b), status));
     }
 
     let sign_a = sign_of(cls_a);

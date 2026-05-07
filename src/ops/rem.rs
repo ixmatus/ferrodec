@@ -43,6 +43,7 @@
 use crate::bid::{classify_bits, decimal_digit_count, pack_finite, Class, BIAS, BIASED_EXP_MAX};
 use crate::decimal::Decimal128;
 use crate::multiword::U256;
+use crate::ops::propagate_nan2;
 use crate::status::Status;
 
 impl Decimal128 {
@@ -79,7 +80,7 @@ fn rem_special_cases(a: Decimal128, b: Decimal128) -> Option<(Decimal128, Status
     if matches!(cls_a, Class::QuietNaN { .. } | Class::SignalingNaN { .. })
         || matches!(cls_b, Class::QuietNaN { .. } | Class::SignalingNaN { .. })
     {
-        return Some((Decimal128::NAN, status));
+        return Some((propagate_nan2(a, b), status));
     }
 
     // x / 0 — invalid.

@@ -38,6 +38,7 @@ use crate::decimal::Decimal128;
 use crate::math::exp::exp_from_extended;
 use crate::math::extended::Extended;
 use crate::math::ln::ln_extended;
+use crate::ops::propagate_nan2;
 use crate::status::{RoundingMode, Status};
 
 impl Decimal128 {
@@ -78,10 +79,10 @@ fn pow_kernel(x: Decimal128, y: Decimal128, rm: RoundingMode) -> (Decimal128, St
 
     // Rules 3: NaN propagation.
     if x.is_signaling_nan() || y.is_signaling_nan() {
-        return (Decimal128::NAN, Status::INVALID);
+        return (propagate_nan2(x, y), Status::INVALID);
     }
     if x.is_nan() || y.is_nan() {
-        return (Decimal128::NAN, Status::OK);
+        return (propagate_nan2(x, y), Status::OK);
     }
 
     let y_sign_neg = y.is_sign_negative();

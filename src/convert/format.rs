@@ -162,6 +162,26 @@ fn quantize_to_target_quantum(d: Decimal128, target_quantum: i32) -> Decimal128 
     }
 }
 
+/// Render a NaN's prefix (`-`/empty + `sNaN` or `NaN`) and append the
+/// diagnostic payload as decimal digits when it is non-zero. Zero
+/// payload emits just the canonical token, matching the pre-1.9.0
+/// shape.
+fn format_nan(
+    f: &mut fmt::Formatter<'_>,
+    sign: bool,
+    payload: u128,
+    signaling: bool,
+) -> fmt::Result {
+    if sign {
+        f.write_str("-")?;
+    }
+    f.write_str(if signaling { "sNaN" } else { "NaN" })?;
+    if payload != 0 {
+        write!(f, "{payload}")?;
+    }
+    Ok(())
+}
+
 fn format_to(d: Decimal128, f: &mut fmt::Formatter<'_>, notation: Notation) -> fmt::Result {
     let precision = f.precision();
     // Adjust the value to honour `{:.N}` precision before formatting.
@@ -174,20 +194,8 @@ fn format_to(d: Decimal128, f: &mut fmt::Formatter<'_>, notation: Notation) -> f
         }
     };
     match classify_bits(d.to_bits()) {
-        Class::QuietNaN { sign, .. } => {
-            if sign {
-                f.write_str("-NaN")
-            } else {
-                f.write_str("NaN")
-            }
-        }
-        Class::SignalingNaN { sign, .. } => {
-            if sign {
-                f.write_str("-sNaN")
-            } else {
-                f.write_str("sNaN")
-            }
-        }
+        Class::QuietNaN { sign, payload } => format_nan(f, sign, payload, false),
+        Class::SignalingNaN { sign, payload } => format_nan(f, sign, payload, true),
         Class::Infinity { sign } => {
             if sign {
                 f.write_str("-Infinity")
@@ -506,6 +514,33 @@ mod tests {
         assert_eq!(format!("{}", Decimal128::INFINITY), "Infinity");
         assert_eq!(format!("{}", Decimal128::NEG_INFINITY), "-Infinity");
         assert_eq!(format!("{}", Decimal128::ZERO), "0");
+    }
+
+    #[test]
+    fn format_nan_payloads_round_trip() {
+        // Quiet NaN with payload.
+        assert_eq!(format!("{}", parse("NaN22")), "NaN22");
+        assert_eq!(format!("{}", parse("-NaN22")), "-NaN22");
+        // Signaling NaN with payload.
+        assert_eq!(format!("{}", parse("sNaN33")), "sNaN33");
+        assert_eq!(format!("{}", parse("-sNaN33")), "-sNaN33");
+        // Zero payload renders as the canonical token (no trailing 0).
+        assert_eq!(format!("{}", parse("NaN0")), "NaN");
+        assert_eq!(format!("{}", parse("sNaN0")), "sNaN");
+        // Round-trip parse → format → parse.
+        for s in [
+            "NaN22",
+            "-NaN22",
+            "sNaN33",
+            "-sNaN33",
+            "NaN1",
+            "NaN1234567890123456789",
+        ] {
+            let parsed = parse(s);
+            let rendered = format!("{parsed}");
+            let reparsed = parse(&rendered);
+            assert_eq!(parsed.to_bits(), reparsed.to_bits(), "{s} round-trip");
+        }
     }
 
     #[test]

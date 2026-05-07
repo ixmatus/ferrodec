@@ -47,7 +47,7 @@ use crate::bid::{
 };
 use crate::decimal::Decimal128;
 use crate::multiword::{u256::widening_mul_u128, U256, U384};
-use crate::ops::round_and_pack_finite;
+use crate::ops::{propagate_nan3, round_and_pack_finite};
 use crate::status::{RoundingMode, Status};
 
 /// Maximum digit growth we accept inside the U384 alignment buffer
@@ -127,12 +127,12 @@ fn fma_special_cases(
 
     // Now propagate any NaN operand. Order: a → b → c (matching the
     // separated `mul.then(add)` order, so payload semantics agree with
-    // mul + add when we eventually preserve payloads).
+    // mul + add).
     if matches!(cls_a, Class::QuietNaN { .. } | Class::SignalingNaN { .. })
         || matches!(cls_b, Class::QuietNaN { .. } | Class::SignalingNaN { .. })
         || matches!(cls_c, Class::QuietNaN { .. } | Class::SignalingNaN { .. })
     {
-        return Some((Decimal128::NAN, status));
+        return Some((propagate_nan3(a, b, c), status));
     }
 
     // Determine the product's "shape" without rounding it.

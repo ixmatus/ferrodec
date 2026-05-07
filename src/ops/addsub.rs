@@ -24,7 +24,7 @@ use crate::bid::{
 };
 use crate::decimal::Decimal128;
 use crate::multiword::U256;
-use crate::ops::round_and_pack_finite;
+use crate::ops::{propagate_nan2, round_and_pack_finite};
 use crate::status::{RoundingMode, Status};
 
 /// Maximum exponent difference for which we keep a fully-precise
@@ -133,7 +133,7 @@ fn add_special_cases(
     if matches!(cls_a, Class::QuietNaN { .. } | Class::SignalingNaN { .. })
         || matches!(cls_b, Class::QuietNaN { .. } | Class::SignalingNaN { .. })
     {
-        return Some((Decimal128::NAN, status));
+        return Some((propagate_nan2(a, b), status));
     }
 
     match (cls_a, cls_b) {

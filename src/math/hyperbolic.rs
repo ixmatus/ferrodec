@@ -32,6 +32,7 @@ use crate::math::exp::exp_extended;
 use crate::math::extended::Extended;
 use crate::math::ln::{ln_from_extended, log1p_extended};
 use crate::multiword::U256;
+use crate::ops::nan_from;
 use crate::status::{RoundingMode, Status};
 
 impl Decimal128 {
@@ -39,7 +40,7 @@ impl Decimal128 {
     #[must_use]
     pub fn sinh(self, rm: RoundingMode) -> (Self, Status) {
         match classify_bits(self.to_bits()) {
-            Class::SignalingNaN { .. } => return (Decimal128::NAN, Status::INVALID),
+            Class::SignalingNaN { .. } => return (nan_from(self), Status::INVALID),
             Class::QuietNaN { .. } => return (self, Status::OK),
             Class::Infinity { .. } => return (self, Status::OK),
             Class::Zero { .. } => return (self, Status::OK),
@@ -55,7 +56,7 @@ impl Decimal128 {
     #[must_use]
     pub fn cosh(self, rm: RoundingMode) -> (Self, Status) {
         match classify_bits(self.to_bits()) {
-            Class::SignalingNaN { .. } => return (Decimal128::NAN, Status::INVALID),
+            Class::SignalingNaN { .. } => return (nan_from(self), Status::INVALID),
             Class::QuietNaN { .. } => return (self, Status::OK),
             Class::Infinity { .. } => return (Decimal128::INFINITY, Status::OK),
             Class::Zero { .. } => return (Decimal128::ONE, Status::OK),
@@ -71,7 +72,7 @@ impl Decimal128 {
     #[must_use]
     pub fn tanh(self, rm: RoundingMode) -> (Self, Status) {
         match classify_bits(self.to_bits()) {
-            Class::SignalingNaN { .. } => return (Decimal128::NAN, Status::INVALID),
+            Class::SignalingNaN { .. } => return (nan_from(self), Status::INVALID),
             Class::QuietNaN { .. } => return (self, Status::OK),
             Class::Infinity { sign } => {
                 return (
@@ -117,7 +118,7 @@ impl Decimal128 {
     #[must_use]
     pub fn asinh(self, rm: RoundingMode) -> (Self, Status) {
         match classify_bits(self.to_bits()) {
-            Class::SignalingNaN { .. } => return (Decimal128::NAN, Status::INVALID),
+            Class::SignalingNaN { .. } => return (nan_from(self), Status::INVALID),
             Class::QuietNaN { .. } => return (self, Status::OK),
             Class::Infinity { .. } => return (self, Status::OK),
             Class::Zero { .. } => return (self, Status::OK),
@@ -143,7 +144,7 @@ impl Decimal128 {
     #[must_use]
     pub fn acosh(self, rm: RoundingMode) -> (Self, Status) {
         match classify_bits(self.to_bits()) {
-            Class::SignalingNaN { .. } => return (Decimal128::NAN, Status::INVALID),
+            Class::SignalingNaN { .. } => return (nan_from(self), Status::INVALID),
             Class::QuietNaN { .. } => return (self, Status::OK),
             Class::Infinity { sign } => {
                 return if sign {
@@ -204,7 +205,7 @@ impl Decimal128 {
     #[must_use]
     pub fn atanh(self, rm: RoundingMode) -> (Self, Status) {
         match classify_bits(self.to_bits()) {
-            Class::SignalingNaN { .. } => return (Decimal128::NAN, Status::INVALID),
+            Class::SignalingNaN { .. } => return (nan_from(self), Status::INVALID),
             Class::QuietNaN { .. } => return (self, Status::OK),
             Class::Infinity { .. } => return (Decimal128::NAN, Status::INVALID),
             Class::Zero { .. } => return (self, Status::OK),

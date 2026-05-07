@@ -9,11 +9,11 @@
 use core::cmp::Ordering;
 
 use crate::bid::{
-    classify_bits, decimal_digit_count, pack_finite, pack_quiet_nan, Class, BIAS, BIASED_EXP_MAX,
-    COEFFICIENT_LIMIT,
+    classify_bits, decimal_digit_count, pack_finite, Class, BIAS, BIASED_EXP_MAX, COEFFICIENT_LIMIT,
 };
 use crate::decimal::Decimal128;
 use crate::multiword::U256;
+use crate::ops::nan_from;
 use crate::ops::round::should_round_up;
 use crate::ops::round_and_pack_finite;
 use crate::status::{RoundingMode, Status};
@@ -53,8 +53,12 @@ impl Decimal128 {
         let snan = self.is_signaling_nan() || target.is_signaling_nan();
         if self.is_nan() || target.is_nan() {
             let src = if self.is_nan() { self } else { target };
+            // Preserve the source NaN's payload; sNaN is converted to
+            // qNaN in the process, so an sNaN input drops only the
+            // "signaling" bit (and raises INVALID). Quiet NaN input
+            // passes through untouched.
             let out = if src.is_signaling_nan() {
-                Self::from_bits(pack_quiet_nan(src.is_sign_negative(), 0))
+                nan_from(src)
             } else {
                 src
             };
@@ -184,7 +188,7 @@ impl Decimal128 {
     #[must_use]
     pub fn scaleb(self, n: i32, rm: RoundingMode) -> (Self, Status) {
         if self.is_signaling_nan() {
-            return (Self::NAN, Status::INVALID);
+            return (nan_from(self), Status::INVALID);
         }
         if self.is_nan() {
             return (self, Status::OK);
@@ -253,7 +257,7 @@ impl Decimal128 {
     #[must_use]
     pub fn logb(self) -> (Self, Status) {
         if self.is_signaling_nan() {
-            return (Self::NAN, Status::INVALID);
+            return (nan_from(self), Status::INVALID);
         }
         if self.is_nan() {
             return (self, Status::OK);
@@ -315,7 +319,7 @@ impl Decimal128 {
     #[must_use]
     pub fn next_up(self) -> (Self, Status) {
         if self.is_signaling_nan() {
-            return (Self::NAN, Status::INVALID);
+            return (nan_from(self), Status::INVALID);
         }
         if self.is_nan() {
             return (self, Status::OK);

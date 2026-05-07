@@ -89,7 +89,7 @@ fn dectest_conformance() {
     // Arithmetic modes that are not part of IEEE 754-2019; cases under
     // those directives are skipped rather than coerced into a kernel
     // mode that doesn't match the spec.
-    const PASS_FLOOR: usize = 8193;
+    const PASS_FLOOR: usize = 8591;
     const FAIL_CEILING: usize = 0;
 
     assert!(

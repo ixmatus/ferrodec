@@ -23,7 +23,7 @@ use crate::bid::{
 };
 use crate::decimal::Decimal128;
 use crate::multiword::U256;
-use crate::ops::round_and_pack_finite;
+use crate::ops::{nan_from, round_and_pack_finite};
 use crate::status::{RoundingMode, Status};
 
 impl Decimal128 {
@@ -53,7 +53,7 @@ fn sqrt_special_cases(a: Decimal128) -> Option<(Decimal128, Status)> {
     let status = if snan { Status::INVALID } else { Status::OK };
 
     if matches!(cls, Class::QuietNaN { .. } | Class::SignalingNaN { .. }) {
-        return Some((Decimal128::NAN, status));
+        return Some((nan_from(a), status));
     }
 
     match cls {

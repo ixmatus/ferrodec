@@ -6,44 +6,30 @@ skips in the decTest conformance suite. The runner is
 
 ## Headline numbers
 
-As of ferrodec 1.7.1:
+As of ferrodec 1.9.0:
 
 | count | share | category |
 |------:|------:|----------|
 | 8 721 | 100 % | total cases |
-| 8 149 | 93.4 % | pass |
+| 8 591 | 98.5 % | pass |
 |     0 |  0.0 % | fail |
-|   572 |  6.6 % | skip |
+|   130 |  1.5 % | skip |
 
 The 0-fail floor is enforced by `tests/conformance.rs::dectest_conformance`:
-any change that drops the pass count below 8 149 or raises the fail
+any change that drops the pass count below 8 591 or raises the fail
 count above 0 fails the build.
+
+For context: 1.7.1 sat at 8 149 / 0 / 572 (93.4 % pass). 1.9.0 closed
+four of the original six skip categories (NaN-with-payload literals,
+hex `#` operands, the `class` op result format, and the `apply` op),
+leaving the residual 130 skips as documented below.
 
 ## Skip taxonomy
 
 The runner's `run_case` function checks five gates in order; each
 skipped case bottoms out at the first one that matches.
 
-### 1. NaN-with-payload operand literals — ≈ 357 cases (62 %)
-
-decTest carries diagnostic NaN payloads in the literal itself
-(`NaN22`, `-NaN22`, `sNaN33`). ferrodec's `Decimal128::parse_str`
-recognises only the canonical `NaN` / `sNaN` / `-NaN` tokens; anything
-with a trailing payload fails to parse, the runner's `invoke()`
-returns `None`, and the case is skipped.
-
-Affected files: every dq file except `dqMinus.decTest` and the
-quantum-suite ones (`dqSameQuantum`, `dqScaleB`) which don't include
-payload tests.
-
-**To fix:** extend the parser to accept and round-trip diagnostic
-payloads through the BID significand field. The IEEE encoding
-reserves the trailing significand bits for exactly this purpose,
-so the storage is already there — only the parse / display path
-would change. ~1 day of work; medium-impact ergonomics gain for
-non-embedded users, no benefit on the embedded floor.
-
-### 2. Non-IEEE rounding directives — 101 cases (18 %)
+### 1. Non-IEEE rounding directives — 101 cases (78 %)
 
 decTest extends the IEEE 754 rounding set with two GDA-only modes:
 
@@ -63,85 +49,67 @@ GDA conformant. Adding `half_down` / `05up` would expand the
 and embedded callers paying the kernel size already get every
 direction the standard defines.
 
-### 3. `class` operation result format — 42 cases (7 %)
+### 2. Bare `#` "null operand" sentinel — ≈ 13 cases (10 %)
 
-`dqClass.decTest` is 100 % skipped. The runner dispatches the `class`
-op (which corresponds to `Decimal128::classify`) but the comparator
-expects the result to be a `Decimal128` value, not the GDA class-name
-string (`+Normal`, `-Subnormal`, `+Infinity`, etc.). All 42 cases
-parse cleanly and the value side runs; the runner just doesn't
-compare class names.
+decTest's `#` followed by hex chars encodes a raw 128-bit BID literal
+(supported in 1.9.0). Bare `#` (no hex) is a different convention:
+the "null test" that exercises operand-missing behavior. Each
+affected case expects `NaN` + `Invalid_operation` from the operand-
+parse failure. The runner's `parse_value` returns `None` for empty
+hex which routes the case to `Outcome::Skip`; the conformance flag
+machinery doesn't propagate a "parse-error → INVALID" signal up to
+the comparator yet.
 
-**To fix:** add a class-name comparator branch to the conformance
-runner. The mapping from `core::num::FpCategory` plus sign to the
-nine GDA class names is mechanical. ~1 hour of work, low impact
-(the `classify` API is independently unit-tested).
+**To fix:** route `#` (empty hex) to `(Decimal128::NAN,
+Status::INVALID)` in `parse_value` rather than `None`. ~10 minutes;
+closes the entire null-test category.
 
-### 4. Hex-encoded literal operands (`#`) — 28 cases (5 %)
+### 3. Unimplemented op `remainder` — 1 case
 
-decTest uses a leading `#` for raw bit-pattern operands (`#FFFE…`).
-The format is per-format-specific (decimal128 vs decimal64), so when
-a `dq*.decTest` file uses it, the bytes are a Decimal128 BID
-encoding. ferrodec's `parse_str` doesn't accept this syntax — the
-runner explicitly skips on `trimmed.starts_with('#')`.
+decTest's `remainder` is the *truncating* remainder (sign of dividend,
+integer quotient toward zero), distinct from `remaindernear` which is
+the round-half-to-even IEEE 754 §5.3.1 remainder ferrodec implements
+as `Decimal128::rem`. The single case using `remainder` lives in
+`dqRemainderNear.decTest`.
 
-**To fix:** decode the `#` prefix as `from_bits` of the parsed hex
-value. Two-line change in the runner's `parse_value` helper. ~30
-minutes; minor coverage gain (28 cases).
+**To fix:** add a `remainder_truncating` kernel — `r = x − y · n`
+where `n = trunc(x/y)`. Roughly 2-3 hours of kernel work plus
+property-test coverage. Low impact (1 case) but exercises a
+genuine missing operation.
 
-### 5. Unimplemented ops — 5 cases (1 %)
-
-Two operations appear in the conformance suite that ferrodec doesn't
-dispatch:
-
-- `apply` (4 cases — 2 in `dqAdd`, 2 in `dqFMA`). The op encodes a
-  value through the format's quantum logic and emits the canonical
-  decimal string. Equivalent to `Decimal128::canonicalize` followed
-  by `Display`, so the building blocks already exist.
-- `remainder` (1 case in `dqRemainderNear`). The IEEE
-  remainder-to-nearest operation, distinct from `remainderNear` /
-  `Decimal128::rem`. ferrodec implements `rem` (IEEE 754 §5.3.1
-  remainder, exact when terminating); `remainder` is the round-tie-
-  to-even variant.
-
-**To fix:** route `apply` to `canonicalize` + `Display`, and add
-`remainder` as a sibling of `rem` returning a rounded result. ~1
-day for both, mostly comparator wiring; no public API additions
-needed for `apply`.
-
-### 6. Other parse failures — ≈ 39 cases (7 %)
+### 4. Other parse failures — ≈ 15 cases
 
 The residual after the categories above are the cases where some
-operand fails to parse for reasons not captured by the patterns above
-— typically unusual significand-exponent combinations near the BID
-encoding boundary that the parser handles strictly. These are case-
-by-case; documenting them all would require triage work that hasn't
-landed yet.
+operand fails to parse for reasons not captured by the patterns
+above — typically unusual significand-exponent combinations near
+the BID encoding boundary that the parser handles strictly, plus a
+small number of NaN-with-payload literals where the payload exceeds
+the 110-bit (`T_MASK`, ≈ 33 decimal digits) field.
 
 ## Per-file totals
 
 ```
-dqAbs.decTest                    70 pass     0 fail     5 skip
-dqAdd.decTest                   976 pass     0 fail    36 skip
-dqClass.decTest                   0 pass     0 fail    42 skip
-dqCompare.decTest               637 pass     0 fail    22 skip
-dqCompareTotal.decTest          579 pass     0 fail    34 skip
-dqCompareTotalMag.decTest       579 pass     0 fail    34 skip
-dqDivide.decTest                653 pass     0 fail    35 skip
-dqFMA.decTest                  1352 pass     0 fail    99 skip
-dqLogB.decTest                  103 pass     0 fail     6 skip
-dqMax.decTest                   236 pass     0 fail    21 skip
-dqMin.decTest                   226 pass     0 fail    21 skip
-dqMinus.decTest                  35 pass     0 fail     8 skip
-dqMultiply.decTest              437 pass     0 fail    36 skip
-dqNextMinus.decTest              79 pass     0 fail     5 skip
-dqNextPlus.decTest               79 pass     0 fail     5 skip
-dqQuantize.decTest              588 pass     0 fail    98 skip
-dqRemainderNear.decTest         517 pass     0 fail    13 skip
-dqSameQuantum.decTest           323 pass     0 fail    10 skip
-dqScaleB.decTest                182 pass     0 fail    20 skip
-dqSubtract.decTest              498 pass     0 fail    22 skip
-TOTAL: 8721 cases — 8149 pass, 0 fail, 572 skip
+dqAbs.decTest                    74 pass     0 fail     1 skip
+dqAdd.decTest                  1002 pass     0 fail    10 skip
+dqClass.decTest                  42 pass     0 fail     0 skip
+dqCompare.decTest               657 pass     0 fail     2 skip
+dqCompareTotal.decTest          611 pass     0 fail     2 skip
+dqCompareTotalMag.decTest       611 pass     0 fail     2 skip
+dqDivide.decTest                685 pass     0 fail     3 skip
+dqFMA.decTest                  1421 pass     0 fail    30 skip
+dqLogB.decTest                  108 pass     0 fail     1 skip
+dqMax.decTest                   255 pass     0 fail     2 skip
+dqMin.decTest                   245 pass     0 fail     2 skip
+dqMinus.decTest                  43 pass     0 fail     0 skip
+dqMultiply.decTest              471 pass     0 fail     2 skip
+dqNextMinus.decTest              83 pass     0 fail     1 skip
+dqNextPlus.decTest               83 pass     0 fail     1 skip
+dqQuantize.decTest              620 pass     0 fail    66 skip
+dqRemainderNear.decTest         527 pass     0 fail     3 skip
+dqSameQuantum.decTest           333 pass     0 fail     0 skip
+dqScaleB.decTest                202 pass     0 fail     0 skip
+dqSubtract.decTest              518 pass     0 fail     2 skip
+TOTAL: 8721 cases — 8591 pass, 0 fail, 130 skip
 ```
 
 Reproduce with:
@@ -149,6 +117,25 @@ Reproduce with:
 ```sh
 cargo test --features=transcendentals --test conformance -- --nocapture
 ```
+
+## Closed in 1.9.0
+
+For provenance, the categories that closed between 1.7.1 (572 skips)
+and 1.9.0 (130 skips):
+
+- **NaN-with-payload literals** (~398 cases): `parse_str` now
+  accepts `NaN<digits>` / `sNaN<digits>` and packs the payload into
+  the BID significand's 110-bit `T_MASK` field; `Display` reads the
+  payload back; every NaN-producing arithmetic op preserves the
+  operand's payload per IEEE 754:2019 §6.2.3 first-NaN-wins rule.
+- **Hex `#` operand syntax** (~28 cases): `parse_value` decodes
+  `#XXXX...` via `u128::from_str_radix` + `from_bits`.
+- **`class` op result format** (40 cases): runner-side string
+  comparator + `classify_to_gda_name` mapping from
+  `is_signaling_nan` / `is_nan` / `is_infinite` / `is_zero` /
+  `is_subnormal` / `is_sign_negative`.
+- **`apply` op** (4 cases): identity dispatch (ferrodec is
+  PRECISION=34-only, so `apply` reduces to identity-after-parse).
 
 ## What is NOT skipped
 
@@ -164,13 +151,13 @@ across the full BID-128 encoding range, including:
   exponent at `±E_max`).
 - Both Form A and Form B BID encodings (significand fields above
   and below `2^113`).
-- Every special-value combination not requiring a NaN diagnostic
-  payload (signed zero, signed infinity, canonical quiet / signaling
-  NaN).
+- Every special-value combination, including diagnostic NaN
+  payloads (`NaN22`, `sNaN1234`, etc.).
 - All §5.3 quantum operations (`quantize`, `scaleb`, `logb`,
   `nextplus`, `nextminus`) and §5.10 total-order operations
   (`comparetotal`, `comparetotmag`).
 
-8 149 vectors at 0 fail across that surface is the meaningful number
-to look at; the 572 skips break down into a small set of categories,
-each with a documented reason and (for most) a concrete fix path.
+8 591 vectors at 0 fail across that surface is the meaningful number
+to look at; the residual 130 skips break down into a small set of
+categories, each with a documented reason and (for most) a concrete
+fix path.
