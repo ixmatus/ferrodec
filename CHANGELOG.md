@@ -7,6 +7,96 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-05-06
+
+The "verification depth + addsub correctness" release. Five
+overlapping infrastructure additions plus one real arithmetic bug
+fix that the new oracle surfaced. No public API changes.
+
+### Fixed
+
+- `add` (and `sub` via `add(-rhs)`) returned a 1-ULP-too-coarse
+  result under directional rounding modes when the smaller-magnitude
+  operand sat just past the kernel's `ALIGN_LIMIT`. Two
+  representative cases:
+
+  - `−1e−36 + (−1e−100)` under `TowardNegative` returned `−2e−36`
+    instead of `−(10^33+1) × 10^−69` (the correct one-ULP-more-
+    negative neighbor at the fine cohort).
+  - `(699…99 × 10^−37) − (1 × 10^7)` (effective subtract with the
+    fine-quantum operand smaller in magnitude) dropped the smaller
+    operand entirely instead of preserving the digits that fit in
+    the result's fine cohort, returning `−10^7` rather than the
+    correct `−9999999.99993…`.
+
+  Root cause: the kernel's `ALIGN_LIMIT` was a fixed `43`, the
+  worst-case bound for `coef × 10^Δ` to fit in `U256` when `coef`
+  has the maximum 34 digits. Smaller `coef` left slack the fixed
+  limit didn't use, so single-digit `cl` operands with `Δ ≤ 76`
+  mis-routed to the sub-ULP path and rounded at the *coarse*
+  cohort.
+
+  Replaced with `align_limit_for(d_l) = 77 − d_l`, so the exact-
+  alignment regime tracks `cl`'s digit count. The residual sub-ULP
+  effective-add path now pre-extends `cl` to PRECISION digits
+  before the rounding pipeline so directional rounding bumps the
+  coefficient at the fine cohort's ULP scale.
+
+  Surfaced by the new astro-float oracle below; pinned by two
+  regression tests in `src/ops/addsub.rs::tests`.
+
+### Added
+
+- **astro-float oracle** for `Decimal128::add`, `sub`, and `mul` in
+  `tests/property_addsub.rs` and `tests/property_mul.rs`. 1000-bit
+  `BigFloat` cross-check across all five IEEE rounding directions
+  with a `within_ulps(1)` tolerance. Closes the documented `TODO`
+  notes those files carried since 1.0.0. The 1-ULP envelope is
+  structural — decimal exponents like `× 10^−20` have no exact
+  binary representation, and the slack absorbs that without losing
+  bug-catching value (the oracle is what found the addsub bug
+  fixed above).
+- **Four new libFuzzer targets** in `fuzz/`:
+  - `transcendentals` — every transcendental kernel (`exp`, `exp2`,
+    `ln`, `log10`, `log2`, `cbrt`, `sqrt`, `sin`, `cos`, `tan`,
+    `asin`, `acos`, `atan`, `atan2`, `sinh`, `cosh`, `tanh`,
+    `asinh`, `acosh`, `atanh`, `pow`) on arbitrary `u128` operand
+    pairs; panic-freedom contract.
+  - `integral` — `floor` / `ceil` / `trunc` / `round` /
+    `round_ties_even` / `round_to_integral` / `round_to_integral_exact`
+    panic-freedom + idempotence + `is_integer` for finite results.
+  - `total_cmp` — reflexivity and antisymmetry of the §5.10
+    `totalOrder` predicate plus `compare_total_magnitude` over
+    arbitrary bit pairs (covers exactly the different-cohort surface
+    Kani still leaves to proptest).
+  - `encode` — `is_canonical` ↔ `canonicalize` fixed-point,
+    canonicalize idempotence, classification stability across
+    canonicalize.
+  Plus `fuzz/Cargo.lock` for reproducible fuzzing builds.
+- **`KNOWN_ISSUES.md`** at the repo root, categorising the 572
+  conformance-suite skips into six concrete buckets (NaN-with-
+  payload literals, non-IEEE rounding directives, `class` op result
+  format, hex-encoded operands, unimplemented `apply` / `remainder`
+  ops, residual parse failures), each with a fix path and rough
+  cost. Closes the dangling `TODO` reference in
+  `tests/conformance.rs:67`.
+
+### Changed
+
+- **CI matrix** widens. The Linux + macOS test matrix grows from 5
+  to 7 feature combinations; the new entries are
+  `--features serde,ops,num-traits` (the 1.4 / 1.5 ecosystem trio,
+  previously uncovered) and `--all-features`. The `thumbv6m` cross-
+  compile picks up the ecosystem trio plus an `--all-features` build.
+  The MSRV check and the clippy job both move to `--all-features` so
+  any feature-gated breakage surfaces. The Kani job loses the stale
+  "(50 harnesses)" count from its label.
+
+### Documentation
+
+- README's Verification section bumps from "Two libFuzzer targets"
+  to "Six libFuzzer targets" with one-line descriptions of each.
+
 ## [1.7.1] - 2026-05-06
 
 ### Fixed
