@@ -63,8 +63,8 @@ fn dectest_conformance() {
         totals.skipped,
     );
 
-    // Print up to 200 failures for triage. The remaining ones are tracked
-    // by category in `KNOWN_ISSUES.md` (TODO).
+    // Print up to 200 failures for triage. The skipped cases (currently
+    // 572 of 8721) are categorised in `KNOWN_ISSUES.md` at the repo root.
     if !failures.is_empty() {
         eprintln!("\nFirst 200 failures (of {}):", failures.len());
         for f in failures.iter().take(200) {
