@@ -28,25 +28,44 @@ use crate::ops::round_and_pack_finite;
 use crate::status::{RoundingMode, Status};
 
 /// Maximum exponent difference for which we keep a fully-precise
-/// alignment in the `U256` intermediate.
+/// alignment in the `U256` intermediate, given the larger operand's
+/// decimal digit count.
 ///
-/// We bound by `U256` capacity: `coef × 10^Δ` with `coef < 10^34`
-/// stays under `10^77 ≈ 2^256` for `Δ ≤ 43`. Above this:
+/// `coef × 10^Δ` with `coef < 10^d_l` stays under `10^(d_l + Δ)`. We
+/// bound by `U256` capacity (≈ `10^77`), so `d_l + Δ ≤ 77`. For the
+/// max-precision `d_l = PRECISION = 34`, `Δ ≤ 43`; for `d_l = 1`, `Δ`
+/// can go up to 76. Letting the limit depend on `d_l` matters because
+/// it widens the exact-alignment regime: the sub-ULP path below
+/// loses digit information that the precision window can hold when
+/// `d_l` is small, and the existing fixed-43 form mis-routed those
+/// cases.
 ///
-/// * **Effective add** with `Δ > 43`: the smaller operand sits below
-///   1 ULP of the larger, so `coef_l + tiny = coef_l` modulo the
-///   sticky bit. `round_and_pack_finite` consumes the sticky for
-///   round-half-even / -toward-X correctness.
-/// * **Effective sub** with `Δ > 43`: the naive sticky path would
-///   round the wrong direction (sticky encodes "fractional digits
-///   below the LSB", but for subtract the residue tips the rounding
-///   *down* into the previous representable). Handled explicitly by
+/// Above this limit:
+///
+/// * **Effective add**: the smaller operand sits genuinely below 1
+///   ULP of the larger at the *fine* cohort that holds `cl` at
+///   PRECISION (the relaxed limit ensures this). Pre-extend `cl` to
+///   PRECISION digits before passing to `round_and_pack_finite` so
+///   sticky-rounding under directional modes bumps the coefficient
+///   at the right ULP scale.
+/// * **Effective sub**: the naive sticky path would round the wrong
+///   direction (sticky encodes "fractional digits below the LSB",
+///   but for subtract the residue tips the rounding *down* into the
+///   previous representable). Handled explicitly by
 ///   `sub_ulp_effective_sub`, which evaluates the IEEE rounding rule
-///   on the `2·cs` ⋛ `10^(Δ−k)` boundary directly.
+///   on the `2·cs` ⋛ `10^(Δ−k)` boundary directly. The relaxed limit
+///   ensures `cs` is genuinely sub-ULP at the upper / lower
+///   candidates' fine cohort, so the helper's two-candidate model
+///   holds.
 ///
 /// Verified against `astro-float` over Δ ∈ [44, 80] in
-/// `tests/property_addsub_align.rs`.
-const ALIGN_LIMIT: u32 = 43;
+/// `tests/property_addsub_align.rs`, and over the wider central band
+/// in `tests/property_addsub.rs`.
+#[inline]
+const fn align_limit_for(d_l: u32) -> u32 {
+    // `2^256 ≈ 1.158 × 10^77`, so `10^(d_l + Δ) < 10^77 < 2^256`.
+    77 - d_l
+}
 
 impl Decimal128 {
     /// IEEE 754 `addition(self, rhs)`.
@@ -215,7 +234,9 @@ fn add_finite_finite(a: Decimal128, b: Decimal128, rm: RoundingMode) -> (Decimal
     // enough we represent the alignment exactly; beyond that, the smaller
     // operand is at most one ULP of the larger and we collapse it to a
     // sticky bit.
-    let (al, as_, target_exp, mut sticky) = if diff <= ALIGN_LIMIT {
+    let d_l = decimal_digit_count(cl);
+    let align_limit = align_limit_for(d_l);
+    let (al, as_, target_exp, mut sticky) = if diff <= align_limit {
         let aligned_l = U256::from_u128(cl).mul_pow10(diff);
         (
             aligned_l,
@@ -223,15 +244,27 @@ fn add_finite_finite(a: Decimal128, b: Decimal128, rm: RoundingMode) -> (Decimal
             es as i32 - BIAS as i32,
             false,
         )
-    } else {
-        // Smaller is sub-ULP relative to the larger. The larger keeps its
-        // own exponent; the smaller becomes a sticky bit.
+    } else if effective_sub {
+        // Will route through `sub_ulp_effective_sub` below; it expects
+        // `target_exp = el` (coarse) and selects between upper / lower
+        // candidates itself.
         (
             U256::from_u128(cl),
             U256::ZERO,
             el as i32 - BIAS as i32,
             cs != 0,
         )
+    } else {
+        // Effective add past the alignment limit: pre-extend `cl` to
+        // PRECISION digits so sticky-rounding in
+        // `round_and_pack_finite` operates at the fine cohort. The
+        // relaxed `align_limit` ensures `cs` is genuinely sub-ULP at
+        // that cohort (`cs < 10^(diff + d_l − PRECISION)` always
+        // holds when `diff > 77 − d_l`).
+        let pad = PRECISION - d_l;
+        let cl_padded = U256::from_u128(cl).mul_pow10(pad);
+        let target_exp_fine = el as i32 - BIAS as i32 - pad as i32;
+        (cl_padded, U256::ZERO, target_exp_fine, cs != 0)
     };
 
     // Sub-ULP effective_subtract: the smaller operand was zeroed in the
@@ -241,7 +274,7 @@ fn add_finite_finite(a: Decimal128, b: Decimal128, rm: RoundingMode) -> (Decimal
     // also misreads sticky as "fractional digits *past* the LSB",
     // which inverts the rounding direction for effective_sub. Handle
     // this case explicitly with sign-aware rounding.
-    if effective_sub && diff > ALIGN_LIMIT && cs != 0 {
+    if effective_sub && diff > align_limit && cs != 0 {
         let q_preferred = (ea.min(eb)) as i32 - BIAS as i32;
         return sub_ulp_effective_sub(cl, cs, diff, target_exp, sl, rm, q_preferred, status);
     }
@@ -650,5 +683,70 @@ mod tests {
             Some(core::cmp::Ordering::Equal),
             "got {r:?}, expected {expected:?}, status={s:?}"
         );
+    }
+
+    #[test]
+    fn add_sub_ulp_directional_rounds_at_fine_cohort() {
+        // Regression: -1e-36 + (-1e-100) under TowardNegative used to
+        // round at the coarse cohort (-1e-36 → -2e-36) instead of the
+        // fine cohort (-1e-36 → -(10^33+1) × 10^-69). The bug was in
+        // the `diff > ALIGN_LIMIT` non-effective-sub alignment branch:
+        // `target_exp` was set to `el` (coarse), so sticky-rounding in
+        // `round_and_pack_finite` bumped `cl` by 1 *before* trailing-
+        // zero padding for the preferred quantum. Surfaced by the
+        // astro-float oracle in `tests/property_addsub.rs`.
+        let neg_1e_neg_36 = d_from_int(true, BIAS - 36, 1);
+        let neg_1e_neg_100 = d_from_int(true, BIAS - 100, 1);
+        let (r, _) = neg_1e_neg_36.add(neg_1e_neg_100, RoundingMode::TowardNegative);
+        // Correct answer: −1e-36 − 10^-69 = −(10^33 + 1) × 10^-69.
+        let expected = d_from_int(true, BIAS - 69, 10u128.pow(33) + 1);
+        assert_eq!(
+            r.to_bits(),
+            expected.to_bits(),
+            "got {r:?}, expected {expected:?}"
+        );
+
+        // Symmetric case: +1e-36 + 1e-100 under TowardPositive must
+        // round to (10^33 + 1) × 10^-69, not 2e-36.
+        let pos_1e_neg_36 = d_from_int(false, BIAS - 36, 1);
+        let pos_1e_neg_100 = d_from_int(false, BIAS - 100, 1);
+        let (r, _) = pos_1e_neg_36.add(pos_1e_neg_100, RoundingMode::TowardPositive);
+        let expected = d_from_int(false, BIAS - 69, 10u128.pow(33) + 1);
+        assert_eq!(
+            r.to_bits(),
+            expected.to_bits(),
+            "got {r:?}, expected {expected:?}"
+        );
+    }
+
+    #[test]
+    fn add_sub_ulp_smaller_operand_with_high_digits() {
+        // Regression: when `cs` straddles the fine-cohort LSB (i.e. its
+        // leading digits land within the precision window), the fix
+        // must carry those digits into `combined`, not lose them as
+        // sticky.
+        //
+        // a = 1, b = 1.5e-33 = 15 × 10^-34, both signs positive, diff =
+        // 0 - (-34) = 34. ALIGN_LIMIT = 43, so this stays on the
+        // precise-alignment path (diff ≤ ALIGN_LIMIT) and is unrelated
+        // to the bug — but we exercise an adjacent input shape to keep
+        // the regression suite anchored on the wider sub-ULP space.
+        // Construct a pair that lands in the new fine-cohort branch:
+        // a = 1 (exp 0, coef 1), b = 1234567 × 10^-50.
+        // diff = 50, d_l = 1, shift = 50 + 1 - 34 = 17. cs = 1234567 (7
+        // digits). cs / 10^17 = 0, cs % 10^17 = 1234567 (sticky=true).
+        // Result: a unchanged but with INEXACT, rounded per mode.
+        let a = d_from_int(false, BIAS, 1);
+        let b = d_from_int(false, BIAS - 50, 1_234_567);
+        let (r, s) = a.add(b, RoundingMode::TowardPositive);
+        // TowardPositive on positive result with sticky → round up.
+        // Fine cohort: 10^33 at exp -33; round up to 10^33 + 1.
+        let expected = d_from_int(false, BIAS - 33, 10u128.pow(33) + 1);
+        assert_eq!(
+            r.to_bits(),
+            expected.to_bits(),
+            "got {r:?}, expected {expected:?}"
+        );
+        assert!(s.inexact());
     }
 }

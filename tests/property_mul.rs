@@ -6,7 +6,7 @@
 //!    sign rule, `(−a) × b == −(a × b)`).
 //! 2. `i128` integer oracle: for `|a|, |b| ≤ 2^31`, the product of two
 //!    `i64` operands fits in `i128`.
-//! 3. **astro-float oracle**: 1000-bit BigFloat cross-check across
+//! 3. **astro-float oracle**: 1000-bit `BigFloat` cross-check across
 //!    all five IEEE rounding directions, with a `within_ulps(1)`
 //!    tolerance. Operands sample from a tight central exponent band
 //!    so the product stays well clear of overflow / underflow. The

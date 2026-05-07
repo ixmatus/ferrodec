@@ -12,15 +12,12 @@
 //!    cross-check at 1000-bit `BigFloat` precision, all five IEEE
 //!    rounding directions, with a `within_ulps(1)` tolerance. The
 //!    slack is structural: decimal exponents like `× 10^-20` have no
-//!    exact binary representation, so the BigFloat intermediate
+//!    exact binary representation, so the `BigFloat` intermediate
 //!    carries a sub-ULP error that can flip rounding decisions on
 //!    operands whose exact result lands on a half-ULP boundary. The
 //!    1-ULP envelope absorbs that without losing the test's bug-
 //!    catching value — anything ferrodec gets >1 ULP wrong still
-//!    surfaces. The band restriction below avoids the unrelated
-//!    sub-ULP wide-cohort failure mode where ferrodec drops the
-//!    smaller operand entirely (off by many ULPs at the fine cohort,
-//!    well beyond the envelope).
+//!    surfaces.
 
 use astro_float::{BigFloat, Consts, Radix, RoundingMode as AfRm};
 use proptest::prelude::*;
@@ -284,22 +281,15 @@ fn decimal_from_i128(n: i128) -> Decimal128 {
 // ---------------------------------------------------------------------------
 // astro-float oracle
 
-/// Sample a finite `Decimal128` constrained to a tight central
-/// exponent band — `(BIAS ± 20)` — so add/sub between any two samples
-/// has `|Δexp| <= 40 < ALIGN_LIMIT (43)` and stays out of the sub-ULP
-/// effective-subtract path. That path has a known failure mode when
-/// the smaller-magnitude operand is the *finer*-quantum operand
-/// (ferrodec drops its contribution entirely instead of carrying it
-/// into the result's cohort); the wide-domain identities elsewhere
-/// in this file don't catch it because they use bit-equal cohort
-/// comparisons against ferrodec's own output, not an external oracle.
-/// Tracked as a follow-up; the band restriction here keeps the
-/// astro-float comparison meaningful on the non-buggy alignment path
-/// without papering over the issue.
+/// Sample a finite `Decimal128` from the central exponent band
+/// (`BIAS ± 100`). The astro-float oracle compares numeric values, so
+/// operands stay well clear of overflow / underflow noise; the
+/// boundary cases are covered by the wide-domain identities earlier
+/// in this file.
 fn central_finite() -> impl Strategy<Value = Decimal128> {
     (
         any::<bool>(),
-        (BIAS_U32 - 20)..=(BIAS_U32 + 20),
+        (BIAS_U32 - 100)..=(BIAS_U32 + 100),
         prop_oneof![
             1u128..=1_000,
             1u128..=10_000_000_000,
@@ -315,7 +305,11 @@ fn central_finite() -> impl Strategy<Value = Decimal128> {
 /// `Decimal128::parse_str` under round-half-to-even so the final
 /// rounding decision is ferrodec's own — astro-float just provides
 /// the high-precision intermediate.
-fn oracle_op(a: Decimal128, b: Decimal128, op: impl Fn(&BigFloat, &BigFloat, usize, AfRm) -> BigFloat) -> String {
+fn oracle_op(
+    a: Decimal128,
+    b: Decimal128,
+    op: impl Fn(&BigFloat, &BigFloat, usize, AfRm) -> BigFloat,
+) -> String {
     let p = 1000;
     let mut cc = Consts::new().expect("init consts");
     let av = BigFloat::parse(&format!("{a}"), Radix::Dec, p, AfRm::None, &mut cc);
@@ -339,7 +333,7 @@ proptest! {
         let rm = MODES[rm_idx as usize];
         let (got, status) = a.add(b, rm);
         prop_assume!(!status.overflow() && !status.underflow());
-        let want_str = oracle_op(a, b, |x, y, p, rm| x.add(y, p, rm));
+        let want_str = oracle_op(a, b, BigFloat::add);
         let (want, _) = Decimal128::parse_str(&want_str, rm)
             .expect("oracle string re-parses");
         prop_assert!(
@@ -360,7 +354,7 @@ proptest! {
         let rm = MODES[rm_idx as usize];
         let (got, status) = a.sub(b, rm);
         prop_assume!(!status.overflow() && !status.underflow());
-        let want_str = oracle_op(a, b, |x, y, p, rm| x.sub(y, p, rm));
+        let want_str = oracle_op(a, b, BigFloat::sub);
         let (want, _) = Decimal128::parse_str(&want_str, rm)
             .expect("oracle string re-parses");
         prop_assert!(
