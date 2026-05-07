@@ -89,7 +89,7 @@ fn dectest_conformance() {
     // Arithmetic modes that are not part of IEEE 754-2019; cases under
     // those directives are skipped rather than coerced into a kernel
     // mode that doesn't match the spec.
-    const PASS_FLOOR: usize = 8149;
+    const PASS_FLOOR: usize = 8193;
     const FAIL_CEILING: usize = 0;
 
     assert!(
@@ -401,10 +401,19 @@ fn run_case(case: &TestCase, ctx: &Context) -> Outcome {
         },
     };
 
-    // `class` results are class-name strings, not Decimal128 values —
-    // we don't have a comparison harness for those yet.
-    if matches!(result, OpResult::Class(())) {
-        return Outcome::Skip;
+    // `class` results are class-name strings, not Decimal128 values.
+    // Compare directly against `case.expected` (also a string) and
+    // short-circuit; the expected isn't a Decimal128 literal so we
+    // can't route it through the value-comparator below.
+    if let OpResult::Class(name) = &result {
+        return if name == &case.expected {
+            Outcome::Pass
+        } else {
+            Outcome::Fail(format!(
+                "expected class {:?}, got {:?}",
+                case.expected, name
+            ))
+        };
     }
 
     // Parse the expected result. Expected literals in decTest are exact
@@ -432,6 +441,7 @@ enum OpKind {
     Abs,
     Minus,
     Plus,
+    Apply,
     Compare,
     CompareTotal,
     CompareTotalMag,
@@ -455,9 +465,21 @@ fn dispatch_op(name: &str) -> Option<OpKind> {
         "fma" => OpKind::Fma,
         "squareroot" => OpKind::SquareRoot,
         "remaindernear" => OpKind::RemainderNear,
+        // decTest's `remainder` is the *truncating* remainder
+        // (sign of dividend, integer quotient toward zero),
+        // distinct from `remaindernear` (round-half-to-even on the
+        // quotient, the IEEE 754 §5.3.1 remainder). ferrodec's
+        // `Decimal128::rem` implements only `remaindernear`, so the
+        // `remainder` op is left unrouted; the single dqRemainderNear
+        // case using it stays skipped (documented in KNOWN_ISSUES.md).
         "abs" => OpKind::Abs,
         "minus" => OpKind::Minus,
         "plus" => OpKind::Plus,
+        // decTest `apply` exercises the rounding/precision context.
+        // ferrodec is fixed at PRECISION=34, and `parse_str` already
+        // applies precision when constructing the operand, so apply
+        // becomes identity at this layer.
+        "apply" => OpKind::Apply,
         "compare" => OpKind::Compare,
         "comparetotal" => OpKind::CompareTotal,
         // decTest spells the magnitude variant `comparetotmag` (no `al`).
@@ -539,6 +561,14 @@ fn invoke(op: OpKind, operands: &[String], rm: RoundingMode) -> Option<OpResult>
             // re-quantize.
             Some(OpResult::Value(a, Status::OK))
         }
+        OpKind::Apply => {
+            // decTest `apply` returns the operand after applying the
+            // current precision/rounding context. parse_value already
+            // routes through `parse_str` under `rm` and rounds to
+            // PRECISION=34, so the parsed value is the result.
+            let (a, s) = parse_value(&operands[0], rm)?;
+            Some(OpResult::Value(a, s))
+        }
         OpKind::Compare => {
             let a = parse_value(&operands[0], rm)?.0;
             let b = parse_value(&operands[1], rm)?.0;
@@ -574,11 +604,8 @@ fn invoke(op: OpKind, operands: &[String], rm: RoundingMode) -> Option<OpResult>
             Some(OpResult::Value(v, s))
         }
         OpKind::Class => {
-            // Decimal128::class returns a class-name string we don't yet
-            // dispatch through. Marker variant is enough — the comparator
-            // skips these.
-            let _ = parse_value(&operands[0], rm)?.0;
-            Some(OpResult::Class(()))
+            let a = parse_value(&operands[0], rm)?.0;
+            Some(OpResult::Class(classify_to_gda_name(a)))
         }
         OpKind::Quantize => {
             let a = parse_value(&operands[0], rm)?.0;
@@ -661,7 +688,7 @@ fn invoke(op: OpKind, operands: &[String], rm: RoundingMode) -> Option<OpResult>
 
 enum OpResult {
     Value(Decimal128, Status),
-    Class(()),
+    Class(String),
 }
 
 /// Run an op under decTest's directional `up` rounding (away from zero).
@@ -681,7 +708,7 @@ fn invoke_up(op: OpKind, operands: &[String]) -> Option<OpResult> {
     let probe = invoke(op, operands, RoundingMode::TowardZero)?;
     let (val, status) = match probe {
         OpResult::Value(v, s) => (v, s),
-        OpResult::Class(()) => return Some(probe),
+        OpResult::Class(_) => return Some(probe),
     };
     if !status.inexact() {
         return Some(OpResult::Value(val, status));
@@ -696,12 +723,39 @@ fn invoke_up(op: OpKind, operands: &[String]) -> Option<OpResult> {
 
 fn parse_value(s: &str, rm: RoundingMode) -> Option<(Decimal128, Status)> {
     let trimmed = s.trim();
-    // The decTest format uses '#' for hex-encoded literal bit patterns; we
-    // don't support those.
-    if trimmed.starts_with('#') {
-        return None;
+    // decTest's `#` syntax encodes the operand as a raw 128-bit BID
+    // hex literal (up to 32 hex chars; shorter inputs are zero-extended
+    // by `u128::from_str_radix`). Decode and feed via `from_bits`; no
+    // rounding involved.
+    if let Some(hex) = trimmed.strip_prefix('#') {
+        let bits = u128::from_str_radix(hex, 16).ok()?;
+        return Some((Decimal128::from_bits(bits), Status::OK));
     }
     Decimal128::parse_str(trimmed, rm).ok()
+}
+
+/// Render a `Decimal128` as the GDA `class` op's expected string form.
+///
+/// IEEE 754 categories plus sign for the finite / infinite cases; bare
+/// `NaN` / `sNaN` (no sign — GDA collapses NaN sign in the class name).
+fn classify_to_gda_name(d: Decimal128) -> String {
+    if d.is_signaling_nan() {
+        return "sNaN".to_string();
+    }
+    if d.is_nan() {
+        return "NaN".to_string();
+    }
+    let sign = if d.is_sign_negative() { "-" } else { "+" };
+    let kind = if d.is_infinite() {
+        "Infinity"
+    } else if d.is_zero() {
+        "Zero"
+    } else if d.is_subnormal() {
+        "Subnormal"
+    } else {
+        "Normal"
+    };
+    format!("{sign}{kind}")
 }
 
 fn expected_status(conditions: &[String]) -> Status {
@@ -732,10 +786,12 @@ fn compare(
     expected_flags: Status,
 ) -> Outcome {
     match result {
-        OpResult::Class(()) => {
-            // class op compares against the class name string directly;
-            // we don't currently dispatch through it. Skip.
-            Outcome::Skip
+        OpResult::Class(_) => {
+            // Class results are short-circuited in `run_case` before
+            // they reach this comparator (the expected isn't a
+            // Decimal128 literal we can re-parse). Reachable only via
+            // a future refactor accident.
+            unreachable!("class results are compared in run_case");
         }
         OpResult::Value(actual, actual_flags) => {
             // NaN compare: both must be NaN. Cohort/payload is allowed to
