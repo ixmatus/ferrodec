@@ -1,8 +1,18 @@
-//! IEEE 754 remainder for [`Decimal128`].
+//! IEEE 754 remainder for [`Decimal128`], plus the truncating-quotient
+//! variant.
 //!
-//! `remainder(x, y) = x − n × y` where `n` is the nearest-even integer
-//! to `x / y`. The IEEE definition is *exact* — there is no rounding,
-//! and `INEXACT` is never raised.
+//! Two flavors:
+//!
+//! * [`Decimal128::rem`] — IEEE 754 §5.3.1 `remainder`:
+//!   `r = x − n × y` where `n` is the nearest-even integer to `x / y`.
+//!   Result magnitude `≤ |y| / 2`. Always exact when defined; never
+//!   raises `INEXACT`.
+//! * [`Decimal128::rem_trunc`] — truncating-quotient remainder:
+//!   `r = x − trunc(x / y) × y` (the integer quotient rounds toward
+//!   zero). Result has sign of dividend, magnitude `< |y|`. Matches
+//!   C99 `fmod` and decTest's `remainder` op (distinct from
+//!   decTest's `remaindernear`, which is the round-half-to-even
+//!   variant `rem` implements). Always exact when defined.
 //!
 //! Special cases (IEEE 754-2019 §5.3.1):
 //!
@@ -47,16 +57,58 @@ use crate::ops::propagate_nan2;
 use crate::status::Status;
 
 impl Decimal128 {
-    /// IEEE 754 `remainder(self, rhs)`.
+    /// IEEE 754 §5.3.1 `remainder(self, rhs)`.
     ///
-    /// Always exact when defined. See module docs for the v1 envelope
-    /// and the deferred case.
+    /// Returns `r = self − n · rhs` where `n` is the integer nearest to
+    /// `self / rhs` with ties rounding to even. Result magnitude
+    /// `≤ |rhs| / 2`. Always exact when defined; never raises
+    /// `INEXACT`.
+    ///
+    /// Distinct from [`Decimal128::rem_trunc`], which uses a
+    /// truncating-quotient (C99 `fmod`-style) rule.
     #[must_use]
     pub fn rem(self, rhs: Self) -> (Self, Status) {
         if let Some(early) = rem_special_cases(self, rhs) {
             return early;
         }
-        rem_finite(self, rhs)
+        rem_finite(self, rhs, RemRounding::HalfEven)
+    }
+
+    /// Truncating-quotient remainder: `r = self − trunc(self / rhs) · rhs`.
+    ///
+    /// The integer quotient rounds toward zero, so the result has the
+    /// sign of `self` and magnitude `< |rhs|`. Matches C99 `fmod` and
+    /// the dec-spec / decTest `remainder` op. Always exact when
+    /// defined; never raises `INEXACT`.
+    ///
+    /// Distinct from [`Decimal128::rem`], which uses the IEEE 754
+    /// round-half-to-even quotient rule.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use ferrodec::Decimal128;
+    ///
+    /// // 7.5 mod 2.0:
+    /// //   trunc(7.5 / 2.0) = trunc(3.75) = 3
+    /// //   7.5 − 3 × 2.0 = 1.5
+    /// let x = Decimal128::try_new(75, -1).unwrap();
+    /// let y = Decimal128::try_new(20, -1).unwrap();
+    /// let (r, _) = x.rem_trunc(y);
+    /// assert_eq!(r.to_bits(), Decimal128::try_new(15, -1).unwrap().to_bits());
+    ///
+    /// // Compare with `rem` (round-half-to-even quotient):
+    /// //   round-half-even(3.75) = 4
+    /// //   7.5 − 4 × 2.0 = -0.5
+    /// let (r_ieee, _) = x.rem(y);
+    /// assert_eq!(r_ieee.to_bits(), Decimal128::try_new(-5, -1).unwrap().to_bits());
+    /// ```
+    #[must_use]
+    pub fn rem_trunc(self, rhs: Self) -> (Self, Status) {
+        if let Some(early) = rem_special_cases(self, rhs) {
+            return early;
+        }
+        rem_finite(self, rhs, RemRounding::TowardZero)
     }
 
     /// Kani-only entry point for the special-case path.
@@ -66,6 +118,15 @@ impl Decimal128 {
     pub fn rem_special_only_for_kani(self, rhs: Self) -> Option<(Self, Status)> {
         rem_special_cases(self, rhs)
     }
+}
+
+/// Quotient-rounding rule for the shared `rem_finite` kernel.
+#[derive(Clone, Copy)]
+enum RemRounding {
+    /// IEEE 754 §5.3.1: nearest integer, ties to even.
+    HalfEven,
+    /// C99 `fmod`: integer quotient toward zero (drop fractional part).
+    TowardZero,
 }
 
 #[inline]
@@ -109,7 +170,7 @@ fn rem_special_cases(a: Decimal128, b: Decimal128) -> Option<(Decimal128, Status
     None
 }
 
-fn rem_finite(a: Decimal128, b: Decimal128) -> (Decimal128, Status) {
+fn rem_finite(a: Decimal128, b: Decimal128, rounding: RemRounding) -> (Decimal128, Status) {
     let cls_a = classify_bits(a.to_bits());
     let cls_b = classify_bits(b.to_bits());
     let (sx, qxb, cx) = decompose_finite(cls_a);
@@ -152,9 +213,18 @@ fn rem_finite(a: Decimal128, b: Decimal128) -> (Decimal128, Status) {
         return (Decimal128::NAN, Status::INVALID);
     }
 
-    // Round-to-nearest-even adjustment of the integer quotient.
-    let n_lsb = (q.lo & 1) as u32;
-    let round_up = compare_remainder_to_half(r, y_scaled, n_lsb);
+    // The integer quotient `q` returned by `div_rem_u128` is already
+    // truncated toward zero (it's unsigned integer division). For
+    // `RemRounding::TowardZero` we keep it as-is — the remainder `r`
+    // is the answer. For `RemRounding::HalfEven` we adjust by ±1 if
+    // the fractional part is past `0.5 · y_scaled`.
+    let round_up = match rounding {
+        RemRounding::HalfEven => {
+            let n_lsb = (q.lo & 1) as u32;
+            compare_remainder_to_half(r, y_scaled, n_lsb)
+        }
+        RemRounding::TowardZero => false,
+    };
 
     let (result_mag, sign_flip) = if round_up {
         (y_scaled - r, true)
@@ -278,6 +348,76 @@ mod tests {
         let (r, _) = Decimal128::NEG_ZERO.rem(Decimal128::INFINITY);
         assert!(r.is_zero());
         assert!(r.is_sign_negative());
+    }
+
+    #[test]
+    fn rem_trunc_basic_in_range() {
+        // 7 fmod 3: trunc(7/3) = 2, 7 − 2·3 = 1 (sign of dividend).
+        let (r, s) = d_int(7).rem_trunc(d_int(3));
+        let (cmp, _) = r.partial_cmp(d_int(1));
+        assert_eq!(cmp, Some(core::cmp::Ordering::Equal));
+        assert!(s.is_ok());
+
+        // 8 fmod 3: trunc(8/3) = 2, 8 − 2·3 = 2. (Differs from rem,
+        // which gives -1 because round-half-to-even of 8/3≈2.67 is 3.)
+        let (r, _) = d_int(8).rem_trunc(d_int(3));
+        let (cmp, _) = r.partial_cmp(d_int(2));
+        assert_eq!(cmp, Some(core::cmp::Ordering::Equal));
+
+        // -7 fmod 3: trunc(-7/3) = -2, -7 − (-2)·3 = -1.
+        let (r, _) = d_int(-7).rem_trunc(d_int(3));
+        let (cmp, _) = r.partial_cmp(d_int(-1));
+        assert_eq!(cmp, Some(core::cmp::Ordering::Equal));
+
+        // 7 fmod -3: trunc(7/-3) = -2, 7 − (-2)·(-3) = 1.
+        let (r, _) = d_int(7).rem_trunc(d_int(-3));
+        let (cmp, _) = r.partial_cmp(d_int(1));
+        assert_eq!(cmp, Some(core::cmp::Ordering::Equal));
+    }
+
+    #[test]
+    fn rem_trunc_diverges_from_rem_at_half_boundary() {
+        // 5 fmod 2: trunc(2.5) = 2, result 1.
+        // (vs rem: round-half-to-even(2.5) = 2 → result 1. Same here.)
+        let (r_t, _) = d_int(5).rem_trunc(d_int(2));
+        let (r_e, _) = d_int(5).rem(d_int(2));
+        let (cmp, _) = r_t.partial_cmp(d_int(1));
+        assert_eq!(cmp, Some(core::cmp::Ordering::Equal));
+        let (cmp, _) = r_e.partial_cmp(d_int(1));
+        assert_eq!(cmp, Some(core::cmp::Ordering::Equal));
+
+        // 7 fmod 2: trunc(3.5) = 3, result 1.
+        // rem: round-half-to-even(3.5) = 4, result -1. Different.
+        let (r_t, _) = d_int(7).rem_trunc(d_int(2));
+        let (r_e, _) = d_int(7).rem(d_int(2));
+        let (cmp, _) = r_t.partial_cmp(d_int(1));
+        assert_eq!(cmp, Some(core::cmp::Ordering::Equal));
+        let (cmp, _) = r_e.partial_cmp(d_int(-1));
+        assert_eq!(cmp, Some(core::cmp::Ordering::Equal));
+    }
+
+    #[test]
+    fn rem_trunc_special_cases() {
+        // NaN propagation matches rem.
+        let (r, _) = Decimal128::ONE.rem_trunc(Decimal128::NAN);
+        assert!(r.is_nan());
+        let (r, s) = Decimal128::SIGNALING_NAN.rem_trunc(Decimal128::ONE);
+        assert!(r.is_nan());
+        assert!(s.invalid());
+
+        // x / 0 → NaN+INVALID.
+        let (r, s) = Decimal128::ONE.rem_trunc(Decimal128::ZERO);
+        assert!(r.is_nan());
+        assert!(s.invalid());
+
+        // ±∞ / y → NaN+INVALID.
+        let (r, s) = Decimal128::INFINITY.rem_trunc(Decimal128::ONE);
+        assert!(r.is_nan());
+        assert!(s.invalid());
+
+        // x / ±∞ → x.
+        let (r, _) = d_int(7).rem_trunc(Decimal128::INFINITY);
+        assert_eq!(r.to_bits(), d_int(7).to_bits());
     }
 
     #[test]

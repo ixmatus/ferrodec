@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.10.0] - 2026-05-06
+
+### Added
+
+- **`Decimal128::rem_trunc(self, rhs)`** — truncating-quotient
+  remainder: `r = self − trunc(self / rhs) · rhs`. The integer
+  quotient rounds toward zero, so the result has the sign of
+  `self` and magnitude `< |rhs|`. Matches C99 `fmod` semantics
+  and decTest's `remainder` op (distinct from decTest's
+  `remaindernear` and ferrodec's existing `Decimal128::rem`,
+  which both implement the IEEE 754 §5.3.1 round-half-to-even
+  remainder). Always exact when defined; never raises `INEXACT`.
+  Three unit tests in `src/ops/rem.rs::tests` pin the
+  basic-in-range, sign, and special-case behavior, plus a
+  side-by-side comparison with `rem` at the half-quotient
+  boundary where the two functions diverge.
+
+### Changed
+
+- **Conformance runner** routes the previously-skipped
+  `remainder` op through `rem_trunc`. Suite total climbs to
+  8 592 / 0 / 129 across 8 721 cases. PASS_FLOOR raised
+  8591 → 8592.
+
+### Out of scope this release
+
+- A speculative perf pass was scoped out: meaningful optimization
+  needs profiling against a real workload, and ferrodec's
+  criterion benches are calibrated as regression guards rather
+  than as optimization targets. A future release with concrete
+  hot-path data can revisit.
+
 ## [1.9.1] - 2026-05-06
 
 ### Fixed

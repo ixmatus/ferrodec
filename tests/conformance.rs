@@ -89,7 +89,7 @@ fn dectest_conformance() {
     // Arithmetic modes that are not part of IEEE 754-2019; cases under
     // those directives are skipped rather than coerced into a kernel
     // mode that doesn't match the spec.
-    const PASS_FLOOR: usize = 8591;
+    const PASS_FLOOR: usize = 8592;
     const FAIL_CEILING: usize = 0;
 
     assert!(
@@ -438,6 +438,7 @@ enum OpKind {
     Fma,
     SquareRoot,
     RemainderNear,
+    Remainder,
     Abs,
     Minus,
     Plus,
@@ -468,10 +469,10 @@ fn dispatch_op(name: &str) -> Option<OpKind> {
         // decTest's `remainder` is the *truncating* remainder
         // (sign of dividend, integer quotient toward zero),
         // distinct from `remaindernear` (round-half-to-even on the
-        // quotient, the IEEE 754 §5.3.1 remainder). ferrodec's
-        // `Decimal128::rem` implements only `remaindernear`, so the
-        // `remainder` op is left unrouted; the single dqRemainderNear
-        // case using it stays skipped (documented in KNOWN_ISSUES.md).
+        // quotient, the IEEE 754 §5.3.1 remainder). ferrodec
+        // implements both: `Decimal128::rem` for IEEE remainder,
+        // `Decimal128::rem_trunc` for the truncating variant.
+        "remainder" => OpKind::Remainder,
         "abs" => OpKind::Abs,
         "minus" => OpKind::Minus,
         "plus" => OpKind::Plus,
@@ -542,6 +543,12 @@ fn invoke(op: OpKind, operands: &[String], rm: RoundingMode) -> Option<OpResult>
             let a = parse_value(&operands[0], rm)?.0;
             let b = parse_value(&operands[1], rm)?.0;
             let (v, s) = a.rem(b);
+            Some(OpResult::Value(v, s))
+        }
+        OpKind::Remainder => {
+            let a = parse_value(&operands[0], rm)?.0;
+            let b = parse_value(&operands[1], rm)?.0;
+            let (v, s) = a.rem_trunc(b);
             Some(OpResult::Value(v, s))
         }
         OpKind::Abs => {

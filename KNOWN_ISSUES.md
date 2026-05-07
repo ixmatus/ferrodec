@@ -6,17 +6,17 @@ skips in the decTest conformance suite. The runner is
 
 ## Headline numbers
 
-As of ferrodec 1.9.0:
+As of ferrodec 1.10.0:
 
 | count | share | category |
 |------:|------:|----------|
 | 8 721 | 100 % | total cases |
-| 8 591 | 98.5 % | pass |
+| 8 592 | 98.5 % | pass |
 |     0 |  0.0 % | fail |
-|   130 |  1.5 % | skip |
+|   129 |  1.5 % | skip |
 
 The 0-fail floor is enforced by `tests/conformance.rs::dectest_conformance`:
-any change that drops the pass count below 8 591 or raises the fail
+any change that drops the pass count below 8 592 or raises the fail
 count above 0 fails the build.
 
 For context: 1.7.1 sat at 8 149 / 0 / 572 (93.4 % pass). 1.9.0 closed
@@ -64,20 +64,7 @@ the comparator yet.
 Status::INVALID)` in `parse_value` rather than `None`. ~10 minutes;
 closes the entire null-test category.
 
-### 3. Unimplemented op `remainder` — 1 case
-
-decTest's `remainder` is the *truncating* remainder (sign of dividend,
-integer quotient toward zero), distinct from `remaindernear` which is
-the round-half-to-even IEEE 754 §5.3.1 remainder ferrodec implements
-as `Decimal128::rem`. The single case using `remainder` lives in
-`dqRemainderNear.decTest`.
-
-**To fix:** add a `remainder_truncating` kernel — `r = x − y · n`
-where `n = trunc(x/y)`. Roughly 2-3 hours of kernel work plus
-property-test coverage. Low impact (1 case) but exercises a
-genuine missing operation.
-
-### 4. Other parse failures — ≈ 15 cases
+### 3. Other parse failures — ≈ 15 cases
 
 The residual after the categories above are the cases where some
 operand fails to parse for reasons not captured by the patterns
@@ -105,11 +92,11 @@ dqMultiply.decTest              471 pass     0 fail     2 skip
 dqNextMinus.decTest              83 pass     0 fail     1 skip
 dqNextPlus.decTest               83 pass     0 fail     1 skip
 dqQuantize.decTest              620 pass     0 fail    66 skip
-dqRemainderNear.decTest         527 pass     0 fail     3 skip
+dqRemainderNear.decTest         528 pass     0 fail     2 skip
 dqSameQuantum.decTest           333 pass     0 fail     0 skip
 dqScaleB.decTest                202 pass     0 fail     0 skip
 dqSubtract.decTest              518 pass     0 fail     2 skip
-TOTAL: 8721 cases — 8591 pass, 0 fail, 130 skip
+TOTAL: 8721 cases — 8592 pass, 0 fail, 129 skip
 ```
 
 Reproduce with:
@@ -118,10 +105,10 @@ Reproduce with:
 cargo test --features=transcendentals --test conformance -- --nocapture
 ```
 
-## Closed in 1.9.0
+## Closed in 1.9.0 / 1.10.0
 
 For provenance, the categories that closed between 1.7.1 (572 skips)
-and 1.9.0 (130 skips):
+and 1.10.0 (129 skips):
 
 - **NaN-with-payload literals** (~398 cases): `parse_str` now
   accepts `NaN<digits>` / `sNaN<digits>` and packs the payload into
@@ -136,6 +123,10 @@ and 1.9.0 (130 skips):
   `is_subnormal` / `is_sign_negative`.
 - **`apply` op** (4 cases): identity dispatch (ferrodec is
   PRECISION=34-only, so `apply` reduces to identity-after-parse).
+- **`remainder` op (1.10.0)** (1 case): new
+  `Decimal128::rem_trunc` method implements the truncating-quotient
+  remainder (C99 `fmod` / decTest `remainder`), distinct from the
+  IEEE 754 §5.3.1 round-half-to-even `Decimal128::rem`.
 
 ## What is NOT skipped
 
@@ -157,7 +148,7 @@ across the full BID-128 encoding range, including:
   `nextplus`, `nextminus`) and §5.10 total-order operations
   (`comparetotal`, `comparetotmag`).
 
-8 591 vectors at 0 fail across that surface is the meaningful number
-to look at; the residual 130 skips break down into a small set of
+8 592 vectors at 0 fail across that surface is the meaningful number
+to look at; the residual 129 skips break down into a small set of
 categories, each with a documented reason and (for most) a concrete
 fix path.
