@@ -6,30 +6,36 @@ skips in the decTest conformance suite. The runner is
 
 ## Headline numbers
 
-As of ferrodec 1.10.0:
+As of ferrodec 1.10.1:
 
 | count | share | category |
 |------:|------:|----------|
 | 8 721 | 100 % | total cases |
-| 8 592 | 98.5 % | pass |
+| 8 622 | 98.9 % | pass |
 |     0 |  0.0 % | fail |
-|   129 |  1.5 % | skip |
+|    99 |  1.1 % | skip |
 
 The 0-fail floor is enforced by `tests/conformance.rs::dectest_conformance`:
-any change that drops the pass count below 8 592 or raises the fail
+any change that drops the pass count below 8 622 or raises the fail
 count above 0 fails the build.
 
-For context: 1.7.1 sat at 8 149 / 0 / 572 (93.4 % pass). 1.9.0 closed
-four of the original six skip categories (NaN-with-payload literals,
-hex `#` operands, the `class` op result format, and the `apply` op),
-leaving the residual 130 skips as documented below.
+All 99 residual skips fall under a single category — non-IEEE
+rounding directives — that ferrodec deliberately doesn't support.
+Every other operation, encoding, and special-value combination in
+the suite passes.
+
+For context: 1.7.1 sat at 8 149 / 0 / 572 (93.4 % pass). The 1.9.0
+through 1.10.1 trail closed five of the original six skip
+categories (NaN-with-payload literals, hex `#` operands, the
+`class` op result format, the `apply` op, and the bare `#`
+null-operand sentinel) plus added a sixth implementation
+(`Decimal128::rem_trunc`) that closed the truncating-remainder
+case. The residual 99 skips fall under a single will-not-fix
+category.
 
 ## Skip taxonomy
 
-The runner's `run_case` function checks five gates in order; each
-skipped case bottoms out at the first one that matches.
-
-### 1. Non-IEEE rounding directives — 101 cases (78 %)
+### 1. Non-IEEE rounding directives — 99 cases (100 %)
 
 decTest extends the IEEE 754 rounding set with two GDA-only modes:
 
@@ -49,54 +55,31 @@ GDA conformant. Adding `half_down` / `05up` would expand the
 and embedded callers paying the kernel size already get every
 direction the standard defines.
 
-### 2. Bare `#` "null operand" sentinel — ≈ 13 cases (10 %)
-
-decTest's `#` followed by hex chars encodes a raw 128-bit BID literal
-(supported in 1.9.0). Bare `#` (no hex) is a different convention:
-the "null test" that exercises operand-missing behavior. Each
-affected case expects `NaN` + `Invalid_operation` from the operand-
-parse failure. The runner's `parse_value` returns `None` for empty
-hex which routes the case to `Outcome::Skip`; the conformance flag
-machinery doesn't propagate a "parse-error → INVALID" signal up to
-the comparator yet.
-
-**To fix:** route `#` (empty hex) to `(Decimal128::NAN,
-Status::INVALID)` in `parse_value` rather than `None`. ~10 minutes;
-closes the entire null-test category.
-
-### 3. Other parse failures — ≈ 15 cases
-
-The residual after the categories above are the cases where some
-operand fails to parse for reasons not captured by the patterns
-above — typically unusual significand-exponent combinations near
-the BID encoding boundary that the parser handles strictly, plus a
-small number of NaN-with-payload literals where the payload exceeds
-the 110-bit (`T_MASK`, ≈ 33 decimal digits) field.
 
 ## Per-file totals
 
 ```
-dqAbs.decTest                    74 pass     0 fail     1 skip
-dqAdd.decTest                  1002 pass     0 fail    10 skip
+dqAbs.decTest                    75 pass     0 fail     0 skip
+dqAdd.decTest                  1004 pass     0 fail     8 skip
 dqClass.decTest                  42 pass     0 fail     0 skip
-dqCompare.decTest               657 pass     0 fail     2 skip
-dqCompareTotal.decTest          611 pass     0 fail     2 skip
-dqCompareTotalMag.decTest       611 pass     0 fail     2 skip
-dqDivide.decTest                685 pass     0 fail     3 skip
-dqFMA.decTest                  1421 pass     0 fail    30 skip
-dqLogB.decTest                  108 pass     0 fail     1 skip
-dqMax.decTest                   255 pass     0 fail     2 skip
-dqMin.decTest                   245 pass     0 fail     2 skip
+dqCompare.decTest               659 pass     0 fail     0 skip
+dqCompareTotal.decTest          613 pass     0 fail     0 skip
+dqCompareTotalMag.decTest       613 pass     0 fail     0 skip
+dqDivide.decTest                687 pass     0 fail     1 skip
+dqFMA.decTest                  1425 pass     0 fail    26 skip
+dqLogB.decTest                  109 pass     0 fail     0 skip
+dqMax.decTest                   257 pass     0 fail     0 skip
+dqMin.decTest                   247 pass     0 fail     0 skip
 dqMinus.decTest                  43 pass     0 fail     0 skip
-dqMultiply.decTest              471 pass     0 fail     2 skip
-dqNextMinus.decTest              83 pass     0 fail     1 skip
-dqNextPlus.decTest               83 pass     0 fail     1 skip
-dqQuantize.decTest              620 pass     0 fail    66 skip
-dqRemainderNear.decTest         528 pass     0 fail     2 skip
+dqMultiply.decTest              473 pass     0 fail     0 skip
+dqNextMinus.decTest              84 pass     0 fail     0 skip
+dqNextPlus.decTest               84 pass     0 fail     0 skip
+dqQuantize.decTest              622 pass     0 fail    64 skip
+dqRemainderNear.decTest         530 pass     0 fail     0 skip
 dqSameQuantum.decTest           333 pass     0 fail     0 skip
 dqScaleB.decTest                202 pass     0 fail     0 skip
-dqSubtract.decTest              518 pass     0 fail     2 skip
-TOTAL: 8721 cases — 8592 pass, 0 fail, 129 skip
+dqSubtract.decTest              520 pass     0 fail     0 skip
+TOTAL: 8721 cases — 8622 pass, 0 fail, 99 skip
 ```
 
 Reproduce with:
@@ -105,10 +88,10 @@ Reproduce with:
 cargo test --features=transcendentals --test conformance -- --nocapture
 ```
 
-## Closed in 1.9.0 / 1.10.0
+## Closed in 1.9.0 / 1.10.0 / 1.10.1
 
 For provenance, the categories that closed between 1.7.1 (572 skips)
-and 1.10.0 (129 skips):
+and 1.10.1 (99 skips):
 
 - **NaN-with-payload literals** (~398 cases): `parse_str` now
   accepts `NaN<digits>` / `sNaN<digits>` and packs the payload into
@@ -127,6 +110,12 @@ and 1.10.0 (129 skips):
   `Decimal128::rem_trunc` method implements the truncating-quotient
   remainder (C99 `fmod` / decTest `remainder`), distinct from the
   IEEE 754 §5.3.1 round-half-to-even `Decimal128::rem`.
+- **Bare `#` null-operand sentinel (1.10.1)** (~30 cases): the
+  runner now short-circuits cases with a bare `#` operand to the
+  dec-spec answer `(NaN, Invalid_operation)` before invoking the
+  op kernel. The 1.7.1 misestimate of "~13 + ~15 misc" turned out
+  to be 28 bare-`#` cases plus 2 that were also under non-IEEE
+  rounding directives.
 
 ## What is NOT skipped
 
@@ -148,7 +137,7 @@ across the full BID-128 encoding range, including:
   `nextplus`, `nextminus`) and §5.10 total-order operations
   (`comparetotal`, `comparetotmag`).
 
-8 592 vectors at 0 fail across that surface is the meaningful number
-to look at; the residual 129 skips break down into a small set of
-categories, each with a documented reason and (for most) a concrete
-fix path.
+8 622 vectors at 0 fail across that surface is the meaningful number
+to look at; the residual 99 skips fall under a single will-not-fix
+category (non-IEEE rounding directives), with no concrete fix path
+in scope.

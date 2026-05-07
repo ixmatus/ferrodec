@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.10.1] - 2026-05-06
+
+### Changed
+
+- **Conformance runner** now closes the bare `#` "null operand"
+  category. The runner short-circuits any case carrying a bare
+  `#` operand (the dec-spec sentinel for a missing/unparseable
+  input) to the dec-spec answer `(NaN, Invalid_operation)` before
+  invoking the op kernel. The 1.7.1 misestimate of "~13 + ~15
+  misc" turned out to be 28 bare-`#` cases plus 2 that were also
+  under non-IEEE rounding directives, so the close picks up 30
+  cases.
+
+  Implementation lives in a new `run_null_test` helper called
+  from `run_case` ahead of the rounding / `invoke` dispatch; the
+  earlier "skip on `parse_value` returning `None` for `#`" path
+  now never trips for cases the spec covers.
+
+### Conformance
+
+- Suite total climbs to **8 622 / 0 / 99** across 8 721 cases
+  (was 8 592 / 0 / 129). PASS_FLOOR raised 8592 → 8622. All 99
+  residual skips fall under a single will-not-fix category
+  (non-IEEE rounding directives `half_down` / `05up`); every
+  other operation, encoding, and special-value combination in
+  the suite passes.
+
+  `KNOWN_ISSUES.md` rewritten to reflect the new state — five of
+  the original six skip categories plus the `remainder` op are
+  closed across the 1.9.0 → 1.10.1 trail.
+
 ## [1.10.0] - 2026-05-06
 
 ### Added

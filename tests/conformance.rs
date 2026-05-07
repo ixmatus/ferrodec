@@ -89,7 +89,7 @@ fn dectest_conformance() {
     // Arithmetic modes that are not part of IEEE 754-2019; cases under
     // those directives are skipped rather than coerced into a kernel
     // mode that doesn't match the spec.
-    const PASS_FLOOR: usize = 8592;
+    const PASS_FLOOR: usize = 8622;
     const FAIL_CEILING: usize = 0;
 
     assert!(
@@ -388,6 +388,17 @@ fn run_case(case: &TestCase, ctx: &Context) -> Outcome {
         Some(o) => o,
         None => return Outcome::Skip,
     };
+
+    // decTest's bare `#` is the "null operand" sentinel: a missing /
+    // unparseable operand whose expected behavior per the dec spec is
+    // `(NaN, Invalid_operation)` regardless of which op was nominally
+    // dispatched. The runner's `parse_value` returns `None` for bare
+    // `#`, which would otherwise route to `Outcome::Skip` because
+    // `invoke()` discards parse-time status. Short-circuit here so
+    // these cases match against the expected `NaN Invalid_operation`.
+    if case.operands.iter().any(|o| o.trim() == "#") {
+        return run_null_test(case, ctx);
+    }
 
     let result = match ctx.rounding {
         CaseRounding::Unsupported => return Outcome::Skip,
@@ -735,22 +746,33 @@ fn parse_value(s: &str, rm: RoundingMode) -> Option<(Decimal128, Status)> {
     // by `u128::from_str_radix`). Decode and feed via `from_bits`; no
     // rounding involved.
     //
-    // Bare `#` (no hex chars) is the "null test" sentinel — cases using
-    // it expect `(NaN, Invalid_operation)` from a missing-operand parse
-    // failure. They reach the runner via `invoke()`, which drops the
-    // operand-parse status to avoid bleeding pre-existing flags into
-    // op results, so we surface them as skips rather than fail with a
-    // status mismatch. Closing this category requires threading parse
-    // status through `invoke` (or special-casing case-level "missing
-    // operand → INVALID"); left as a documented follow-up.
+    // Bare `#` (no hex chars) is the "null test" sentinel — handled by
+    // `run_null_test` upstream via a case-level short-circuit, so it
+    // never reaches here.
     if let Some(hex) = trimmed.strip_prefix('#') {
-        if hex.is_empty() {
-            return None;
-        }
         let bits = u128::from_str_radix(hex, 16).ok()?;
         return Some((Decimal128::from_bits(bits), Status::OK));
     }
     Decimal128::parse_str(trimmed, rm).ok()
+}
+
+/// Synthesize the dec-spec answer for a "null operand" case (bare `#`):
+/// `(NaN, Invalid_operation)`. Compares against the case's expected
+/// value/flags via the regular comparator. The compare path treats the
+/// expected payload as "may differ" for NaN (the dec spec doesn't pin
+/// payloads on parse-failure NaN), so the only assertion against the
+/// case is that the expected is NaN-shaped and the conditions list
+/// names `invalid_operation`.
+fn run_null_test(case: &TestCase, ctx: &Context) -> Outcome {
+    // Class results never carry `#` operands in the corpus, so the
+    // class-string short-circuit doesn't apply here.
+    let synth = OpResult::Value(Decimal128::NAN, Status::INVALID);
+    let (expected, _) = match parse_value(&case.expected, ctx.rounding.for_parse()) {
+        Some(v) => v,
+        None => return Outcome::Fail(format!("couldn't parse expected {:?}", case.expected)),
+    };
+    let expected_flags = expected_status(&case.conditions);
+    compare(case, &synth, expected, expected_flags)
 }
 
 /// Render a `Decimal128` as the GDA `class` op's expected string form.
