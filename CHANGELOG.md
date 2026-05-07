@@ -7,6 +7,88 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-05-06
+
+The "conformance follow-ups" release. Closes four of the six
+documented skip categories from 1.7.1's `KNOWN_ISSUES.md`. No
+breaking changes to the existing public API; two surface
+expansions (NaN-with-payload parse / display) make ferrodec
+agree with IEEE 754:2019 §6.2.3 on diagnostic-payload behavior
+that was previously dropped.
+
+### Added
+
+- **NaN-with-payload literal parse**. `Decimal128::parse_str`
+  accepts `NaN<digits>` and `sNaN<digits>`, optionally with a
+  leading sign. Payloads are decoded as decimal integers and
+  stored in the BID significand's 110-bit `T_MASK` field
+  (effective limit ≈ `10^33`). Larger payloads are rejected with
+  `ParseDecimalError::InvalidCharacter` at the first overflowing
+  digit. Empty payload behaves the same as the bare canonical
+  token. Closes ~398 of the conformance suite's NaN-payload skip
+  cases.
+- **NaN-with-payload `Display`**. The `Display` / `LowerExp` /
+  `UpperExp` impls now render the diagnostic payload as decimal
+  digits when non-zero, e.g. `NaN22`, `-sNaN1234`. Zero payload
+  still emits the canonical token (`NaN`, `sNaN`, etc.) so callers
+  whose Display output previously matched canonical-NaN strings
+  see no change.
+
+### Fixed
+
+- **NaN payload propagation in arithmetic**. Every NaN-producing
+  arithmetic kernel — `add` / `sub` / `mul` / `div` / `rem` /
+  `sqrt` / `fma`, the quantum ops (`quantize`, `scaleb`, `logb`,
+  `next_up`, `next_down`), and the transcendentals (`exp`, `exp2`,
+  `ln`, `log10`, `log2`, `cbrt`, `sin`, `cos`, `tan`, `asin`,
+  `acos`, `atan`, `atan2`, `sinh`, `cosh`, `tanh`, `asinh`,
+  `acosh`, `atanh`, `pow`) — now preserves the operand's NaN
+  payload per IEEE 754:2019 §6.2.3 instead of returning the
+  canonical zero-payload `Decimal128::NAN`. Two- and three-operand
+  ops use the standard "first NaN wins" rule (operand `a` first,
+  then `b`, then `c` for FMA). `sNaN` inputs continue to raise
+  `INVALID` and convert to a quiet NaN with the same payload.
+  Inline `Decimal128::NAN` returns are kept where the result is a
+  *fresh* NaN (no NaN operand): `0/0`, `Inf − Inf`, `sqrt(-x)`,
+  `pow(negative, non-integer)`, `0 × ∞` for FMA, etc.
+
+  Helpers in `src/ops/nan_propagate.rs` (`nan_from`,
+  `propagate_nan2`, `propagate_nan3`); pure addition, no public
+  API change.
+
+### Changed
+
+- **Conformance runner** (`tests/conformance.rs`):
+  - `parse_value` decodes decTest's hex `#XXXX...` operand syntax
+    via `u128::from_str_radix(rest, 16)` + `Decimal128::from_bits`
+    (closes ~28 cases). Bare `#` (no hex chars, the "null test"
+    sentinel) still returns `None` and skips, matching pre-1.9.0
+    behavior; this remains the only `#`-related residual skip
+    category.
+  - `class` op produces a `String` GDA class name
+    (`+Normal`, `-Subnormal`, `+Infinity`, `NaN`, `sNaN`, etc.)
+    via a new `classify_to_gda_name` helper, and `run_case`
+    short-circuits class results before the value comparator
+    (closes 40 cases).
+  - `apply` op routes to identity (ferrodec is fixed at
+    PRECISION=34, so `parse_str` already applies precision when
+    constructing the operand). Closes 4 cases.
+  - `decTest`'s `remainder` (truncating-quotient remainder)
+    intentionally not routed: it's a different operation from
+    `Decimal128::rem` (round-half-to-even quotient, IEEE 754
+    §5.3.1), so the naive routing produced a real conformance
+    failure on `dqrmn1070` and was reverted. The single
+    `remainder` case stays in the skip bucket; documented as a
+    follow-up in `KNOWN_ISSUES.md`.
+
+### Conformance
+
+- Suite total climbs from 8 149 / 0 / 572 (1.7.1) to
+  8 591 / 0 / 130 across 8 721 cases. PASS_FLOOR raised to 8 591
+  in two steps (8 149 → 8 193 from the runner-side closures,
+  8 193 → 8 591 from the NaN-payload work). `KNOWN_ISSUES.md`
+  rewritten around the new state.
+
 ## [1.8.1] - 2026-05-06
 
 ### Fixed
