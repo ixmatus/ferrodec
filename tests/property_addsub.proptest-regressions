@@ -1,0 +1,10 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 7d82e36335f893d56279a47b7cf13be0e7086d65570fab3b8d055ff07da816f8 # shrinks to a = Decimal128(0x21FEB14DC6448D9338C15B0A00000001 = Finite { sign: false, biased_exp: 6138, coefficient: 1000000000000000000000000000000001 }), b = Decimal128(0x21FE8000000000000000000000000001 = Finite { sign: false, biased_exp: 6138, coefficient: 1 }), rm_idx = 2
+cc 70f67552aa682e9f376164ffb82fa6dc1f44fe33fc03c9ccc5840e08d02eba3e # shrinks to a = Decimal128(0xA1FF0000000000000000000000000001 = Finite { sign: true, biased_exp: 6140, coefficient: 1 }), b = Decimal128(0x21EF0000000000000000000000000001 = Finite { sign: false, biased_exp: 6076, coefficient: 1 }), rm_idx = 4
+cc ed530a5fc56c55f51921f98f2a9ae4e92a36349b13c3b4a23a4809e5156d5b06 # shrinks to a = Decimal128(0x2204B755DB282D707B8718EEF21D048B = Finite { sign: false, biased_exp: 6162, coefficient: 1122334747803319429343760340550795 }), b = Decimal128(0x22084000000000007B33CD82D003037B = Finite { sign: false, biased_exp: 6177, coefficient: 8877665252196680571 })
+cc 7ffc03180d17730470a1921c9d12a9bb307daf2d68a5823f7dcdaac3bfad7d23 # shrinks to a = Decimal128(0x220C000000000000000000003B9ACA01 = Finite { sign: false, biased_exp: 6192, coefficient: 1000000001 }), b = Decimal128(0x2205C000000000000000000000000091 = Finite { sign: false, biased_exp: 6167, coefficient: 145 })

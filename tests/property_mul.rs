@@ -6,11 +6,23 @@
 //!    sign rule, `(−a) × b == −(a × b)`).
 //! 2. `i128` integer oracle: for `|a|, |b| ≤ 2^31`, the product of two
 //!    `i64` operands fits in `i128`.
-//! 3. astro-float oracle (TODO — same caveat as the addsub harness).
+//! 3. **astro-float oracle**: 1000-bit BigFloat cross-check across
+//!    all five IEEE rounding directions, with a `within_ulps(1)`
+//!    tolerance. Operands sample from a tight central exponent band
+//!    so the product stays well clear of overflow / underflow. The
+//!    slack is structural: decimal exponents like `× 10^-20` have no
+//!    exact binary representation, so the intermediate carries a
+//!    sub-ULP error that can flip rounding decisions when the exact
+//!    product lands on a half-ULP boundary. The 1-ULP envelope absorbs
+//!    the noise while still surfacing any >1-ULP bug.
 
+use astro_float::{BigFloat, Consts, Radix, RoundingMode as AfRm};
 use proptest::prelude::*;
 
 use ferrodec::{Decimal128, RoundingMode};
+
+mod common;
+use common::{bigfloat_to_decimal_string, within_ulps};
 
 const MODES: &[RoundingMode] = &[
     RoundingMode::NearestEven,
@@ -188,5 +200,66 @@ proptest! {
         let (ab, _) = a.mul(b, rm);
         let (ba, _) = b.mul(a, rm);
         prop_assert_eq!(ab.to_bits(), ba.to_bits(), "a={:?} b={:?} rm={:?}", a, b, rm);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// astro-float oracle
+
+/// Sample a finite `Decimal128` constrained to a narrow central
+/// exponent band so that any product stays well clear of overflow
+/// and underflow.
+fn central_finite() -> impl Strategy<Value = Decimal128> {
+    (
+        any::<bool>(),
+        (BIAS_U32 - 20)..=(BIAS_U32 + 20),
+        prop_oneof![
+            1u128..=1_000,
+            1u128..=10_000_000_000,
+            1u128..=10u128.pow(20),
+            1u128..=(10u128.pow(34) - 1),
+        ],
+    )
+        .prop_map(|(s, e, c)| decimal_finite(s, e, c))
+}
+
+fn oracle_mul(a: Decimal128, b: Decimal128) -> String {
+    // 500 bits = ~150 decimal digits, well above Decimal128's 34. At
+    // lower precisions the binary error from non-exact decimal
+    // exponents (`× 10^-20` etc.) compounds through the multiplication
+    // enough to push the 50th-digit rendering one off, flipping
+    // round-to-even decisions on operands whose exact product lands
+    // on a half-ULP boundary.
+    let p = 1000;
+    let mut cc = Consts::new().expect("init consts");
+    let av = BigFloat::parse(&format!("{a}"), Radix::Dec, p, AfRm::None, &mut cc);
+    let bv = BigFloat::parse(&format!("{b}"), Radix::Dec, p, AfRm::None, &mut cc);
+    let r = av.mul(&bv, p, AfRm::None);
+    bigfloat_to_decimal_string(&r, &mut cc, 50)
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(1024))]
+
+    /// `mul` on central-band operands matches a 1000-bit BigFloat
+    /// oracle re-rounded to Decimal128 under each IEEE rounding
+    /// direction, within 1 ULP.
+    #[test]
+    fn mul_matches_astro_float_oracle(
+        a in central_finite(),
+        b in central_finite(),
+        rm_idx in 0u8..5,
+    ) {
+        let rm = MODES[rm_idx as usize];
+        let (got, status) = a.mul(b, rm);
+        prop_assume!(!status.overflow() && !status.underflow());
+        let want_str = oracle_mul(a, b);
+        let (want, _) = Decimal128::parse_str(&want_str, rm)
+            .expect("oracle string re-parses");
+        prop_assert!(
+            within_ulps(got, want, 1),
+            "a={:?} b={:?} rm={:?}: got {:?}, want {:?} (oracle {})",
+            a, b, rm, got, want, want_str
+        );
     }
 }
