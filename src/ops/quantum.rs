@@ -514,18 +514,11 @@ mod tests {
     use super::*;
     use crate::status::RoundingMode;
 
+    #[cfg(feature = "fmt")]
     fn parse(s: &str) -> Decimal128 {
-        #[cfg(feature = "fmt")]
-        {
-            Decimal128::parse_str(s, RoundingMode::NearestEven)
-                .unwrap()
-                .0
-        }
-        #[cfg(not(feature = "fmt"))]
-        {
-            let _ = s;
-            panic!("parse requires feature fmt");
-        }
+        Decimal128::parse_str(s, RoundingMode::NearestEven)
+            .unwrap()
+            .0
     }
 
     fn num_eq(a: Decimal128, b: Decimal128) -> bool {

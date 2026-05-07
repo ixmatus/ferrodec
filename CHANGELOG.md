@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.9.1] - 2026-05-06
+
+### Fixed
+
+- **`benches/core_ops.rs`** uses `Decimal128::parse_str` for its
+  setup, but its `[[bench]]` entry in `Cargo.toml` lacked
+  `required-features = ["fmt"]`. Under
+  `cargo clippy --no-default-features --all-targets` the bench
+  failed to compile because `parse_str` lives behind the `fmt`
+  feature. Added the required-features pin; matches the
+  declarative shape of `transcendentals` and `conversions`. CI
+  doesn't currently run that exact clippy invocation, so the gap
+  was only surfaced by ad-hoc local checks.
+- **`src/ops/quantum.rs::tests::parse`** helper had a
+  compile-time dispatch (`#[cfg(feature = "fmt")]` blocks inside
+  the function body) that produced a "function never used"
+  warning under `--no-default-features --all-targets`, since the
+  tests calling `parse` were themselves cfg-gated to fmt. Replaced
+  with a single `#[cfg(feature = "fmt")]` attribute on the helper
+  itself; cleaner shape, no dead-code warning.
+- **`tests/conformance.rs::parse_value`** documents the bare `#`
+  null-test sentinel. A speculative routing attempt that mapped
+  empty `#` to `(NaN, INVALID)` produced 28 status-mismatch
+  failures because the runner's `invoke()` drops parse-time
+  status to avoid bleeding flags into op results. Reverted; the
+  null-test category stays in the skip bucket with an inline note
+  pointing at the architectural follow-up that would close it
+  (status threading through `invoke`). Conformance numbers
+  unchanged from 1.9.0.
+
 ## [1.9.0] - 2026-05-06
 
 The "conformance follow-ups" release. Closes four of the six

@@ -1,6 +1,6 @@
 [package]
 name = "ferrodec"
-version = "1.9.0"
+version = "1.9.1"
 edition = "2021"
 rust-version = "1.84"
 license = "MIT OR Apache-2.0"
@@ -133,6 +133,7 @@ required-features = ["transcendentals"]
 [[bench]]
 name = "core_ops"
 harness = false
+required-features = ["fmt"]
 
 [[bench]]
 name = "transcendentals"
