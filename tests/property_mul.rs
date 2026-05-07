@@ -16,12 +16,15 @@
 //!    product lands on a half-ULP boundary. The 1-ULP envelope absorbs
 //!    the noise while still surfacing any >1-ULP bug.
 
+#[cfg(feature = "fmt")]
 use astro_float::{BigFloat, Consts, Radix, RoundingMode as AfRm};
 use proptest::prelude::*;
 
 use ferrodec::{Decimal128, RoundingMode};
 
+#[cfg(feature = "fmt")]
 mod common;
+#[cfg(feature = "fmt")]
 use common::{bigfloat_to_decimal_string, within_ulps};
 
 const MODES: &[RoundingMode] = &[
@@ -204,11 +207,13 @@ proptest! {
 }
 
 // ---------------------------------------------------------------------------
-// astro-float oracle
+// astro-float oracle (requires the `fmt` feature for `Display` +
+// `parse_str`; the rest of this file's tests do not depend on `fmt`)
 
 /// Sample a finite `Decimal128` constrained to a narrow central
 /// exponent band so that any product stays well clear of overflow
 /// and underflow.
+#[cfg(feature = "fmt")]
 fn central_finite() -> impl Strategy<Value = Decimal128> {
     (
         any::<bool>(),
@@ -223,8 +228,9 @@ fn central_finite() -> impl Strategy<Value = Decimal128> {
         .prop_map(|(s, e, c)| decimal_finite(s, e, c))
 }
 
+#[cfg(feature = "fmt")]
 fn oracle_mul(a: Decimal128, b: Decimal128) -> String {
-    // 500 bits = ~150 decimal digits, well above Decimal128's 34. At
+    // 1000 bits = ~300 decimal digits, well above Decimal128's 34. At
     // lower precisions the binary error from non-exact decimal
     // exponents (`× 10^-20` etc.) compounds through the multiplication
     // enough to push the 50th-digit rendering one off, flipping
@@ -238,6 +244,7 @@ fn oracle_mul(a: Decimal128, b: Decimal128) -> String {
     bigfloat_to_decimal_string(&r, &mut cc, 50)
 }
 
+#[cfg(feature = "fmt")]
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(1024))]
 

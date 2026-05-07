@@ -19,12 +19,15 @@
 //!    catching value — anything ferrodec gets >1 ULP wrong still
 //!    surfaces.
 
+#[cfg(feature = "fmt")]
 use astro_float::{BigFloat, Consts, Radix, RoundingMode as AfRm};
 use proptest::prelude::*;
 
 use ferrodec::{Decimal128, RoundingMode};
 
+#[cfg(feature = "fmt")]
 mod common;
+#[cfg(feature = "fmt")]
 use common::{bigfloat_to_decimal_string, within_ulps};
 
 const MODES: &[RoundingMode] = &[
@@ -279,13 +282,15 @@ fn decimal_from_i128(n: i128) -> Decimal128 {
 }
 
 // ---------------------------------------------------------------------------
-// astro-float oracle
+// astro-float oracle (requires the `fmt` feature for `Display` +
+// `parse_str`; the rest of this file's tests do not depend on `fmt`)
 
 /// Sample a finite `Decimal128` from the central exponent band
 /// (`BIAS ± 100`). The astro-float oracle compares numeric values, so
 /// operands stay well clear of overflow / underflow noise; the
 /// boundary cases are covered by the wide-domain identities earlier
 /// in this file.
+#[cfg(feature = "fmt")]
 fn central_finite() -> impl Strategy<Value = Decimal128> {
     (
         any::<bool>(),
@@ -305,6 +310,7 @@ fn central_finite() -> impl Strategy<Value = Decimal128> {
 /// `Decimal128::parse_str` under round-half-to-even so the final
 /// rounding decision is ferrodec's own — astro-float just provides
 /// the high-precision intermediate.
+#[cfg(feature = "fmt")]
 fn oracle_op(
     a: Decimal128,
     b: Decimal128,
@@ -318,6 +324,7 @@ fn oracle_op(
     bigfloat_to_decimal_string(&r, &mut cc, 50)
 }
 
+#[cfg(feature = "fmt")]
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(1024))]
 
