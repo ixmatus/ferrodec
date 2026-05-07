@@ -31,3 +31,31 @@ path = "fuzz_targets/arith.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "transcendentals"
+path = "fuzz_targets/transcendentals.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "integral"
+path = "fuzz_targets/integral.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "total_cmp"
+path = "fuzz_targets/total_cmp.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "encode"
+path = "fuzz_targets/encode.rs"
+test = false
+doc = false
+bench = false
