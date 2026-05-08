@@ -89,7 +89,18 @@ fn dectest_conformance() {
     // Arithmetic modes that are not part of IEEE 754-2019; cases under
     // those directives are skipped rather than coerced into a kernel
     // mode that doesn't match the spec.
+    // The DPD interchange vectors (dqEncode, dqCanonical) only run
+    // when the `dpd` Cargo feature is enabled. With the feature off,
+    // both files are skipped at the file gate and the original
+    // 8 622-pass baseline holds. With the feature on, dqEncode adds
+    // 368 passes (full coverage) and dqCanonical adds 90 (the
+    // remaining 154 cases use copy / invert / and / or / xor /
+    // rotate / shift / nexttoward / comparesig — same skip class as
+    // elsewhere in the suite, governed by `dispatch_op`).
+    #[cfg(not(feature = "dpd"))]
     const PASS_FLOOR: usize = 8622;
+    #[cfg(feature = "dpd")]
+    const PASS_FLOOR: usize = 9080;
     const FAIL_CEILING: usize = 0;
 
     assert!(
@@ -138,9 +149,42 @@ struct Failure {
     reason: String,
 }
 
+/// Whether a `.decTest` file's `#hex` operands and expecteds are
+/// IEEE 754 DPD-encoded byte patterns (decoded via
+/// `Decimal128::from_dpd_bytes`) rather than the runner's default
+/// BID-encoded raw bits (`Decimal128::from_bits`).
+///
+/// Determined by file name: only `dqEncode.decTest` and
+/// `dqCanonical.decTest` ship DPD vectors. Everything else uses
+/// either decimal-string operands (the common case) or BID `#hex`.
+fn is_dpd_encoded(path: &Path) -> bool {
+    matches!(
+        path.file_name().and_then(|s| s.to_str()),
+        Some("dqEncode.decTest" | "dqCanonical.decTest"),
+    )
+}
+
 fn run_file(path: &Path, failures: &mut Vec<Failure>) -> FileResult {
+    // The DPD vector files require `Decimal128::from_dpd_bytes` /
+    // `to_dpd_bytes`, which only exist behind the `dpd` cargo
+    // feature. Without the feature, count the file as zero / zero /
+    // zero so the existing 8 622-pass baseline holds.
+    if is_dpd_encoded(path) && !cfg!(feature = "dpd") {
+        return FileResult {
+            passed: 0,
+            failed: 0,
+            skipped: 0,
+        };
+    }
     let content = fs::read_to_string(path).expect("read file");
-    let mut ctx = Context::default();
+    let mut ctx = Context {
+        encoding: if is_dpd_encoded(path) {
+            Encoding::Dpd
+        } else {
+            Encoding::Bid
+        },
+        ..Context::default()
+    };
     let mut passed = 0;
     let mut failed = 0;
     let mut skipped = 0;
@@ -277,6 +321,20 @@ struct Context {
     max_exponent: i32,
     min_exponent: i32,
     rounding: CaseRounding,
+    encoding: Encoding,
+}
+
+/// Interpretation of `#hex` operand and expected literals in this
+/// file. See [`is_dpd_encoded`].
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Encoding {
+    /// `#hex` decodes via `Decimal128::from_bits` (raw BID bit
+    /// pattern, zero-extended for short inputs). Default.
+    Bid,
+    /// `#hex` is exactly 32 hex chars and decodes via
+    /// `Decimal128::from_dpd_bytes` (IEEE 754-2019 DPD layout,
+    /// big-endian).
+    Dpd,
 }
 
 /// Rounding directive a decTest block may select.
@@ -322,6 +380,7 @@ impl Default for Context {
             max_exponent: 6144,
             min_exponent: -6143,
             rounding: CaseRounding::Ieee(RoundingMode::NearestEven),
+            encoding: Encoding::Bid,
         }
     }
 }
@@ -402,11 +461,11 @@ fn run_case(case: &TestCase, ctx: &Context) -> Outcome {
 
     let result = match ctx.rounding {
         CaseRounding::Unsupported => return Outcome::Skip,
-        CaseRounding::Ieee(rm) => match invoke(op_kind, &case.operands, rm) {
+        CaseRounding::Ieee(rm) => match invoke(op_kind, &case.operands, rm, ctx.encoding) {
             Some(r) => r,
             None => return Outcome::Skip,
         },
-        CaseRounding::Up => match invoke_up(op_kind, &case.operands) {
+        CaseRounding::Up => match invoke_up(op_kind, &case.operands, ctx.encoding) {
             Some(r) => r,
             None => return Outcome::Skip,
         },
@@ -430,7 +489,7 @@ fn run_case(case: &TestCase, ctx: &Context) -> Outcome {
     // Parse the expected result. Expected literals in decTest are exact
     // strings, so any rounding mode parses the same; we use the IEEE
     // mode where one applies and NearestEven otherwise.
-    let (expected, _) = match parse_value(&case.expected, ctx.rounding.for_parse()) {
+    let (expected, _) = match parse_value(&case.expected, ctx.rounding.for_parse(), ctx.encoding) {
         Some(v) => v,
         None => return Outcome::Fail(format!("couldn't parse expected {:?}", case.expected)),
     };
@@ -509,72 +568,72 @@ fn dispatch_op(name: &str) -> Option<OpKind> {
     })
 }
 
-fn invoke(op: OpKind, operands: &[String], rm: RoundingMode) -> Option<OpResult> {
+fn invoke(op: OpKind, operands: &[String], rm: RoundingMode, enc: Encoding) -> Option<OpResult> {
     match op {
         OpKind::Add => {
             if operands.len() != 2 {
                 return None;
             }
-            let a = parse_value(&operands[0], rm)?.0;
-            let b = parse_value(&operands[1], rm)?.0;
+            let a = parse_value(&operands[0], rm, enc)?.0;
+            let b = parse_value(&operands[1], rm, enc)?.0;
             let (v, s) = a.add(b, rm);
             Some(OpResult::Value(v, s))
         }
         OpKind::Subtract => {
-            let a = parse_value(&operands[0], rm)?.0;
-            let b = parse_value(&operands[1], rm)?.0;
+            let a = parse_value(&operands[0], rm, enc)?.0;
+            let b = parse_value(&operands[1], rm, enc)?.0;
             let (v, s) = a.sub(b, rm);
             Some(OpResult::Value(v, s))
         }
         OpKind::Multiply => {
-            let a = parse_value(&operands[0], rm)?.0;
-            let b = parse_value(&operands[1], rm)?.0;
+            let a = parse_value(&operands[0], rm, enc)?.0;
+            let b = parse_value(&operands[1], rm, enc)?.0;
             let (v, s) = a.mul(b, rm);
             Some(OpResult::Value(v, s))
         }
         OpKind::Divide => {
-            let a = parse_value(&operands[0], rm)?.0;
-            let b = parse_value(&operands[1], rm)?.0;
+            let a = parse_value(&operands[0], rm, enc)?.0;
+            let b = parse_value(&operands[1], rm, enc)?.0;
             let (v, s) = a.div(b, rm);
             Some(OpResult::Value(v, s))
         }
         OpKind::Fma => {
-            let a = parse_value(&operands[0], rm)?.0;
-            let b = parse_value(&operands[1], rm)?.0;
-            let c = parse_value(&operands[2], rm)?.0;
+            let a = parse_value(&operands[0], rm, enc)?.0;
+            let b = parse_value(&operands[1], rm, enc)?.0;
+            let c = parse_value(&operands[2], rm, enc)?.0;
             let (v, s) = a.fma(b, c, rm);
             Some(OpResult::Value(v, s))
         }
         OpKind::SquareRoot => {
-            let a = parse_value(&operands[0], rm)?.0;
+            let a = parse_value(&operands[0], rm, enc)?.0;
             let (v, s) = a.sqrt(rm);
             Some(OpResult::Value(v, s))
         }
         OpKind::RemainderNear => {
-            let a = parse_value(&operands[0], rm)?.0;
-            let b = parse_value(&operands[1], rm)?.0;
+            let a = parse_value(&operands[0], rm, enc)?.0;
+            let b = parse_value(&operands[1], rm, enc)?.0;
             let (v, s) = a.rem(b);
             Some(OpResult::Value(v, s))
         }
         OpKind::Remainder => {
-            let a = parse_value(&operands[0], rm)?.0;
-            let b = parse_value(&operands[1], rm)?.0;
+            let a = parse_value(&operands[0], rm, enc)?.0;
+            let b = parse_value(&operands[1], rm, enc)?.0;
             let (v, s) = a.rem_trunc(b);
             Some(OpResult::Value(v, s))
         }
         OpKind::Abs => {
-            let a = parse_value(&operands[0], rm)?.0;
+            let a = parse_value(&operands[0], rm, enc)?.0;
             // IEEE 754 §5.5.1: abs raises INVALID on signaling NaN.
             let (v, s) = a.abs_with_status();
             Some(OpResult::Value(v, s))
         }
         OpKind::Minus => {
-            let a = parse_value(&operands[0], rm)?.0;
+            let a = parse_value(&operands[0], rm, enc)?.0;
             let (v, s) = a.neg_with_status();
             Some(OpResult::Value(v, s))
         }
         OpKind::Plus => {
-            let a = parse_value(&operands[0], rm)?.0;
+            let a = parse_value(&operands[0], rm, enc)?.0;
             // `plus(x) = add(0, x)` — identity-with-rounding. We don't yet
             // re-quantize.
             Some(OpResult::Value(a, Status::OK))
@@ -584,12 +643,12 @@ fn invoke(op: OpKind, operands: &[String], rm: RoundingMode) -> Option<OpResult>
             // current precision/rounding context. parse_value already
             // routes through `parse_str` under `rm` and rounds to
             // PRECISION=34, so the parsed value is the result.
-            let (a, s) = parse_value(&operands[0], rm)?;
+            let (a, s) = parse_value(&operands[0], rm, enc)?;
             Some(OpResult::Value(a, s))
         }
         OpKind::Compare => {
-            let a = parse_value(&operands[0], rm)?.0;
-            let b = parse_value(&operands[1], rm)?.0;
+            let a = parse_value(&operands[0], rm, enc)?.0;
+            let b = parse_value(&operands[1], rm, enc)?.0;
             let (ord, s) = a.partial_cmp(b);
             let v = match ord {
                 None => Decimal128::NAN,
@@ -600,8 +659,8 @@ fn invoke(op: OpKind, operands: &[String], rm: RoundingMode) -> Option<OpResult>
             Some(OpResult::Value(v, s))
         }
         OpKind::CompareTotal => {
-            let a = parse_value(&operands[0], rm)?.0;
-            let b = parse_value(&operands[1], rm)?.0;
+            let a = parse_value(&operands[0], rm, enc)?.0;
+            let b = parse_value(&operands[1], rm, enc)?.0;
             let v = match a.total_cmp(b) {
                 core::cmp::Ordering::Less => Decimal128::NEG_ONE,
                 core::cmp::Ordering::Equal => Decimal128::ZERO,
@@ -610,30 +669,30 @@ fn invoke(op: OpKind, operands: &[String], rm: RoundingMode) -> Option<OpResult>
             Some(OpResult::Value(v, Status::OK))
         }
         OpKind::Min => {
-            let a = parse_value(&operands[0], rm)?.0;
-            let b = parse_value(&operands[1], rm)?.0;
+            let a = parse_value(&operands[0], rm, enc)?.0;
+            let b = parse_value(&operands[1], rm, enc)?.0;
             let (v, s) = a.min(b);
             Some(OpResult::Value(v, s))
         }
         OpKind::Max => {
-            let a = parse_value(&operands[0], rm)?.0;
-            let b = parse_value(&operands[1], rm)?.0;
+            let a = parse_value(&operands[0], rm, enc)?.0;
+            let b = parse_value(&operands[1], rm, enc)?.0;
             let (v, s) = a.max(b);
             Some(OpResult::Value(v, s))
         }
         OpKind::Class => {
-            let a = parse_value(&operands[0], rm)?.0;
+            let a = parse_value(&operands[0], rm, enc)?.0;
             Some(OpResult::Class(classify_to_gda_name(a)))
         }
         OpKind::Quantize => {
-            let a = parse_value(&operands[0], rm)?.0;
-            let b = parse_value(&operands[1], rm)?.0;
+            let a = parse_value(&operands[0], rm, enc)?.0;
+            let b = parse_value(&operands[1], rm, enc)?.0;
             let (v, s) = a.quantize(b, rm);
             Some(OpResult::Value(v, s))
         }
         OpKind::SameQuantum => {
-            let a = parse_value(&operands[0], rm)?.0;
-            let b = parse_value(&operands[1], rm)?.0;
+            let a = parse_value(&operands[0], rm, enc)?.0;
+            let b = parse_value(&operands[1], rm, enc)?.0;
             let same = a.same_quantum(b);
             // decTest represents the boolean result as "1" or "0".
             let v = if same {
@@ -644,8 +703,8 @@ fn invoke(op: OpKind, operands: &[String], rm: RoundingMode) -> Option<OpResult>
             Some(OpResult::Value(v, Status::OK))
         }
         OpKind::ScaleB => {
-            let a = parse_value(&operands[0], rm)?.0;
-            let n_dec = parse_value(&operands[1], rm)?.0;
+            let a = parse_value(&operands[0], rm, enc)?.0;
+            let n_dec = parse_value(&operands[1], rm, enc)?.0;
             // Validate the second operand per GDA §5.3:
             //  • sNaN in either operand    → quiet NaN + INVALID
             //  • qNaN in either operand    → propagate
@@ -677,23 +736,23 @@ fn invoke(op: OpKind, operands: &[String], rm: RoundingMode) -> Option<OpResult>
             Some(OpResult::Value(v, s))
         }
         OpKind::LogB => {
-            let a = parse_value(&operands[0], rm)?.0;
+            let a = parse_value(&operands[0], rm, enc)?.0;
             let (v, s) = a.logb();
             Some(OpResult::Value(v, s))
         }
         OpKind::NextPlus => {
-            let a = parse_value(&operands[0], rm)?.0;
+            let a = parse_value(&operands[0], rm, enc)?.0;
             let (v, s) = a.next_up();
             Some(OpResult::Value(v, s))
         }
         OpKind::NextMinus => {
-            let a = parse_value(&operands[0], rm)?.0;
+            let a = parse_value(&operands[0], rm, enc)?.0;
             let (v, s) = a.next_down();
             Some(OpResult::Value(v, s))
         }
         OpKind::CompareTotalMag => {
-            let a = parse_value(&operands[0], rm)?.0;
-            let b = parse_value(&operands[1], rm)?.0;
+            let a = parse_value(&operands[0], rm, enc)?.0;
+            let b = parse_value(&operands[1], rm, enc)?.0;
             let v = match a.compare_total_magnitude(b) {
                 core::cmp::Ordering::Less => Decimal128::NEG_ONE,
                 core::cmp::Ordering::Equal => Decimal128::ZERO,
@@ -722,8 +781,8 @@ enum OpResult {
 /// returns `+0` for cancellation results (only `TowardNegative` gives
 /// `-0`), so the sign check correctly steers zero-result cases to
 /// `TowardPositive`, matching `up`'s convention.
-fn invoke_up(op: OpKind, operands: &[String]) -> Option<OpResult> {
-    let probe = invoke(op, operands, RoundingMode::TowardZero)?;
+fn invoke_up(op: OpKind, operands: &[String], enc: Encoding) -> Option<OpResult> {
+    let probe = invoke(op, operands, RoundingMode::TowardZero, enc)?;
     let (val, status) = match probe {
         OpResult::Value(v, s) => (v, s),
         OpResult::Class(_) => return Some(probe),
@@ -736,24 +795,54 @@ fn invoke_up(op: OpKind, operands: &[String]) -> Option<OpResult> {
     } else {
         RoundingMode::TowardPositive
     };
-    invoke(op, operands, mode)
+    invoke(op, operands, mode, enc)
 }
 
-fn parse_value(s: &str, rm: RoundingMode) -> Option<(Decimal128, Status)> {
+fn parse_value(s: &str, rm: RoundingMode, enc: Encoding) -> Option<(Decimal128, Status)> {
     let trimmed = s.trim();
-    // decTest's `#` syntax encodes the operand as a raw 128-bit BID
-    // hex literal (up to 32 hex chars; shorter inputs are zero-extended
-    // by `u128::from_str_radix`). Decode and feed via `from_bits`; no
-    // rounding involved.
+    // decTest's `#` syntax encodes the operand as a raw 128-bit hex
+    // literal. Default interpretation is BID (the runner's existing
+    // contract; up to 32 hex chars, shorter inputs zero-extended by
+    // `u128::from_str_radix`). Files vendored as DPD interchange
+    // tests (dqEncode, dqCanonical) decode via
+    // `Decimal128::from_dpd_bytes`, which requires exactly 32 hex
+    // chars in big-endian order.
     //
     // Bare `#` (no hex chars) is the "null test" sentinel — handled by
     // `run_null_test` upstream via a case-level short-circuit, so it
     // never reaches here.
     if let Some(hex) = trimmed.strip_prefix('#') {
-        let bits = u128::from_str_radix(hex, 16).ok()?;
-        return Some((Decimal128::from_bits(bits), Status::OK));
+        return match enc {
+            Encoding::Bid => {
+                let bits = u128::from_str_radix(hex, 16).ok()?;
+                Some((Decimal128::from_bits(bits), Status::OK))
+            }
+            Encoding::Dpd => parse_dpd_hex(hex),
+        };
     }
     Decimal128::parse_str(trimmed, rm).ok()
+}
+
+#[cfg(feature = "dpd")]
+fn parse_dpd_hex(hex: &str) -> Option<(Decimal128, Status)> {
+    if hex.len() != 32 {
+        return None;
+    }
+    let mut bytes = [0u8; 16];
+    for (i, byte) in bytes.iter_mut().enumerate() {
+        let chunk = hex.get(2 * i..2 * i + 2)?;
+        *byte = u8::from_str_radix(chunk, 16).ok()?;
+    }
+    Some((Decimal128::from_dpd_bytes(bytes), Status::OK))
+}
+
+#[cfg(not(feature = "dpd"))]
+fn parse_dpd_hex(_hex: &str) -> Option<(Decimal128, Status)> {
+    // Without the `dpd` feature, files containing DPD `#hex` operands
+    // are skipped at the per-file gate in `run_file`, so this branch
+    // is unreachable. The function exists only to keep `parse_value`'s
+    // match exhaustive across feature flags.
+    None
 }
 
 /// Synthesize the dec-spec answer for a "null operand" case (bare `#`):
@@ -767,7 +856,7 @@ fn run_null_test(case: &TestCase, ctx: &Context) -> Outcome {
     // Class results never carry `#` operands in the corpus, so the
     // class-string short-circuit doesn't apply here.
     let synth = OpResult::Value(Decimal128::NAN, Status::INVALID);
-    let (expected, _) = match parse_value(&case.expected, ctx.rounding.for_parse()) {
+    let (expected, _) = match parse_value(&case.expected, ctx.rounding.for_parse(), ctx.encoding) {
         Some(v) => v,
         None => return Outcome::Fail(format!("couldn't parse expected {:?}", case.expected)),
     };

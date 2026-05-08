@@ -18,3 +18,12 @@ The local copies are unmodified; the conformance runner in
 `tests/conformance.rs` parses them at test time. New vectors should be
 added by re-fetching the upstream archive and copying the relevant
 `dq*.decTest` files here.
+
+## DPD-encoding vectors
+
+`dqEncode.decTest` and `dqCanonical.decTest` test the IEEE 754-2019
+DPD bit pattern (`#hex32` operands and expecteds). They only run when
+the `dpd` Cargo feature is enabled, since they require
+`Decimal128::to_dpd_bytes` / `from_dpd_bytes`. Without the feature
+the runner skips both files and the existing 8 622-pass / 0-fail /
+99-skip baseline is preserved.
