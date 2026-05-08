@@ -33,3 +33,4 @@ The ADRs in number order:
 - [0005 — Will-not-fix `half_down` / `05up` rounding directives](0005-half-down-05up-wontfix.md)
 - [0006 — Defer wholesale perf optimization until profile data exists](0006-defer-perf-pass.md) *(superseded by 0007)*
 - [0007 — Performance baseline (1.10.1 + bench expansion)](0007-perf-baseline.md)
+- [0008 — Performance pass results (1.11.0)](0008-perf-results.md)

@@ -158,15 +158,18 @@ ferrodec leans on four overlapping verification stacks.
 
 ## Performance
 
-A tight feedback loop matters more than chasing microseconds, but the criterion benches in `benches/` exist so regressions surface quickly. Representative numbers from a 2024 era macOS host (`cargo bench --bench core_ops`):
+A tight feedback loop matters more than chasing microseconds, but the criterion benches in `benches/` exist so regressions surface quickly. Representative numbers from `cargo bench --bench core_ops` on a 2025-era Apple Silicon host (rustc 1.95.0 stable, release profile with thin LTO and one codegen unit):
 
-* `add`: 28 µs across a 6×6 input matrix (about 800 ns per call).
-* `mul`: 45 µs (1.3 µs per call).
-* `div`: 54 µs (1.5 µs per call).
-* `sqrt`: 22 µs over five inputs (4.4 µs per call).
-* `fma`: 500 µs across a 6×6×6 input matrix (2.3 µs per call).
+* `add`: 5.8 µs across a 6-call inner loop (about 970 ns per call).
+* `sub`: 31 µs across a 6×6 matrix (850 ns per call).
+* `mul`: 31 µs (870 ns per call).
+* `div`: 45 µs (1.25 µs per call).
+* `sqrt`: 20 µs over five inputs (4.1 µs per call).
+* `fma`: 415 µs across a 6×6×6 matrix (1.9 µs per call).
 
-Run `cargo bench --features=transcendentals --bench transcendentals` for the math kernels and `cargo bench --features=fmt --bench conversions` for parse and format throughput.
+The `1.11.0` perf pass moved the headline operations 23 % to 27 % faster than `1.10.1` — see [`docs/decisions/0008-perf-results.md`](docs/decisions/0008-perf-results.md) for the per-bench delta and the full ADR-recorded methodology.
+
+Run `cargo bench --features=transcendentals --bench transcendentals` for the math kernels, `cargo bench --features=fmt --bench conversions` for parse and format throughput, and `cargo bench --features=fmt --bench comparison` for `partial_cmp` / `total_cmp` shapes.
 
 ## Why no `core::ops` (and how to opt in)
 

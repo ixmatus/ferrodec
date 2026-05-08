@@ -7,6 +7,71 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.11.0] - 2026-05-07
+
+### Performance
+
+- **Perf pass on the arithmetic kernels** delivers ~17 % aggregate
+  speedup across the `core_ops` bench suite, with the headline
+  operations seeing 23–27 % wall-time reductions vs 1.10.1.
+  Methodology and per-candidate notes live in
+  [`docs/decisions/0008-perf-results.md`](docs/decisions/0008-perf-results.md);
+  the pre-pass baseline (commit `18bd5f7`) lives in
+  [`docs/decisions/0007-perf-baseline.md`](docs/decisions/0007-perf-baseline.md).
+
+  Per-bench cumulative delta vs the 1.10.1 baseline (Apple Silicon,
+  rustc 1.95.0, release profile):
+
+  | Bench                  | Before    | After    | Δ          |
+  |------------------------|----------:|---------:|-----------:|
+  | `add`                  |  7.98 µs  |  5.79 µs |  −27.5 %   |
+  | `sub`                  | 39.92 µs  | 30.53 µs |  −23.5 %   |
+  | `mul`                  | 42.45 µs  | 31.36 µs |  −26.1 %   |
+  | `div`                  | 50.69 µs  | 44.78 µs |  −11.7 %   |
+  | `fma`                  |   488 µs  |  415 µs  |  −14.9 %   |
+  | `sub_alignment_heavy`  |  7.98 µs  |  5.80 µs |  −27.3 %   |
+  | `mul_full_precision`   |  6.60 µs  |  5.23 µs |  −20.8 %   |
+  | `parse_str`            |  3.68 µs  |  2.91 µs |  −20.9 %   |
+  | `from_i128`            |  2.98 µs  |  2.24 µs |  −24.8 %   |
+
+  The two load-bearing changes:
+  * `round_and_pack_finite` now caches `decimal_digit_count` once per
+    call instead of recomputing it 3× across the rounding /
+    overflow-check / preferred-quantum branches. `decimal_digit_count`
+    walks the U256 coefficient via `div_rem10`, so removing two of the
+    three calls is the bulk of the aggregate uplift (commit
+    `15a7b98`).
+  * `U256::mul_pow10` looks up `10^k` from a precomputed `[u128; 39]`
+    table instead of running an iterative `mul10` loop. Hot
+    consumers: alignment shifts in `addsub`, the rounding pipeline's
+    overflow-renormalize step, the up-renormalize in `finalize_finite`
+    (commit `a53ddb4`).
+
+  A third commit (`84e4598`) unified two duplicated digit-extraction
+  loops in the rounding path, picking up `mul −3.2 %`. Three other
+  optimization candidates were tested and reverted as no-op or
+  noise-floor — see ADR-0008 for the audit log.
+
+### Added
+
+- **Bench coverage** for shapes the 1.10.x suite didn't cover:
+  alignment-heavy add/sub, full-precision mul, magnitude-extreme div
+  (`benches/core_ops.rs`); `partial_cmp` / `total_cmp` /
+  `compare_total_magnitude` / 64-element sort
+  (new `benches/comparison.rs`); `from_i32` / `from_u32` /
+  `from_u64` / `to_i32` / `to_u64` / `to_u128` (`benches/conversions.rs`).
+  These were added during the perf pass to expose specific hot paths
+  but stick around as permanent regression-watching shapes.
+
+- **Architecture Decision Records** under `docs/decisions/`. Eight
+  ADRs (0001–0008) backfill the design log: BID over DPD, per-op
+  status threading, method-only API, the Verus pilot outcome, the
+  will-not-fix non-IEEE rounding directives, the deferred / executed
+  perf pass, and the perf-baseline + results pair. Approved plans
+  archive under `docs/decisions/plans/`. Future significant decisions
+  drop into the same structure rather than getting lost in commit
+  messages.
+
 ## [1.10.1] - 2026-05-06
 
 ### Changed
