@@ -1,7 +1,3 @@
-// Phase 0 ships the codec primitive; Phase 1 wires it into
-// `Decimal128::to_dpd_bytes` / `from_dpd_bytes`. Until then, the
-// functions are within-crate-public but unused.
-#![allow(dead_code)]
 // The encode/decode equations are transcribed verbatim from Cowlishaw
 // §3.5.2 so the codec can be audited line-by-line against the spec.
 // Algebraic minimization (clippy's preferred form) breaks that
@@ -162,6 +158,215 @@ fn pack(bit: bool, shift: u32) -> u16 {
     (bit as u16) << shift
 }
 
+// ---------------------------------------------------------------------------
+// Decimal128 surface (Phase 1)
+
+use crate::bid::{self, Class};
+use crate::decimal::Decimal128;
+
+/// 10^33 — splits a 34-digit canonical coefficient into a leading
+/// decimal digit (`coef / TEN_POW_33`, value `0..=9`) and a 33-digit
+/// trailing remainder (`coef % TEN_POW_33`, value `0..10^33`).
+const TEN_POW_33: u128 = 10u128.pow(33);
+
+/// Maximum canonical NaN payload — same threshold as
+/// `classify::MAX_CANONICAL_NAN_PAYLOAD`. Non-canonical NaN payloads
+/// (binary value ≥ `10^33`) cannot be represented as 11 decimal-digit
+/// declets and are emitted as zero on the DPD side.
+const MAX_CANONICAL_NAN_PAYLOAD: u128 = TEN_POW_33;
+
+impl Decimal128 {
+    /// Encode this `Decimal128` as 16 bytes in IEEE 754-2019 DPD layout,
+    /// big-endian.
+    ///
+    /// The DPD encoding shares the sign bit, the 5-bit combination field,
+    /// and the 12-bit exponent continuation with BID. The 110-bit
+    /// trailing significand differs: BID stores it as a binary integer,
+    /// DPD as 11 declets of 10 bits each, holding 33 decimal digits.
+    /// The leading decimal digit (the 34th, most-significant digit of
+    /// the coefficient) is carried in the combination field in both
+    /// encodings, but BID stores its top 3 bits as a *binary* prefix of
+    /// the coefficient while DPD stores it as the leading *decimal*
+    /// digit value.
+    ///
+    /// Storage encoding for arithmetic stays BID; this is a byte-level
+    /// interchange adapter only. See ADR-0001 (BID storage choice) and
+    /// ADR-0009 (DPD interchange).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use ferrodec::Decimal128;
+    /// // -7.50 in DPD is `#A20780000000000000000000000003D0`,
+    /// // matching `dqEncode.decTest` decq001.
+    /// let d = Decimal128::try_new(-750, -2).unwrap();
+    /// let bytes = d.to_dpd_bytes();
+    /// assert_eq!(bytes[0], 0xA2);
+    /// assert_eq!(bytes[15], 0xD0);
+    /// ```
+    #[must_use]
+    pub fn to_dpd_bytes(self) -> [u8; 16] {
+        let bits = match bid::classify_bits(self.0) {
+            Class::Infinity { sign } => pack_dpd_infinity(sign),
+            Class::QuietNaN { sign, payload } => pack_dpd_nan(sign, false, payload),
+            Class::SignalingNaN { sign, payload } => pack_dpd_nan(sign, true, payload),
+            Class::Zero { sign, biased_exp } => pack_dpd_finite(sign, biased_exp, 0, 0),
+            Class::Finite {
+                sign,
+                biased_exp,
+                coefficient,
+            } => {
+                // Canonical coefficients are < 10^34, so leading_digit
+                // is 0..=9 and trailing_33 is < 10^33. `classify_bits`
+                // already rejects coefficients ≥ 10^34 (they decode to
+                // `Class::Zero`), so this branch is always canonical.
+                let leading_digit = (coefficient / TEN_POW_33) as u32;
+                let trailing_33 = coefficient % TEN_POW_33;
+                pack_dpd_finite(sign, biased_exp, leading_digit, trailing_33)
+            }
+        };
+        bits.to_be_bytes()
+    }
+
+    /// Decode 16 bytes in IEEE 754-2019 DPD layout (big-endian) into a
+    /// `Decimal128`.
+    ///
+    /// Total: every 128-bit pattern decodes to *some* valid value.
+    /// Non-canonical inputs (uncanonical declets, NaN payloads ≥
+    /// `10^33`) are accepted and decoded under IEEE 754-2019 §3.5.2 —
+    /// the value matches the canonical equivalent and no exception is
+    /// raised on input. The returned `Decimal128` is BID-encoded, so
+    /// arithmetic on it goes through the existing BID kernels.
+    #[must_use]
+    pub fn from_dpd_bytes(bytes: [u8; 16]) -> Self {
+        let bits = u128::from_be_bytes(bytes);
+        let sign = (bits >> 127) & 1 == 1;
+        let t = ((bits >> 122) & 0b1_1111) as u32;
+        let ec = ((bits >> 110) & 0xFFF) as u32;
+        let dpd_trailing = bits & bid::T_MASK;
+
+        if t == 0b1_1110 {
+            return Decimal128::from_bits(bid::pack_infinity(sign));
+        }
+        if t == 0b1_1111 {
+            let signaling = (bits >> 121) & 1 == 1;
+            let payload = decode_trailing(dpd_trailing);
+            let bid_bits = if signaling {
+                bid::pack_signaling_nan(sign, payload)
+            } else {
+                bid::pack_quiet_nan(sign, payload)
+            };
+            return Decimal128::from_bits(bid_bits);
+        }
+
+        // Finite. Pull the leading decimal digit and exp top 2 bits
+        // from the combination field. Form A: G[4:3] ∈ {00,01,10}
+        // gives leading_digit = G[2:0] ∈ 0..=7. Form B: G[4:3] = 11,
+        // G[2] = 0, leading_digit = 8 + G[0] ∈ {8,9}, exp_top_2 =
+        // G[2:1].
+        let (leading_digit, exp_top_2) = if (t >> 3) == 0b11 {
+            // Form B (t & 0b11000 == 0b11000, and we already excluded
+            // 0b1_1110 / 0b1_1111 above).
+            (u128::from(8 + (t & 1)), (t >> 1) & 0b11)
+        } else {
+            // Form A.
+            (u128::from(t & 0b111), (t >> 3) & 0b11)
+        };
+        let biased_exp = (exp_top_2 << 12) | ec;
+        let trailing_33 = decode_trailing(dpd_trailing);
+        let coefficient = leading_digit * TEN_POW_33 + trailing_33;
+
+        Decimal128::from_bits(bid::pack_finite(sign, biased_exp, coefficient))
+    }
+}
+
+/// Build the BID-style raw bits for a DPD-encoded finite value.
+///
+/// `leading_digit ∈ 0..=9`, `trailing_33 < 10^33`, `biased_exp` ≤
+/// `BIASED_EXP_MAX`. The output bit pattern is laid out with the same
+/// sign / combination / ec / trailing-significand fields as BID, but
+/// the combination field uses the DPD interpretation (T[2:0] is the
+/// leading *decimal* digit, not the top three binary bits) and the
+/// trailing significand holds 11 declets.
+fn pack_dpd_finite(sign: bool, biased_exp: u32, leading_digit: u32, trailing_33: u128) -> u128 {
+    debug_assert!(leading_digit < 10);
+    debug_assert!(trailing_33 < TEN_POW_33);
+    debug_assert!(biased_exp <= bid::BIASED_EXP_MAX);
+
+    let exp_top_2 = (biased_exp >> 12) & 0b11;
+    let ec = biased_exp & 0xFFF;
+    let combination = if leading_digit < 8 {
+        // Form A: T[4:3] = exp_top_2, T[2:0] = leading_digit.
+        (exp_top_2 << 3) | leading_digit
+    } else {
+        // Form B: T[4:3] = 11, T[2:1] = exp_top_2, T[0] = digit_low_bit.
+        0b11000 | (exp_top_2 << 1) | (leading_digit & 1)
+    };
+    let dpd_trailing = encode_trailing(trailing_33);
+
+    (u128::from(sign) << 127)
+        | (u128::from(combination) << 122)
+        | (u128::from(ec) << 110)
+        | dpd_trailing
+}
+
+fn pack_dpd_infinity(sign: bool) -> u128 {
+    (u128::from(sign) << 127) | (0b1_1110_u128 << 122)
+}
+
+/// Pack a DPD NaN. Non-canonical BID payloads (binary value ≥ 10^33)
+/// can't be represented as 11 declets, so they canonicalize to a
+/// zero payload on the DPD side — this matches IEEE 754-2019's
+/// treatment of non-canonical NaN payloads on read (canonicalize on
+/// emission rather than on consumption is the same effect at
+/// round-trip granularity for the canonical-input case).
+fn pack_dpd_nan(sign: bool, signaling: bool, bid_payload: u128) -> u128 {
+    let dpd_payload = if bid_payload < MAX_CANONICAL_NAN_PAYLOAD {
+        encode_trailing(bid_payload)
+    } else {
+        0
+    };
+    (u128::from(sign) << 127)
+        | (0b1_1111_u128 << 122)
+        | (u128::from(signaling) << bid::NAN_SIGNALING_SHIFT)
+        | dpd_payload
+}
+
+/// Encode a 33-digit decimal value (`< 10^33`) as 11 declets packed
+/// into the low 110 bits of a `u128`. Declet `i` (0 = least
+/// significant triple, 10 = most significant) occupies bits
+/// `10*i .. 10*i+9`.
+fn encode_trailing(value: u128) -> u128 {
+    debug_assert!(value < TEN_POW_33);
+    let mut remaining = value;
+    let mut result: u128 = 0;
+    for i in 0..DECLET_COUNT {
+        let triple = (remaining % 1000) as u16;
+        remaining /= 1000;
+        let bcd = ((triple / 100) << 8) | (((triple / 10) % 10) << 4) | (triple % 10);
+        let declet = encode_declet(bcd);
+        result |= u128::from(declet) << (10 * i);
+    }
+    debug_assert_eq!(remaining, 0);
+    result
+}
+
+/// Decode 11 declets in the low 110 bits to a 33-digit decimal value.
+/// Total: every input produces a value `< 10^33`.
+fn decode_trailing(bits: u128) -> u128 {
+    let mut value: u128 = 0;
+    for i in (0..DECLET_COUNT).rev() {
+        let declet = ((bits >> (10 * i)) & 0x3FF) as u16;
+        let bcd = decode_declet(declet);
+        let d2 = u128::from(bcd >> 8);
+        let d1 = u128::from((bcd >> 4) & 0xF);
+        let d0 = u128::from(bcd & 0xF);
+        let triple = d2 * 100 + d1 * 10 + d0;
+        value = value * 1000 + triple;
+    }
+    value
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -312,5 +517,166 @@ mod tests {
         // Sanity: 11 declets × 10 bits = 110 bits, the trailing
         // significand width.
         assert_eq!(DECLET_COUNT * 10, crate::bid::T_BITS as usize);
+    }
+
+    // -- Decimal128 surface tests (Phase 1) ----------------------------------
+
+    #[test]
+    fn dqencode_decq001_vector() {
+        // Upstream `dqEncode.decTest`:
+        //   decq001 apply #A20780000000000000000000000003D0 -> -7.50
+        // Both directions must match.
+        let bytes = [
+            0xA2, 0x07, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x03, 0xD0,
+        ];
+        let d = Decimal128::from_dpd_bytes(bytes);
+        let expected = Decimal128::try_new(-750, -2).unwrap();
+        assert_eq!(d.to_bits(), expected.to_bits(), "from_dpd_bytes mismatch");
+        assert_eq!(expected.to_dpd_bytes(), bytes, "to_dpd_bytes mismatch");
+    }
+
+    #[test]
+    fn dqencode_form_b_max_vector() {
+        // Upstream `dqCanonical.decTest`:
+        //   dqcan001 apply 9.999999999999999999999999999999999E+6144
+        //                              -> #77ffcff3fcff3fcff3fcff3fcff3fcff
+        // Form B: leading digit 9, exp top 2 bits = 10, declets all 0x0FF (BCD 999).
+        let bytes = [
+            0x77, 0xFF, 0xCF, 0xF3, 0xFC, 0xFF, 0x3F, 0xCF, 0xF3, 0xFC, 0xFF, 0x3F, 0xCF, 0xF3,
+            0xFC, 0xFF,
+        ];
+        let d = Decimal128::from_dpd_bytes(bytes);
+        let expected = Decimal128::MAX;
+        assert_eq!(
+            d.to_bits(),
+            expected.to_bits(),
+            "Form B max round-trip from DPD"
+        );
+        assert_eq!(
+            expected.to_dpd_bytes(),
+            bytes,
+            "Form B max round-trip to DPD"
+        );
+    }
+
+    #[test]
+    fn distinguished_constants_roundtrip() {
+        // Every distinguished constant in `decimal.rs` must round-trip
+        // BID → DPD → BID bit-equal.
+        let consts = [
+            Decimal128::ZERO,
+            Decimal128::NEG_ZERO,
+            Decimal128::ONE,
+            Decimal128::NEG_ONE,
+            Decimal128::TEN,
+            Decimal128::MAX,
+            Decimal128::MIN,
+            Decimal128::MIN_POSITIVE,
+            Decimal128::MIN_POSITIVE_NORMAL,
+            Decimal128::NAN,
+            Decimal128::SIGNALING_NAN,
+            Decimal128::INFINITY,
+            Decimal128::NEG_INFINITY,
+        ];
+        for d in consts {
+            let bytes = d.to_dpd_bytes();
+            let recovered = Decimal128::from_dpd_bytes(bytes);
+            assert_eq!(
+                recovered.to_bits(),
+                d.to_bits(),
+                "round-trip failed for {d:?}",
+            );
+        }
+    }
+
+    #[test]
+    fn coefficient_boundary_values() {
+        // Boundary cases that exercise specific code paths in
+        // `pack_dpd_finite`: leading digit = 7 (Form A boundary),
+        // leading digit = 8 (Form B start), leading digit = 9 (Form
+        // B end), and powers of 10 across the 10^33 split.
+        let cases: &[(i128, i32)] = &[
+            (7_999_999_999_999_999_999_999_999_999_999_999, 0),
+            (8_000_000_000_000_000_000_000_000_000_000_000, 0),
+            (8_999_999_999_999_999_999_999_999_999_999_999, 0),
+            (9_000_000_000_000_000_000_000_000_000_000_000, 0),
+            (9_999_999_999_999_999_999_999_999_999_999_999, 0),
+            (1_000_000_000_000_000_000_000_000_000_000_000, 0), // 10^33
+            (i128::from(u32::MAX), 0),
+            (1, 6111),  // emax exponent
+            (1, -6176), // most negative exponent
+        ];
+        for &(coef, exp) in cases {
+            let d = Decimal128::try_new(coef, exp).unwrap();
+            let recovered = Decimal128::from_dpd_bytes(d.to_dpd_bytes());
+            assert_eq!(
+                recovered.to_bits(),
+                d.to_bits(),
+                "round-trip failed for ({coef}, {exp})",
+            );
+        }
+    }
+
+    #[test]
+    fn nan_with_payload_roundtrip() {
+        // Canonical NaN payloads (< 10^33) must round-trip through
+        // DPD bit-equal — the codec handles the binary↔BCD payload
+        // shape just like a finite trailing significand.
+        let payloads = [0u128, 1, 999, 1_000_000_000, TEN_POW_33 - 1];
+        for &p in &payloads {
+            let bid_bits = bid::pack_quiet_nan(false, p);
+            let d = Decimal128::from_bits(bid_bits);
+            let recovered = Decimal128::from_dpd_bytes(d.to_dpd_bytes());
+            assert_eq!(
+                recovered.to_bits(),
+                d.to_bits(),
+                "NaN payload {p} round-trip failed",
+            );
+        }
+    }
+
+    #[test]
+    fn from_dpd_bytes_is_total() {
+        // Spot-check that `from_dpd_bytes` never panics on any input,
+        // including patterns with non-canonical declets, ec values
+        // beyond the canonical range, and combination fields that
+        // imply Form B. The exhaustive guarantee comes from the
+        // property test in `tests/property_dpd.rs`; this is a
+        // smoke test against ten arbitrary patterns.
+        let patterns: &[u128] = &[
+            0,
+            u128::MAX,
+            0x12345678_9ABCDEF0_12345678_9ABCDEF0,
+            0xFFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFE,
+            0xC0FF_EEFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF, // Form B
+            0x7800_0000_0000_0000_0000_0000_0000_0000, // Inf
+            0xFC00_0000_0000_0000_0000_0000_0000_03FF, // NaN with non-canonical declet
+            0x0000_0000_0000_0000_0000_0000_0000_03FF,
+            0x0001_0000_0000_0000_0000_0000_0000_0000,
+            0xDEAD_BEEF_DEAD_BEEF_DEAD_BEEF_DEAD_BEEF,
+        ];
+        for &bits in patterns {
+            let _ = Decimal128::from_dpd_bytes(bits.to_be_bytes());
+        }
+    }
+
+    #[test]
+    fn coefficient_is_decimal_not_binary() {
+        // Catch the "BID T[2:0] copied as DPD T[2:0]" bug class:
+        // these are different for any coefficient whose top binary
+        // bits don't equal its leading decimal digit. 10^33 is the
+        // simplest case — leading decimal digit is 1, but the
+        // 113-bit binary number's top 3 bits are 0.
+        let d = Decimal128::try_new(10i128.pow(33), 0).unwrap();
+        let bytes = d.to_dpd_bytes();
+        // Combination field T[2:0] should encode decimal digit 1, so
+        // T = (exp_top_2 << 3) | 1. exp = 0 → biased = 6176 → top 2
+        // bits = 01 (since 6176 = 0b01_1000_0010_0000). T = 0b01001 = 9.
+        let t = (bytes[0] >> 2) & 0b1_1111;
+        assert_eq!(t, 0b01001, "T[2:0] should be decimal 1, not binary 0");
+        // Round-trip preserved.
+        let recovered = Decimal128::from_dpd_bytes(bytes);
+        assert_eq!(recovered.to_bits(), d.to_bits());
     }
 }
