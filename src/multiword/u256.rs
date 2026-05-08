@@ -16,9 +16,9 @@ use core::cmp::Ordering;
 /// the largest power of ten that fits in `u128`; `10^39` would overflow.
 ///
 /// Used by [`U256::mul_pow10`] (single-step multiply replaces a loop of
-/// `mul10`) and re-exported via [`crate::bid::pow10`]. Test
-/// `pow10_table_matches_u128_pow` (`mod tests` below) checks every entry
-/// against `10u128.pow(k)`.
+/// `mul10`) and the rounding-pipeline crossover check in
+/// `round_and_pack_finite`. Test `pow10_table_matches_u128_pow`
+/// (`mod tests` below) checks every entry against `10u128.pow(k)`.
 pub(crate) const POW10_U128: [u128; 39] = {
     let mut arr = [0u128; 39];
     arr[0] = 1;

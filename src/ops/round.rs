@@ -152,26 +152,25 @@ pub(crate) fn round_and_pack_finite(
     finalize_finite(rounded, exp_after, sign, rm, status)
 }
 
-/// Drop `excess` decimal digits from `coef`, returning
-/// `(kept, kept_exp, round_digit, sticky)`.
+/// Drop `n` low-order decimal digits from `coef`, returning
+/// `(kept, round_digit, sticky)`.
 ///
 /// `round_digit` is the most significant of the dropped digits — i.e. the
-/// digit immediately below the new LSB. `sticky` is the OR over any
-/// further-dropped digit being non-zero, plus the caller's `pre_sticky`.
-fn drop_excess_digits(
-    mut coef: U256,
-    excess: u32,
-    pre_sticky: bool,
-    unbiased_exp: i32,
-) -> (U256, i32, u32, bool) {
+/// digit immediately below the new LSB after `n` extractions. `sticky` is
+/// the OR over any further-dropped digit being non-zero, seeded with
+/// `pre_sticky`.
+///
+/// Single source of truth for the digit-extraction loop used by both
+/// `drop_excess_digits` (precision-overflow path) and `shift_right_decimal`
+/// (subnormal underflow path).
+#[inline]
+fn extract_dropped_digits(mut coef: U256, n: u32, pre_sticky: bool) -> (U256, u32, bool) {
     let mut sticky = pre_sticky;
     let mut round_digit = 0u32;
     let mut i = 0u32;
-    while i < excess {
+    while i < n {
         let (q, r) = coef.div_rem10();
-        if i == excess - 1 {
-            // Last iteration → this digit is the round digit (most-significant
-            // of the dropped set).
+        if i == n - 1 {
             round_digit = r;
         } else if r != 0 {
             sticky = true;
@@ -179,7 +178,19 @@ fn drop_excess_digits(
         coef = q;
         i += 1;
     }
-    (coef, unbiased_exp + excess as i32, round_digit, sticky)
+    (coef, round_digit, sticky)
+}
+
+/// Drop `excess` decimal digits from `coef`, returning
+/// `(kept, kept_exp, round_digit, sticky)`.
+fn drop_excess_digits(
+    coef: U256,
+    excess: u32,
+    pre_sticky: bool,
+    unbiased_exp: i32,
+) -> (U256, i32, u32, bool) {
+    let (kept, round_digit, sticky) = extract_dropped_digits(coef, excess, pre_sticky);
+    (kept, unbiased_exp + excess as i32, round_digit, sticky)
 }
 
 /// Decide whether to round the kept coefficient up by one ULP, given the
@@ -322,21 +333,9 @@ fn finalize_finite(
 /// Shift `coef` right by `n` decimal digits, returning the quotient, the
 /// sticky bit (any non-zero digit beyond the round digit), and the round
 /// digit (the most-significant dropped digit).
-fn shift_right_decimal(mut coef: U256, n: u32) -> (U256, bool, u32) {
-    let mut sticky = false;
-    let mut round_digit = 0u32;
-    let mut i = 0u32;
-    while i < n {
-        let (q, r) = coef.div_rem10();
-        if i == n - 1 {
-            round_digit = r;
-        } else if r != 0 {
-            sticky = true;
-        }
-        coef = q;
-        i += 1;
-    }
-    (coef, sticky, round_digit)
+fn shift_right_decimal(coef: U256, n: u32) -> (U256, bool, u32) {
+    let (kept, round_digit, sticky) = extract_dropped_digits(coef, n, false);
+    (kept, sticky, round_digit)
 }
 
 /// What an overflowed result decodes to under each rounding direction:
