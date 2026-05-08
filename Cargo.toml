@@ -55,6 +55,13 @@ serde = ["fmt", "dep:serde"]
 # auto-enables `ops`. Pulls `fmt` because `Num::from_str_radix`
 # routes through `parse_str`.
 num-traits = ["fmt", "ops", "dep:num-traits"]
+# DPD (Densely Packed Decimal) interchange. Adds a declet codec
+# (`src/dpd.rs`) used by `Decimal128::to_dpd_bytes` / `from_dpd_bytes`
+# for IEEE 754 byte-pattern interchange. Storage encoding stays BID;
+# this is a byte-level adapter, not a parallel arithmetic stack.
+# Off by default to preserve the embedded code-size floor; ~2 KB
+# additional `.text` when enabled. See ADR-0001 (BID storage choice).
+dpd = []
 # Compile Kani proof harnesses. Off in normal builds.
 kani = []
 

@@ -43,6 +43,8 @@ mod classify;
 mod cmp;
 mod convert;
 mod decimal;
+#[cfg(feature = "dpd")]
+mod dpd;
 mod iter;
 #[cfg(any(feature = "trig", feature = "exp-log"))]
 mod math;
