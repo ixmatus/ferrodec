@@ -24,6 +24,7 @@ use crate::bid::{
     pack_finite, pack_infinity, BIAS, BIASED_EXP_MAX, COEFFICIENT_LIMIT, E_MAX, E_MIN, PRECISION,
 };
 use crate::decimal::Decimal128;
+use crate::multiword::u256::POW10_U128;
 use crate::multiword::U256;
 use crate::status::{RoundingMode, Status};
 
@@ -58,7 +59,10 @@ pub(crate) fn round_and_pack_finite(
         );
     }
 
-    // Step 1: drop excess digits.
+    // Step 1: drop excess digits. Cache the coefficient's decimal digit
+    // count once — `rounded` and `kept` track it incrementally below so
+    // we don't re-walk the U256 with `decimal_digit_count` on the
+    // post-rounding overflow check or the preferred-quantum pad.
     let digits = coef.decimal_digit_count();
     let (kept, kept_exp, round_digit, sticky) = if digits > PRECISION {
         let excess = digits - PRECISION;
@@ -67,6 +71,7 @@ pub(crate) fn round_and_pack_finite(
         // No excess to drop; pre-sticky still feeds the round logic.
         (coef, unbiased_exp, 0u32, pre_sticky)
     };
+    let mut kept_digits = digits.min(PRECISION);
 
     if round_digit != 0 || sticky {
         status |= Status::INEXACT;
@@ -80,11 +85,22 @@ pub(crate) fn round_and_pack_finite(
     let mut exp_after = kept_exp;
     if round_up {
         rounded = rounded.add(U256::from_u128(1));
-        // Step 3: renormalize if rounding overflowed PRECISION digits.
-        if rounded.decimal_digit_count() > PRECISION {
+        // Step 3: renormalize if rounding crossed a power-of-10 boundary
+        // (`kept` was `10^kept_digits − 1`, `rounded` is `10^kept_digits`).
+        // Two sub-cases:
+        // * If the new value also exceeds `COEFFICIENT_LIMIT = 10^PRECISION`,
+        //   we have to divide by 10 and bump the exponent — the digit
+        //   count stays at `PRECISION` after that division.
+        // * Otherwise the digit count just increased by 1 (still ≤ PRECISION).
+        // Both cases avoid `decimal_digit_count` on the U256.
+        if rounded.hi != 0 || rounded.lo >= COEFFICIENT_LIMIT {
             let (q, _) = rounded.div_rem10();
             rounded = q;
             exp_after += 1;
+        } else if (kept_digits as usize) < POW10_U128.len()
+            && rounded.lo == POW10_U128[kept_digits as usize]
+        {
+            kept_digits += 1;
         }
     }
 
@@ -106,8 +122,7 @@ pub(crate) fn round_and_pack_finite(
     //   like `1/1 → 1` don't appear as `1.0000…000`.
     if !rounded.is_zero() {
         if exp_after > q_preferred {
-            let digits_now = rounded.decimal_digit_count() as i32;
-            let max_shift = PRECISION as i32 - digits_now;
+            let max_shift = PRECISION as i32 - kept_digits as i32;
             let want_shift = exp_after - q_preferred;
             let shift = want_shift.min(max_shift);
             if shift > 0 {
