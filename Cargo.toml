@@ -136,6 +136,11 @@ harness = false
 required-features = ["fmt"]
 
 [[bench]]
+name = "comparison"
+harness = false
+required-features = ["fmt"]
+
+[[bench]]
 name = "transcendentals"
 harness = false
 required-features = ["transcendentals"]

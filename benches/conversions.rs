@@ -67,6 +67,39 @@ fn from_i128_bench(c: &mut Criterion) {
     });
 }
 
+fn from_i32_bench(c: &mut Criterion) {
+    let ints: [i32; 5] = [0, 1, -1234567, i32::MAX, i32::MIN];
+    c.bench_function("from_i32", |b| {
+        b.iter(|| {
+            for &n in &ints {
+                black_box(Decimal128::from_i32(n));
+            }
+        });
+    });
+}
+
+fn from_u32_bench(c: &mut Criterion) {
+    let ints: [u32; 5] = [0, 1, 1234567, u32::MAX, u32::MAX / 3];
+    c.bench_function("from_u32", |b| {
+        b.iter(|| {
+            for &n in &ints {
+                black_box(Decimal128::from_u32(n));
+            }
+        });
+    });
+}
+
+fn from_u64_bench(c: &mut Criterion) {
+    let ints: [u64; 5] = [0, 1, 1234567890, u64::MAX, 9_876_543_210_123_456_789];
+    c.bench_function("from_u64", |b| {
+        b.iter(|| {
+            for &n in &ints {
+                black_box(Decimal128::from_u64(n));
+            }
+        });
+    });
+}
+
 fn to_i64_bench(c: &mut Criterion) {
     let parse = |s: &str| Decimal128::parse_str(s, RM).unwrap().0;
     let xs = [
@@ -85,11 +118,71 @@ fn to_i64_bench(c: &mut Criterion) {
     });
 }
 
+fn to_i32_bench(c: &mut Criterion) {
+    let parse = |s: &str| Decimal128::parse_str(s, RM).unwrap().0;
+    let xs = [
+        parse("0"),
+        parse("123456"),
+        parse("-1234567"),
+        parse("1.5"),
+        parse("2147483647"),
+    ];
+    c.bench_function("to_i32", |b| {
+        b.iter(|| {
+            for &x in &xs {
+                black_box(x.to_i32(RM));
+            }
+        });
+    });
+}
+
+fn to_u64_bench(c: &mut Criterion) {
+    let parse = |s: &str| Decimal128::parse_str(s, RM).unwrap().0;
+    let xs = [
+        parse("0"),
+        parse("12345"),
+        parse("9876543210"),
+        parse("1.5"),
+        parse("1.844674407370955161e19"),
+    ];
+    c.bench_function("to_u64", |b| {
+        b.iter(|| {
+            for &x in &xs {
+                black_box(x.to_u64(RM));
+            }
+        });
+    });
+}
+
+fn to_u128_bench(c: &mut Criterion) {
+    let parse = |s: &str| Decimal128::parse_str(s, RM).unwrap().0;
+    let xs = [
+        parse("0"),
+        parse("12345"),
+        parse("9876543210"),
+        parse("1.5"),
+        parse("3.402823669209384634633746074317682e38"),
+    ];
+    c.bench_function("to_u128", |b| {
+        b.iter(|| {
+            for &x in &xs {
+                black_box(x.to_u128(RM));
+            }
+        });
+    });
+}
+
 criterion_group!(
     benches,
     parse_bench,
     format_bench,
     from_i128_bench,
-    to_i64_bench
+    from_i32_bench,
+    from_u32_bench,
+    from_u64_bench,
+    to_i64_bench,
+    to_i32_bench,
+    to_u64_bench,
+    to_u128_bench,
 );
 criterion_main!(benches);

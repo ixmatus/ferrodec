@@ -120,5 +120,109 @@ fn fma_bench(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, add_bench, sub_bench, mul_bench, div_bench, sqrt_bench, fma_bench);
+// ---------------------------------------------------------------------------
+// Targeted benches for the perf pass of the 1.11.0 cycle. These isolate
+// specific hot paths so candidate optimizations can be measured against a
+// stable mix rather than averaged into the broad `add` / `mul` / `div` mixes
+// above.
+
+/// Pairs with widely-separated quanta to exercise the alignment +
+/// sub-ULP path in `addsub`. Each pair has |Δexp| ≈ 30, well past the
+/// `ALIGN_LIMIT = 43` threshold for some pairs and well within for
+/// others — a representative mix of the two regimes.
+fn alignment_heavy_pairs() -> [(Decimal128, Decimal128); 6] {
+    [
+        (parse("1"), parse("1e-30")),
+        (parse("1e6"), parse("1e-25")),
+        (parse("1.234567890123456789012345678901234e10"), parse("5e-25")),
+        (parse("9.999999999999999999999999999999999e0"), parse("1e-50")),
+        (parse("-3.14159e-3"), parse("7.2e-80")),
+        (parse("1e0"), parse("-1e-100")),
+    ]
+}
+
+fn add_alignment_heavy_bench(c: &mut Criterion) {
+    let pairs = alignment_heavy_pairs();
+    c.bench_function("add_alignment_heavy", |b| {
+        b.iter(|| {
+            for &(a, x) in &pairs {
+                black_box(a.add(x, RM));
+            }
+        });
+    });
+}
+
+fn sub_alignment_heavy_bench(c: &mut Criterion) {
+    let pairs = alignment_heavy_pairs();
+    c.bench_function("sub_alignment_heavy", |b| {
+        b.iter(|| {
+            for &(a, x) in &pairs {
+                black_box(a.sub(x, RM));
+            }
+        });
+    });
+}
+
+/// Two 34-digit coefficients to force the maximum U256 product width.
+fn mul_full_precision_bench(c: &mut Criterion) {
+    let inputs = [
+        (
+            parse("9.999999999999999999999999999999999e10"),
+            parse("9.999999999999999999999999999999999e10"),
+        ),
+        (
+            parse("1.234567890123456789012345678901234e0"),
+            parse("9.876543210987654321098765432109876e0"),
+        ),
+        (
+            parse("3.141592653589793238462643383279502e3"),
+            parse("2.718281828459045235360287471352662e3"),
+        ),
+    ];
+    c.bench_function("mul_full_precision", |b| {
+        b.iter(|| {
+            for &(a, x) in &inputs {
+                black_box(a.mul(x, RM));
+            }
+        });
+    });
+}
+
+/// One tiny / one huge operand to force the long-division path's
+/// behaviour on widely-separated magnitudes.
+fn div_magnitude_extreme_bench(c: &mut Criterion) {
+    let inputs = [
+        (parse("1e30"), parse("1e-30")),
+        (parse("1e-30"), parse("1e30")),
+        (
+            parse("9.999999999999999999999999999999999e6000"),
+            parse("1.234567890123456789012345678901234e-6000"),
+        ),
+        (
+            parse("1.234567890123456789012345678901234e-6000"),
+            parse("9.999999999999999999999999999999999e6000"),
+        ),
+    ];
+    c.bench_function("div_magnitude_extreme", |b| {
+        b.iter(|| {
+            for &(a, x) in &inputs {
+                black_box(a.div(x, RM));
+            }
+        });
+    });
+}
+
+criterion_group!(
+    benches,
+    add_bench,
+    sub_bench,
+    mul_bench,
+    div_bench,
+    sqrt_bench,
+    fma_bench,
+    add_alignment_heavy_bench,
+    sub_alignment_heavy_bench,
+    mul_full_precision_bench,
+    div_magnitude_extreme_bench,
+);
 criterion_main!(benches);
