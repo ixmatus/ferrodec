@@ -12,6 +12,24 @@
 
 use core::cmp::Ordering;
 
+/// `10^k` for `k ∈ [0, 38]`. `10^38 ≈ 10^38 < 2^128 ≈ 3.4 × 10^38` is
+/// the largest power of ten that fits in `u128`; `10^39` would overflow.
+///
+/// Used by [`U256::mul_pow10`] (single-step multiply replaces a loop of
+/// `mul10`) and re-exported via [`crate::bid::pow10`]. Test
+/// `pow10_table_matches_u128_pow` (`mod tests` below) checks every entry
+/// against `10u128.pow(k)`.
+pub(crate) const POW10_U128: [u128; 39] = {
+    let mut arr = [0u128; 39];
+    arr[0] = 1;
+    let mut i = 1;
+    while i < 39 {
+        arr[i] = arr[i - 1] * 10;
+        i += 1;
+    }
+    arr
+};
+
 /// 256-bit unsigned integer, little-endian halves.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub(crate) struct U256 {
@@ -84,15 +102,47 @@ impl U256 {
         }
     }
 
-    /// `self * 10^k` for small `k` (≤ 76). The arithmetic layer only ever
-    /// scales by `≤ 35` decimal places, so this is comfortably bounded.
-    pub(crate) fn mul_pow10(mut self, k: u32) -> Self {
-        let mut i = 0;
-        while i < k {
-            self = self.mul10();
-            i += 1;
+    /// `self * m` for an arbitrary `u128` multiplier. Pre-condition:
+    /// the true product fits in 256 bits — i.e. `self.hi * m` doesn't
+    /// overflow `u128`. The arithmetic layer holds this by construction
+    /// for the call sites that use `mul_pow10`.
+    ///
+    /// Implementation: `(hi : lo) * m = (m * hi) << 128 + (m * lo)`.
+    /// Only the lower 128 bits of `m * hi` contribute to the result;
+    /// the upper bits would overflow the 256-bit envelope and the
+    /// `debug_assert!` catches the violation in test builds.
+    #[inline]
+    pub(crate) const fn mul_u128(self, m: u128) -> Self {
+        let (lo_hi, lo_lo) = widening_mul_u128(self.lo, m);
+        let (hi_hi, hi_lo) = widening_mul_u128(self.hi, m);
+        debug_assert!(hi_hi == 0, "U256::mul_u128 overflow");
+        let (new_hi, carry) = lo_hi.overflowing_add(hi_lo);
+        debug_assert!(!carry, "U256::mul_u128 carry into bit 256");
+        Self {
+            lo: lo_lo,
+            hi: new_hi,
         }
-        self
+    }
+
+    /// `self * 10^k` for `k ≤ 76`. The arithmetic layer only ever scales
+    /// by `≤ 43` decimal places at the alignment limit, so this is
+    /// comfortably bounded.
+    ///
+    /// Looks up `10^k` from the precomputed `POW10_U128` table for
+    /// `k ≤ 38` (single multiply); for `k ∈ [39, 76]` chunks the product
+    /// as `self · 10^38 · 10^(k − 38)` (two multiplies). Both shapes are
+    /// far cheaper than the previous sequential `mul10`-loop, which paid
+    /// the four-component multi-precision multiply on every iteration.
+    pub(crate) fn mul_pow10(self, k: u32) -> Self {
+        if k == 0 {
+            return self;
+        }
+        if (k as usize) < POW10_U128.len() {
+            return self.mul_u128(POW10_U128[k as usize]);
+        }
+        debug_assert!(k <= 76, "mul_pow10 called with k > 76");
+        self.mul_u128(POW10_U128[38])
+            .mul_u128(POW10_U128[(k - 38) as usize])
     }
 
     /// `self / 10` returning the quotient and the remainder digit.
@@ -339,6 +389,64 @@ mod tests {
         let big_times_10_hi = widening_mul_u128(big, 10).0;
         assert_eq!(result.lo, big_times_10_lo);
         assert_eq!(result.hi, big_times_10_hi);
+    }
+
+    #[test]
+    fn pow10_table_matches_u128_pow() {
+        // Table values must agree with `10u128.pow(k)` over the full
+        // [0, 38] range so the perf-pass swap doesn't change semantics.
+        for (k, &entry) in POW10_U128.iter().enumerate() {
+            assert_eq!(entry, 10u128.pow(k as u32), "POW10_U128[{k}] mismatch");
+        }
+    }
+
+    #[test]
+    fn mul_u128_matches_widening_for_lo_only() {
+        // self.hi == 0: result is just widening_mul_u128(self.lo, m).
+        let a = U256::from_u128(0x1234_5678_9abc_def0_u128);
+        let m = 0x10001_u128;
+        let got = a.mul_u128(m);
+        let (hi, lo) = widening_mul_u128(a.lo, m);
+        assert_eq!(got, U256 { lo, hi });
+    }
+
+    #[test]
+    fn mul_pow10_matches_sequential_mul10() {
+        // Property: for any U256 input, the new mul_pow10 (via POW10
+        // table + mul_u128) must equal the old sequential mul10 loop
+        // for every k ∈ [0, 76]. Sample a handful of representative
+        // shapes.
+        let inputs = [
+            U256::from_u128(0),
+            U256::from_u128(1),
+            U256::from_u128(7),
+            U256::from_u128(u128::MAX / 100),
+            U256 {
+                lo: 0xdeadbeef,
+                hi: 0x123,
+            },
+            U256 { lo: 1, hi: 0xff },
+        ];
+        for &a in &inputs {
+            for k in 0u32..=76 {
+                let mut sequential = a;
+                for _ in 0..k {
+                    // The sequential path may overflow on large `a` and
+                    // small `k`; skip cases where the loop's debug
+                    // assertion would fire.
+                    if sequential.hi >= u128::MAX / 10 {
+                        sequential = U256::ZERO; // sentinel — skip below
+                        break;
+                    }
+                    sequential = sequential.mul10();
+                }
+                if sequential == U256::ZERO && a != U256::ZERO {
+                    continue;
+                }
+                let table_path = a.mul_pow10(k);
+                assert_eq!(table_path, sequential, "mul_pow10 mismatch: a={a:?} k={k}");
+            }
+        }
     }
 
     #[test]
