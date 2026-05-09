@@ -780,9 +780,14 @@ mod table {
 ///
 /// Sized to absorb up to 33 leading zeros (or 9s after rounding) in
 /// the fractional residual when the input is within 1 ULP of an
-/// integer multiple of π/2: 76 − 33 = 43 sig digits in `y_signed` —
-/// comfortably above `EXT_PRECISION` = 50 of the downstream `Extended`
-/// envelope.
+/// integer multiple of π/2. The guaranteed surviving precision is
+/// `FRAC_DIGITS − 33 = 43` significant digits in `y_signed`. That
+/// is below `EXT_PRECISION = 50` of the downstream `Extended`
+/// envelope, but comfortably above Decimal128's 34-digit boundary
+/// (the relevant margin for callers): `43 − 34 = 9` headroom digits
+/// at the worst case. Bumping `FRAC_DIGITS` widens the headroom
+/// linearly without breaking the U384 → U256 collapse downstream
+/// (see `make_residual`).
 const FRAC_DIGITS: u32 = 76;
 /// Extra digits below the precision window to absorb truncation
 /// carries from the unread tail of `2/π`.
@@ -1099,12 +1104,14 @@ pub(super) fn reduce(x: Decimal128) -> (u32, Extended, Status) {
     // right.
     //
     // For i_hi = q + I_HI_OFFSET (the unclipped case), this is exactly
-    // I_HI_OFFSET = 77. We rely on that: the table is sized so we never
-    // hit the i_hi clip in practice (q_max + I_HI_OFFSET = 6111 + 77 =
-    // 6188 ≤ 6300). For the i_lo clip (small q), shifting changes the
-    // window's interpretation: dropping the digits below i_lo = 1
-    // means we lose the d_0, d_{-1}, … positions, which don't exist
-    // because 2/π < 1. So the math works out unchanged.
+    // I_HI_OFFSET = 113 (= FRAC_DIGITS + 33 + CARRY_GUARD = 76 + 33 + 4).
+    // We rely on that: the table is sized so we never hit the i_hi clip
+    // in practice (q_max + I_HI_OFFSET = 6111 + 113 = 6224 ≤ 6300, with
+    // 76 digits of head-room before the table runs out). For the i_lo
+    // clip (small q), shifting changes the window's interpretation:
+    // dropping the digits below i_lo = 1 means we lose the d_0, d_{-1},
+    // … positions, which don't exist because 2/π < 1. So the math works
+    // out unchanged.
     debug_assert_eq!(
         i_hi - i_lo + 1,
         (i_hi_signed as usize - i_lo_signed.max(1) as usize) + 1
