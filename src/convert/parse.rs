@@ -133,6 +133,11 @@ fn parse_str_inner(
     let mut coef = U256::ZERO;
     let mut digits_total: u32 = 0;
     let mut digits_after_point: u32 = 0;
+    // Integer digits beyond MAX_PARSED_DIGITS that we couldn't fold into
+    // `coef`. Each one shifts the value up by 10× (since it's a digit
+    // before the implicit decimal point), so we accumulate them and add
+    // to the unbiased exponent at the end.
+    let mut extra_int_digits: u32 = 0;
     let mut sticky = false;
     let mut decimal_seen = false;
     let mut has_digit = false;
@@ -173,15 +178,12 @@ fn parse_str_inner(
                     if decimal_seen {
                         digits_after_point += 1;
                     } else {
-                        // Trailing-integer digits we can't represent in
-                        // U256 act as a 10× shift on the quantum.
-                        // We compensate by NOT incrementing
-                        // `digits_after_point` and instead letting the
-                        // exponent absorb the shift via `extra_int_digits`.
-                        // Track these separately.
-                        // Simpler: bump quantum implicitly by counting
-                        // these as "extra integer digits" we shift later.
-                        digits_total = digits_total.saturating_add(1);
+                        // Trailing-integer digits we can't fold into
+                        // `coef` act as a 10× shift on the value (each
+                        // digit pushes the implicit decimal point one
+                        // place further right). Track them so the
+                        // final `unbiased_exp` can absorb the shift.
+                        extra_int_digits = extra_int_digits.saturating_add(1);
                     }
                 }
                 idx += 1;
@@ -250,8 +252,14 @@ fn parse_str_inner(
     }
 
     // Quantum: each digit after the decimal point shifts the value down
-    // by one decimal position, plus the explicit exponent.
-    let unbiased_exp = exp_explicit - digits_after_point as i32;
+    // by one decimal position; each integer digit beyond MAX_PARSED_DIGITS
+    // shifts the value up by one (it stayed in the integer part but we
+    // could not fold it into `coef`); plus the explicit exponent. Use
+    // saturating arithmetic on the i32 cast because extra_int_digits can
+    // legally reach MAX_EXPONENT_MAGNITUDE (≤ 2^31 − 1 fits comfortably).
+    let unbiased_exp = exp_explicit
+        .saturating_add(extra_int_digits as i32)
+        .saturating_sub(digits_after_point as i32);
 
     let (value, status) = round_and_pack_finite(
         coef,
@@ -365,6 +373,8 @@ fn eq_ignore_ascii_case(a: &[u8], b: &[u8]) -> bool {
 // `String::repeat` requires `alloc`; only used in test helpers above.
 #[cfg(test)]
 extern crate alloc;
+#[cfg(test)]
+use alloc::format;
 #[cfg(test)]
 use alloc::string::ToString;
 
@@ -555,6 +565,57 @@ mod tests {
         assert_eq!(s100.len(), 100);
         let (_, status) = Decimal128::parse_str(&s100, RoundingMode::NearestEven).unwrap();
         assert!(status.inexact());
+    }
+
+    #[test]
+    fn parse_integer_beyond_capacity_scales_quantum() {
+        // Regression: integer digits beyond MAX_PARSED_DIGITS used to
+        // be silently dropped (the saturating_add increment did nothing
+        // to the quantum), so "1" × N for N > 76 stayed at the magnitude
+        // of "1" × 76 instead of growing 10× per digit.
+        //
+        // Anchor at 76 digits, then check the next four lengths each
+        // multiply the value by exactly 10. We compare against the
+        // parsed "1.111…1eK" form so the assertion is independent of
+        // round-half-even tie-breaking on the trailing digits.
+        for n in 76..=80 {
+            let ones = "1".repeat(n);
+            let (a, _) = Decimal128::parse_str(&ones, RoundingMode::NearestEven).unwrap();
+
+            // Equivalent scientific form: integer "1"×n equals
+            // (10^n − 1) / 9, which is 1.111…1 (34 sig digits after
+            // rounding) × 10^(n − 1).
+            let canonical = format!(
+                "1.111111111111111111111111111111111E{:+}",
+                (n as i32) - 1
+            );
+            let (b, _) = Decimal128::parse_str(&canonical, RoundingMode::NearestEven).unwrap();
+            let (cmp, _) = a.partial_cmp(b);
+            assert_eq!(
+                cmp,
+                Some(core::cmp::Ordering::Equal),
+                "parse(\"1\"×{n}) = {a:?}, expected {b:?}",
+            );
+        }
+    }
+
+    #[test]
+    fn parse_one_then_many_zeros() {
+        // "1" followed by N zeros parses to 10^N for any N. Before the
+        // fix, N > 75 (one leading "1" plus 75 more digits inside the
+        // U256 capacity) silently dropped the trailing zeros.
+        for n in [75u32, 76, 77, 100, 500] {
+            let s = "1".to_string() + &"0".repeat(n as usize);
+            let (a, _) = Decimal128::parse_str(&s, RoundingMode::NearestEven).unwrap();
+            let canonical = format!("1E{:+}", n);
+            let (b, _) = Decimal128::parse_str(&canonical, RoundingMode::NearestEven).unwrap();
+            let (cmp, _) = a.partial_cmp(b);
+            assert_eq!(
+                cmp,
+                Some(core::cmp::Ordering::Equal),
+                "parse(\"1\" + \"0\"×{n}) = {a:?}, expected 10^{n} = {b:?}",
+            );
+        }
     }
 
     #[test]
