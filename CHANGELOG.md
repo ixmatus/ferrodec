@@ -7,6 +7,110 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.12.1] - 2026-05-09
+
+### Fixed
+
+Six HIGH-severity correctness bugs surfaced by a 6-agent review of
+the 1.12.0 release.
+[ADR-0010](docs/decisions/0010-testing-strategy-after-six-agent-review.md)
+documents the testing-strategy response that should prevent the
+same shapes recurring.
+
+- **Non-canonical Form A coefficients arithmetised as real values**
+  (closes a contract gap reachable through `Decimal128::from_bits`
+  with a hand-built 128-bit pattern). IEEE 754-2019 §3.5.2 requires
+  Form A encodings whose coefficient field exceeds 10^p − 1 to be
+  treated as the floating-point datum zero with the encoded sign
+  and biased exponent. The decoder previously deferred this to the
+  arithmetic layer but no kernel actually performed the check, so a
+  poisoned coefficient (`≈ 1.038 × 10^34`) participated in
+  arithmetic and produced results ~3.8% wrong. The same input
+  panicked `to_dpd_bytes` in debug and corrupted DPD output in
+  release. Fixed by canonicalising on decode in `bid::classify_bits`;
+  every downstream consumer (arithmetic, DPD encode, format) is
+  safe by construction. Closes review findings H3 and H4.
+
+- **`pow(-1, ±∞) → 1` instead of panicking**. IEEE 754-2019 §9.2.1
+  rule 5 specifies `pow(±1, ±∞) = 1`; rule 2's short-circuit only
+  matched `x = +1` (deliberately, so `pow(-1, qNaN)` can still
+  propagate NaN), so the negative-base case landed in rule 6's
+  `unreachable!()`. Fixed by handling the |x| = 1 arm directly in
+  rule 6. Closes review finding H1.
+
+- **Parse correctly scales integer literals beyond 76 digits**. The
+  mantissa loop folded the first 76 digits into a U256 coefficient
+  and pushed any further digits into a sticky bit, but a
+  saturating-counter TODO never compensated the quantum, so any
+  pure-integer literal longer than 76 digits silently dropped 10×
+  per excess digit (`"1" × 77` parsed to `1.111…E+75` instead of
+  `1.111…E+76`). Fixed by tracking `extra_int_digits` and adding
+  to the final unbiased exponent. Closes review finding H2.
+
+- **FMA sub-ULP effective-subtraction directional rounding**. When
+  `c` dominates and the product `a × b` is sub-ULP, the existing
+  `sub_ulp_round` path correctly handles same-sign (epsilon pushes
+  magnitude up) but silently picks the wrong neighbour for
+  opposite-sign sub-ULP (true value sits *below* `cc · 10^qc`).
+  Symptom: `ONE.fma(1e-6176, NEG_ONE, TowardPositive)` returned
+  `-1.0` instead of `-0.999…9`. Fixed by routing opposite-sign
+  through a new helper that mirrors `addsub::sub_ulp_effective_sub`'s
+  candidate selection, threading the IEEE 754 §6.3 preferred quantum
+  so `round_and_pack_finite` pads trailing zeros correctly. Picks
+  up four previously-failing dqFMA conformance cases (dqadd36466 /
+  36476 / 36506 / 36516). Closes review finding H5.
+
+- **`to_f64` / `to_f32` raise INVALID on signaling NaN**. IEEE
+  754-2019 §5.4.2 (convertFormat) requires sNaN to raise INVALID
+  and yield a quiet NaN; the previous implementation collapsed
+  both qNaN and sNaN to `(f64::NAN, OK)`. A pinned unit test
+  actively held the wrong behaviour in place. Closes review
+  finding H6.
+
+### Added
+
+- **ADR-0010**:
+  [Testing strategy after the 6-agent correctness review](docs/decisions/0010-testing-strategy-after-six-agent-review.md).
+  Documents what each HIGH bug taught us and the three new test
+  layers added to catch the same shapes earlier.
+
+- **Per-file conformance expectation table** in
+  `tests/conformance.rs`. Replaces the global pass-floor with
+  exhaustive per-file `(name, expected_passes)` rows; any silent
+  trade-off (`pass↑file_a + pass↓file_b` = total unchanged) becomes
+  a hard failure. Legitimate count changes require a one-line edit
+  that surfaces in code review.
+
+- **`tests/property_from_bits.rs`** — proptest fuzzes arbitrary
+  `u128` through `Decimal128::from_bits` and asserts: classify
+  totality, canonicalize-as-projection, `to_dpd_bytes` totality,
+  `add(d, 1)` agrees with `add(d.canonicalize(), 1)`. Pins the H3 /
+  H4 surface so a future regression cannot reintroduce the same
+  shape.
+
+- **`tests/property_pow_specials.rs`** — table-driven enumeration
+  of IEEE 754-2019 §9.2.1's full pow rule grid: every special-input
+  pair (±0, ±1, ±2, ±0.5, ±∞, qNaN, sNaN) crossed with every
+  rounding mode. The no-panic guard would have caught H1 on first
+  run.
+
+- **`tests/property_fma_oracle.rs`** — random `(a, b, c)` triples
+  cross-checked against astro-float at 220-bit precision and
+  against the trivial `mul`-then-`add` formulation when both stages
+  are exact. Pins the H5 reproducer alongside the random fuzzing.
+  Closes the FMA coverage gap the audit-leg flagged (FMA had only
+  decTest signal — no proptest, no Kani, no fuzz).
+
+- **`src/verify/pow.rs`** — Kani harnesses for `pow(±1, ±∞) = 1`,
+  `pow(x, ±0) = 1` (excluding sNaN), and totality of `pow` over
+  the special-input pool. Same special-only-shim convention as
+  the existing arithmetic harnesses.
+
+- **`src/verify/nan_payload.rs`** — Kani harnesses proving NaN
+  payload propagation through `add` and `mul` over symbolic 8-bit
+  payloads. Width is bounded for CBMC budget reasons; the
+  propagation path is uniform on payload width.
+
 ## [1.12.0] - 2026-05-08
 
 ### Added

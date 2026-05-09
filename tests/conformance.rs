@@ -34,6 +34,7 @@ const VECTORS_DIR: &str = "tests/vectors";
 fn dectest_conformance() {
     let mut totals = Totals::default();
     let mut failures: Vec<Failure> = Vec::new();
+    let mut file_results: Vec<(String, FileResult)> = Vec::new();
 
     let entries = fs::read_dir(VECTORS_DIR).expect("vectors directory");
     let mut paths: Vec<PathBuf> = entries
@@ -53,6 +54,8 @@ fn dectest_conformance() {
             result.failed,
             result.skipped,
         );
+        let name = path.file_name().unwrap().to_string_lossy().into_owned();
+        file_results.push((name, result));
     }
 
     eprintln!(
@@ -78,37 +81,58 @@ fn dectest_conformance() {
         }
     }
 
-    // Regression guard: any change that drops pass count below the
-    // floor or raises fail count above the ceiling fails the test.
-    // Bumped as known-issue categories get fixed.
+    // Regression guard, two layers:
     //
-    // `up` (round-away-from-zero, directional) is honored via a
-    // runner-side two-pass wrapper that uses TowardZero to detect the
-    // sign of the exact result, then dispatches to TowardPositive or
-    // TowardNegative. `half_down` and `05up` are General Decimal
-    // Arithmetic modes that are not part of IEEE 754-2019; cases under
-    // those directives are skipped rather than coerced into a kernel
-    // mode that doesn't match the spec.
-    // The DPD interchange vectors (dqEncode, dqCanonical) only run
-    // when the `dpd` Cargo feature is enabled. With the feature off,
-    // both files are skipped at the file gate and the original
-    // 8 622-pass baseline holds. With the feature on, dqEncode adds
-    // 368 passes (full coverage) and dqCanonical adds 90 (the
-    // remaining 154 cases use copy / invert / and / or / xor /
-    // rotate / shift / nexttoward / comparesig — same skip class as
-    // elsewhere in the suite, governed by `dispatch_op`).
-    #[cfg(not(feature = "dpd"))]
-    const PASS_FLOOR: usize = 8622;
-    #[cfg(feature = "dpd")]
-    const PASS_FLOOR: usize = 9080;
-    const FAIL_CEILING: usize = 0;
+    // 1. **Per-file expectation table** (below). Each `.decTest`
+    //    file's pass count must match its row exactly. The asymmetry
+    //    is intentional: a legitimate increase requires a one-line
+    //    table edit (explicit, surfaces in git history); a silent
+    //    trade-off (`pass↑file_a + pass↓file_b` = total unchanged)
+    //    becomes a hard failure. ADR-0010 documents the rationale.
+    //
+    // 2. **Aggregate `FAIL_CEILING = 0`**: any failure anywhere
+    //    panics. Skips don't count.
+    //
+    // Notes on what's skipped and why:
+    // * `up` (round-away-from-zero, directional) is honored via a
+    //   runner-side two-pass wrapper that uses TowardZero to detect
+    //   the sign of the exact result, then dispatches to
+    //   TowardPositive or TowardNegative.
+    // * `half_down` and `05up` are General Decimal Arithmetic modes
+    //   that are not part of IEEE 754-2019; cases under those
+    //   directives are skipped rather than coerced into a kernel
+    //   mode that doesn't match the spec (ADR-0005).
+    // * The DPD interchange vectors (dqEncode, dqCanonical) only
+    //   run when the `dpd` Cargo feature is enabled. With the
+    //   feature off, both files are skipped at the file gate.
+    let expected = expected_per_file();
+    let mut mismatch = Vec::new();
+    for (name, exp_passed) in expected {
+        let got = file_results
+            .iter()
+            .find(|(n, _)| n == name)
+            .map(|(_, r)| r.passed)
+            .unwrap_or(0);
+        if got != *exp_passed {
+            mismatch.push((name.to_string(), *exp_passed, got));
+        }
+    }
+    if !mismatch.is_empty() {
+        eprintln!("\nPer-file pass-count mismatch:");
+        for (name, exp, got) in &mismatch {
+            let delta = got.wrapping_sub(*exp) as i64 - if *got < *exp { (*exp - *got) as i64 * 2 } else { 0 };
+            eprintln!("  {name:<28}  expected {exp}  got {got}  (Δ {delta:+})");
+        }
+        eprintln!(
+            "\nIf the change is intentional, update `expected_per_file` in\
+             \ntests/conformance.rs to record the new baseline (one row per\
+             \nfile). See ADR-0010 for why per-file expectations are\
+             \nexact-match rather than floor-only."
+        );
+        panic!("conformance per-file expectation mismatch ({} files)", mismatch.len());
+    }
 
-    assert!(
-        totals.passed >= PASS_FLOOR,
-        "conformance pass count regressed: {} < floor {}",
-        totals.passed,
-        PASS_FLOOR
-    );
+    const FAIL_CEILING: usize = 0;
     // FAIL_CEILING is currently 0; if it ever rises, replace with `<=`.
     #[allow(clippy::absurd_extreme_comparisons)]
     {
@@ -969,4 +993,76 @@ fn compare(
 
 fn mask_status(s: Status) -> Status {
     Status::from_bits_truncate(s.bits())
+}
+
+/// Per-file expected `passed` count for the decTest run.
+///
+/// Asserted exactly (not as a floor) so that any silent trade-off
+/// — e.g. a refactor that adds 4 passes in one file while regressing
+/// 4 in another — fails the test instead of slipping through. ADR-0010
+/// covers the design rationale.
+///
+/// When making a change that legitimately moves a count, edit the
+/// corresponding row here in the same commit. The diff then surfaces
+/// the trade-off explicitly in code review.
+///
+/// `dqEncode` and `dqCanonical` are gated on the `dpd` feature; the
+/// runner records them as 0 / 0 / 0 when the feature is off so the
+/// table below stays a single source of truth across both feature
+/// configurations.
+fn expected_per_file() -> &'static [(&'static str, usize)] {
+    #[cfg(not(feature = "dpd"))]
+    {
+        &[
+            ("dqAbs.decTest", 75),
+            ("dqAdd.decTest", 1004),
+            ("dqCanonical.decTest", 0),
+            ("dqClass.decTest", 42),
+            ("dqCompare.decTest", 659),
+            ("dqCompareTotal.decTest", 613),
+            ("dqCompareTotalMag.decTest", 613),
+            ("dqDivide.decTest", 687),
+            ("dqEncode.decTest", 0),
+            ("dqFMA.decTest", 1425),
+            ("dqLogB.decTest", 109),
+            ("dqMax.decTest", 257),
+            ("dqMin.decTest", 247),
+            ("dqMinus.decTest", 43),
+            ("dqMultiply.decTest", 473),
+            ("dqNextMinus.decTest", 84),
+            ("dqNextPlus.decTest", 84),
+            ("dqQuantize.decTest", 622),
+            ("dqRemainderNear.decTest", 530),
+            ("dqSameQuantum.decTest", 333),
+            ("dqScaleB.decTest", 202),
+            ("dqSubtract.decTest", 520),
+        ]
+    }
+    #[cfg(feature = "dpd")]
+    {
+        &[
+            ("dqAbs.decTest", 75),
+            ("dqAdd.decTest", 1004),
+            ("dqCanonical.decTest", 90),
+            ("dqClass.decTest", 42),
+            ("dqCompare.decTest", 659),
+            ("dqCompareTotal.decTest", 613),
+            ("dqCompareTotalMag.decTest", 613),
+            ("dqDivide.decTest", 687),
+            ("dqEncode.decTest", 368),
+            ("dqFMA.decTest", 1425),
+            ("dqLogB.decTest", 109),
+            ("dqMax.decTest", 257),
+            ("dqMin.decTest", 247),
+            ("dqMinus.decTest", 43),
+            ("dqMultiply.decTest", 473),
+            ("dqNextMinus.decTest", 84),
+            ("dqNextPlus.decTest", 84),
+            ("dqQuantize.decTest", 622),
+            ("dqRemainderNear.decTest", 530),
+            ("dqSameQuantum.decTest", 333),
+            ("dqScaleB.decTest", 202),
+            ("dqSubtract.decTest", 520),
+        ]
+    }
 }

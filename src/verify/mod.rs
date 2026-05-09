@@ -21,6 +21,9 @@ mod div;
 mod dpd;
 mod encode;
 mod mul;
+mod nan_payload;
+#[cfg(feature = "pow")]
+mod pow;
 mod quantum;
 mod rem;
 mod sqrt;
