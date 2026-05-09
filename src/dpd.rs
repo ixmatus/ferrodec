@@ -193,6 +193,24 @@ impl Decimal128 {
     /// interchange adapter only. See ADR-0001 (BID storage choice) and
     /// ADR-0009 (DPD interchange).
     ///
+    /// **Round-trip contract.** The pair `from_dpd_bytes(to_dpd_bytes(x))`
+    /// is bit-equal to `x.canonicalize()`, not necessarily to `x`. The
+    /// two diverge for non-canonical inputs reachable through
+    /// `Decimal128::from_bits`:
+    ///
+    /// * NaN payloads at or above `10^33` cannot be represented as
+    ///   11 declets and canonicalize to a zero payload on the DPD
+    ///   side.
+    /// * Form A coefficients at or above `10^34` decode as zero per
+    ///   IEEE 754-2019 §3.5.2 before the DPD encode step.
+    /// * `Decimal128::INFINITY` with low-bit junk emits canonical
+    ///   `±Infinity` bytes; `Decimal128::NAN` with bits 120..110 set
+    ///   emits canonical NaN bytes.
+    ///
+    /// For any *canonical* `Decimal128` the round-trip is bit-equal.
+    /// `tests/property_from_bits.rs::dpd_roundtrip_via_canonical`
+    /// pins the projection property over arbitrary 128-bit inputs.
+    ///
     /// # Examples
     ///
     /// ```
@@ -633,6 +651,46 @@ mod tests {
                 d.to_bits(),
                 "NaN payload {p} round-trip failed",
             );
+        }
+    }
+
+    #[test]
+    fn nan_with_non_canonical_payload_round_trips_via_canonicalize() {
+        // The M11 finding: NaN payloads ≥ 10^33 cannot be represented
+        // as 11 declets (the BCD encoding has a hard 33-digit ceiling).
+        // The contract therefore is "round-trip equals canonicalize",
+        // not "round-trip equals input". Pin it for both NaN flavours
+        // and both signs across the boundary, so a future refactor of
+        // either pack_dpd_nan or canonicalize cannot diverge silently.
+        let non_canonical = [
+            TEN_POW_33,         // exactly the boundary
+            TEN_POW_33 + 1,
+            (1u128 << 110) - 1, // largest payload representable in BID
+        ];
+        for &p in &non_canonical {
+            for sign in [false, true] {
+                for signaling in [false, true] {
+                    let bid_bits = if signaling {
+                        bid::pack_signaling_nan(sign, p)
+                    } else {
+                        bid::pack_quiet_nan(sign, p)
+                    };
+                    let d = Decimal128::from_bits(bid_bits);
+                    let recovered = Decimal128::from_dpd_bytes(d.to_dpd_bytes());
+                    let canonical = d.canonicalize();
+                    assert_eq!(
+                        recovered.to_bits(),
+                        canonical.to_bits(),
+                        "non-canonical NaN payload {p:#x} sign={sign} sig={signaling}: \
+                         dpd round-trip should equal canonicalize",
+                    );
+                    // Sanity: recovered NaN and canonical NaN agree on
+                    // sign and signaling flavour.
+                    assert!(recovered.is_nan());
+                    assert_eq!(recovered.is_signaling_nan(), canonical.is_signaling_nan());
+                    assert_eq!(recovered.is_sign_negative(), sign);
+                }
+            }
         }
     }
 

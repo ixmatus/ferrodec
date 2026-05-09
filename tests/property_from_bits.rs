@@ -106,21 +106,34 @@ mod dpd_total {
             let _ = d.to_dpd_bytes();
         }
 
-        /// Round-trip through DPD always yields a value numerically
-        /// equal to (or NaN-equivalent to) the canonicalised input.
-        /// Not bit-equal because non-canonical inputs canonicalise
-        /// before encode.
+        /// `from_dpd_bytes(to_dpd_bytes(x))` is bit-equal to
+        /// `x.canonicalize()` for every 128-bit input. The DPD codec
+        /// is a projection through canonicalize: non-canonical NaN
+        /// payloads (≥ 10^33) and non-canonical Form A coefficients
+        /// (≥ 10^34) collapse on encode and re-emerge as the
+        /// canonical form on decode.
+        ///
+        /// This is the M11 finding's contract: the agent flagged
+        /// that bit-identity round-trip is impossible for
+        /// non-canonical NaN payloads, but a *projection* identity
+        /// holds and is exactly what the API documents.
         #[test]
         fn dpd_roundtrip_via_canonical(bits in any::<u128>()) {
             let d = Decimal128::from_bits(bits);
             let c = d.canonicalize();
             let r = Decimal128::from_dpd_bytes(d.to_dpd_bytes());
-            if c.is_nan() {
-                prop_assert!(r.is_nan());
-            } else {
-                let (cmp, _) = c.partial_cmp(r);
-                prop_assert_eq!(cmp, Some(core::cmp::Ordering::Equal));
-            }
+            // Bit-equal against the canonicalised reference: this
+            // strictly subsumes "NaN-status agrees" and "numerical
+            // value agrees", and it specifically catches NaN payload
+            // drift between BID canonicalize and DPD encode.
+            prop_assert_eq!(
+                r.to_bits(),
+                c.to_bits(),
+                "round-trip mismatch: input bits {:#034x}, canonicalize {:#034x}, dpd round-trip {:#034x}",
+                bits,
+                c.to_bits(),
+                r.to_bits(),
+            );
         }
     }
 }
