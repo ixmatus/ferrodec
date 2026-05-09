@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.14.0] - 2026-05-09
+
+### Added
+
+- **`IeeeClass` enum and `Decimal128::ieee_class()`** (M9). The
+  IEEE 754-2019 §5.7.2 `class(x)` operation, exposing all ten
+  classes the standard distinguishes: `SignalingNaN`,
+  `QuietNaN`, `NegativeInfinity`, `NegativeNormal`,
+  `NegativeSubnormal`, `NegativeZero`, `PositiveZero`,
+  `PositiveSubnormal`, `PositiveNormal`, `PositiveInfinity`.
+  Quiet by IEEE definition: an sNaN input does not raise
+  `Status::INVALID`. The existing `Decimal128::classify() ->
+  core::num::FpCategory` (five variants) stays unchanged for
+  parity with `f32` / `f64`. NaN classes are unsigned by
+  convention; the sign bit on a NaN remains observable through
+  `Decimal128::is_sign_negative` but does not split
+  `QuietNaN` / `SignalingNaN` into signed variants.
+
+  This closes the M9 finding from the 6-agent review of 1.12.0,
+  which flagged the absence of a public ten-class enum as an API
+  completeness gap against the IEEE standard.
+
+  Minor version bump because the new enum and method are public
+  API additions.
+
 ## [1.13.1] - 2026-05-09
 
 Closes the remaining MEDIUM and LOW backlog from the 6-agent

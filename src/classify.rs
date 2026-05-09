@@ -12,6 +12,56 @@ use crate::bid::{
 };
 use crate::decimal::Decimal128;
 
+/// IEEE 754-2019 §5.7.2 `class(x)` enum, exposing all ten standard
+/// classes a decimal floating-point datum can occupy.
+///
+/// Each value of [`Decimal128`] belongs to exactly one variant.
+/// Use [`Decimal128::ieee_class`] to obtain it. The standard's class
+/// operation is required to be quiet — calling `ieee_class` on a
+/// signaling NaN does *not* raise `Status::INVALID`.
+///
+/// NaN classes do not carry sign by IEEE convention: a sign bit set
+/// on a NaN is observable through [`Decimal128::is_sign_negative`]
+/// but does not split [`IeeeClass::QuietNaN`] or
+/// [`IeeeClass::SignalingNaN`] into signed variants.
+///
+/// For a coarser classification matching `f32` / `f64`, use
+/// [`Decimal128::classify`], which returns [`core::num::FpCategory`]
+/// (five variants).
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum IeeeClass {
+    /// Signaling NaN. Most operations consume this and raise
+    /// `Status::INVALID`; the class operation itself is quiet
+    /// (per IEEE 754-2019 §5.7.2).
+    SignalingNaN,
+    /// Quiet NaN. Propagates through arithmetic without raising
+    /// `Status::INVALID` (a property called *quiet* propagation).
+    QuietNaN,
+    /// `−∞`.
+    NegativeInfinity,
+    /// Negative finite value with magnitude at or above
+    /// [`Decimal128::MIN_POSITIVE_NORMAL`] (`10^−6143`).
+    NegativeNormal,
+    /// Negative finite value with magnitude strictly below
+    /// [`Decimal128::MIN_POSITIVE_NORMAL`] but strictly above zero.
+    NegativeSubnormal,
+    /// `−0`. Distinct from [`IeeeClass::PositiveZero`] under
+    /// [`Decimal128::total_cmp`] but equal under
+    /// [`Decimal128::partial_cmp`].
+    NegativeZero,
+    /// `+0`. See [`IeeeClass::NegativeZero`] for the comparison
+    /// semantics.
+    PositiveZero,
+    /// Positive finite value strictly below
+    /// [`Decimal128::MIN_POSITIVE_NORMAL`] and strictly above zero.
+    PositiveSubnormal,
+    /// Positive finite value at or above
+    /// [`Decimal128::MIN_POSITIVE_NORMAL`].
+    PositiveNormal,
+    /// `+∞`.
+    PositiveInfinity,
+}
+
 /// Maximum canonical NaN payload: `10^33` (i.e. payload representable as a
 /// 33-decimal-digit integer). Used by `is_canonical` and `canonicalize`.
 const MAX_CANONICAL_NAN_PAYLOAD: u128 = 10u128.pow(33);
@@ -132,6 +182,9 @@ impl Decimal128 {
     /// IEEE 754 floating-point class.
     ///
     /// Maps to [`core::num::FpCategory`] for parity with `f32`/`f64`.
+    /// For the full IEEE 754-2019 §5.7.2 ten-class enumeration that
+    /// distinguishes sign and signaling-NaN versus quiet-NaN, see
+    /// [`Decimal128::ieee_class`].
     #[inline]
     #[must_use]
     pub const fn classify(self) -> FpCategory {
@@ -149,6 +202,54 @@ impl Decimal128 {
                     FpCategory::Normal
                 } else {
                     FpCategory::Subnormal
+                }
+            }
+        }
+    }
+
+    /// IEEE 754-2019 §5.7.2 `class(x)` operation.
+    ///
+    /// Returns the value's exact class out of the ten the standard
+    /// distinguishes (see [`IeeeClass`] for the variant list).
+    /// Quiet by IEEE definition — does *not* raise `Status::INVALID`
+    /// on a signaling-NaN input.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use ferrodec::{Decimal128, IeeeClass};
+    /// assert_eq!(Decimal128::ONE.ieee_class(), IeeeClass::PositiveNormal);
+    /// assert_eq!(Decimal128::NEG_ZERO.ieee_class(), IeeeClass::NegativeZero);
+    /// assert_eq!(Decimal128::INFINITY.ieee_class(), IeeeClass::PositiveInfinity);
+    /// assert_eq!(Decimal128::SIGNALING_NAN.ieee_class(), IeeeClass::SignalingNaN);
+    /// assert_eq!(
+    ///     Decimal128::MIN_POSITIVE.ieee_class(),
+    ///     IeeeClass::PositiveSubnormal,
+    /// );
+    /// ```
+    #[inline]
+    #[must_use]
+    pub const fn ieee_class(self) -> IeeeClass {
+        match classify_bits(self.0) {
+            Class::SignalingNaN { .. } => IeeeClass::SignalingNaN,
+            Class::QuietNaN { .. } => IeeeClass::QuietNaN,
+            Class::Infinity { sign: true } => IeeeClass::NegativeInfinity,
+            Class::Infinity { sign: false } => IeeeClass::PositiveInfinity,
+            Class::Zero { sign: true, .. } => IeeeClass::NegativeZero,
+            Class::Zero { sign: false, .. } => IeeeClass::PositiveZero,
+            Class::Finite {
+                sign,
+                biased_exp,
+                coefficient,
+            } => {
+                // Same normal/subnormal split as `classify`.
+                let digits = decimal_digit_count(coefficient);
+                let normal = biased_exp + digits >= PRECISION;
+                match (sign, normal) {
+                    (true, true) => IeeeClass::NegativeNormal,
+                    (true, false) => IeeeClass::NegativeSubnormal,
+                    (false, true) => IeeeClass::PositiveNormal,
+                    (false, false) => IeeeClass::PositiveSubnormal,
                 }
             }
         }
@@ -521,6 +622,114 @@ mod tests {
         assert!(v.is_normal());
         assert!(!v.is_subnormal());
         assert_eq!(v.classify(), FpCategory::Normal);
+    }
+
+    #[test]
+    fn ieee_class_covers_all_ten_variants() {
+        // Walk every IEEE 754-2019 §5.7.2 class against a
+        // representative input. The set of inputs is exhaustive on
+        // the class enum: every variant has at least one input that
+        // produces it, and every input maps to exactly one variant.
+        assert_eq!(
+            Decimal128::SIGNALING_NAN.ieee_class(),
+            IeeeClass::SignalingNaN,
+        );
+        assert_eq!(Decimal128::NAN.ieee_class(), IeeeClass::QuietNaN);
+        // qNaN with sign set still lands in QuietNaN (NaN class
+        // doesn't carry sign per IEEE).
+        assert_eq!(Decimal128::NAN.neg().ieee_class(), IeeeClass::QuietNaN,);
+        assert_eq!(
+            Decimal128::NEG_INFINITY.ieee_class(),
+            IeeeClass::NegativeInfinity,
+        );
+        assert_eq!(
+            Decimal128::INFINITY.ieee_class(),
+            IeeeClass::PositiveInfinity,
+        );
+        assert_eq!(Decimal128::NEG_ZERO.ieee_class(), IeeeClass::NegativeZero);
+        assert_eq!(Decimal128::ZERO.ieee_class(), IeeeClass::PositiveZero);
+        assert_eq!(
+            Decimal128::MIN_POSITIVE.ieee_class(),
+            IeeeClass::PositiveSubnormal,
+        );
+        assert_eq!(
+            Decimal128::MIN_POSITIVE.neg().ieee_class(),
+            IeeeClass::NegativeSubnormal,
+        );
+        assert_eq!(Decimal128::ONE.ieee_class(), IeeeClass::PositiveNormal);
+        assert_eq!(Decimal128::NEG_ONE.ieee_class(), IeeeClass::NegativeNormal,);
+        assert_eq!(Decimal128::MAX.ieee_class(), IeeeClass::PositiveNormal);
+        assert_eq!(Decimal128::MIN.ieee_class(), IeeeClass::NegativeNormal);
+        assert_eq!(
+            Decimal128::MIN_POSITIVE_NORMAL.ieee_class(),
+            IeeeClass::PositiveNormal,
+        );
+    }
+
+    #[test]
+    fn ieee_class_is_quiet_on_signaling_nan() {
+        // IEEE 754-2019 §5.7.2 specifies the class operation as
+        // *quiet*: an sNaN input must NOT raise a status flag.
+        // ferrodec's `ieee_class` returns plain `IeeeClass`, so
+        // there is nowhere for INVALID to land — verify by
+        // constructing an sNaN with a distinctive payload and
+        // confirming the call has no side-effect (no panic, plain
+        // SignalingNaN result).
+        let snan = Decimal128::from_bits(crate::bid::pack_signaling_nan(true, 0xCAFE));
+        assert_eq!(snan.ieee_class(), IeeeClass::SignalingNaN);
+        // Idempotent: calling again gives the same answer.
+        assert_eq!(snan.ieee_class(), IeeeClass::SignalingNaN);
+    }
+
+    #[test]
+    fn ieee_class_agrees_with_fpcategory_on_coarse_classes() {
+        // The ten IeeeClass variants collapse to the five
+        // FpCategory variants under a documented mapping. Pin the
+        // mapping for every IeeeClass so a future split (e.g.
+        // someone adding a sign to NaN classes by mistake) fails
+        // loud.
+        for (d, ieee, fp) in [
+            (
+                Decimal128::SIGNALING_NAN,
+                IeeeClass::SignalingNaN,
+                FpCategory::Nan,
+            ),
+            (Decimal128::NAN, IeeeClass::QuietNaN, FpCategory::Nan),
+            (
+                Decimal128::INFINITY,
+                IeeeClass::PositiveInfinity,
+                FpCategory::Infinite,
+            ),
+            (
+                Decimal128::NEG_INFINITY,
+                IeeeClass::NegativeInfinity,
+                FpCategory::Infinite,
+            ),
+            (Decimal128::ZERO, IeeeClass::PositiveZero, FpCategory::Zero),
+            (
+                Decimal128::NEG_ZERO,
+                IeeeClass::NegativeZero,
+                FpCategory::Zero,
+            ),
+            (
+                Decimal128::ONE,
+                IeeeClass::PositiveNormal,
+                FpCategory::Normal,
+            ),
+            (
+                Decimal128::NEG_ONE,
+                IeeeClass::NegativeNormal,
+                FpCategory::Normal,
+            ),
+            (
+                Decimal128::MIN_POSITIVE,
+                IeeeClass::PositiveSubnormal,
+                FpCategory::Subnormal,
+            ),
+        ] {
+            assert_eq!(d.ieee_class(), ieee);
+            assert_eq!(d.classify(), fp);
+        }
     }
 
     #[test]
