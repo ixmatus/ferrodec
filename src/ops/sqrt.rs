@@ -58,12 +58,17 @@ fn sqrt_special_cases(a: Decimal128) -> Option<(Decimal128, Status)> {
 
     match cls {
         Class::Zero { sign, biased_exp } => {
-            // sqrt(±0) = ±0. Quantum convention: the sqrt of a zero with
-            // quantum q has quantum ⌊q/2⌋. We just keep the input quantum;
-            // a stricter implementation would re-emit at ⌊q/2⌋.
-            let _ = biased_exp;
+            // sqrt(±0) = ±0 with quantum ⌊q/2⌋, matching the
+            // dec-spec rule (IBM dqSquareRoot.decTest sqx020 et seq.)
+            // and IEEE 754-2019 §6.3 preferred-quantum convention
+            // applied to the zero cohort. div_euclid floors toward
+            // −∞, which matches the IEEE rule for negative quanta
+            // (q = −33 → q′ = −17, not −16).
+            let q_in = biased_exp as i32 - BIAS as i32;
+            let q_out = q_in.div_euclid(2);
+            let biased_out = (q_out + BIAS as i32) as u32;
             Some((
-                Decimal128::from_bits(pack_finite(sign, biased_exp, 0)),
+                Decimal128::from_bits(pack_finite(sign, biased_out, 0)),
                 status,
             ))
         }
@@ -164,6 +169,35 @@ mod tests {
         let (r, _) = Decimal128::NEG_ZERO.sqrt(RoundingMode::default());
         assert!(r.is_zero());
         assert!(r.is_sign_negative());
+    }
+
+    #[test]
+    fn zero_sqrt_halves_quantum() {
+        // dec-spec: sqrt(0E+k) = 0E+⌊k/2⌋. The cohort matters even
+        // for zero — `same_quantum` distinguishes 0E+10 from 0E+5.
+        // Walks both signs of zero and a mix of positive / negative
+        // / odd / even quanta to lock the floor-toward-−∞ rule.
+        for sign in [false, true] {
+            for &q_in in &[0i32, 1, 2, 10, -1, -10, -33, 6111, -6176] {
+                let bexp = (q_in + BIAS as i32) as u32;
+                let zero_in = d_finite(sign, bexp, 0);
+                let (r, s) = zero_in.sqrt(RoundingMode::default());
+                assert!(r.is_zero());
+                assert_eq!(r.is_sign_negative(), sign);
+                assert!(s.is_ok());
+
+                let q_out = q_in.div_euclid(2);
+                let bexp_out = (q_out + BIAS as i32) as u32;
+                let expected = d_finite(sign, bexp_out, 0);
+                assert!(
+                    r.same_quantum(expected),
+                    "sqrt(0 sign={sign} q={q_in}) → quantum should be {q_out}, \
+                     got bits={:#034x} expected_bits={:#034x}",
+                    r.to_bits(),
+                    expected.to_bits(),
+                );
+            }
+        }
     }
 
     #[test]
