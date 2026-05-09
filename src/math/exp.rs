@@ -95,10 +95,19 @@ fn exp_kernel(x: Decimal128, rm: RoundingMode) -> (Decimal128, Status) {
 /// any magnitude this routine handles the OVERFLOW / UNDERFLOW
 /// thresholds internally.
 pub(super) fn exp_from_extended(x_ext: Extended, rm: RoundingMode) -> (Decimal128, Status) {
-    // Magnitude gate: `exp` overflows to +∞ at x ≈ +14149 and
-    // underflows to +0 at x ≈ −14150. Compare directly at extended
-    // precision (no Decimal128 round-trip needed).
-    if x_ext.abs().cmp(Extended::EXP_DOMAIN_LIMIT) == core::cmp::Ordering::Greater {
+    // Magnitude gate: `exp` overflows past `+ln(MAX) ≈ +14149.4` and
+    // underflows past `−ln(1/MIN_SUBNORMAL) ≈ −14223`. The
+    // thresholds are asymmetric because Decimal128's exponent range
+    // is lopsided (E_MAX = 6144, MIN_SUBNORMAL exponent = −6176).
+    // Inputs in `(−14223, −14150]` produce subnormals — must NOT
+    // short-circuit to zero, the Taylor pipeline handles them.
+    let abs = x_ext.abs();
+    let limit = if x_ext.sign {
+        Extended::EXP_UNDERFLOW_LIMIT
+    } else {
+        Extended::EXP_OVERFLOW_LIMIT
+    };
+    if abs.cmp(limit) == core::cmp::Ordering::Greater {
         return if x_ext.sign {
             (Decimal128::ZERO, Status::UNDERFLOW | Status::INEXACT)
         } else {
@@ -213,11 +222,14 @@ fn taylor_exp_ext(r: Extended) -> Extended {
 }
 
 /// Coarse extreme-magnitude detection. Returns `Some((±∞ or ±0, status))`
-/// when the input is way outside the convergence window.
+/// when the input is way outside the convergence window. Asymmetric
+/// thresholds — see [`Extended::EXP_OVERFLOW_LIMIT`] /
+/// [`Extended::EXP_UNDERFLOW_LIMIT`] for why.
 fn saturate_extreme(x: Decimal128) -> Option<(Decimal128, Status)> {
     let positive = !x.is_sign_negative();
     let abs_x = x.abs();
-    let threshold = Decimal128::parse_str("14150", RoundingMode::NearestEven)
+    let threshold_str = if positive { "14150" } else { "14221" };
+    let threshold = Decimal128::parse_str(threshold_str, RoundingMode::NearestEven)
         .expect("threshold parses")
         .0;
     let (cmp, _) = abs_x.partial_cmp(threshold);
@@ -330,6 +342,34 @@ mod tests {
         let (r, s) = big_neg.exp(RoundingMode::NearestEven);
         assert!(r.is_zero());
         assert!(s.underflow());
+    }
+
+    #[test]
+    fn exp_subnormal_window_does_not_saturate_to_zero() {
+        // Pre-1.13 the underflow gate was symmetric at ±14150, but
+        // the real underflow boundary is wider on the negative side.
+        // The smallest representable Decimal128 subnormal is
+        // `1 × 10⁻⁶¹⁷⁶`, and round-to-nearest-even maps any
+        // `exp(x) < ½ × MIN_SUBNORMAL` to +0; that cutoff sits at
+        // x ≈ −14220.85. Inputs strictly between −14221 and −14150
+        // produce subnormal-but-non-zero results (e.g. exp(−14200)
+        // ≈ 10⁻⁶¹⁶⁷) and the kernel must NOT saturate them.
+        for s in ["-14151", "-14200", "-14219"] {
+            let x = parse(s);
+            let (r, st) = x.exp(RoundingMode::NearestEven);
+            assert!(
+                !r.is_zero(),
+                "exp({s}) should produce a representable subnormal, \
+                 got 0 (status {st:?})",
+            );
+            assert!(r.is_finite() && !r.is_sign_negative());
+            assert!(st.inexact());
+        }
+        // Past the round-to-zero boundary, saturate is correct.
+        let too_far = parse("-14225");
+        let (r, st) = too_far.exp(RoundingMode::NearestEven);
+        assert!(r.is_zero(), "exp(-14225) is past MIN_SUBNORMAL/2");
+        assert!(st.underflow());
     }
 
     extern crate alloc;

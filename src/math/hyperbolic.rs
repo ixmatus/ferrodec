@@ -256,7 +256,7 @@ fn sinh_ext(x: Extended) -> Extended {
     // Saturation: |x| past the exp convergence ceiling lands outside
     // Decimal128's range. Return a pre-overflow magnitude with the
     // sign of x; the boundary round produces ±∞ + OVERFLOW.
-    if x.abs().cmp(Extended::EXP_DOMAIN_LIMIT) == core::cmp::Ordering::Greater {
+    if x.abs().cmp(Extended::EXP_OVERFLOW_LIMIT) == core::cmp::Ordering::Greater {
         return Extended::saturate_overflow(x.sign);
     }
     // sinh(x) = (e^x − e^{-x}) / 2, evaluated entirely at extended
@@ -306,7 +306,7 @@ fn cosh_ext(abs_x: Extended) -> Extended {
     }
     // Saturation: |x| past the exp convergence ceiling lands outside
     // Decimal128's range. cosh is always positive.
-    if abs_x.cmp(Extended::EXP_DOMAIN_LIMIT) == core::cmp::Ordering::Greater {
+    if abs_x.cmp(Extended::EXP_OVERFLOW_LIMIT) == core::cmp::Ordering::Greater {
         return Extended::saturate_overflow(false);
     }
     // cosh(x) = (e^x + e^{-x}) / 2, end-to-end at extended precision.
