@@ -7,6 +7,88 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.13.1] - 2026-05-09
+
+Closes the remaining MEDIUM and LOW backlog from the 6-agent
+review of 1.12.0. No public API changes; one observable behavior
+change for a previously untriggered FMA tie shape (M6).
+
+### Fixed
+
+- **`total_cmp` same-rank arms assert sign agreement** (M1).
+  The same-rank dispatch destructured both operands but passed
+  only the *left* operand's sign to the tie-break helpers,
+  relying on the rank table's implicit "same rank means same
+  sign" invariant. The discard worked in practice but made the
+  kernel fragile under future rank-table changes. Each same-rank
+  arm (NaN, Zero, Finite) now captures both signs and asserts
+  they agree, with two new regression tests covering NaN payload
+  and zero cohort antisymmetry across both signs.
+
+- **DPD round-trip contract documented as projection-via-canonicalize**
+  (M11). NaN payloads at or above `10^33` cannot be represented as
+  11 declets, so `from_dpd_bytes(to_dpd_bytes(x))` is bit-equal
+  to `x.canonicalize()`, not necessarily to `x`. The encode
+  behavior was already correct; the public docs were silent
+  about the contract. `to_dpd_bytes` rustdoc gains an explicit
+  "Round-trip contract" section listing the three classes of
+  non-canonical input that collapse on encode. The proptest in
+  `property_from_bits.rs` tightens its NaN branch to bit-equal
+  comparison against `d.canonicalize().to_bits()`, and a new
+  unit test walks the boundary across both NaN flavours and
+  both signs.
+
+- **FMA single-rounds the same-sign ab-dominates-in-range path** (M6).
+  When the exact product `a × b` has its 35th digit on a `5000…0`
+  tie that round-half-even would resolve down (kept LSB even),
+  and `c` is sub-ULP same-sign at a quantum far below `qab`, the
+  legacy mul-then-add formulation lost the ability to use c's
+  sticky to break the tie up. The FMA kernel now routes
+  same-sign through `sub_ulp_round(cab, qab, sab, false, rm)`,
+  which gives the correctly single-rounded answer. Opposite-sign
+  retains the legacy path under a documented caveat (the proper
+  fix would have to subtract c's sub-ULP residue from cab's
+  natural drop residue and re-decide the round; impact bounded
+  by the rarity of an opposite-sign 35th-digit exact tie).
+
+### Internal
+
+- **addsub `decide_round_up` Equal arm** (L1). The case-by-case
+  bound analysis showed `compare_two_cs_to_ten_pow` can never
+  return `Equal` on this path under the caller's preconditions.
+  Replace the silent "fall back to round up" comment with
+  `debug_assert!(false, …)` so any future relaxation of
+  `align_limit_for` fails loud rather than silently exposing a
+  parity bug. Release builds keep the round-up fallback as the
+  only sound choice if the invariant breaks.
+
+- **addsub `add_finite_finite` post-cancellation** (L4).
+  Document and assert that the `combined.is_zero() && !sticky`
+  branch is reachable only via `effective_sub`.
+
+- **`min` / `max` doc clarification**. The module header claimed
+  "IEEE 754-2019 §9.6 minimum/maximum", but the implementation
+  matches the §9.6 *minimumNumber* / *maximumNumber* variants
+  (qNaN as missing value, not as poison). Rewrite to make the
+  variant explicit and cross-reference both 754-2008 minNum and
+  the General Decimal Arithmetic spec.
+
+- **trig qNaN payload preservation test**. New unit test
+  `trig_qnan_preserves_payload_bit_for_bit` walks `sin` / `cos` /
+  `tan` against a distinctive qNaN and sNaN payload, asserts
+  bit-identity for qNaN and payload survival across the sNaN
+  quietening step. Pins the contract a future refactor that
+  funnelled qNaN through `nan_from`'s canonicalize call would
+  break.
+
+- **argred docstrings corrected** (M8 plus trig M3).
+  `FRAC_DIGITS` docstring now states the real margin (43 − 34 = 9
+  digits past Decimal128's 34-digit envelope, which is the margin
+  callers care about). The `I_HI_OFFSET` figure in
+  `make_residual`'s comment was 77 from a much older
+  `FRAC_DIGITS`; it is now 113 (`76 + 33 + 4`), with `q_max +
+  113 = 6224 ≤ 6300` recomputed accordingly. No code change.
+
 ## [1.13.0] - 2026-05-09
 
 Eleven correctness bugs surfaced by a 6-agent review of the 1.12.0
