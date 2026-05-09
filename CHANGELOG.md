@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.14.3] - 2026-05-09
+
+Documentation-only release. No code change; the published artifact
+behaves identically to 1.14.2. Closes the polish backlog from the
+6-agent review of 1.12.0.
+
+### Documentation
+
+- **tanh saturation threshold rationale** in `src/math/hyperbolic.rs`.
+  The `|x| > 80` saturation cutoff is conservative; the true
+  `|tanh(x) − 1| < ulp(1)` boundary at 34-digit precision sits at
+  `|x| ≈ 38`. The gap is intentional (composes with sinh / cosh's
+  shared `EXP_OVERFLOW_LIMIT = 14150` ceiling) and rarely hit in
+  practice. Comment now documents both the reasoning and the
+  rounding-correctness floor.
+- **acosh log1p threshold cancellation budget** in
+  `src/math/hyperbolic.rs`. The `0.01` boundary was justified by
+  Taylor convergence on the log1p side; comment now also documents
+  the cancellation budget on the direct `x² − 1` side (loss of
+  ≈ 2 digits at the boundary, well inside Extended's ~16-digit
+  headroom over Decimal128). Future tweaks know what they're
+  trading.
+- **FMA overflow sub-ULP sticky-sign safety note** in
+  `src/ops/fma.rs`. The overflow branch seeds `sticky = true` (a
+  positive residue) regardless of c's sign relative to the
+  product. Past MAX, a sub-ULP residue can't pull magnitude back
+  across the boundary, so `overflow_result` picks ±MAX or ±∞ from
+  `(sign, rm)` alone — the sticky-sign confusion that drove the
+  M6 c_too_wide and ab_too_wide fixes is not observable here.
+  Comment makes the safety argument explicit so a future reader
+  doesn't try to "fix" it by mirror.
+
+The HIGH / MEDIUM / LOW correctness backlog from the 6-agent
+review is now fully closed.
+
 ## [1.14.2] - 2026-05-09
 
 ### Fixed
