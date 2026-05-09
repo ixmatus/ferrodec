@@ -218,6 +218,22 @@ fn div_magnitude_extreme_bench(c: &mut Criterion) {
     });
 }
 
+fn div_min_subnormal_over_max_bench(c: &mut Criterion) {
+    // M10 perf-floor case: drives the deepest underflow shift in the
+    // round_and_pack pipeline (~6111 dropped digits). Pre-1.14.1 this
+    // ran the U256 div_rem10 loop 6111 times; the
+    // `extract_dropped_digits` fast path now collapses it to O(log
+    // digits). Pinning the bench so any future regression that
+    // reintroduces the loop becomes a CI-visible slowdown.
+    let min = parse("1e-6176");
+    let max = parse("9.999999999999999999999999999999999e6144");
+    c.bench_function("div_min_subnormal_over_max", |b| {
+        b.iter(|| {
+            black_box(black_box(min).div(black_box(max), RM));
+        });
+    });
+}
+
 criterion_group!(
     benches,
     add_bench,
@@ -230,5 +246,6 @@ criterion_group!(
     sub_alignment_heavy_bench,
     mul_full_precision_bench,
     div_magnitude_extreme_bench,
+    div_min_subnormal_over_max_bench,
 );
 criterion_main!(benches);

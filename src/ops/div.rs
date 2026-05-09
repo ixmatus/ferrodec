@@ -372,4 +372,83 @@ mod tests {
         let (cmp, _) = r.partial_cmp(expected);
         assert_eq!(cmp, Some(core::cmp::Ordering::Equal));
     }
+
+    #[test]
+    fn min_subnormal_over_max_underflows_quickly() {
+        // M10 regression: this division forced a ~6111-iteration
+        // U256 div_rem10 loop in the underflow branch of
+        // round_and_pack_finite. The fast path in
+        // extract_dropped_digits now short-circuits when the shift
+        // exceeds the coefficient's digit count (which holds
+        // trivially for a 1-digit coefficient that needs to be
+        // shifted ~6111 places). Behaviour is unchanged: the result
+        // underflows to ±0 with UNDERFLOW + INEXACT.
+        //
+        // The "quickly" part of the test name is enforced
+        // implicitly: the test would still PASS without the
+        // optimisation but on a Cortex-M0+ release build the loop
+        // would dominate the soft-realtime budget. Pinning the
+        // *behaviour* protects against any regression that lost the
+        // fast path; the perf claim is verified separately by the
+        // benches/ harness.
+        let (r, s) = Decimal128::MIN_POSITIVE.div(Decimal128::MAX, RoundingMode::NearestEven);
+        assert!(r.is_zero(), "MIN_POSITIVE / MAX must underflow to ±0");
+        assert!(!r.is_sign_negative());
+        assert!(s.underflow());
+        assert!(s.inexact());
+
+        // Negative numerator preserves sign through the underflow.
+        let (r, s) = Decimal128::MIN_POSITIVE
+            .neg()
+            .div(Decimal128::MAX, RoundingMode::NearestEven);
+        assert!(r.is_zero());
+        assert!(r.is_sign_negative());
+        assert!(s.underflow());
+        assert!(s.inexact());
+
+        // TowardPositive on a positive numerator still rounds to 0
+        // (the magnitude is below half-ULP_min, so directional
+        // rounding can't pull it into MIN_POSITIVE).
+        let (r, s) = Decimal128::MIN_POSITIVE.div(Decimal128::MAX, RoundingMode::TowardPositive);
+        assert!(r.is_zero() || r == Decimal128::MIN_POSITIVE);
+        assert!(s.underflow() || s.inexact());
+    }
+
+    #[test]
+    fn min_subnormal_over_max_far_below_half_ulp_rounds_to_zero() {
+        // Stress the `n > digits` fast path explicitly: the
+        // numerator's coef is 1 (one digit), the shift is ~6111.
+        // Round-to-nearest-even sees round_digit = 0 and sticky =
+        // true (since the coef is non-zero), so the result rounds
+        // to 0 (round_digit < 5). Other modes:
+        //
+        // * NearestAway: same as NearestEven here (round_digit < 5).
+        // * TowardZero: always rounds toward 0.
+        // * TowardPositive: rounds toward +∞; for a positive value
+        //   slightly above zero, picks MIN_POSITIVE.
+        // * TowardNegative: for a positive value, picks 0.
+        let v = Decimal128::MIN_POSITIVE;
+        let max = Decimal128::MAX;
+
+        for &rm in &[
+            RoundingMode::NearestEven,
+            RoundingMode::NearestAway,
+            RoundingMode::TowardZero,
+            RoundingMode::TowardNegative,
+        ] {
+            let (r, s) = v.div(max, rm);
+            assert!(r.is_zero(), "{rm:?}: positive tiny / MAX must round to 0");
+            assert!(s.underflow());
+            assert!(s.inexact());
+        }
+        // TowardPositive on the positive tiny picks MIN_POSITIVE.
+        let (r, s) = v.div(max, RoundingMode::TowardPositive);
+        assert_eq!(
+            r.to_bits(),
+            Decimal128::MIN_POSITIVE.to_bits(),
+            "TowardPositive on a positive sub-ULP value picks MIN_POSITIVE",
+        );
+        assert!(s.underflow());
+        assert!(s.inexact());
+    }
 }

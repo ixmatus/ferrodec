@@ -152,6 +152,46 @@ pub(crate) fn round_and_pack_finite(
     finalize_finite(rounded, exp_after, sign, rm, status)
 }
 
+/// `(round_digit, sticky)` for the "drop everything" subnormal-underflow
+/// case where `shift >= digits`. The kept value is provably zero; this
+/// helper only computes the rounding inputs.
+///
+/// Two sub-cases:
+/// * `shift > digits`: every digit of `coef` lies strictly below the
+///   round position, so `round_digit = 0` (a leading-zero position
+///   above MSD) and `sticky = (coef != 0)`.
+/// * `shift == digits`: the round position is exactly `coef`'s MSD.
+///   `sticky` is the OR of every digit below MSD; we extract it via a
+///   bounded `digits - 1` iteration of `div_rem10` (worst case ≤ 77),
+///   an order of magnitude tighter than the original `drop_excess_digits`
+///   loop that ran `shift` ≈ 6111 times for `MIN_SUBNORMAL / MAX`.
+#[inline]
+fn round_digit_for_full_drop(coef: U256, shift: u32, digits: u32) -> (u32, bool) {
+    debug_assert!(shift >= digits);
+    if shift > digits {
+        return (0, !coef.is_zero());
+    }
+    // shift == digits: extract the MSD plus the sticky over the lower
+    // (digits - 1) digits.
+    if digits == 1 {
+        let (_, msd) = coef.div_rem10();
+        return (msd, false);
+    }
+    let mut acc = coef;
+    let mut sticky = false;
+    let mut i = 1u32;
+    while i < digits {
+        let (q, r) = acc.div_rem10();
+        if r != 0 {
+            sticky = true;
+        }
+        acc = q;
+        i += 1;
+    }
+    let (_, msd) = acc.div_rem10();
+    (msd, sticky)
+}
+
 /// Drop `n` low-order decimal digits from `coef`, returning
 /// `(kept, round_digit, sticky)`.
 ///
@@ -162,7 +202,12 @@ pub(crate) fn round_and_pack_finite(
 ///
 /// Single source of truth for the digit-extraction loop used by both
 /// `drop_excess_digits` (precision-overflow path) and `shift_right_decimal`
-/// (subnormal underflow path).
+/// (subnormal underflow path). The cost is O(n) U256 `div_rem10` calls,
+/// so callers with potentially large `n` (the underflow branch can hit
+/// n ≈ 6178 for `MIN_SUBNORMAL / MAX`) should short-circuit upstream
+/// via [`round_digit_for_full_drop`] when `n >= digit_count(coef)`.
+/// Pushing the digit-count check into this hot path costs ~30% on the
+/// common `div` path because `decimal_digit_count` itself is O(digits).
 #[inline]
 fn extract_dropped_digits(mut coef: U256, n: u32, pre_sticky: bool) -> (U256, u32, bool) {
     let mut sticky = pre_sticky;
@@ -274,9 +319,17 @@ fn finalize_finite(
             // Entire coefficient sits below the smallest subnormal LSD.
             // Apply the rounding mode: the result is either ±0 or
             // ±MIN_POSITIVE (= 1 at biased_exp 0).
-            let (kept, _, round_digit, sticky_eff) =
-                drop_excess_digits(coef, shift, false, unbiased_exp);
-            debug_assert!(kept.is_zero(), "all digits should drop");
+            //
+            // Fast path (M10): the original `drop_excess_digits` call
+            // looped `shift` times, hitting ~6111 U256 div_rem10
+            // iterations on the `MIN_SUBNORMAL / MAX` shape. We don't
+            // need any of those iterations — we already know the kept
+            // value is zero (`shift >= digits`), and the only inputs
+            // that govern the rounding decision are `round_digit` and
+            // `sticky`. Compute them in O(digits) bounded work
+            // (digits ≤ 78), the `decimal_digit_count` cost is amortised
+            // by the same call from line 251 above.
+            let (round_digit, sticky_eff) = round_digit_for_full_drop(coef, shift, digits as u32);
             let last_kept = 0;
             let round_up = should_round_up(rm, sign, last_kept, round_digit, sticky_eff);
             let result_coef = u128::from(round_up);

@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.14.1] - 2026-05-09
+
+### Performance
+
+- **Subnormal-underflow fast path** (M10). The
+  `MIN_SUBNORMAL / MAX` shape (and any other path that hits
+  `round_and_pack_finite`'s underflow branch with `shift >= digits`,
+  i.e. the entire coefficient drops below the smallest
+  subnormal LSD) used to spin up to ~6111 U256 `div_rem10`
+  iterations before returning ±0 with `UNDERFLOW + INEXACT`. On
+  Cortex-M0+ (no hardware divide) every iteration pulls in
+  `__udivti3`, so the loop dominated the soft-realtime budget on
+  any embedded target that ever divided two extreme-magnitude
+  decimals.
+
+  New `round_digit_for_full_drop` helper computes the rounding
+  inputs in O(digits) bounded work (worst case ≤ 78 iterations
+  for a U256 coefficient, typically ≤ 34). Apple Silicon bench:
+  `div_min_subnormal_over_max` 66.8 µs → 1.16 µs (**57× faster**).
+  Common `div` path is unchanged.
+
+  The `extract_dropped_digits` hot loop is also unchanged; the
+  digit-count check that the original Phase U attempt put inside
+  it cost ~30% on the common `div` path because
+  `decimal_digit_count` is itself O(digits). Pushing the gate up
+  to the underflow call site (where `digits` is already in scope
+  from the precision-overflow check) avoids that overhead.
+
+### Internal
+
+- New bench `div_min_subnormal_over_max` in `benches/core_ops.rs`
+  pins the M10 perf floor so any future regression that
+  reintroduces the loop becomes visible in CI.
+
 ## [1.14.0] - 2026-05-09
 
 ### Added
