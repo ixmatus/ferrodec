@@ -17,6 +17,8 @@ mod classify;
 mod cmp;
 mod decimal;
 mod div;
+#[cfg(feature = "dpd")]
+mod dpd;
 mod encode;
 mod mul;
 mod quantum;
