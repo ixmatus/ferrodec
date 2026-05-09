@@ -90,6 +90,16 @@ impl Decimal128 {
         // For |x| ≳ 35 ln(10) ≈ 80, tanh saturates to ±1 within
         // Decimal128 precision. The eˣ branch would overflow well
         // before that anyway.
+        //
+        // The 80 threshold is conservative; the actual `|tanh(x) − 1|
+        // < ulp(1)` boundary at 34-digit precision is `|x| ≳ 38`
+        // (≈ 17 × ln(10), since the relative error of tanh past x is
+        // bounded by `2 e^(−2x)` and 1 ULP at unity is `10^−33`).
+        // Tightening would save a few exp calls in the (38, 80] strip
+        // without affecting correctness, but the strip is rarely hit
+        // and the current threshold composes safely with sinh / cosh
+        // which use the same `EXP_OVERFLOW_LIMIT = 14150` ceiling
+        // upstream.
         let abs_x = self.abs();
         let saturate_threshold = Decimal128::parse_str("80", RoundingMode::NearestEven)
             .expect("literal")
@@ -181,6 +191,13 @@ impl Decimal128 {
         //
         // The threshold `0.01` keeps `inner` comfortably inside log1p's
         // Taylor convergence window (`inner ≤ ~0.15` at this y).
+        // Cross-checked against the cancellation budget: at the
+        // boundary `x − 1 = 0.01` the direct `x² − 1` formulation loses
+        // only `digit_count(x − 1) ≈ 2` digits, comfortably inside
+        // Extended's ~16-digit headroom over Decimal128. Lowering the
+        // threshold further would shift the work back to the direct
+        // path without breaking anything; raising it would force
+        // log1p past its smooth convergence window.
         let x_ext = Extended::from_decimal128(self);
         let y = x_ext.sub(Extended::ONE);
         const LOG1P_THRESHOLD: Extended = Extended {

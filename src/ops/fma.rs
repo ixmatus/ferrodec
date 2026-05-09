@@ -472,6 +472,15 @@ fn fma_sub_ulp(
     //   disposition. The legacy `mul`-then-`add` formulation produces
     //   `-MAX + 1 ULP` here instead: `mul` clamps the overflow to
     //   `MIN`, then `add(MIN, sub-ULP_c)` shifts it by one position.
+    //   `sub_ulp_round` seeds `sticky = true` (positive residue),
+    //   which is the *opposite-sign-safe* choice at the overflow
+    //   boundary: even when c is opposite-sign and would shave a
+    //   sub-ULP off the magnitude, the truth is still past MAX (a
+    //   sub-ULP residue can't pull magnitude back across `MAX − 0`).
+    //   `overflow_result` then picks `±MAX` or `±∞` from `(sign,
+    //   rm)` alone. Do not propagate the sign confusion that bit
+    //   the c_too_wide branch (M6) here — there is no observable
+    //   disagreement to chase.
     // * Product in range, c same sign as product — single-round
     //   through `sub_ulp_round(cab, qab, sab, false, rm)`. cab keeps
     //   its full ≤ 68-digit precision; round_and_pack_finite drops
