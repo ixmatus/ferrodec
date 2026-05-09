@@ -153,7 +153,13 @@ fn pow_kernel(x: Decimal128, y: Decimal128, rm: RoundingMode) -> (Decimal128, St
             (Some(core::cmp::Ordering::Less), true) => {
                 return (Decimal128::INFINITY, Status::OK);
             }
-            (Some(core::cmp::Ordering::Equal), _) => unreachable!("|x|=1 handled above"),
+            // pow(±1, ±∞) = 1 per IEEE 754-2019 §9.2.1. Rule 2 above
+            // only short-circuits for x = +1 (so that pow(-1, qNaN)
+            // can still propagate NaN), so the negative-base case
+            // arrives here.
+            (Some(core::cmp::Ordering::Equal), _) => {
+                return (Decimal128::ONE, Status::OK);
+            }
             (None, _) => unreachable!("NaN handled above"),
         }
     }
@@ -458,6 +464,44 @@ mod tests {
         // 0.5^-Inf = Inf
         let (r, _) = parse("0.5").pow(Decimal128::NEG_INFINITY, RoundingMode::NearestEven);
         assert!(r.is_infinite());
+    }
+
+    #[test]
+    fn pow_neg_one_to_infinity_is_one() {
+        // Per IEEE 754-2019 §9.2.1, pow(±1, ±∞) = 1. The previous
+        // implementation panicked at unreachable!() because rule 2's
+        // short-circuit only matched x = +1 (deliberately, so that
+        // pow(-1, qNaN) can still propagate NaN), and rule 6 then
+        // saw |x| = 1 and had no Equal arm.
+        for &y in &[Decimal128::INFINITY, Decimal128::NEG_INFINITY] {
+            let (r, s) = Decimal128::NEG_ONE.pow(y, RoundingMode::NearestEven);
+            assert_eq!(
+                r.to_bits(),
+                Decimal128::ONE.to_bits(),
+                "pow(-1, {y:?}) must be 1"
+            );
+            assert_eq!(s, Status::OK, "pow(-1, {y:?}) must not raise any flag");
+        }
+        // Also confirm pow(+1, ±∞) = 1 (this path used to be handled
+        // by rule 2 alone; the new rule 6 Equal arm covers it too).
+        for &y in &[Decimal128::INFINITY, Decimal128::NEG_INFINITY] {
+            let (r, _) = Decimal128::ONE.pow(y, RoundingMode::NearestEven);
+            assert_eq!(r.to_bits(), Decimal128::ONE.to_bits());
+        }
+    }
+
+    #[test]
+    fn pow_neg_one_qnan_propagates() {
+        // Regression for the rule-2 / rule-3 interplay: extending rule
+        // 2 to |x|=1 would be incorrect because pow(-1, qNaN) must
+        // propagate NaN per IEEE 754-2019 §9.2.1 (rule 2 explicitly
+        // covers only x = +1).
+        let (r, s) = Decimal128::NEG_ONE.pow(Decimal128::NAN, RoundingMode::NearestEven);
+        assert!(r.is_nan(), "pow(-1, NaN) must be NaN, got {r:?}");
+        assert!(!s.invalid(), "pow(-1, qNaN) must not raise INVALID");
+        // Sanity: pow(+1, qNaN) still returns 1.
+        let (r, _) = Decimal128::ONE.pow(Decimal128::NAN, RoundingMode::NearestEven);
+        assert_eq!(r.to_bits(), Decimal128::ONE.to_bits());
     }
 
     #[test]
