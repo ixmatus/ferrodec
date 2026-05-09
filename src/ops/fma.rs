@@ -467,18 +467,29 @@ fn fma_sub_ulp(
         return sub_ulp_eff_sub_c_dominates(cc, qc, q_pref, sc, rm);
     }
 
-    // ab dominates. Two sub-cases:
+    // ab dominates. Three sub-cases:
     //
     // * Product magnitude exceeds `MAX` — go through `sub_ulp_round`,
     //   which routes through `round_and_pack_finite`'s own overflow
     //   disposition. The legacy `mul`-then-`add` formulation produces
     //   `-MAX + 1 ULP` here instead: `mul` clamps the overflow to
     //   `MIN`, then `add(MIN, sub-ULP_c)` shifts it by one position.
-    // * Product magnitude in normal range — defer to legacy
-    //   `mul`-then-`add`. This lets `addsub`'s `sub_ulp_effective_sub`
-    //   pick the correct lower/upper candidate under directed
-    //   rounding (the very logic this kernel would otherwise have to
-    //   re-implement).
+    // * Product in range, c same sign as product — single-round
+    //   through `sub_ulp_round(cab, qab, sab, false, rm)`. cab keeps
+    //   its full ≤ 68-digit precision; round_and_pack_finite drops
+    //   the tail with its own (round_digit, sticky) and OR's the
+    //   passed sticky from c. This is provably equivalent to the
+    //   IEEE single-rounding contract for same-sign sub-ULP c —
+    //   the `mul`-then-`add` formulation can disagree by 1 ULP at
+    //   a 35th-digit `5000…0` tie (M6).
+    // * Product in range, c opposite sign — defer to legacy
+    //   `mul`-then-`add`. The single-rounding fix here would have to
+    //   subtract c's sub-ULP residue from cab's natural drop residue
+    //   and re-decide the round; addsub's `sub_ulp_effective_sub`
+    //   gets the post-mul value's directed rounding right but does
+    //   not compose with the lost mul tie. Tracked as a follow-up;
+    //   real-world impact bounded by the rarity of the trigger
+    //   (35th-digit exact tie *and* opposite-sign sub-ULP c).
     let cab_digits = cab.decimal_digit_count() as i32;
     let cab_top_exp = cab_digits + qab - 1; // log10(magnitude), roughly
     if cab_top_exp > crate::bid::E_MAX {
@@ -486,6 +497,17 @@ fn fma_sub_ulp(
         return sub_ulp_round(cab, qab, sab, false, rm);
     }
 
+    let effective_sub = sab != sc;
+    if !effective_sub {
+        // Same sign: cab dominates with c as positive sub-ULP residue.
+        // sub_ulp_round handles the digit drop with c's sticky bit
+        // OR'd in, giving the correctly single-rounded result.
+        let _ = (a, b, c, cc, qc, sc);
+        return sub_ulp_round(cab, qab, sab, false, rm);
+    }
+
+    // Opposite-sign sub-ULP c: legacy mul-then-add. See the third
+    // bullet above for the known limitation.
     let _ = (cab, qab, sab, cc, qc, sc);
     let (product, st1) = a.mul(b, rm);
     let (sum, st2) = product.add(c, rm);
@@ -834,6 +856,70 @@ mod tests {
             (BIAS as i32 - 33) as u32,
             coef,
         ))
+    }
+
+    #[test]
+    fn fma_ab_dominates_in_range_same_sign_single_rounds() {
+        // M6 regression: when the exact product `a×b` has its 35th
+        // digit on a `5000…0` tie that round-half-even would resolve
+        // *down* (kept LSB = 0), and `c` is sub-ULP same-sign at a
+        // quantum far below qab, single-rounding must use c's sticky
+        // to break the tie *up*. The pre-Phase-O mul-then-add path
+        // dropped c's sticky into the post-mul addsub stage, where
+        // it could no longer affect the lost mul tie, and so produced
+        // a result one ULP smaller than the IEEE single-rounding
+        // contract requires.
+        //
+        // Construction:
+        //   a = 5 (coef=5, q=0)
+        //   b = 2 × 10^33 + 1 (34-digit coef, q=0)
+        //     a × b = 10^34 + 5, exactly 35 digits with the tail "5"
+        //   c = 1e-100 (sub-ULP at the result's quantum 1, same sign)
+        //
+        // mul rounds 10^34 + 5 to 34 digits: kept = 10^33 (LSB = 0),
+        // round_digit = 5, sticky = 0. Banker's tie → round down.
+        // Then addsub(10^34, 1e-100) keeps 10^34 with c contributing
+        // only INEXACT.
+        //
+        // Single round: dropped digit = 5, c's sticky is true →
+        // tie breaks up → kept = 10^33 + 1 at quantum 1. Result
+        // is 10^34 + 10 (coef = 10^33 + 1, q = 1).
+        let a = d_int(5);
+        let two_e33_plus_one =
+            Decimal128::from_bits(pack_finite(false, BIAS, 2 * 10u128.pow(33) + 1));
+        let b = two_e33_plus_one;
+        // c = 1 × 10^-100 (qc = -100 ≪ qab = 0, satisfies
+        // shift_ab > SHIFT_LIMIT = 47 so the ab_too_wide branch fires).
+        let c = Decimal128::from_bits(pack_finite(false, (BIAS as i32 - 100) as u32, 1));
+
+        let (r, s) = a.fma(b, c, RoundingMode::NearestEven);
+        assert!(s.inexact());
+
+        let expected = Decimal128::from_bits(pack_finite(
+            false,
+            (BIAS as i32 + 1) as u32,
+            10u128.pow(33) + 1,
+        ));
+        assert_eq!(
+            r.to_bits(),
+            expected.to_bits(),
+            "M6 single-rounding tie: got coef={} q=?, want coef={} q=1",
+            r.to_bits() & ((1u128 << 110) - 1),
+            10u128.pow(33) + 1,
+        );
+
+        // Sanity: the same input under mul-then-add (the legacy path)
+        // would resolve the tie *down* and lose c's sticky. Confirm
+        // that the new fma result differs from the legacy formulation
+        // by exactly one ULP at the result quantum.
+        let (product, _) = a.mul(b, RoundingMode::NearestEven);
+        let (legacy, _) = product.add(c, RoundingMode::NearestEven);
+        let (cmp, _) = r.partial_cmp(legacy);
+        assert_eq!(
+            cmp,
+            Some(core::cmp::Ordering::Greater),
+            "single-rounded fma must exceed mul-then-add by one ULP",
+        );
     }
 
     #[test]
