@@ -147,7 +147,12 @@ pub(crate) const fn classify_bits(bits: u128) -> Class {
     let biased_exp = (exp_high2 << 12) | ec;
     let coefficient = (coef_high3 << T_BITS) | (bits & T_MASK);
 
-    if coefficient == 0 {
+    // Per IEEE 754-2019 §3.5.2, a Form A coefficient that exceeds 10^p − 1 is
+    // non-canonical: the value of the floating-point datum is zero with the
+    // encoded sign and biased exponent. Canonicalising at decode time keeps
+    // every downstream consumer (arithmetic, DPD encode, format) safe by
+    // construction.
+    if coefficient == 0 || coefficient >= COEFFICIENT_LIMIT {
         Class::Zero { sign, biased_exp }
     } else {
         Class::Finite {
@@ -285,16 +290,35 @@ mod tests {
     }
 
     #[test]
-    fn pack_unpack_roundtrip_field_max() {
-        // Coefficient = 2^113 - 1: above 10^34, but encodable in Form A.
-        // Decoder should still return Finite (canonicalization is the
-        // arithmetic layer's job, not the decoder's).
-        let coef = COEFFICIENT_FIELD_LIMIT - 1;
-        let bits = pack_finite(false, 0, coef);
-        match classify_bits(bits) {
-            Class::Finite { coefficient, .. } => assert_eq!(coefficient, coef),
-            other => panic!("expected Finite, got {other:?}"),
+    fn non_canonical_form_a_decodes_as_zero() {
+        // Coefficient = 2^113 − 1 is encodable in Form A but exceeds the
+        // canonical limit 10^34 − 1. Per IEEE 754-2019 §3.5.2 the decoder
+        // must canonicalise it to Zero with the encoded biased exponent
+        // and sign; otherwise downstream paths (arithmetic, DPD encode,
+        // format) inherit a poisoned coefficient.
+        for &biased_exp in &[0u32, BIAS, BIASED_EXP_MAX] {
+            for sign in [false, true] {
+                let bits = pack_finite(sign, biased_exp, COEFFICIENT_FIELD_LIMIT - 1);
+                assert_eq!(
+                    classify_bits(bits),
+                    Class::Zero { sign, biased_exp },
+                    "non-canonical Form A coef={:#x} biased_exp={biased_exp} sign={sign}",
+                    COEFFICIENT_FIELD_LIMIT - 1
+                );
+            }
         }
+        // Boundary: exactly 10^34 is the first non-canonical value.
+        let bits = pack_finite(false, BIAS, COEFFICIENT_LIMIT);
+        assert_eq!(
+            classify_bits(bits),
+            Class::Zero {
+                sign: false,
+                biased_exp: BIAS
+            },
+        );
+        // One below the boundary stays Finite.
+        let bits = pack_finite(false, BIAS, COEFFICIENT_LIMIT - 1);
+        assert!(matches!(classify_bits(bits), Class::Finite { .. }));
     }
 
     #[test]
@@ -400,17 +424,18 @@ mod tests {
                     1 << 110,
                     (1 << 113) - 1,
                     COEFFICIENT_LIMIT - 1,
+                    COEFFICIENT_LIMIT,
                 ] {
                     let bits = pack_finite(sign_bit, biased_exp, coef);
                     let class = classify_bits(bits);
-                    if coef == 0 {
+                    if coef == 0 || coef >= COEFFICIENT_LIMIT {
                         assert_eq!(
                             class,
                             Class::Zero {
                                 sign: sign_bit,
                                 biased_exp
                             },
-                            "sign={sign_bit} exp={biased_exp} coef=0"
+                            "sign={sign_bit} exp={biased_exp} coef={coef:#x} should canonicalise to Zero"
                         );
                     } else {
                         assert_eq!(

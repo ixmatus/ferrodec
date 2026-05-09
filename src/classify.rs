@@ -312,11 +312,8 @@ impl Decimal128 {
                 biased_exp,
                 coefficient,
             } => {
-                if coefficient < COEFFICIENT_LIMIT {
-                    Self::from_bits(pack_finite(sign, biased_exp, coefficient))
-                } else {
-                    Self::from_bits(pack_finite(sign, biased_exp, 0))
-                }
+                debug_assert!(coefficient < COEFFICIENT_LIMIT);
+                Self::from_bits(pack_finite(sign, biased_exp, coefficient))
             }
             Class::Zero { sign, biased_exp } => Self::from_bits(pack_finite(sign, biased_exp, 0)),
             Class::Infinity { sign } => Self::from_bits(pack_infinity(sign)),
