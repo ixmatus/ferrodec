@@ -16,11 +16,12 @@
 //!   *final* result's quantum, not the intermediate product's. This
 //!   is what avoids the spurious `UNDERFLOW` that the old separated
 //!   `mul`-then-`add` formulation reported.
-//! * **`a × b` dominates**, with the product within `±MAX`: defer to
-//!   `mul`-then-`add`. Addsub already encodes the sign-aware
-//!   directed-rounding logic for sub-ULP-effective-sub, and the
-//!   product's own status flags carry the same disposition the fma
-//!   would.
+//! * **`a × b` dominates**, with the product within `±MAX`: single-round
+//!   through [`sub_ulp_round`] (same-sign sub-ULP `c`) or
+//!   [`fma_ab_dom_in_range_eff_sub`] (opposite-sign sub-ULP `c`). Both
+//!   paths preserve the IEEE 754 §5.4.1 single-rounding contract; the
+//!   legacy `mul`-then-`add` formulation that defers a tie at `cab`'s
+//!   35th digit can disagree by 1 ULP under either sign of `c` (M6).
 //! * **`a × b` dominates and would overflow**: skip `mul` (which
 //!   clamps to `MIN/MAX` plus its own `OVERFLOW`) and route through
 //!   `sub_ulp_round`, which lets `round_and_pack_finite`'s overflow
@@ -479,14 +480,13 @@ fn fma_sub_ulp(
     //   IEEE single-rounding contract for same-sign sub-ULP c —
     //   the `mul`-then-`add` formulation can disagree by 1 ULP at
     //   a 35th-digit `5000…0` tie (M6).
-    // * Product in range, c opposite sign — defer to legacy
-    //   `mul`-then-`add`. The single-rounding fix here would have to
-    //   subtract c's sub-ULP residue from cab's natural drop residue
-    //   and re-decide the round; addsub's `sub_ulp_effective_sub`
-    //   gets the post-mul value's directed rounding right but does
-    //   not compose with the lost mul tie. Tracked as a follow-up;
-    //   real-world impact bounded by the rarity of the trigger
-    //   (35th-digit exact tie *and* opposite-sign sub-ULP c).
+    // * Product in range, c opposite sign — single-round through
+    //   `fma_ab_dom_in_range_eff_sub`. Splits on `digits(cab) ≤
+    //   PRECISION` (`D_a` == 0; defers to `sub_ulp_eff_sub_c_dominates`
+    //   with cab playing the role of cc) versus `digits(cab) >
+    //   PRECISION` (`D_a` > 0; natural rounding except at the exact
+    //   `(round_digit_a == 5, !sticky_a)` tie under nearest modes
+    //   where the M6 disagreement lives).
     let cab_digits = cab.decimal_digit_count() as i32;
     let cab_top_exp = cab_digits + qab - 1; // log10(magnitude), roughly
     if cab_top_exp > crate::bid::E_MAX {
@@ -503,12 +503,15 @@ fn fma_sub_ulp(
         return sub_ulp_round(cab, qab, sab, false, rm);
     }
 
-    // Opposite-sign sub-ULP c: legacy mul-then-add. See the third
-    // bullet above for the known limitation.
-    let _ = (cab, qab, sab, cc, qc, sc);
-    let (product, st1) = a.mul(b, rm);
-    let (sum, st2) = product.add(c, rm);
-    (sum, st1 | st2)
+    // Opposite-sign sub-ULP c. The natural drop of `cab` to PRECISION
+    // gives `(round_digit_a, sticky_a)`; subtracting `c`'s sub-ULP
+    // contribution shifts the half-ULP comparison only at the exact
+    // `(5, 0)` tie under nearest modes (where natural rounding picks
+    // up but the true value lies just below half). Everywhere else
+    // the natural rounding agrees with the IEEE 754 §5.4.1 single
+    // rounding contract.
+    let _ = (a, b, c);
+    fma_ab_dom_in_range_eff_sub(cab, qab, sab, cc, qc, rm)
 }
 
 /// Round the dominant summand `dom` when the other summand is strictly
@@ -611,6 +614,111 @@ fn sub_ulp_eff_sub_c_dominates(
         rm,
         status,
     )
+}
+
+/// Effective-subtraction single-rounding for the `ab_too_wide`
+/// in-range branch when `a × b` and `c` have opposite signs.
+///
+/// `cab` (up to 68 digits) dominates and `c` is sub-ULP at the
+/// result's precision (`qab − qc > SHIFT_LIMIT = 47`). The true
+/// value is `cab × 10^qab − cc × 10^qc`, slightly below the
+/// magnitude of `cab × 10^qab`. Two sub-cases:
+///
+/// * **`digits(cab) ≤ PRECISION`** (`D_a` == 0). The dropped tail of
+///   `cab` is empty, so the only sub-PRECISION-ULP residue is from
+///   `c`. The shape is identical to `sub_ulp_eff_sub_c_dominates`'s
+///   contract with `cab` playing the role of `cc`. Defer to that
+///   helper.
+///
+/// * **`digits(cab) > PRECISION`** (`D_a` > 0). `cab`'s natural
+///   `(round_digit_a, sticky_a)` already encodes the dominant
+///   half-ULP comparison; `c`'s contribution is many magnitudes
+///   below ``D_a``'s smallest non-zero digit (cc ≤ 10^34 vs
+///   `D_a` × 10^(qab−qc) > 10^47). The natural rounding agrees with
+///   the IEEE 754 §5.4.1 single rounding contract everywhere
+///   *except* the exact tie `(round_digit_a == 5, !sticky_a)`
+///   under nearest modes, where natural picks up (parity tie or
+///   away-from-zero) but the true value frac = 0.5 − epsilon lies
+///   just below half. Force round-down at that single shape.
+fn fma_ab_dom_in_range_eff_sub(
+    cab: U256,
+    qab: i32,
+    sab: bool,
+    cc: u128,
+    qc: i32,
+    rm: RoundingMode,
+) -> (Decimal128, Status) {
+    debug_assert!(cc != 0);
+    let q_pref = qab.min(qc);
+
+    let digits = cab.decimal_digit_count();
+    if digits <= PRECISION {
+        // `D_a` == 0: cab is exact at quantum qab, c is the only sub-ULP
+        // residue. The shape is exactly addsub's effective-subtraction
+        // domain — addsub already does the eps-vs-half-ULP comparison
+        // correctly via `sub_ulp_effective_sub` (including the case
+        // where eps is *near* 0.5 ULP, which our local helper
+        // `sub_ulp_eff_sub_c_dominates` cannot handle because it
+        // hardcodes "eps ≪ 0.5 ULP" for the c_too_wide regime).
+        // dqFMA conformance cases dqadd371322..324 (`fma 1 1E34
+        // -0.50…01`) hit exactly this near-tie shape.
+        //
+        // cab fits in u128 since `digits ≤ PRECISION = 34`. Build
+        // both operands as proper Decimal128 values and let
+        // `addsub` handle the alignment and rounding.
+        let cab_u128 = cab.to_u128();
+        let cab_dec = Decimal128::from_bits(pack_finite(sab, (qab + BIAS as i32) as u32, cab_u128));
+        let c_sign = !sab; // opposite of sab in this branch
+        let c_dec = Decimal128::from_bits(pack_finite(c_sign, (qc + BIAS as i32) as u32, cc));
+        return cab_dec.add(c_dec, rm);
+    }
+
+    let drop = digits - PRECISION;
+    let (kept, round_digit_a, sticky_a) = {
+        // Walk the cab tail manually so we get `kept` (PRECISION
+        // digits) and the (round_digit, sticky) tuple in one pass.
+        // round_and_pack would re-do this work below, but here we
+        // also need to detect the exact (5, false) tie.
+        let mut acc = cab;
+        let mut sticky = false;
+        let mut round_digit = 0u32;
+        let mut i = 0u32;
+        while i < drop {
+            let (q, r) = acc.div_rem10();
+            if i == drop - 1 {
+                round_digit = r;
+            } else if r != 0 {
+                sticky = true;
+            }
+            acc = q;
+            i += 1;
+        }
+        (acc, round_digit, sticky)
+    };
+
+    let is_exact_tie_nearest = round_digit_a == 5
+        && !sticky_a
+        && matches!(rm, RoundingMode::NearestEven | RoundingMode::NearestAway);
+
+    if is_exact_tie_nearest {
+        // M6 opposite-sign disagreement: natural round_and_pack would
+        // tie-break by parity (NearestEven) or away from zero
+        // (NearestAway), but the true value is `kept + 0.5 − epsilon_c`
+        // (just below half-ULP), so the correctly rounded answer is
+        // `kept` for both nearest modes. Pass the pre-dropped `kept`
+        // (no further dropping needed) and OR in INEXACT manually.
+        let kept_q = qab + drop as i32;
+        let (r, s) = round_and_pack_finite(kept, kept_q, q_pref, sab, false, rm, Status::OK);
+        return (r, s | Status::INEXACT);
+    }
+
+    // Standard path: cab's natural rounding gives the correct answer.
+    // `c`'s sub-ULP contribution is dominated by cab's dropped-tail
+    // smallest digit by ≥ 10^47, so it cannot flip any rounding decision
+    // outside the (5, false) tie. Pass cab to round_and_pack with
+    // sticky=false; the function re-extracts the digits and applies
+    // the rounding mode. INEXACT fires automatically because `D_a` > 0.
+    round_and_pack_finite(cab, qab, q_pref, sab, false, rm, Status::OK)
 }
 
 fn zero_after_cancellation(
@@ -895,6 +1003,113 @@ mod tests {
             cmp,
             Some(core::cmp::Ordering::Greater),
             "single-rounded fma must exceed mul-then-add by one ULP",
+        );
+    }
+
+    #[test]
+    fn fma_ab_dominates_in_range_opposite_sign_ties_down() {
+        // M6 opposite-sign half: when the exact product `a × b` has
+        // its 35th digit on a `5000…0` tie AND the 34th-digit
+        // (kept LSB) is *odd*, mul-then-add rounds the tie UP under
+        // banker's parity (or NearestAway), but single-rounding sees
+        // the true value `a×b + c = exact_tie − epsilon_c` — slightly
+        // below half-ULP — and rounds DOWN.
+        //
+        // Construction:
+        //   a = 5
+        //   b = 2 × 10^33 + 3 (34-digit coef, q=0)
+        //     a × b = 10^34 + 15, exactly 35 digits with tail "5";
+        //     kept = 10^33 + 1 (LSB = 1, odd) under banker's tie.
+        //   c = -1e-100 (sub-ULP, opposite sign)
+        //
+        // mul rounds 10^34 + 15 to 34 digits: kept = 10^33 + 1 (LSB
+        // odd), round_digit = 5, sticky = 0. NearestEven tie + odd
+        // parity → round UP. Result coef = 10^33 + 2 at quantum 1.
+        // Then addsub(10^34 + 20, -1e-100): opposite-sign sub-ULP,
+        // nearest picks upper (10^34 + 20).
+        //
+        // Single round: dropped digit = 5, but c's epsilon pulls
+        // truth just below half-ULP → tie breaks DOWN → result
+        // coef = 10^33 + 1 at quantum 1 (= 10^34 + 10). One ULP
+        // smaller than the legacy answer.
+        let a = d_int(5);
+        let two_e33_plus_three =
+            Decimal128::from_bits(pack_finite(false, BIAS, 2 * 10u128.pow(33) + 3));
+        let b = two_e33_plus_three;
+        let c_neg_1e_neg_100 =
+            Decimal128::from_bits(pack_finite(true, (BIAS as i32 - 100) as u32, 1));
+
+        for &rm in &[RoundingMode::NearestEven, RoundingMode::NearestAway] {
+            let (r, s) = a.fma(b, c_neg_1e_neg_100, rm);
+            assert!(s.inexact(), "{rm:?}: should flag inexact");
+            let expected = Decimal128::from_bits(pack_finite(
+                false,
+                (BIAS as i32 + 1) as u32,
+                10u128.pow(33) + 1,
+            ));
+            assert_eq!(
+                r.to_bits(),
+                expected.to_bits(),
+                "{rm:?}: opposite-sign tie must round DOWN to coef = 10^33 + 1",
+            );
+
+            // Pin the disagreement vs legacy mul-then-add: legacy
+            // rounds the tie UP and the addsub stage can't recover.
+            let (product, _) = a.mul(b, rm);
+            let (legacy, _) = product.add(c_neg_1e_neg_100, rm);
+            let (cmp, _) = r.partial_cmp(legacy);
+            assert_eq!(
+                cmp,
+                Some(core::cmp::Ordering::Less),
+                "{rm:?}: single-rounded fma must trail legacy mul-then-add by one ULP",
+            );
+        }
+    }
+
+    #[test]
+    fn fma_ab_dominates_in_range_opposite_sign_directional() {
+        // Opposite-sign sub-ULP c with `D_a` > 0 and round_digit_a > 5:
+        // natural rounding rounds UP regardless of c's sign because c's
+        // sub-ULP contribution can't pull the decision below the
+        // round_digit > 5 threshold. Picks the same answer as the
+        // legacy mul-then-add path.
+        //
+        // Construction: cab = 7 × (2×10^33 + 1) = 14×10^33 + 7 (35
+        // digits, tail "07" with round_digit_a = 7). Kept = 14×10^32
+        // (34 digits, LSB even). 7 > 5 → round UP → result coef =
+        // 14×10^32 + 1 at quantum 1.
+        let a = d_int(7);
+        let b = Decimal128::from_bits(pack_finite(false, BIAS, 2 * 10u128.pow(33) + 1));
+        let c_neg = Decimal128::from_bits(pack_finite(true, (BIAS as i32 - 100) as u32, 1));
+
+        for &rm in &[RoundingMode::NearestEven, RoundingMode::NearestAway] {
+            let (r, _s) = a.fma(b, c_neg, rm);
+            let expected = Decimal128::from_bits(pack_finite(
+                false,
+                (BIAS as i32 + 1) as u32,
+                14 * 10u128.pow(32) + 1,
+            ));
+            assert_eq!(
+                r.to_bits(),
+                expected.to_bits(),
+                "{rm:?}: round_digit > 5 always rounds up regardless of c sign",
+            );
+        }
+        // TowardZero on positive result: smaller magnitude → kept (no
+        // round-up). The opposite-sign helper passes sticky=false to
+        // round_and_pack, which sees round_digit=7 + sticky=false; for
+        // TowardZero the should_round_up dispatch returns false
+        // regardless, so the result is kept.
+        let (r, _) = a.fma(b, c_neg, RoundingMode::TowardZero);
+        let kept_only = Decimal128::from_bits(pack_finite(
+            false,
+            (BIAS as i32 + 1) as u32,
+            14 * 10u128.pow(32),
+        ));
+        assert_eq!(
+            r.to_bits(),
+            kept_only.to_bits(),
+            "TowardZero on positive result picks kept (smaller magnitude)",
         );
     }
 

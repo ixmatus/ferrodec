@@ -7,6 +7,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.14.2] - 2026-05-09
+
+### Fixed
+
+- **FMA single-rounds the opposite-sign ab-dominates-in-range
+  path** (M6, second half). Phase O closed the same-sign half of
+  M6 in 1.13.1; the opposite-sign half stayed deferred under a
+  documented caveat. Now closed too. The new
+  `fma_ab_dom_in_range_eff_sub` helper splits on
+  `digits(cab) ≤ PRECISION` (D_a == 0) versus `digits(cab) >
+  PRECISION` (D_a > 0):
+
+  * **D_a > 0**: cab's natural rounding agrees with the IEEE 754
+    §5.4.1 single-rounding contract everywhere except the exact
+    `(round_digit_a == 5, !sticky_a)` tie under nearest modes.
+    There the legacy mul-then-add formulation rounds UP under
+    banker's-tie-with-odd-parity (NearestEven) or away-from-zero
+    (NearestAway), but the true value `kept + 0.5 − epsilon_c`
+    lies just below half-ULP, so the correctly rounded answer is
+    `kept`. The helper detects the tie and forces round-down.
+
+  * **D_a == 0**: cab is exact at quantum qab; c is the only
+    sub-ULP residue. The shape is exactly addsub's
+    effective-subtraction domain, including cases where the
+    epsilon is *near* 0.5 ULP (which the local
+    `sub_ulp_eff_sub_c_dominates` cannot handle because it
+    hardcodes "eps ≪ 0.5 ULP" for the c_too_wide regime). Defer
+    to addsub: build cab and c as Decimal128 values and call
+    `cab.add(c, rm)`, which routes through addsub's
+    `sub_ulp_effective_sub` for the actual eps-vs-half-ULP
+    comparison. Closes the conformance regression on
+    `dqadd371322..324` (`fma 1 1E34 -0.50…01`) that an earlier
+    attempt to use `sub_ulp_eff_sub_c_dominates` introduced.
+
+  Closes the M6 finding from the 6-agent correctness review in
+  full. Conformance unchanged at 9080 / 0 / 253.
+
+### Internal
+
+- New unit tests:
+  * `fma_ab_dominates_in_range_opposite_sign_ties_down` constructs
+    the `(5, 0)` tie + odd parity + opposite-sign + sub-ULP c
+    shape (cab = 5 × (2×10^33 + 3) = 10^34 + 15) and asserts the
+    single-rounded answer is one ULP smaller than the legacy
+    mul-then-add answer.
+  * `fma_ab_dominates_in_range_opposite_sign_directional` covers
+    the no-disagreement path (round_digit > 5 always rounds up
+    regardless of c sign) plus TowardZero on positive.
+
 ## [1.14.1] - 2026-05-09
 
 ### Performance
