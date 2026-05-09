@@ -9,16 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.13.0] - 2026-05-09
 
-Five MEDIUM-severity correctness bugs from the 6-agent review of
-1.12.0 (the same review that drove 1.12.1's HIGH-severity fixes).
-Each fix is observable through the public API and each adds a
-regression test that locks down the new contract.
+Eleven correctness bugs surfaced by a 6-agent review of the 1.12.0
+release: six HIGH-severity (closed first; an intermediate 1.12.1
+version was drafted but never published) plus five MEDIUM-severity
+(the additions that justified the 1.13.0 minor bump). Each fix is
+observable through the public API and each ships with a regression
+test that locks down the new contract.
+[ADR-0010](docs/decisions/0010-testing-strategy-after-six-agent-review.md)
+documents the testing-strategy response that should prevent the
+same shapes recurring.
 
 A minor version bump because some of these changes alter the
-status / value returned for previously-reachable inputs:
-* `to_u32(-0.4)` now returns `(0, INEXACT)` instead of `(0, INVALID)`
-  (consumers that pattern-matched on INVALID for any negative input
-  will need to handle the new shape).
+status or return value for previously-reachable inputs:
+* `pow(-1, ±∞)` no longer panics; returns `1` per IEEE 754-2019
+  §9.2.1.
+* `to_u32(-0.4)` now returns `(0, INEXACT)` instead of
+  `(0, INVALID)` (consumers that pattern-matched on INVALID for
+  any negative input will need to handle the new shape).
 * `Decimal128::sqrt(0E+k)` now returns a zero with quantum ⌊k/2⌋
   instead of preserving the input quantum.
 * `to_f32` now returns the directly-rounded result instead of
@@ -28,8 +35,68 @@ status / value returned for previously-reachable inputs:
   representable subnormal instead of saturating to 0.
 * `fma(0, ∞, NaN_c)` now propagates `c`'s NaN payload instead of
   returning canonical `NaN`.
+* `to_f64` / `to_f32` now raise INVALID on a signaling-NaN input
+  (was silently returning a quiet NaN with OK status).
+* Parsing pure integer literals longer than 76 digits no longer
+  silently drops magnitude (`"1" × 77` previously parsed to
+  `1.111…E+75` instead of `1.111…E+76`).
+* `Decimal128::from_bits` with a non-canonical Form A bit pattern
+  (coefficient ≥ 10^34) now decodes as zero per IEEE 754-2019
+  §3.5.2; arithmetic on such inputs previously produced silently
+  wrong results (~3.8%) and `to_dpd_bytes` panicked.
 
-### Fixed
+### Fixed — HIGH-severity
+
+- **Non-canonical Form A coefficients arithmetised as real values**
+  (closes a contract gap reachable through `Decimal128::from_bits`
+  with a hand-built 128-bit pattern). IEEE 754-2019 §3.5.2 requires
+  Form A encodings whose coefficient field exceeds 10^p − 1 to be
+  treated as the floating-point datum zero with the encoded sign
+  and biased exponent. The decoder previously deferred this to the
+  arithmetic layer but no kernel actually performed the check, so a
+  poisoned coefficient (`≈ 1.038 × 10^34`) participated in
+  arithmetic and produced results ~3.8% wrong. The same input
+  panicked `to_dpd_bytes` in debug and corrupted DPD output in
+  release. Fixed by canonicalising on decode in `bid::classify_bits`;
+  every downstream consumer (arithmetic, DPD encode, format) is
+  safe by construction. Closes review findings H3 and H4.
+
+- **`pow(-1, ±∞) → 1` instead of panicking** (H1). IEEE 754-2019
+  §9.2.1 rule 5 specifies `pow(±1, ±∞) = 1`; rule 2's short-circuit
+  only matched `x = +1` (deliberately, so `pow(-1, qNaN)` can still
+  propagate NaN), so the negative-base case landed in rule 6's
+  `unreachable!()`. Fixed by handling the |x| = 1 arm directly in
+  rule 6.
+
+- **Parse correctly scales integer literals beyond 76 digits** (H2).
+  The mantissa loop folded the first 76 digits into a U256
+  coefficient and pushed any further digits into a sticky bit, but
+  a saturating-counter TODO never compensated the quantum, so any
+  pure-integer literal longer than 76 digits silently dropped 10×
+  per excess digit (`"1" × 77` parsed to `1.111…E+75` instead of
+  `1.111…E+76`). Fixed by tracking `extra_int_digits` and adding
+  to the final unbiased exponent.
+
+- **FMA sub-ULP effective-subtraction directional rounding** (H5).
+  When `c` dominates and the product `a × b` is sub-ULP, the
+  existing `sub_ulp_round` path correctly handles same-sign
+  (epsilon pushes magnitude up) but silently picks the wrong
+  neighbour for opposite-sign sub-ULP (true value sits *below*
+  `cc · 10^qc`). Symptom: `ONE.fma(1e-6176, NEG_ONE, TowardPositive)`
+  returned `-1.0` instead of `-0.999…9`. Fixed by routing
+  opposite-sign through a new helper that mirrors
+  `addsub::sub_ulp_effective_sub`'s candidate selection, threading
+  the IEEE 754 §6.3 preferred quantum so `round_and_pack_finite`
+  pads trailing zeros correctly. Picks up four previously-failing
+  dqFMA conformance cases (dqadd36466 / 36476 / 36506 / 36516).
+
+- **`to_f64` / `to_f32` raise INVALID on signaling NaN** (H6). IEEE
+  754-2019 §5.4.2 (convertFormat) requires sNaN to raise INVALID
+  and yield a quiet NaN; the previous implementation collapsed
+  both qNaN and sNaN to `(f64::NAN, OK)`. A pinned unit test
+  actively held the wrong behaviour in place.
+
+### Fixed — MEDIUM-severity
 
 - **`sqrt(±0)` returns dec-spec quantum ⌊q/2⌋** (M2). The sqrt
   special-case path acknowledged the gap in a comment but kept the
@@ -71,66 +138,6 @@ status / value returned for previously-reachable inputs:
   `EXP_OVERFLOW_LIMIT = 14150` and `EXP_UNDERFLOW_LIMIT = 14221`;
   `sinh` / `cosh` migrate to the overflow limit because both
   saturate symmetrically.
-
-## [1.12.1] - 2026-05-09
-
-### Fixed
-
-Six HIGH-severity correctness bugs surfaced by a 6-agent review of
-the 1.12.0 release.
-[ADR-0010](docs/decisions/0010-testing-strategy-after-six-agent-review.md)
-documents the testing-strategy response that should prevent the
-same shapes recurring.
-
-- **Non-canonical Form A coefficients arithmetised as real values**
-  (closes a contract gap reachable through `Decimal128::from_bits`
-  with a hand-built 128-bit pattern). IEEE 754-2019 §3.5.2 requires
-  Form A encodings whose coefficient field exceeds 10^p − 1 to be
-  treated as the floating-point datum zero with the encoded sign
-  and biased exponent. The decoder previously deferred this to the
-  arithmetic layer but no kernel actually performed the check, so a
-  poisoned coefficient (`≈ 1.038 × 10^34`) participated in
-  arithmetic and produced results ~3.8% wrong. The same input
-  panicked `to_dpd_bytes` in debug and corrupted DPD output in
-  release. Fixed by canonicalising on decode in `bid::classify_bits`;
-  every downstream consumer (arithmetic, DPD encode, format) is
-  safe by construction. Closes review findings H3 and H4.
-
-- **`pow(-1, ±∞) → 1` instead of panicking**. IEEE 754-2019 §9.2.1
-  rule 5 specifies `pow(±1, ±∞) = 1`; rule 2's short-circuit only
-  matched `x = +1` (deliberately, so `pow(-1, qNaN)` can still
-  propagate NaN), so the negative-base case landed in rule 6's
-  `unreachable!()`. Fixed by handling the |x| = 1 arm directly in
-  rule 6. Closes review finding H1.
-
-- **Parse correctly scales integer literals beyond 76 digits**. The
-  mantissa loop folded the first 76 digits into a U256 coefficient
-  and pushed any further digits into a sticky bit, but a
-  saturating-counter TODO never compensated the quantum, so any
-  pure-integer literal longer than 76 digits silently dropped 10×
-  per excess digit (`"1" × 77` parsed to `1.111…E+75` instead of
-  `1.111…E+76`). Fixed by tracking `extra_int_digits` and adding
-  to the final unbiased exponent. Closes review finding H2.
-
-- **FMA sub-ULP effective-subtraction directional rounding**. When
-  `c` dominates and the product `a × b` is sub-ULP, the existing
-  `sub_ulp_round` path correctly handles same-sign (epsilon pushes
-  magnitude up) but silently picks the wrong neighbour for
-  opposite-sign sub-ULP (true value sits *below* `cc · 10^qc`).
-  Symptom: `ONE.fma(1e-6176, NEG_ONE, TowardPositive)` returned
-  `-1.0` instead of `-0.999…9`. Fixed by routing opposite-sign
-  through a new helper that mirrors `addsub::sub_ulp_effective_sub`'s
-  candidate selection, threading the IEEE 754 §6.3 preferred quantum
-  so `round_and_pack_finite` pads trailing zeros correctly. Picks
-  up four previously-failing dqFMA conformance cases (dqadd36466 /
-  36476 / 36506 / 36516). Closes review finding H5.
-
-- **`to_f64` / `to_f32` raise INVALID on signaling NaN**. IEEE
-  754-2019 §5.4.2 (convertFormat) requires sNaN to raise INVALID
-  and yield a quiet NaN; the previous implementation collapsed
-  both qNaN and sNaN to `(f64::NAN, OK)`. A pinned unit test
-  actively held the wrong behaviour in place. Closes review
-  finding H6.
 
 ### Added
 
