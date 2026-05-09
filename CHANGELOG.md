@@ -7,6 +7,71 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.13.0] - 2026-05-09
+
+Five MEDIUM-severity correctness bugs from the 6-agent review of
+1.12.0 (the same review that drove 1.12.1's HIGH-severity fixes).
+Each fix is observable through the public API and each adds a
+regression test that locks down the new contract.
+
+A minor version bump because some of these changes alter the
+status / value returned for previously-reachable inputs:
+* `to_u32(-0.4)` now returns `(0, INEXACT)` instead of `(0, INVALID)`
+  (consumers that pattern-matched on INVALID for any negative input
+  will need to handle the new shape).
+* `Decimal128::sqrt(0E+k)` now returns a zero with quantum ⌊k/2⌋
+  instead of preserving the input quantum.
+* `to_f32` now returns the directly-rounded result instead of
+  `to_f64() as f32` — for values on f32 half-ULP boundaries the
+  bit pattern can change by 1 ULP.
+* `Decimal128::exp(x)` for `x ∈ (−14221, −14150]` now returns the
+  representable subnormal instead of saturating to 0.
+* `fma(0, ∞, NaN_c)` now propagates `c`'s NaN payload instead of
+  returning canonical `NaN`.
+
+### Fixed
+
+- **`sqrt(±0)` returns dec-spec quantum ⌊q/2⌋** (M2). The sqrt
+  special-case path acknowledged the gap in a comment but kept the
+  input quantum verbatim, leaving cohorts wrong for any non-zero
+  quantum input. Fix uses `i32::div_euclid(2)` to floor toward −∞
+  (matching the spec for negative quanta — q = −33 → q′ = −17,
+  not −16).
+
+- **`to_unsigned` routes negative finites through rounding** (M4).
+  Per IEEE 754-2019 §5.4.1, INVALID is raised only when the
+  *rounded* integer is out of range. The old `to_unsigned`
+  short-circuited on `Class::Finite { sign: true, .. }` before any
+  rounding step, so `to_u32(-0.4)` reported INVALID instead of
+  `(0, INEXACT)`. The fix is narrow: rounded_abs == 0 returns
+  `(0, status)`; rounded_abs ≥ 1 still raises INVALID for
+  out-of-range negatives.
+
+- **`to_f32` takes a direct decimal-string path** (M3). The old
+  `to_f64() as f32` collapsing was the classic C `(float)(double)x`
+  double-rounding hazard. Now mirrors `to_f64`'s structure but calls
+  `f32::from_str` on the canonical Display output so a single
+  rounding step keeps the result inside the f32 envelope. Inherits
+  the H6 sNaN-raises-INVALID rule.
+
+- **FMA `0×Inf` preserves c's NaN payload** (M5). Per IEEE 754-2019
+  §6.2.3 the result NaN should carry the input NaN's payload when
+  one is available. The old `0 × Inf` branch raised INVALID
+  correctly but always returned canonical `NAN`, dropping c's
+  payload even when c was the only NaN operand. Fix routes through
+  `propagate_nan3(a, b, c)` when c is a NaN; non-NaN c still gets
+  canonical `NAN` (the fix is narrow).
+
+- **`exp` underflow threshold matches the real boundary** (M7).
+  The pre-1.13 domain gate was symmetric at ±14150, but
+  `MIN_SUBNORMAL = 1×10⁻⁶¹⁷⁶` pushes the underflow boundary to
+  `ln(½ × MIN_SUBNORMAL) ≈ −14220.85`. Inputs in (−14221, −14150]
+  silently saturated to 0 instead of producing the subnormal result
+  the Taylor pipeline can compute. `EXP_DOMAIN_LIMIT` splits into
+  `EXP_OVERFLOW_LIMIT = 14150` and `EXP_UNDERFLOW_LIMIT = 14221`;
+  `sinh` / `cosh` migrate to the overflow limit because both
+  saturate symmetrically.
+
 ## [1.12.1] - 2026-05-09
 
 ### Fixed
