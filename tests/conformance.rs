@@ -111,8 +111,7 @@ fn dectest_conformance() {
         let got = file_results
             .iter()
             .find(|(n, _)| n == name)
-            .map(|(_, r)| r.passed)
-            .unwrap_or(0);
+            .map_or(0, |(_, r)| r.passed);
         if got != *exp_passed {
             mismatch.push((name.to_string(), *exp_passed, got));
         }
@@ -120,7 +119,12 @@ fn dectest_conformance() {
     if !mismatch.is_empty() {
         eprintln!("\nPer-file pass-count mismatch:");
         for (name, exp, got) in &mismatch {
-            let delta = got.wrapping_sub(*exp) as i64 - if *got < *exp { (*exp - *got) as i64 * 2 } else { 0 };
+            let delta = got.wrapping_sub(*exp) as i64
+                - if *got < *exp {
+                    (*exp - *got) as i64 * 2
+                } else {
+                    0
+                };
             eprintln!("  {name:<28}  expected {exp}  got {got}  (Δ {delta:+})");
         }
         eprintln!(
@@ -129,7 +133,10 @@ fn dectest_conformance() {
              \nfile). See ADR-0010 for why per-file expectations are\
              \nexact-match rather than floor-only."
         );
-        panic!("conformance per-file expectation mismatch ({} files)", mismatch.len());
+        panic!(
+            "conformance per-file expectation mismatch ({} files)",
+            mismatch.len()
+        );
     }
 
     const FAIL_CEILING: usize = 0;

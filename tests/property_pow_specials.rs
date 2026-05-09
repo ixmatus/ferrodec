@@ -25,7 +25,12 @@ fn distinguished_inputs() -> [(&'static str, Decimal128); 11] {
         ("-1", Decimal128::NEG_ONE),
         ("+2", Decimal128::from_i32(2)),
         ("-2", Decimal128::from_i32(-2)),
-        ("+0.5", Decimal128::parse_str("0.5", RoundingMode::default()).unwrap().0),
+        (
+            "+0.5",
+            Decimal128::parse_str("0.5", RoundingMode::default())
+                .unwrap()
+                .0,
+        ),
         ("+inf", Decimal128::INFINITY),
         ("-inf", Decimal128::NEG_INFINITY),
         ("qNaN", Decimal128::NAN),
@@ -54,10 +59,7 @@ fn pow_no_panics_over_distinguished_grid() {
                 // catch_unwind to convert any pow panic into a test
                 // failure with the offending triple labelled.
                 let res = std::panic::catch_unwind(|| x.pow(y, rm));
-                assert!(
-                    res.is_ok(),
-                    "pow({xn}, {yn}, {rm:?}) panicked",
-                );
+                assert!(res.is_ok(), "pow({xn}, {yn}, {rm:?}) panicked");
             }
         }
     }
@@ -79,7 +81,10 @@ fn pow_x_zero_is_one_for_any_x_except_snan() {
                     "pow({xn}, ±0, {rm:?}) must be exactly 1",
                 );
                 if x.is_signaling_nan() {
-                    assert!(s.invalid(), "pow(sNaN, ±0): ferrodec raises INVALID by choice");
+                    assert!(
+                        s.invalid(),
+                        "pow(sNaN, ±0): ferrodec raises INVALID by choice"
+                    );
                 } else {
                     assert_eq!(s, Status::OK, "pow({xn}, ±0): no flag should fire");
                 }

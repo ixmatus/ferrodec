@@ -319,7 +319,7 @@ mod tests {
         // payload) must come through unchanged. Pin this with a
         // distinctive payload so a future refactor that funnels qNaN
         // through `nan_from` (which canonicalises) would fail loud.
-        let payload: u128 = 0x0DEADBEEF_CAFE_BA5E;
+        let payload: u128 = 0x0000_DEAD_BEEF_CAFE_BA5E;
         let qnan = Decimal128::from_bits(crate::bid::pack_quiet_nan(true, payload));
         for &op in &[
             Decimal128::sin as fn(Decimal128, RoundingMode) -> (Decimal128, Status),

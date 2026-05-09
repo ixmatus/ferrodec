@@ -157,10 +157,7 @@ impl Decimal128 {
             );
         }
         if self.is_zero() {
-            return (
-                if self.is_sign_negative() { -0.0 } else { 0.0 },
-                Status::OK,
-            );
+            return (if self.is_sign_negative() { -0.0 } else { 0.0 }, Status::OK);
         }
         let mut buf = StrBuf::new();
         write!(&mut buf, "{self}").expect("Decimal128 display fits 64 bytes");

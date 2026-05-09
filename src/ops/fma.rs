@@ -127,10 +127,7 @@ fn fma_special_cases(
         // NaN, propagate its payload (a and b are non-NaN here, so
         // propagate_nan3 picks c; the sNaN-bit is cleared and the
         // sNaN INVALID was already accumulated above).
-        let c_is_nan = matches!(
-            cls_c,
-            Class::QuietNaN { .. } | Class::SignalingNaN { .. }
-        );
+        let c_is_nan = matches!(cls_c, Class::QuietNaN { .. } | Class::SignalingNaN { .. });
         let result = if c_is_nan {
             propagate_nan3(a, b, c)
         } else {
@@ -593,15 +590,7 @@ fn sub_ulp_eff_sub_c_dominates(
         // quantum so `round_and_pack_finite` pads trailing zeros
         // down to it (IEEE 754 §6.3 — inexact results get the
         // quantum of the more-precise input where possible).
-        return round_and_pack_finite(
-            U256::from_u128(cc),
-            qc,
-            q_preferred,
-            sc,
-            false,
-            rm,
-            status,
-        );
+        return round_and_pack_finite(U256::from_u128(cc), qc, q_preferred, sc, false, rm, status);
     }
     // Lower candidate: cc · 10^k − 1 at quantum qc − k. For
     // non-power-of-10 cc with d = PRECISION the result stays in the
@@ -613,7 +602,15 @@ fn sub_ulp_eff_sub_c_dominates(
         let extended = U256::from_u128(cc).mul_pow10(k);
         (extended.sub(U256::from_u128(1)), qc - k as i32)
     };
-    round_and_pack_finite(lower_coef, lower_quantum, q_preferred, sc, false, rm, status)
+    round_and_pack_finite(
+        lower_coef,
+        lower_quantum,
+        q_preferred,
+        sc,
+        false,
+        rm,
+        status,
+    )
 }
 
 fn zero_after_cancellation(
@@ -700,16 +697,10 @@ mod tests {
         // to drop c's payload and return canonical NAN even when c
         // was a NaN with an interesting payload.
         let payload = 0x1234_5678u128;
-        let qnan_c =
-            Decimal128::from_bits(crate::bid::pack_quiet_nan(false, payload));
-        let snan_c =
-            Decimal128::from_bits(crate::bid::pack_signaling_nan(false, payload));
+        let qnan_c = Decimal128::from_bits(crate::bid::pack_quiet_nan(false, payload));
+        let snan_c = Decimal128::from_bits(crate::bid::pack_signaling_nan(false, payload));
 
-        let (r, s) = Decimal128::ZERO.fma(
-            Decimal128::INFINITY,
-            qnan_c,
-            RoundingMode::default(),
-        );
+        let (r, s) = Decimal128::ZERO.fma(Decimal128::INFINITY, qnan_c, RoundingMode::default());
         assert!(r.is_nan());
         assert!(s.invalid(), "0 × Inf still raises INVALID");
         assert_eq!(
@@ -718,11 +709,7 @@ mod tests {
             "qNaN c's payload should be preserved",
         );
 
-        let (r, s) = Decimal128::INFINITY.fma(
-            Decimal128::ZERO,
-            snan_c,
-            RoundingMode::default(),
-        );
+        let (r, s) = Decimal128::INFINITY.fma(Decimal128::ZERO, snan_c, RoundingMode::default());
         assert!(r.is_nan());
         assert!(r.is_quiet_nan(), "sNaN c is quieted on output");
         assert!(s.invalid(), "0 × Inf and sNaN both raise INVALID");
@@ -780,11 +767,7 @@ mod tests {
     /// quantum `−34`.
     fn one_minus_one_ulp() -> Decimal128 {
         let coef = 10u128.pow(34) - 1; // 34 nines
-        Decimal128::from_bits(pack_finite(
-            false,
-            (BIAS as i32 - 34) as u32,
-            coef,
-        ))
+        Decimal128::from_bits(pack_finite(false, (BIAS as i32 - 34) as u32, coef))
     }
 
     #[test]
@@ -828,11 +811,8 @@ mod tests {
     fn fma_sub_ulp_eff_sub_toward_zero() {
         // TowardZero on a positive result `1 − epsilon` should pick the
         // smaller-magnitude neighbour 0.999…9.
-        let (r, s) = Decimal128::NEG_ONE.fma(
-            min_subnormal(),
-            Decimal128::ONE,
-            RoundingMode::TowardZero,
-        );
+        let (r, s) =
+            Decimal128::NEG_ONE.fma(min_subnormal(), Decimal128::ONE, RoundingMode::TowardZero);
         assert!(s.inexact());
         assert_eq!(r.to_bits(), one_minus_one_ulp().to_bits());
 
@@ -851,11 +831,7 @@ mod tests {
     /// preferred-quantum rules for inexact sub-ULP results).
     fn neg_one_padded_34_digits() -> Decimal128 {
         let coef = 10u128.pow(33); // 1 followed by 33 zeros
-        Decimal128::from_bits(pack_finite(
-            true,
-            (BIAS as i32 - 33) as u32,
-            coef,
-        ))
+        Decimal128::from_bits(pack_finite(true, (BIAS as i32 - 33) as u32, coef))
     }
 
     #[test]

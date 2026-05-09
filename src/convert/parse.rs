@@ -585,10 +585,7 @@ mod tests {
             // Equivalent scientific form: integer "1"×n equals
             // (10^n − 1) / 9, which is 1.111…1 (34 sig digits after
             // rounding) × 10^(n − 1).
-            let canonical = format!(
-                "1.111111111111111111111111111111111E{:+}",
-                (n as i32) - 1
-            );
+            let canonical = format!("1.111111111111111111111111111111111E{:+}", (n as i32) - 1);
             let (b, _) = Decimal128::parse_str(&canonical, RoundingMode::NearestEven).unwrap();
             let (cmp, _) = a.partial_cmp(b);
             assert_eq!(
@@ -607,7 +604,7 @@ mod tests {
         for n in [75u32, 76, 77, 100, 500] {
             let s = "1".to_string() + &"0".repeat(n as usize);
             let (a, _) = Decimal128::parse_str(&s, RoundingMode::NearestEven).unwrap();
-            let canonical = format!("1E{:+}", n);
+            let canonical = format!("1E{n:+}");
             let (b, _) = Decimal128::parse_str(&canonical, RoundingMode::NearestEven).unwrap();
             let (cmp, _) = a.partial_cmp(b);
             assert_eq!(

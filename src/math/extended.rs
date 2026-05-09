@@ -101,13 +101,12 @@ impl Extended {
     /// subnormal-range result for `x ∈ (−14221, −14150]`, which the
     /// Taylor pipeline is fully capable of producing. The asymmetry
     /// is intrinsic to decimal128's lopsided exponent range
-    /// (E_MAX = 6144, MIN_SUBNORMAL exponent = −6176).
+    /// (`E_MAX` = 6144, `MIN_SUBNORMAL` exponent = −6176).
     pub const EXP_UNDERFLOW_LIMIT: Self = Self {
         coef: U256::from_u128(14221),
         exp: 0,
         sign: false,
     };
-
 
     /// An `Extended` whose magnitude exceeds `Decimal128::MAX` (`10^6144`)
     /// by enough that the boundary `to_decimal128` round produces `±∞ +

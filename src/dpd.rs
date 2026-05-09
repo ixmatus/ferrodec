@@ -663,7 +663,7 @@ mod tests {
         // and both signs across the boundary, so a future refactor of
         // either pack_dpd_nan or canonicalize cannot diverge silently.
         let non_canonical = [
-            TEN_POW_33,         // exactly the boundary
+            TEN_POW_33, // exactly the boundary
             TEN_POW_33 + 1,
             (1u128 << 110) - 1, // largest payload representable in BID
         ];

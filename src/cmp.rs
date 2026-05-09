@@ -437,7 +437,11 @@ mod tests {
             // positive, larger payload precedes for negative.
             let a = Decimal128::from_bits(pack_quiet_nan(sign, pa));
             let b = Decimal128::from_bits(pack_quiet_nan(sign, pb));
-            let want = if sign { Ordering::Greater } else { Ordering::Less };
+            let want = if sign {
+                Ordering::Greater
+            } else {
+                Ordering::Less
+            };
             assert_eq!(a.total_cmp(b), want, "qNaN sign={sign}");
             assert_eq!(b.total_cmp(a), want.reverse(), "qNaN reverse sign={sign}");
 
@@ -465,7 +469,11 @@ mod tests {
             let b = Decimal128::from_bits(pack_finite(sign, BIASED_EXP_MAX, 0));
             // Smaller exponent precedes for positive zero; larger
             // exponent precedes for negative.
-            let want = if sign { Ordering::Greater } else { Ordering::Less };
+            let want = if sign {
+                Ordering::Greater
+            } else {
+                Ordering::Less
+            };
             assert_eq!(a.total_cmp(b), want, "zero cohort sign={sign}");
             assert_eq!(b.total_cmp(a), want.reverse());
             // Reflexive.
