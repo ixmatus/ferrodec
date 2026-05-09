@@ -425,8 +425,32 @@ fn fma_sub_ulp(
         "exactly one side may be sub-ULP at this point"
     );
     if c_too_wide {
-        let _ = (a, b, c, qab, sab, cab);
-        return sub_ulp_round(U256::from_u128(cc), qc, sc, false, rm);
+        let _ = (a, b, c, cab);
+        let effective_sub = sab != sc;
+        // IEEE 754 §6.3 preferred quantum for the FMA result is
+        // min(qab, qc); the existing sub_ulp_round path ends up with
+        // it implicitly via its pad-to-PRECISION trick (which only
+        // shifts down to qc − pad), but the new effective-sub path
+        // needs it explicitly so round_and_pack_finite can pad the
+        // candidate's trailing zeros.
+        let q_pref = qab.min(qc);
+        if !effective_sub {
+            // Same-sign sub-ULP product: the residue pushes magnitude
+            // up by epsilon ≪ 0.5 ULP (c_too_wide ⇒ qc − qab > 82,
+            // far beyond PRECISION = 34), so existing sub_ulp_round
+            // (epsilon-as-positive-sticky) gives the correct rounded
+            // value for every mode.
+            return sub_ulp_round(U256::from_u128(cc), qc, sc, false, rm);
+        }
+        // Opposite-sign sub-ULP product: true magnitude is
+        // `cc · 10^qc − epsilon`, slightly *below* `cc · 10^qc`. For
+        // round-to-nearest the answer is still `cc` (epsilon ≪ 0.5
+        // ULP), but directional modes can pick the lower neighbour.
+        // Mirror addsub::sub_ulp_effective_sub's lower/upper-candidate
+        // selection without that helper's full eps/half-ULP machinery
+        // — the magnitude bound makes eps_cmp trivially `Less` for
+        // both nearest variants.
+        return sub_ulp_eff_sub_c_dominates(cc, qc, q_pref, sc, rm);
     }
 
     // ab dominates. Two sub-cases:
@@ -482,6 +506,78 @@ fn sub_ulp_round(
     let q_padded = q_dom - pad as i32;
 
     round_and_pack_finite(padded, q_padded, q_padded, sign_dom, true, rm, Status::OK)
+}
+
+/// Effective-subtraction sub-ULP path for the `c_too_wide` branch.
+///
+/// `c` dominates and the product's magnitude is so far below `c`'s
+/// quantum (`qc − qab > 82` per [`SHIFT_LIMIT`]) that the true value
+/// is `cc · 10^qc − epsilon` with `epsilon ≪ 0.5 ULP` of `cc`'s
+/// PRECISION-rep neighbours. Round-to-nearest therefore always picks
+/// `cc` (the upper candidate); only the directional modes can pick
+/// the lower candidate `cc − 1 ULP`.
+///
+/// Mirrors the candidate selection in `addsub::sub_ulp_effective_sub`
+/// but skips the `2·cs vs 10^(diff−k)` machinery — the magnitude
+/// bound forces `eps_cmp = Less` for nearest modes.
+fn sub_ulp_eff_sub_c_dominates(
+    cc: u128,
+    qc: i32,
+    q_preferred: i32,
+    sc: bool,
+    rm: RoundingMode,
+) -> (Decimal128, Status) {
+    debug_assert!(cc != 0);
+    let d = decimal_digit_count(cc);
+    let is_pow10 = cc == 10u128.pow(d - 1);
+    // Extension factor: how many digits below `qc` the
+    // PRECISION-rep boundary sits when `cc` is a power of 10.
+    let k: u32 = if is_pow10 {
+        PRECISION + 1 - d
+    } else {
+        PRECISION - d
+    };
+
+    let round_up = match rm {
+        // Toward zero: pick the smaller-magnitude neighbour.
+        RoundingMode::TowardZero => false,
+        // Toward +∞: positive result wants the upper (cc itself);
+        // negative result wants the lower (less-negative).
+        RoundingMode::TowardPositive => !sc,
+        // Toward −∞: mirror image of TowardPositive.
+        RoundingMode::TowardNegative => sc,
+        // Round-to-nearest: epsilon ≪ 0.5 ULP, so the upper (cc) is
+        // strictly closer to the true value.
+        RoundingMode::NearestEven | RoundingMode::NearestAway => true,
+    };
+    let status = Status::INEXACT;
+
+    if round_up {
+        // Upper candidate `cc · 10^qc`. Pass the FMA's preferred
+        // quantum so `round_and_pack_finite` pads trailing zeros
+        // down to it (IEEE 754 §6.3 — inexact results get the
+        // quantum of the more-precise input where possible).
+        return round_and_pack_finite(
+            U256::from_u128(cc),
+            qc,
+            q_preferred,
+            sc,
+            false,
+            rm,
+            status,
+        );
+    }
+    // Lower candidate: cc · 10^k − 1 at quantum qc − k. For
+    // non-power-of-10 cc with d = PRECISION the result stays in the
+    // same cohort with coefficient cc − 1; for power-of-10 cc it
+    // crosses into the lower cohort with an all-9 coefficient.
+    let (lower_coef, lower_quantum) = if k == 0 {
+        (U256::from_u128(cc - 1), qc)
+    } else {
+        let extended = U256::from_u128(cc).mul_pow10(k);
+        (extended.sub(U256::from_u128(1)), qc - k as i32)
+    };
+    round_and_pack_finite(lower_coef, lower_quantum, q_preferred, sc, false, rm, status)
 }
 
 fn zero_after_cancellation(
@@ -587,6 +683,113 @@ mod tests {
             let (r, _) = Decimal128::ONE.fma(d_int(v), Decimal128::ZERO, RoundingMode::default());
             let (cmp, _) = r.partial_cmp(d_int(v));
             assert_eq!(cmp, Some(core::cmp::Ordering::Equal));
+        }
+    }
+
+    /// Build the smallest-magnitude positive subnormal (`1e-6176`).
+    fn min_subnormal() -> Decimal128 {
+        Decimal128::from_bits(pack_finite(false, 0, 1))
+    }
+
+    /// The PRECISION-rep value just below 1: `0.999…9` (34 nines) with
+    /// quantum `−34`.
+    fn one_minus_one_ulp() -> Decimal128 {
+        let coef = 10u128.pow(34) - 1; // 34 nines
+        Decimal128::from_bits(pack_finite(
+            false,
+            (BIAS as i32 - 34) as u32,
+            coef,
+        ))
+    }
+
+    #[test]
+    fn fma_sub_ulp_eff_sub_directional_one_minus_eps() {
+        // Reproducer from the 6-agent review: ONE.fma(1e-6176, NEG_ONE,
+        // TowardPositive) should round the true value −1 + 1e-6176 (just
+        // above −1) UP toward +∞, picking the next-larger representable,
+        // which is 0.999…9 × 10^−34 = `one_minus_one_ulp`. The legacy
+        // sub_ulp_round path returned exactly −1 instead.
+        let (r, s) = Decimal128::ONE.fma(
+            min_subnormal(),
+            Decimal128::NEG_ONE,
+            RoundingMode::TowardPositive,
+        );
+        assert!(s.inexact());
+        let target = one_minus_one_ulp().neg();
+        assert_eq!(
+            r.to_bits(),
+            target.to_bits(),
+            "TowardPositive: got {r:?}, want {target:?}",
+        );
+
+        // Symmetric reproducer: NEG_ONE * 1e-6176 + ONE under
+        // TowardNegative. True value 1 − 1e-6176, which TowardNegative
+        // should round DOWN to 0.999…9.
+        let (r, s) = Decimal128::NEG_ONE.fma(
+            min_subnormal(),
+            Decimal128::ONE,
+            RoundingMode::TowardNegative,
+        );
+        assert!(s.inexact());
+        let target = one_minus_one_ulp();
+        assert_eq!(
+            r.to_bits(),
+            target.to_bits(),
+            "TowardNegative: got {r:?}, want {target:?}",
+        );
+    }
+
+    #[test]
+    fn fma_sub_ulp_eff_sub_toward_zero() {
+        // TowardZero on a positive result `1 − epsilon` should pick the
+        // smaller-magnitude neighbour 0.999…9.
+        let (r, s) = Decimal128::NEG_ONE.fma(
+            min_subnormal(),
+            Decimal128::ONE,
+            RoundingMode::TowardZero,
+        );
+        assert!(s.inexact());
+        assert_eq!(r.to_bits(), one_minus_one_ulp().to_bits());
+
+        // Same for the negative-result mirror.
+        let (r, s) = Decimal128::ONE.fma(
+            min_subnormal(),
+            Decimal128::NEG_ONE,
+            RoundingMode::TowardZero,
+        );
+        assert!(s.inexact());
+        assert_eq!(r.to_bits(), one_minus_one_ulp().neg().to_bits());
+    }
+
+    /// `−1.000000000000000000000000000000000` — the 34-digit cohort
+    /// of −1 at quantum −33 (padded form mandated by IEEE 754 §6.3
+    /// preferred-quantum rules for inexact sub-ULP results).
+    fn neg_one_padded_34_digits() -> Decimal128 {
+        let coef = 10u128.pow(33); // 1 followed by 33 zeros
+        Decimal128::from_bits(pack_finite(
+            true,
+            (BIAS as i32 - 33) as u32,
+            coef,
+        ))
+    }
+
+    #[test]
+    fn fma_sub_ulp_eff_sub_nearest_picks_dominant() {
+        // For round-to-nearest, epsilon = 1e-6176 is many magnitudes
+        // below 0.5 ULP of 1, so the upper candidate (cc = −1) is
+        // strictly closer to the true value. IEEE 754 §6.3 then pads
+        // the chosen value out to the preferred quantum
+        // min(qab, qc) = qab clamped to PRECISION digits, yielding
+        // `−1.000…0` (34 digits) instead of the canonical `−1`.
+        // dqFMA.decTest:dqadd36506 covers exactly this shape.
+        for &rm in &[RoundingMode::NearestEven, RoundingMode::NearestAway] {
+            let (r, s) = Decimal128::ONE.fma(min_subnormal(), Decimal128::NEG_ONE, rm);
+            assert!(s.inexact(), "{rm:?}: should still flag inexact");
+            assert_eq!(
+                r.to_bits(),
+                neg_one_padded_34_digits().to_bits(),
+                "{rm:?}: must round to padded −1.000…0",
+            );
         }
     }
 }
