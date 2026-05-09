@@ -61,45 +61,66 @@ impl Decimal128 {
         if ra != rb {
             return ra.cmp(&rb);
         }
-        // Same major rank — break ties.
+        // Same major rank — break ties. Each arm pulls *both* operand
+        // signs and asserts they agree, because the rank table at
+        // `total_order_rank` partitions on sign: any two values at the
+        // same rank necessarily have the same sign. Capturing the
+        // assertion at the destructure site documents the invariant
+        // and makes future rank-table changes fail loud rather than
+        // silently produce a non-antisymmetric ordering.
         match (a, b) {
             (
-                Class::SignalingNaN { sign, payload: pa },
                 Class::SignalingNaN {
-                    sign: _,
+                    sign: sa,
+                    payload: pa,
+                },
+                Class::SignalingNaN {
+                    sign: sb,
                     payload: pb,
                 },
             )
             | (
-                Class::QuietNaN { sign, payload: pa },
                 Class::QuietNaN {
-                    sign: _,
+                    sign: sa,
+                    payload: pa,
+                },
+                Class::QuietNaN {
+                    sign: sb,
                     payload: pb,
                 },
-            ) => signed_payload_cmp(sign, pa, pb),
+            ) => {
+                debug_assert!(sa == sb, "same-rank NaNs must share sign");
+                signed_payload_cmp(sa, pa, pb)
+            }
             (Class::Infinity { .. }, Class::Infinity { .. }) => Ordering::Equal,
             (
                 Class::Zero {
-                    sign,
+                    sign: sa,
                     biased_exp: ea,
                 },
                 Class::Zero {
-                    sign: _,
+                    sign: sb,
                     biased_exp: eb,
                 },
-            ) => zero_cohort_cmp(sign, ea, eb),
+            ) => {
+                debug_assert!(sa == sb, "same-rank zeros must share sign");
+                zero_cohort_cmp(sa, ea, eb)
+            }
             (
                 Class::Finite {
-                    sign,
+                    sign: sa,
                     biased_exp: ea,
                     coefficient: ca,
                 },
                 Class::Finite {
-                    sign: _,
+                    sign: sb,
                     biased_exp: eb,
                     coefficient: cb,
                 },
-            ) => finite_total_cmp(sign, ea, ca, eb, cb),
+            ) => {
+                debug_assert!(sa == sb, "same-rank finites must share sign");
+                finite_total_cmp(sa, ea, ca, eb, cb)
+            }
             // Mixed cases at the same rank shouldn't happen — but stay total.
             _ => Ordering::Equal,
         }
@@ -393,6 +414,58 @@ mod tests {
     #[test]
     fn neg_zero_total_lt_pos_zero() {
         assert_total_lt(Decimal128::NEG_ZERO, Decimal128::ZERO);
+    }
+
+    #[test]
+    fn total_cmp_same_rank_nan_payloads_antisymmetric() {
+        // Pin the NaN payload tie-breaker contract over both signs and
+        // both NaN flavours. The destructure was hardened to assert
+        // `sa == sb` because the rank table embeds sign; this test
+        // confirms the assertion holds for every `(sign, flavour)`
+        // pair the rank table funnels through the NaN arm.
+        use crate::bid::{pack_quiet_nan, pack_signaling_nan};
+        let pa: u128 = 0x1111;
+        let pb: u128 = 0x2222;
+        for sign in [false, true] {
+            // qNaN at the same sign: smaller payload precedes for
+            // positive, larger payload precedes for negative.
+            let a = Decimal128::from_bits(pack_quiet_nan(sign, pa));
+            let b = Decimal128::from_bits(pack_quiet_nan(sign, pb));
+            let want = if sign { Ordering::Greater } else { Ordering::Less };
+            assert_eq!(a.total_cmp(b), want, "qNaN sign={sign}");
+            assert_eq!(b.total_cmp(a), want.reverse(), "qNaN reverse sign={sign}");
+
+            // sNaN, same shape.
+            let a = Decimal128::from_bits(pack_signaling_nan(sign, pa));
+            let b = Decimal128::from_bits(pack_signaling_nan(sign, pb));
+            assert_eq!(a.total_cmp(b), want, "sNaN sign={sign}");
+            assert_eq!(b.total_cmp(a), want.reverse(), "sNaN reverse sign={sign}");
+
+            // Equal payload, same sign — strictly Equal.
+            let a = Decimal128::from_bits(pack_quiet_nan(sign, pa));
+            let b = Decimal128::from_bits(pack_quiet_nan(sign, pa));
+            assert_eq!(a.total_cmp(b), Ordering::Equal, "qNaN equal sign={sign}");
+        }
+    }
+
+    #[test]
+    fn total_cmp_same_rank_zero_cohorts_antisymmetric() {
+        // Same-shape coverage for the Zero arm. The rank table puts
+        // +0 cohorts at +1 and -0 at -1 (sign separates rank), so any
+        // two zeros at the same rank share sign by construction.
+        use crate::bid::{pack_finite, BIAS, BIASED_EXP_MAX};
+        for sign in [false, true] {
+            let a = Decimal128::from_bits(pack_finite(sign, 0, 0));
+            let b = Decimal128::from_bits(pack_finite(sign, BIASED_EXP_MAX, 0));
+            // Smaller exponent precedes for positive zero; larger
+            // exponent precedes for negative.
+            let want = if sign { Ordering::Greater } else { Ordering::Less };
+            assert_eq!(a.total_cmp(b), want, "zero cohort sign={sign}");
+            assert_eq!(b.total_cmp(a), want.reverse());
+            // Reflexive.
+            let mid = Decimal128::from_bits(pack_finite(sign, BIAS, 0));
+            assert_eq!(mid.total_cmp(mid), Ordering::Equal);
+        }
     }
 
     #[test]
