@@ -7,6 +7,73 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.12.0] - 2026-05-08
+
+### Added
+
+- **DPD (Densely Packed Decimal) interchange** behind a new opt-in
+  `dpd` cargo feature. `Decimal128::to_dpd_bytes(self) -> [u8; 16]`
+  and `Decimal128::from_dpd_bytes(bytes: [u8; 16]) -> Self` round-trip
+  IEEE 754:2019 DPD byte patterns (the encoding IBM decNumber,
+  z/Architecture decimal-FP hardware, and IBM POWER use as their
+  wire format). Storage and arithmetic stay BID; the codec is a
+  byte-level adapter, not a parallel arithmetic stack. Closes the
+  interop gap [ADR-0001](docs/decisions/0001-bid-over-dpd.md) named
+  in 2026-05-02; rationale, scope, and the rejected deeper
+  alternatives live in
+  [ADR-0009](docs/decisions/0009-dpd-interchange.md). Both directions
+  are total — every `Decimal128` produces a 16-byte pattern and every
+  16-byte pattern decodes to *some* valid `Decimal128`, with
+  IEEE 754:2019 §3.5.2 canonicalization on read for non-canonical
+  declets.
+
+  Implementation: pure boolean equations from Mike Cowlishaw's
+  *A Summary of Densely Packed Decimal Encoding*, transcribed
+  verbatim so the codec audits line-by-line against the spec text.
+  No lookup tables.
+
+  Embedded code-size cost: **+7 KB `.text` on `thumbv6m-none-eabi`**
+  with `--features=fmt,dpd`, measured against `--features=fmt` alone.
+  Users who don't enable the feature pay zero — the entire module is
+  `#[cfg(feature = "dpd")] mod dpd;` in `lib.rs`. Cost is dominated
+  by 11 iterations of `u128 % 1000` / `u128 / 1000` on a target
+  without hardware divide; intrinsic to the algorithm shape on
+  Cortex-M0+.
+
+### Conformance
+
+- With `--features=dpd`, the runner climbs from **8 622 / 0 / 99**
+  to **9 080 / 0 / 253** across 9 333 cases. The two newly vendored
+  files cover encoding round-trips (`dqEncode.decTest`: 368 / 0 / 0)
+  and canonical-form predicates (`dqCanonical.decTest`: 90 / 0 / 154,
+  every dispatched op passes; the 154 skips are GDA bit-level
+  operations — `copy`, `invert`, `and` / `or` / `xor`, `rotate`,
+  `shift`, `comparesig` — outside ferrodec's surface).
+
+  Without `--features=dpd` the existing 8 622 / 0 / 99 baseline is
+  preserved exactly: the new files are skipped at the file gate.
+
+### Verification
+
+- Three new Kani harnesses under `src/verify/dpd.rs` (gated on
+  `--features=kani --features=dpd`):
+
+  * `declet_decode_total` — every 10-bit declet decodes to three
+    valid BCD digits.
+  * `from_dpd_bytes_total` — every 128-bit input produces a
+    well-classified `Decimal128`. The panic-freedom proof for the
+    codec.
+  * `dpd_roundtrip_specials` — `INFINITY` / `NEG_INFINITY` / `NAN` /
+    `SIGNALING_NAN` round-trip bit-equal.
+
+  Aggregate Kani full-suite delta: +12 s. The "≈ 2 min full-suite"
+  promise from [ADR-0008](docs/decisions/0008-perf-results.md) holds.
+
+  A fourth harness (`dpd_roundtrip_via_try_new`, full canonical-finite
+  round-trip) was drafted, ran for 10+ minutes without termination,
+  and was dropped per the plan's stop-loss. Round-trip is covered by
+  `tests/property_dpd.rs` instead. ADR-0009 records the omission.
+
 ## [1.11.0] - 2026-05-07
 
 ### Performance

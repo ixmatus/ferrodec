@@ -34,3 +34,9 @@ DPD wins for human-readable bit patterns and per-digit operations (each declet s
 
 - `src/bid.rs` — encoding constants and pack / classify helpers.
 - `docs/PLAN.md` — original v1 design doc records this as a fixed early choice.
+
+## Update (2026-05-08)
+
+The "ferrodec doesn't ship that adapter; users wanting cross-format exchange handle it externally" sentence in *Consequences → Costs* is **superseded by [ADR-0009](0009-dpd-interchange.md)**. ferrodec now ships `Decimal128::to_dpd_bytes` / `from_dpd_bytes` behind the opt-in `dpd` cargo feature for IEEE 754-2019 DPD byte-pattern interchange.
+
+The core decision in this ADR — BID-128 as the storage and arithmetic encoding — is unchanged. ADR-0009 is a byte-level adapter on top, not a re-litigation. The "Why this isn't reconsidered" paragraph still applies: arithmetic stays BID, the codec is feature-gated so the embedded floor pays nothing for it by default, and the deeper alternatives (DPD-as-storage, parallel `Decimal128Dpd` newtype) were re-examined in the ADR-0009 plan and rejected.
