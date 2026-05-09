@@ -313,6 +313,43 @@ mod tests {
     }
 
     #[test]
+    fn trig_qnan_preserves_payload_bit_for_bit() {
+        // The qNaN arms of `sin`/`cos`/`tan` return `self` directly,
+        // so the bit pattern (sign, signaling-flag, full 110-bit
+        // payload) must come through unchanged. Pin this with a
+        // distinctive payload so a future refactor that funnels qNaN
+        // through `nan_from` (which canonicalises) would fail loud.
+        let payload: u128 = 0x0DEADBEEF_CAFE_BA5E;
+        let qnan = Decimal128::from_bits(crate::bid::pack_quiet_nan(true, payload));
+        for &op in &[
+            Decimal128::sin as fn(Decimal128, RoundingMode) -> (Decimal128, Status),
+            Decimal128::cos,
+            Decimal128::tan,
+        ] {
+            let (r, s) = op(qnan, RoundingMode::NearestEven);
+            assert_eq!(r.to_bits(), qnan.to_bits(), "qNaN bits must pass through");
+            assert!(!s.invalid(), "qNaN must not raise INVALID");
+        }
+
+        // sNaN gets quieted (signaling bit cleared) but the payload
+        // bits should still survive — propagate_nan / nan_from
+        // routes through `pack_quiet_nan(sign, payload)`. Verifies
+        // the payload-preservation invariant on the sNaN side too.
+        let snan = Decimal128::from_bits(crate::bid::pack_signaling_nan(false, payload));
+        for &op in &[
+            Decimal128::sin as fn(Decimal128, RoundingMode) -> (Decimal128, Status),
+            Decimal128::cos,
+            Decimal128::tan,
+        ] {
+            let (r, s) = op(snan, RoundingMode::NearestEven);
+            assert!(r.is_nan() && r.is_quiet_nan(), "sNaN gets quieted");
+            assert!(s.invalid(), "sNaN must raise INVALID");
+            let r_payload = r.to_bits() & ((1u128 << 110) - 1);
+            assert_eq!(r_payload, payload, "sNaN payload must survive");
+        }
+    }
+
+    #[test]
     fn sin_inf_is_invalid_nan() {
         let (r, s) = Decimal128::INFINITY.sin(RoundingMode::NearestEven);
         assert!(r.is_nan());

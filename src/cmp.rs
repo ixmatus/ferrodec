@@ -11,10 +11,16 @@
 //!   ordered by exponent: smaller exponent first if positive, larger
 //!   exponent first if negative.
 //!
-//! `min` and `max` follow IEEE 754-2019 §9.6 `minimum`/`maximum`: NaN
-//! propagates (a NaN operand poisons the result, raising `INVALID` if
-//! signaling); otherwise the numerically-smaller / -larger value wins,
-//! with `−0 < +0`.
+//! `min` and `max` implement IEEE 754-2019 §9.6 `minimumNumber` /
+//! `maximumNumber` (the NaN-as-missing-value variant): a quiet NaN
+//! operand passes through to the other operand instead of poisoning
+//! the result; only a signaling NaN raises `INVALID`. The 754-2019
+//! `minimum` / `maximum` operations (where qNaN propagates the NaN)
+//! are *not* what ferrodec exposes here, despite the method names —
+//! the General Decimal Arithmetic specification's `min` / `max` and
+//! the original IEEE 754-2008 `minNum` / `maxNum` both defined the
+//! NaN-as-missing-value semantics, and that is what callers expect.
+//! `−0 < +0` for the cohort tie-break.
 
 use core::cmp::Ordering;
 

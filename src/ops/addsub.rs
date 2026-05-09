@@ -298,6 +298,19 @@ fn add_finite_finite(a: Decimal128, b: Decimal128, rm: RoundingMode) -> (Decimal
     };
 
     if combined.is_zero() && !sticky {
+        // Reachable only via `effective_sub` whose subtraction yielded
+        // U256::ZERO. The Equal arm above already handles the
+        // diff == 0 cancellation; this branch catches the residual
+        // case where a non-trivial diff still produced a clean zero
+        // (e.g. al == as_ shifted exactly by diff). The condition
+        // `effective_sub == false` plus `combined.is_zero()` would
+        // require al + as_ == 0 in U256, which is impossible for
+        // non-zero `cl, cs > 0`. The debug_assert pins the
+        // invariant for future readers.
+        debug_assert!(
+            effective_sub,
+            "post-cancellation zero on the addition path is unreachable"
+        );
         return zero_after_cancellation(rm, status, target_exp);
     }
 
@@ -411,21 +424,37 @@ fn decide_round_up(cs: u128, diff: u32, k: u32, sign: bool, rm: RoundingMode) ->
         RoundingMode::NearestEven => match eps_cmp {
             Ordering::Less => true,
             Ordering::Greater => false,
-            // Ties: round to the candidate with even last digit.
-            // For non-d=PRECISION cases, lower's last digit is 9 (odd)
-            // and upper's PRECISION-rep last digit is 0 (even) →
-            // round up to upper. d == PRECISION non-pow10 case is the
-            // only place this could differ; we fall back to "round up"
-            // there too (a real implementation would inspect parity).
-            Ordering::Equal => true,
+            // Ties: provably unreachable on this path. The caller
+            // gates on `diff > align_limit_for(d_l)` and `cs <
+            // COEFFICIENT_LIMIT`, which forces `2·cs < 10^(diff − k)`
+            // for every value of `d` (worked case-by-case in the
+            // 6-agent review's L1 analysis: d == PRECISION non-pow10
+            // needs diff − k ≤ 34 but the bound gives > 43; d ==
+            // PRECISION pow10 needs ≤ 38 but gives > 42; d <
+            // PRECISION is also unreachable). The debug_assert
+            // documents the invariant so any future relaxation of
+            // `align_limit_for` fails loud rather than silently
+            // exposing a parity bug here. Release builds fall back
+            // to "round up" — the only choice that stays sound for
+            // every possible parity if the invariant were ever
+            // breached.
+            Ordering::Equal => {
+                debug_assert!(
+                    false,
+                    "sub_ulp_effective_sub eps_cmp tie unreachable: \
+                     align_limit_for guarantees 2·cs < 10^(diff−k)"
+                );
+                true
+            }
         },
         RoundingMode::NearestAway => match eps_cmp {
             Ordering::Less => true,
             Ordering::Greater => false,
-            // Tie → away from zero. For positive result, upper has
-            // larger magnitude; for negative, upper is more-negative
-            // (also larger magnitude). So tie always rounds up.
-            Ordering::Equal => true,
+            // Same unreachability as NearestEven above.
+            Ordering::Equal => {
+                debug_assert!(false, "sub_ulp_effective_sub eps_cmp tie unreachable");
+                true
+            }
         },
     }
 }
