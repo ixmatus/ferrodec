@@ -80,7 +80,15 @@ impl Decimal128 {
     #[must_use]
     pub fn to_f64(self, _rm: RoundingMode) -> (f64, Status) {
         if self.is_nan() {
-            return (f64::NAN, Status::OK);
+            // IEEE 754-2019 §5.4.2 convertFormat: an sNaN operand
+            // raises INVALID and yields a quiet NaN; a qNaN passes
+            // through quietly.
+            let status = if self.is_signaling_nan() {
+                Status::INVALID
+            } else {
+                Status::OK
+            };
+            return (f64::NAN, status);
         }
         if self.is_infinite() {
             return (
@@ -313,9 +321,31 @@ mod tests {
     }
 
     #[test]
-    fn to_f64_nan_passes_through() {
-        let (v, _) = Decimal128::NAN.to_f64(RoundingMode::NearestEven);
+    fn to_f64_qnan_passes_through_quietly() {
+        // qNaN: convertFormat returns NaN with no exception flag.
+        let (v, s) = Decimal128::NAN.to_f64(RoundingMode::NearestEven);
         assert!(v.is_nan());
+        assert!(!s.invalid(), "qNaN must not raise INVALID");
+    }
+
+    #[test]
+    fn to_f64_snan_raises_invalid() {
+        // IEEE 754-2019 §5.4.2 convertFormat: an sNaN operand raises
+        // INVALID and yields a quiet NaN. The previous implementation
+        // silently dropped the sNaN signal.
+        let (v, s) = Decimal128::SIGNALING_NAN.to_f64(RoundingMode::NearestEven);
+        assert!(v.is_nan(), "result must still be NaN");
+        assert!(s.invalid(), "sNaN must raise INVALID");
+    }
+
+    #[test]
+    fn to_f32_snan_raises_invalid() {
+        // to_f32 inherits to_f64's status (it routes through to_f64
+        // and then double-rounds the value), so the sNaN signal must
+        // propagate through the wrapper.
+        let (v, s) = Decimal128::SIGNALING_NAN.to_f32(RoundingMode::NearestEven);
+        assert!(v.is_nan());
+        assert!(s.invalid(), "sNaN must raise INVALID through to_f32");
     }
 
     #[test]
