@@ -122,7 +122,21 @@ fn fma_special_cases(
     let b_inf = matches!(cls_b, Class::Infinity { .. });
     if (a_zero && b_inf) || (a_inf && b_zero) {
         status |= Status::INVALID;
-        return Some((Decimal128::NAN, status));
+        // IEEE 754-2019 §6.2.3: the result NaN should carry one of
+        // the input NaN payloads when one is available. If c is a
+        // NaN, propagate its payload (a and b are non-NaN here, so
+        // propagate_nan3 picks c; the sNaN-bit is cleared and the
+        // sNaN INVALID was already accumulated above).
+        let c_is_nan = matches!(
+            cls_c,
+            Class::QuietNaN { .. } | Class::SignalingNaN { .. }
+        );
+        let result = if c_is_nan {
+            propagate_nan3(a, b, c)
+        } else {
+            Decimal128::NAN
+        };
+        return Some((result, status));
     }
 
     // Now propagate any NaN operand. Order: a → b → c (matching the
@@ -654,6 +668,55 @@ mod tests {
             RoundingMode::default(),
         );
         assert!(r.is_nan());
+        assert!(s.invalid());
+    }
+
+    #[test]
+    fn zero_times_inf_with_nan_c_preserves_payload() {
+        // IEEE 754-2019 §6.2.3: when one input is NaN the result NaN
+        // should carry that input's payload. The 0 × Inf branch used
+        // to drop c's payload and return canonical NAN even when c
+        // was a NaN with an interesting payload.
+        let payload = 0x1234_5678u128;
+        let qnan_c =
+            Decimal128::from_bits(crate::bid::pack_quiet_nan(false, payload));
+        let snan_c =
+            Decimal128::from_bits(crate::bid::pack_signaling_nan(false, payload));
+
+        let (r, s) = Decimal128::ZERO.fma(
+            Decimal128::INFINITY,
+            qnan_c,
+            RoundingMode::default(),
+        );
+        assert!(r.is_nan());
+        assert!(s.invalid(), "0 × Inf still raises INVALID");
+        assert_eq!(
+            r.to_bits() & ((1u128 << 110) - 1),
+            payload,
+            "qNaN c's payload should be preserved",
+        );
+
+        let (r, s) = Decimal128::INFINITY.fma(
+            Decimal128::ZERO,
+            snan_c,
+            RoundingMode::default(),
+        );
+        assert!(r.is_nan());
+        assert!(r.is_quiet_nan(), "sNaN c is quieted on output");
+        assert!(s.invalid(), "0 × Inf and sNaN both raise INVALID");
+        assert_eq!(
+            r.to_bits() & ((1u128 << 110) - 1),
+            payload,
+            "sNaN c's payload should be preserved (signal cleared)",
+        );
+
+        // Non-NaN c still gets the canonical NAN — the fix is narrow.
+        let (r, s) = Decimal128::ZERO.fma(
+            Decimal128::INFINITY,
+            Decimal128::ONE,
+            RoundingMode::default(),
+        );
+        assert_eq!(r.to_bits(), Decimal128::NAN.to_bits());
         assert!(s.invalid());
     }
 
