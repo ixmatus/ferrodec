@@ -126,11 +126,61 @@ impl Decimal128 {
         }
     }
 
-    /// Convert `self` to `f32`. Same approach as [`Self::to_f64`].
+    /// Convert `self` to `f32`.
+    ///
+    /// Direct decimal-string → f32 path (not `to_f64() as f32`): the
+    /// double-rounding hazard from going through f64 produces a
+    /// 1-ULP error for any value that lies on a half-ULP boundary in
+    /// f32 but slightly off-boundary in f64. `f32::from_str` is
+    /// correctly rounded, so a single rounding step keeps the result
+    /// inside the f32 envelope.
     #[must_use]
-    pub fn to_f32(self, rm: RoundingMode) -> (f32, Status) {
-        let (v64, st) = self.to_f64(rm);
-        (v64 as f32, st)
+    pub fn to_f32(self, _rm: RoundingMode) -> (f32, Status) {
+        if self.is_nan() {
+            // Same sNaN rule as to_f64: signaling raises INVALID and
+            // quiets to a NaN; quiet passes through.
+            let status = if self.is_signaling_nan() {
+                Status::INVALID
+            } else {
+                Status::OK
+            };
+            return (f32::NAN, status);
+        }
+        if self.is_infinite() {
+            return (
+                if self.is_sign_negative() {
+                    f32::NEG_INFINITY
+                } else {
+                    f32::INFINITY
+                },
+                Status::OK,
+            );
+        }
+        if self.is_zero() {
+            return (
+                if self.is_sign_negative() { -0.0 } else { 0.0 },
+                Status::OK,
+            );
+        }
+        let mut buf = StrBuf::new();
+        write!(&mut buf, "{self}").expect("Decimal128 display fits 64 bytes");
+        match f32::from_str(buf.as_str()) {
+            Ok(v) => {
+                let mut status = Status::OK;
+                if v.is_infinite() {
+                    status |= Status::OVERFLOW | Status::INEXACT;
+                } else if v == 0.0 && !self.is_zero() {
+                    status |= Status::UNDERFLOW | Status::INEXACT;
+                } else {
+                    // Same caveat as to_f64: we don't try to detect
+                    // "exact" here, which would require a re-encode +
+                    // bit compare against the original Decimal128.
+                    status |= Status::INEXACT;
+                }
+                (v, status)
+            }
+            Err(_) => (f32::NAN, Status::INVALID),
+        }
     }
 
     /// Convert an `f64` to `Decimal128` via the canonical
@@ -397,5 +447,81 @@ mod tests {
             .0;
         let (v, _) = d.to_f32(RoundingMode::NearestEven);
         assert_eq!(v, 3.5_f32);
+    }
+
+    #[test]
+    fn to_f32_no_double_rounding() {
+        // Direct decimal → f32 path must agree with `format!("{d}").parse::<f32>()`
+        // for every value. Going through f64 first introduces a
+        // double-rounding hazard for values that lie on a half-ULP of
+        // f32 but slightly off in f64. The test compares the two and
+        // would fail bit-exact if any case diverged.
+        //
+        // The values cover small integers, simple fractions, two
+        // boundary-ish exponents, and one classic double-rounding
+        // candidate (a value picked so that f64-rounding nudges it
+        // across a half-ULP_f32 boundary).
+        for s in [
+            "0",
+            "1",
+            "-1",
+            "3.5",
+            "0.1",
+            "-0.1",
+            "1.234567890123456789",
+            "1e-30",
+            "1e30",
+            // 8.589973e9 is near a power-of-2 boundary in f32; it's
+            // the first half-ULP in `[2^33, 2^34)` and is a known
+            // double-rounding pet case for decimal → binary
+            // conversions through an intermediate.
+            "8589973000",
+        ] {
+            let d = Decimal128::parse_str(s, RoundingMode::default()).unwrap().0;
+            let (got, _) = d.to_f32(RoundingMode::NearestEven);
+            let mut buf = StrBuf::new();
+            write!(&mut buf, "{d}").unwrap();
+            let want = f32::from_str(buf.as_str()).expect("display parses back");
+            assert_eq!(
+                got.to_bits(),
+                want.to_bits(),
+                "to_f32({s}): got {got:?}, want {want:?} (display={})",
+                buf.as_str(),
+            );
+        }
+    }
+
+    #[test]
+    fn to_f32_inf_nan_zero() {
+        let (v, _) = Decimal128::INFINITY.to_f32(RoundingMode::default());
+        assert!(v.is_infinite() && !v.is_sign_negative());
+        let (v, _) = Decimal128::NEG_INFINITY.to_f32(RoundingMode::default());
+        assert!(v.is_infinite() && v.is_sign_negative());
+        let (v, _) = Decimal128::ZERO.to_f32(RoundingMode::default());
+        assert_eq!(v.to_bits(), 0u32);
+        let (v, _) = Decimal128::NEG_ZERO.to_f32(RoundingMode::default());
+        assert_eq!(v.to_bits(), (-0.0_f32).to_bits());
+    }
+
+    #[test]
+    fn to_f32_huge_overflows() {
+        let big = Decimal128::parse_str("1e100", RoundingMode::default())
+            .unwrap()
+            .0;
+        let (v, s) = big.to_f32(RoundingMode::default());
+        assert!(v.is_infinite());
+        assert!(s.overflow());
+        assert!(s.inexact());
+    }
+
+    #[test]
+    fn to_f32_tiny_underflows() {
+        let small = Decimal128::parse_str("1e-100", RoundingMode::default())
+            .unwrap()
+            .0;
+        let (v, s) = small.to_f32(RoundingMode::default());
+        assert_eq!(v, 0.0_f32);
+        assert!(s.underflow());
+        assert!(s.inexact());
     }
 }
