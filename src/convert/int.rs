@@ -255,16 +255,23 @@ impl Decimal128 {
                 biased_exp,
                 coefficient,
             } => {
+                let unbiased = biased_exp as i32 - BIAS as i32;
+                let (rounded_abs, status) = round_to_integer(coefficient, unbiased, sign, rm);
                 if sign {
-                    // Any negative value is out-of-range for unsigned.
+                    // IEEE 754-2019 §5.4.1: convertToInteger raises INVALID
+                    // only when the *rounded* integer is out of range. A
+                    // negative finite that rounds to zero (e.g. −0.4 under
+                    // any nearest mode) is in range and yields 0 + INEXACT,
+                    // not INVALID.
+                    if rounded_abs == 0 {
+                        return (0, status);
+                    }
                     return (0, Status::INVALID);
                 }
-                let unbiased = biased_exp as i32 - BIAS as i32;
-                let (rounded, status) = round_to_integer(coefficient, unbiased, false, rm);
-                if rounded > max {
+                if rounded_abs > max {
                     return (max, Status::INVALID);
                 }
-                (rounded, status)
+                (rounded_abs, status)
             }
         }
     }
@@ -468,6 +475,51 @@ mod tests {
     #[test]
     fn to_int_negative_to_unsigned_invalid() {
         let (n, s) = Decimal128::NEG_ONE.to_u32(RoundingMode::default());
+        assert_eq!(n, 0);
+        assert!(s.invalid());
+    }
+
+    #[test]
+    fn to_unsigned_negative_rounds_to_zero_is_inexact_not_invalid() {
+        // IEEE 754-2019 §5.4.1: convertToInteger raises INVALID only
+        // when the *rounded* integer is out of range. A small negative
+        // finite that rounds to zero (e.g. −0.4 under any nearest mode)
+        // must yield (0, INEXACT) — not (0, INVALID), which the
+        // pre-1.13 implementation returned because it short-circuited
+        // before the rounding step.
+        let neg_four_tenths = Decimal128::from_bits(pack_finite(true, BIAS - 1, 4));
+
+        for &rm in &[
+            RoundingMode::NearestEven,
+            RoundingMode::NearestAway,
+            RoundingMode::TowardZero,
+            RoundingMode::TowardPositive,
+        ] {
+            let (n, s) = neg_four_tenths.to_u32(rm);
+            assert_eq!(n, 0, "{rm:?}: −0.4 must round to 0 in u32");
+            assert!(!s.invalid(), "{rm:?}: −0.4 → 0 is in range, not INVALID");
+            assert!(s.inexact(), "{rm:?}: precision was lost, INEXACT");
+        }
+
+        // TowardNegative on −0.4 rounds to −1, which IS out of range
+        // for unsigned — this branch must still report INVALID so the
+        // contract isn't over-broadened.
+        let (n, s) = neg_four_tenths.to_u32(RoundingMode::TowardNegative);
+        assert_eq!(n, 0);
+        assert!(
+            s.invalid(),
+            "TowardNegative on −0.4 rounds to −1, which is out of u32 range",
+        );
+
+        // Half-even ties: −0.5 → 0 (banker's), −1.5 → −2 (out of range).
+        let neg_half = Decimal128::from_bits(pack_finite(true, BIAS - 1, 5));
+        let (n, s) = neg_half.to_u32(RoundingMode::NearestEven);
+        assert_eq!(n, 0);
+        assert!(!s.invalid());
+        assert!(s.inexact());
+
+        // NearestAway on −0.5 rounds to −1 (away from zero), out of range.
+        let (n, s) = neg_half.to_u32(RoundingMode::NearestAway);
         assert_eq!(n, 0);
         assert!(s.invalid());
     }
