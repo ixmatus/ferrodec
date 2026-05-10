@@ -13,8 +13,8 @@
 //!    rounding modes except `TowardNegative`, which yields `−0`.
 
 use super::{operand, rm_from_u8, NUM_OPERANDS};
-use ferrodec_ieee::RoundingMode;
 use crate::decimal::Decimal64;
+use ferrodec_ieee::RoundingMode;
 
 #[kani::proof]
 fn add_no_panic_special_inputs() {
@@ -83,8 +83,16 @@ fn add_snan_raises_invalid() {
 fn add_infinity_arithmetic() {
     let sa: bool = kani::any();
     let sb: bool = kani::any();
-    let a = if sa { Decimal64::NEG_INFINITY } else { Decimal64::INFINITY };
-    let b = if sb { Decimal64::NEG_INFINITY } else { Decimal64::INFINITY };
+    let a = if sa {
+        Decimal64::NEG_INFINITY
+    } else {
+        Decimal64::INFINITY
+    };
+    let b = if sb {
+        Decimal64::NEG_INFINITY
+    } else {
+        Decimal64::INFINITY
+    };
 
     let (r, status) = a.add(b, RoundingMode::NearestEven);
     if sa == sb {
@@ -104,8 +112,16 @@ fn add_zero_zero_sign_rule() {
     let rmi: u8 = kani::any();
     kani::assume(rmi <= 4);
 
-    let a = if sa { Decimal64::NEG_ZERO } else { Decimal64::ZERO };
-    let b = if sb { Decimal64::NEG_ZERO } else { Decimal64::ZERO };
+    let a = if sa {
+        Decimal64::NEG_ZERO
+    } else {
+        Decimal64::ZERO
+    };
+    let b = if sb {
+        Decimal64::NEG_ZERO
+    } else {
+        Decimal64::ZERO
+    };
     let mode = rm_from_u8(rmi);
 
     let (r, _) = a.add(b, mode);

@@ -14,7 +14,7 @@
 
 use core::fmt::Write as _;
 
-use crate::bid::{classify_bits, BIAS, Class};
+use crate::bid::{classify_bits, Class, BIAS};
 use crate::decimal::Decimal32;
 use ferrodec_ieee::{RoundingMode, Status};
 
@@ -233,7 +233,9 @@ mod tests {
     #[test]
     fn round_trip_simple_values() {
         for s in &["1", "1.5", "-2.5", "0.0001", "12345.67"] {
-            let parsed = Decimal32::parse_str(s, RoundingMode::NearestEven).unwrap().0;
+            let parsed = Decimal32::parse_str(s, RoundingMode::NearestEven)
+                .unwrap()
+                .0;
             let as_f64 = parsed.to_f64();
             let (back, _) = Decimal32::from_f64(as_f64, RoundingMode::NearestEven);
             // Numerically equal (cohort may differ).

@@ -29,7 +29,7 @@
 //! * `0 × finite` (no infinity collision): product is `±0` with XOR
 //!   sign; result is `c` (after the add) with the §6.3 quantum.
 
-use crate::bid::{classify_bits, BIAS, Class, COEFFICIENT_LIMIT, PRECISION};
+use crate::bid::{classify_bits, Class, BIAS, COEFFICIENT_LIMIT, PRECISION};
 use crate::decimal::Decimal32;
 use ferrodec_ieee::{decimal_digit_count_u128, RoundingMode, Status};
 
@@ -80,17 +80,29 @@ impl Decimal32 {
 
         // Finite × finite + (Finite | Zero).
         let (sign_a, biased_a, coef_a) = match ca {
-            Class::Finite { sign, biased_exp, coefficient } => (sign, biased_exp, u64::from(coefficient)),
+            Class::Finite {
+                sign,
+                biased_exp,
+                coefficient,
+            } => (sign, biased_exp, u64::from(coefficient)),
             Class::Zero { sign, biased_exp } => (sign, biased_exp, 0u64),
             _ => unreachable!("dispatcher handles non-finite a/b"),
         };
         let (sign_b, biased_b, coef_b) = match cb {
-            Class::Finite { sign, biased_exp, coefficient } => (sign, biased_exp, u64::from(coefficient)),
+            Class::Finite {
+                sign,
+                biased_exp,
+                coefficient,
+            } => (sign, biased_exp, u64::from(coefficient)),
             Class::Zero { sign, biased_exp } => (sign, biased_exp, 0u64),
             _ => unreachable!("dispatcher handles non-finite a/b"),
         };
         let (sign_c, biased_c, coef_c) = match cc {
-            Class::Finite { sign, biased_exp, coefficient } => (sign, biased_exp, u64::from(coefficient)),
+            Class::Finite {
+                sign,
+                biased_exp,
+                coefficient,
+            } => (sign, biased_exp, u64::from(coefficient)),
             Class::Zero { sign, biased_exp } => (sign, biased_exp, 0u64),
             _ => unreachable!("dispatcher handles non-finite c"),
         };
@@ -119,14 +131,7 @@ impl Decimal32 {
         // preferred quantum. The non-zero summand's sign wins;
         // ab_sign / zero_sum_sign do not apply.
         if ab_coef == 0 {
-            return round_and_pack_into_u32(
-                coef_c as u128,
-                c_exp,
-                target_q,
-                sign_c,
-                false,
-                rm,
-            );
+            return round_and_pack_into_u32(coef_c as u128, c_exp, target_q, sign_c, false, rm);
         }
 
         // Zero c with non-zero product: result is ab rebased.
@@ -292,7 +297,10 @@ fn handle_specials(a: Class, b: Class, c: Class) -> Option<(Decimal32, Status)> 
 
     // 0 × ∞ or ∞ × 0 in the product → INVALID (regardless of c, since
     // the product is undefined).
-    let zero_inf = matches!((a, b), (Zero { .. }, Infinity { .. }) | (Infinity { .. }, Zero { .. }));
+    let zero_inf = matches!(
+        (a, b),
+        (Zero { .. }, Infinity { .. }) | (Infinity { .. }, Zero { .. })
+    );
     if zero_inf {
         return Some((Decimal32::NAN, Status::INVALID));
     }
@@ -397,7 +405,10 @@ mod tests {
         let (r, s) = a.fma(b, c, RoundingMode::NearestEven);
         // Expected: -322_511 × 10^0 (a 6-digit exact result).
         assert_eq!(r.to_bits(), from_int(-322_511, 0).to_bits());
-        assert!(s.is_ok(), "FMA with exact intermediate sum should be exact, got status {s:?}");
+        assert!(
+            s.is_ok(),
+            "FMA with exact intermediate sum should be exact, got status {s:?}"
+        );
     }
 
     #[test]
@@ -421,8 +432,7 @@ mod tests {
     #[test]
     fn fma_zero_multiplicand() {
         // 0 × b + c = c
-        let (r, _) =
-            Decimal32::ZERO.fma(from_int(5, 0), from_int(7, 0), RoundingMode::NearestEven);
+        let (r, _) = Decimal32::ZERO.fma(from_int(5, 0), from_int(7, 0), RoundingMode::NearestEven);
         assert_eq!(r.to_bits(), from_int(7, 0).to_bits());
     }
 
@@ -489,8 +499,7 @@ mod tests {
 
     #[test]
     fn fma_signs() {
-        let (r, _) =
-            from_int(-2, 0).fma(from_int(3, 0), from_int(1, 0), RoundingMode::NearestEven);
+        let (r, _) = from_int(-2, 0).fma(from_int(3, 0), from_int(1, 0), RoundingMode::NearestEven);
         assert_eq!(r.to_bits(), from_int(-5, 0).to_bits());
 
         let (r, _) =
@@ -500,8 +509,11 @@ mod tests {
 
     #[test]
     fn fma_zero_times_infinity_invalid() {
-        let (r, s) =
-            Decimal32::ZERO.fma(Decimal32::INFINITY, Decimal32::ONE, RoundingMode::NearestEven);
+        let (r, s) = Decimal32::ZERO.fma(
+            Decimal32::INFINITY,
+            Decimal32::ONE,
+            RoundingMode::NearestEven,
+        );
         assert!(r.is_quiet_nan());
         assert!(s.invalid());
 
@@ -531,22 +543,22 @@ mod tests {
         assert!(r.is_infinite() && !r.is_sign_negative());
 
         // finite × finite + (+∞) → +∞
-        let (r, _) = from_int(2, 0).fma(from_int(3, 0), Decimal32::INFINITY, RoundingMode::NearestEven);
+        let (r, _) = from_int(2, 0).fma(
+            from_int(3, 0),
+            Decimal32::INFINITY,
+            RoundingMode::NearestEven,
+        );
         assert!(r.is_infinite() && !r.is_sign_negative());
     }
 
     #[test]
     fn fma_nan_propagation() {
-        let (r, s) =
-            Decimal32::NAN.fma(Decimal32::ONE, Decimal32::ONE, RoundingMode::NearestEven);
+        let (r, s) = Decimal32::NAN.fma(Decimal32::ONE, Decimal32::ONE, RoundingMode::NearestEven);
         assert!(r.is_quiet_nan());
         assert!(s.is_ok());
 
-        let (r, s) = Decimal32::SIGNALING_NAN.fma(
-            Decimal32::ONE,
-            Decimal32::ONE,
-            RoundingMode::NearestEven,
-        );
+        let (r, s) =
+            Decimal32::SIGNALING_NAN.fma(Decimal32::ONE, Decimal32::ONE, RoundingMode::NearestEven);
         assert!(r.is_quiet_nan());
         assert!(s.invalid());
 
@@ -563,12 +575,14 @@ mod tests {
     #[test]
     fn fma_cancellation_zero_sign() {
         // 1 × 1 + (−1) = 0. Sign rule: +0 in NearestEven, −0 in TowardNegative.
-        let (r, _) =
-            from_int(1, 0).fma(from_int(1, 0), from_int(-1, 0), RoundingMode::NearestEven);
+        let (r, _) = from_int(1, 0).fma(from_int(1, 0), from_int(-1, 0), RoundingMode::NearestEven);
         assert!(r.is_zero() && !r.is_sign_negative());
 
-        let (r, _) =
-            from_int(1, 0).fma(from_int(1, 0), from_int(-1, 0), RoundingMode::TowardNegative);
+        let (r, _) = from_int(1, 0).fma(
+            from_int(1, 0),
+            from_int(-1, 0),
+            RoundingMode::TowardNegative,
+        );
         assert!(r.is_zero() && r.is_sign_negative());
     }
 }

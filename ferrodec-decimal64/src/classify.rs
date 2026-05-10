@@ -13,8 +13,8 @@ use crate::bid::{
     pack_signaling_nan, sign_of, type_field, Class, COEFFICIENT_LIMIT, FORM_B_MARKER,
     NAN_SIGNALING_SHIFT, PRECISION, SIGN_SHIFT, TYPE_INFINITY, TYPE_NAN, T_BITS, T_MASK,
 };
-use ferrodec_ieee::IeeeClass;
 use crate::decimal::Decimal64;
+use ferrodec_ieee::IeeeClass;
 use ferrodec_ieee::Status;
 
 /// Maximum canonical NaN payload: `10¹⁵`. For BID-64 the payload
@@ -346,15 +346,27 @@ mod tests {
 
     #[test]
     fn ieee_class_full_ten() {
-        assert_eq!(Decimal64::SIGNALING_NAN.ieee_class(), IeeeClass::SignalingNaN);
+        assert_eq!(
+            Decimal64::SIGNALING_NAN.ieee_class(),
+            IeeeClass::SignalingNaN
+        );
         assert_eq!(Decimal64::NAN.ieee_class(), IeeeClass::QuietNaN);
-        assert_eq!(Decimal64::INFINITY.ieee_class(), IeeeClass::PositiveInfinity);
-        assert_eq!(Decimal64::NEG_INFINITY.ieee_class(), IeeeClass::NegativeInfinity);
+        assert_eq!(
+            Decimal64::INFINITY.ieee_class(),
+            IeeeClass::PositiveInfinity
+        );
+        assert_eq!(
+            Decimal64::NEG_INFINITY.ieee_class(),
+            IeeeClass::NegativeInfinity
+        );
         assert_eq!(Decimal64::ZERO.ieee_class(), IeeeClass::PositiveZero);
         assert_eq!(Decimal64::NEG_ZERO.ieee_class(), IeeeClass::NegativeZero);
         assert_eq!(Decimal64::ONE.ieee_class(), IeeeClass::PositiveNormal);
         assert_eq!(Decimal64::NEG_ONE.ieee_class(), IeeeClass::NegativeNormal);
-        assert_eq!(Decimal64::MIN_POSITIVE.ieee_class(), IeeeClass::PositiveSubnormal);
+        assert_eq!(
+            Decimal64::MIN_POSITIVE.ieee_class(),
+            IeeeClass::PositiveSubnormal
+        );
         let neg_subnormal = Decimal64::MIN_POSITIVE.neg();
         assert_eq!(neg_subnormal.ieee_class(), IeeeClass::NegativeSubnormal);
     }

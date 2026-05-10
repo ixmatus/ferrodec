@@ -30,7 +30,7 @@
 //! correct rounding); beyond that the lower operand contributes only
 //! to the sticky bit, never to a kept digit.
 
-use crate::bid::{classify_bits, BIAS, Class};
+use crate::bid::{classify_bits, Class, BIAS};
 use crate::decimal::Decimal32;
 use ferrodec_ieee::{RoundingMode, Status};
 
@@ -111,12 +111,20 @@ fn add_inner(a: Decimal32, b: Decimal32, rm: RoundingMode) -> (Decimal32, Status
 
     // Finite + finite: extract (sign, biased_exp, coefficient) for both.
     let (sign_a, biased_a, coef_a) = match ca {
-        Class::Finite { sign, biased_exp, coefficient } => (sign, biased_exp, u64::from(coefficient)),
+        Class::Finite {
+            sign,
+            biased_exp,
+            coefficient,
+        } => (sign, biased_exp, u64::from(coefficient)),
         Class::Zero { sign, biased_exp } => (sign, biased_exp, 0u64),
         _ => unreachable!("non-finite already handled by dispatcher"),
     };
     let (sign_b, biased_b, coef_b) = match cb {
-        Class::Finite { sign, biased_exp, coefficient } => (sign, biased_exp, u64::from(coefficient)),
+        Class::Finite {
+            sign,
+            biased_exp,
+            coefficient,
+        } => (sign, biased_exp, u64::from(coefficient)),
         Class::Zero { sign, biased_exp } => (sign, biased_exp, 0u64),
         _ => unreachable!("non-finite already handled by dispatcher"),
     };
@@ -165,7 +173,12 @@ fn add_inner(a: Decimal32, b: Decimal32, rm: RoundingMode) -> (Decimal32, Status
             let trunc_lo = coef_lo / factor;
             let pre_sticky = (coef_lo % factor) != 0;
             let shifted_hi = coef_hi * POW10_U64[ALIGN_LIMIT as usize];
-            (shifted_hi, trunc_lo, exp_hi - ALIGN_LIMIT as i32, pre_sticky)
+            (
+                shifted_hi,
+                trunc_lo,
+                exp_hi - ALIGN_LIMIT as i32,
+                pre_sticky,
+            )
         } else {
             // Lower operand is below the working window entirely.
             (coef_hi, 0, exp_hi, coef_lo != 0)
@@ -246,11 +259,7 @@ fn zero_sum_sign(sign_a: bool, sign_b: bool, rm: RoundingMode) -> bool {
 /// Special-case dispatcher: NaN propagation, Infinity arithmetic,
 /// pure-zero reductions. Returns `Some` when the case is fully
 /// handled here; `None` falls through to the finite path.
-fn handle_specials(
-    a: Class,
-    b: Class,
-    rm: RoundingMode,
-) -> Option<(Decimal32, Status)> {
+fn handle_specials(a: Class, b: Class, rm: RoundingMode) -> Option<(Decimal32, Status)> {
     use Class::{Finite, Infinity, QuietNaN, SignalingNaN, Zero};
 
     // Signaling NaN in either operand: result is the quieted NaN with
@@ -288,7 +297,10 @@ fn handle_specials(
     match (a, b) {
         (Infinity { sign: sa }, Infinity { sign: sb }) => {
             if sa == sb {
-                Some((Decimal32::from_bits(crate::bid::pack_infinity(sa)), Status::OK))
+                Some((
+                    Decimal32::from_bits(crate::bid::pack_infinity(sa)),
+                    Status::OK,
+                ))
             } else {
                 // +∞ + (−∞) → NaN, INVALID.
                 Some((Decimal32::NAN, Status::INVALID))

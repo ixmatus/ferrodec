@@ -6,7 +6,9 @@
 use ferrodec_decimal32::{Decimal32, RoundingMode};
 
 fn parse(s: &str) -> Decimal32 {
-    Decimal32::parse_str(s, RoundingMode::NearestEven).unwrap().0
+    Decimal32::parse_str(s, RoundingMode::NearestEven)
+        .unwrap()
+        .0
 }
 
 fn main() {

@@ -1,8 +1,8 @@
 //! Kani harnesses for `Decimal32::sqrt`.
 
 use super::{operand, rm_from_u8, NUM_OPERANDS};
-use ferrodec_ieee::RoundingMode;
 use crate::decimal::Decimal32;
+use ferrodec_ieee::RoundingMode;
 
 #[kani::proof]
 fn sqrt_no_panic_special_inputs() {
@@ -47,7 +47,11 @@ fn sqrt_negative_finite_invalid() {
 #[kani::proof]
 fn sqrt_zero_preserves_sign() {
     let neg: bool = kani::any();
-    let z = if neg { Decimal32::NEG_ZERO } else { Decimal32::ZERO };
+    let z = if neg {
+        Decimal32::NEG_ZERO
+    } else {
+        Decimal32::ZERO
+    };
     let (r, _) = z.sqrt(RoundingMode::NearestEven);
     assert!(r.is_zero());
     assert!(r.is_sign_negative() == neg);

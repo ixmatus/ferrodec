@@ -9,7 +9,9 @@
 //! See the README's "Why no `core::ops`" section for the design
 //! rationale (mirrors ferrodec/Decimal128).
 
-use core::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Rem, RemAssign, Sub, SubAssign};
+use core::ops::{
+    Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Rem, RemAssign, Sub, SubAssign,
+};
 
 use crate::decimal::Decimal64;
 use ferrodec_ieee::RoundingMode;
@@ -117,7 +119,10 @@ mod tests {
 
         let six = from_int(6, 0);
         assert_eq!((six / a).to_bits(), from_int(3, 0).to_bits());
-        assert_eq!((from_int(10, 0) % from_int(3, 0)).to_bits(), from_int(1, 0).to_bits());
+        assert_eq!(
+            (from_int(10, 0) % from_int(3, 0)).to_bits(),
+            from_int(1, 0).to_bits()
+        );
     }
 
     #[test]

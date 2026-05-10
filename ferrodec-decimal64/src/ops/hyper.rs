@@ -40,11 +40,19 @@ impl Decimal64 {
                 Status::OK,
             ),
             Class::Infinity { sign } => (
-                if sign { Decimal64::NEG_INFINITY } else { Decimal64::INFINITY },
+                if sign {
+                    Decimal64::NEG_INFINITY
+                } else {
+                    Decimal64::INFINITY
+                },
                 Status::OK,
             ),
             Class::Zero { sign, .. } => (
-                if sign { Decimal64::NEG_ZERO } else { Decimal64::ZERO },
+                if sign {
+                    Decimal64::NEG_ZERO
+                } else {
+                    Decimal64::ZERO
+                },
                 Status::OK,
             ),
             Class::Finite { .. } => f64_unary(self, libm::sinh, rm),
@@ -83,11 +91,19 @@ impl Decimal64 {
             ),
             // tanh(±∞) = ±1.
             Class::Infinity { sign } => (
-                if sign { Decimal64::NEG_ONE } else { Decimal64::ONE },
+                if sign {
+                    Decimal64::NEG_ONE
+                } else {
+                    Decimal64::ONE
+                },
                 Status::OK,
             ),
             Class::Zero { sign, .. } => (
-                if sign { Decimal64::NEG_ZERO } else { Decimal64::ZERO },
+                if sign {
+                    Decimal64::NEG_ZERO
+                } else {
+                    Decimal64::ZERO
+                },
                 Status::OK,
             ),
             Class::Finite { .. } => f64_unary(self, libm::tanh, rm),
@@ -108,11 +124,19 @@ impl Decimal64 {
             ),
             // asinh(±∞) = ±∞.
             Class::Infinity { sign } => (
-                if sign { Decimal64::NEG_INFINITY } else { Decimal64::INFINITY },
+                if sign {
+                    Decimal64::NEG_INFINITY
+                } else {
+                    Decimal64::INFINITY
+                },
                 Status::OK,
             ),
             Class::Zero { sign, .. } => (
-                if sign { Decimal64::NEG_ZERO } else { Decimal64::ZERO },
+                if sign {
+                    Decimal64::NEG_ZERO
+                } else {
+                    Decimal64::ZERO
+                },
                 Status::OK,
             ),
             Class::Finite { .. } => f64_unary(self, libm::asinh, rm),
@@ -164,14 +188,22 @@ impl Decimal64 {
             ),
             Class::Infinity { .. } => (Decimal64::NAN, Status::INVALID),
             Class::Zero { sign, .. } => (
-                if sign { Decimal64::NEG_ZERO } else { Decimal64::ZERO },
+                if sign {
+                    Decimal64::NEG_ZERO
+                } else {
+                    Decimal64::ZERO
+                },
                 Status::OK,
             ),
             Class::Finite { .. } => {
                 let x = self.to_f64();
                 if x.abs() == 1.0 {
                     return (
-                        if x > 0.0 { Decimal64::INFINITY } else { Decimal64::NEG_INFINITY },
+                        if x > 0.0 {
+                            Decimal64::INFINITY
+                        } else {
+                            Decimal64::NEG_INFINITY
+                        },
                         Status::DIV_BY_ZERO,
                     );
                 }
@@ -183,7 +215,6 @@ impl Decimal64 {
         }
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -236,7 +267,9 @@ mod tests {
         assert!(r.is_quiet_nan());
         assert!(s.invalid());
 
-        let half = Decimal64::parse_str("0.5", RoundingMode::NearestEven).unwrap().0;
+        let half = Decimal64::parse_str("0.5", RoundingMode::NearestEven)
+            .unwrap()
+            .0;
         let (r, s) = half.acosh(RoundingMode::NearestEven);
         assert!(r.is_quiet_nan());
         assert!(s.invalid());

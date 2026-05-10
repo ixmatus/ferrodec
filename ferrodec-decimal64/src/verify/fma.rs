@@ -1,8 +1,8 @@
 //! Kani harnesses for `Decimal64::fma`.
 
 use super::{operand, rm_from_u8, NUM_OPERANDS};
-use ferrodec_ieee::RoundingMode;
 use crate::decimal::Decimal64;
+use ferrodec_ieee::RoundingMode;
 
 #[kani::proof]
 fn fma_no_panic_special_inputs() {
@@ -29,8 +29,16 @@ fn fma_zero_times_infinity_invalid() {
     let c = operand(ci);
     kani::assume(!c.is_signaling_nan());
 
-    let zero = if zero_neg { Decimal64::NEG_ZERO } else { Decimal64::ZERO };
-    let inf = if inf_neg { Decimal64::NEG_INFINITY } else { Decimal64::INFINITY };
+    let zero = if zero_neg {
+        Decimal64::NEG_ZERO
+    } else {
+        Decimal64::ZERO
+    };
+    let inf = if inf_neg {
+        Decimal64::NEG_INFINITY
+    } else {
+        Decimal64::INFINITY
+    };
     let (a, b) = if a_is_zero { (zero, inf) } else { (inf, zero) };
 
     let (r, s) = a.fma(b, c, RoundingMode::NearestEven);

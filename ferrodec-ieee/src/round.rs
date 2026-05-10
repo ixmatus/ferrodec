@@ -180,12 +180,6 @@ mod tests {
             9,
             true
         ));
-        assert!(!should_round_up(
-            RoundingMode::TowardZero,
-            true,
-            0,
-            9,
-            true
-        ));
+        assert!(!should_round_up(RoundingMode::TowardZero, true, 0, 9, true));
     }
 }

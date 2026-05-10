@@ -14,7 +14,7 @@
 
 use core::cmp::Ordering;
 
-use crate::bid::{classify_bits, decimal_digit_count, BIAS, Class};
+use crate::bid::{classify_bits, decimal_digit_count, Class, BIAS};
 use crate::decimal::Decimal32;
 use ferrodec_ieee::Status;
 
@@ -155,7 +155,11 @@ fn numeric_cmp_non_nan(a: Class, b: Class) -> Ordering {
 
     // Different signs: positive > negative (zeros already handled).
     if sign_a != sign_b {
-        return if sign_a { Ordering::Less } else { Ordering::Greater };
+        return if sign_a {
+            Ordering::Less
+        } else {
+            Ordering::Greater
+        };
     }
 
     // Same sign: compare magnitudes; result reverses for negatives.
@@ -220,9 +224,7 @@ fn finite_magnitude_cmp(coef_a: u32, exp_a: i32, coef_b: u32, exp_b: i32) -> Ord
 /// Sign of a non-NaN class.
 fn sign_of_class(c: Class) -> bool {
     match c {
-        Class::Zero { sign, .. }
-        | Class::Infinity { sign }
-        | Class::Finite { sign, .. } => sign,
+        Class::Zero { sign, .. } | Class::Infinity { sign } | Class::Finite { sign, .. } => sign,
         Class::QuietNaN { sign, .. } | Class::SignalingNaN { sign, .. } => sign,
     }
 }
@@ -258,11 +260,17 @@ fn total_cmp_inner(a: Decimal32, b: Decimal32) -> Ordering {
     match (ca, cb) {
         (
             Class::QuietNaN { sign, payload: pa },
-            Class::QuietNaN { sign: _, payload: pb },
+            Class::QuietNaN {
+                sign: _,
+                payload: pb,
+            },
         )
         | (
             Class::SignalingNaN { sign, payload: pa },
-            Class::SignalingNaN { sign: _, payload: pb },
+            Class::SignalingNaN {
+                sign: _,
+                payload: pb,
+            },
         ) => {
             // Negative-NaN: descending payload (higher payload <
             //               lower); positive-NaN: ascending payload.
@@ -273,10 +281,23 @@ fn total_cmp_inner(a: Decimal32, b: Decimal32) -> Ordering {
             }
         }
         (Class::Infinity { .. }, Class::Infinity { .. }) => Ordering::Equal,
-        (Class::Zero { biased_exp: ea, sign: sa }, Class::Zero { biased_exp: eb, sign: sb }) => {
+        (
+            Class::Zero {
+                biased_exp: ea,
+                sign: sa,
+            },
+            Class::Zero {
+                biased_exp: eb,
+                sign: sb,
+            },
+        ) => {
             if sa != sb {
                 // -0 < +0
-                if sa { Ordering::Less } else { Ordering::Greater }
+                if sa {
+                    Ordering::Less
+                } else {
+                    Ordering::Greater
+                }
             } else if sa {
                 // Both -0: descending biased_exp (higher exp first).
                 eb.cmp(&ea)
@@ -286,22 +307,30 @@ fn total_cmp_inner(a: Decimal32, b: Decimal32) -> Ordering {
             }
         }
         (
-            Class::Finite { biased_exp: ea, coefficient: ca_, sign: sa },
-            Class::Finite { biased_exp: eb, coefficient: cb_, sign: sb },
+            Class::Finite {
+                biased_exp: ea,
+                coefficient: ca_,
+                sign: sa,
+            },
+            Class::Finite {
+                biased_exp: eb,
+                coefficient: cb_,
+                sign: sb,
+            },
         ) => {
             // Same sign (else rank would differ).
             debug_assert_eq!(sa, sb);
-            let mag = finite_magnitude_cmp(
-                ca_,
-                ea as i32 - BIAS as i32,
-                cb_,
-                eb as i32 - BIAS as i32,
-            );
+            let mag =
+                finite_magnitude_cmp(ca_, ea as i32 - BIAS as i32, cb_, eb as i32 - BIAS as i32);
             if mag == Ordering::Equal {
                 // Same numeric value, different cohort: compare
                 // biased_exp. Positive: ascending. Negative:
                 // descending.
-                if sa { eb.cmp(&ea) } else { ea.cmp(&eb) }
+                if sa {
+                    eb.cmp(&ea)
+                } else {
+                    ea.cmp(&eb)
+                }
             } else if sa {
                 mag.reverse()
             } else {
@@ -312,10 +341,18 @@ fn total_cmp_inner(a: Decimal32, b: Decimal32) -> Ordering {
         (Class::Zero { sign: sa, .. }, Class::Finite { .. }) => {
             // Zero and non-zero same-sign finite share rank ±2;
             // |zero| < |finite|.
-            if sa { Ordering::Greater } else { Ordering::Less }
+            if sa {
+                Ordering::Greater
+            } else {
+                Ordering::Less
+            }
         }
         (Class::Finite { sign: sa, .. }, Class::Zero { .. }) => {
-            if sa { Ordering::Less } else { Ordering::Greater }
+            if sa {
+                Ordering::Less
+            } else {
+                Ordering::Greater
+            }
         }
         _ => unreachable!("rank handled all other class pairings"),
     }
@@ -411,8 +448,14 @@ mod tests {
     #[test]
     fn total_cmp_zeros_distinguished() {
         // -0 < +0 in totalOrder.
-        assert_eq!(Decimal32::NEG_ZERO.total_cmp(Decimal32::ZERO), Ordering::Less);
-        assert_eq!(Decimal32::ZERO.total_cmp(Decimal32::NEG_ZERO), Ordering::Greater);
+        assert_eq!(
+            Decimal32::NEG_ZERO.total_cmp(Decimal32::ZERO),
+            Ordering::Less
+        );
+        assert_eq!(
+            Decimal32::ZERO.total_cmp(Decimal32::NEG_ZERO),
+            Ordering::Greater
+        );
     }
 
     #[test]

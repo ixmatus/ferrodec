@@ -1,8 +1,8 @@
 //! Kani harnesses for `Decimal32::div`.
 
 use super::{operand, rm_from_u8, NUM_OPERANDS};
-use ferrodec_ieee::RoundingMode;
 use crate::decimal::Decimal32;
+use ferrodec_ieee::RoundingMode;
 
 #[kani::proof]
 fn div_no_panic_special_inputs() {
@@ -38,7 +38,11 @@ fn div_finite_by_zero_raises_div_by_zero() {
     kani::assume(dividend_idx >= 6 && dividend_idx < NUM_OPERANDS);
     let neg_zero_divisor: bool = kani::any();
     let dividend = operand(dividend_idx);
-    let divisor = if neg_zero_divisor { Decimal32::NEG_ZERO } else { Decimal32::ZERO };
+    let divisor = if neg_zero_divisor {
+        Decimal32::NEG_ZERO
+    } else {
+        Decimal32::ZERO
+    };
 
     let (r, s) = dividend.div(divisor, RoundingMode::NearestEven);
     assert!(r.is_infinite());
@@ -50,8 +54,16 @@ fn div_finite_by_zero_raises_div_by_zero() {
 fn div_zero_by_zero_invalid() {
     let za_neg: bool = kani::any();
     let zb_neg: bool = kani::any();
-    let a = if za_neg { Decimal32::NEG_ZERO } else { Decimal32::ZERO };
-    let b = if zb_neg { Decimal32::NEG_ZERO } else { Decimal32::ZERO };
+    let a = if za_neg {
+        Decimal32::NEG_ZERO
+    } else {
+        Decimal32::ZERO
+    };
+    let b = if zb_neg {
+        Decimal32::NEG_ZERO
+    } else {
+        Decimal32::ZERO
+    };
     let (r, s) = a.div(b, RoundingMode::NearestEven);
     assert!(r.is_nan());
     assert!(s.invalid());
@@ -61,8 +73,16 @@ fn div_zero_by_zero_invalid() {
 fn div_infinity_by_infinity_invalid() {
     let sa: bool = kani::any();
     let sb: bool = kani::any();
-    let a = if sa { Decimal32::NEG_INFINITY } else { Decimal32::INFINITY };
-    let b = if sb { Decimal32::NEG_INFINITY } else { Decimal32::INFINITY };
+    let a = if sa {
+        Decimal32::NEG_INFINITY
+    } else {
+        Decimal32::INFINITY
+    };
+    let b = if sb {
+        Decimal32::NEG_INFINITY
+    } else {
+        Decimal32::INFINITY
+    };
     let (r, s) = a.div(b, RoundingMode::NearestEven);
     assert!(r.is_nan());
     assert!(s.invalid());

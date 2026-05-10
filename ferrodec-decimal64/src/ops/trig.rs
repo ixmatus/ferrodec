@@ -40,7 +40,11 @@ impl Decimal64 {
             ),
             Class::Infinity { .. } => (Decimal64::NAN, Status::INVALID),
             Class::Zero { sign, .. } => (
-                if sign { Decimal64::NEG_ZERO } else { Decimal64::ZERO },
+                if sign {
+                    Decimal64::NEG_ZERO
+                } else {
+                    Decimal64::ZERO
+                },
                 Status::OK,
             ),
             Class::Finite { .. } => f64_unary(self, libm::sin, rm),
@@ -79,7 +83,11 @@ impl Decimal64 {
             ),
             Class::Infinity { .. } => (Decimal64::NAN, Status::INVALID),
             Class::Zero { sign, .. } => (
-                if sign { Decimal64::NEG_ZERO } else { Decimal64::ZERO },
+                if sign {
+                    Decimal64::NEG_ZERO
+                } else {
+                    Decimal64::ZERO
+                },
                 Status::OK,
             ),
             Class::Finite { .. } => f64_unary(self, libm::tan, rm),
@@ -101,7 +109,11 @@ impl Decimal64 {
             ),
             Class::Infinity { .. } => (Decimal64::NAN, Status::INVALID),
             Class::Zero { sign, .. } => (
-                if sign { Decimal64::NEG_ZERO } else { Decimal64::ZERO },
+                if sign {
+                    Decimal64::NEG_ZERO
+                } else {
+                    Decimal64::ZERO
+                },
                 Status::OK,
             ),
             Class::Finite { .. } => {
@@ -152,11 +164,19 @@ impl Decimal64 {
             ),
             // atan(±∞) = ±π/2.
             Class::Infinity { sign } => {
-                let x = if sign { f64::NEG_INFINITY } else { f64::INFINITY };
+                let x = if sign {
+                    f64::NEG_INFINITY
+                } else {
+                    f64::INFINITY
+                };
                 f64_unary_via_value(x, libm::atan, rm)
             }
             Class::Zero { sign, .. } => (
-                if sign { Decimal64::NEG_ZERO } else { Decimal64::ZERO },
+                if sign {
+                    Decimal64::NEG_ZERO
+                } else {
+                    Decimal64::ZERO
+                },
                 Status::OK,
             ),
             Class::Finite { .. } => f64_unary(self, libm::atan, rm),
@@ -198,7 +218,6 @@ impl Decimal64 {
         (val, status)
     }
 }
-
 
 #[cfg(test)]
 mod tests {

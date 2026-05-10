@@ -12,7 +12,7 @@
 //!   navigation operations to the next representable value.
 
 use crate::bid::{
-    classify_bits, decimal_digit_count, BIAS, BIASED_EXP_MAX, Class, COEFFICIENT_LIMIT, PRECISION,
+    classify_bits, decimal_digit_count, Class, BIAS, BIASED_EXP_MAX, COEFFICIENT_LIMIT, PRECISION,
 };
 use crate::decimal::Decimal32;
 use ferrodec_ieee::{should_round_up, RoundingMode, Status};
@@ -90,7 +90,11 @@ impl Decimal32 {
 
         // Both finite (or self zero).
         let (sign, biased_self, coef) = match ca {
-            Class::Finite { sign, biased_exp, coefficient } => (sign, biased_exp, u64::from(coefficient)),
+            Class::Finite {
+                sign,
+                biased_exp,
+                coefficient,
+            } => (sign, biased_exp, u64::from(coefficient)),
             Class::Zero { sign, biased_exp } => (sign, biased_exp, 0u64),
             _ => unreachable!(),
         };
@@ -118,11 +122,7 @@ impl Decimal32 {
         if target_q == self_q {
             // Already at the right quantum; pack as-is.
             return (
-                Decimal32::from_bits(crate::bid::pack_finite(
-                    sign,
-                    target_biased,
-                    coef as u32,
-                )),
+                Decimal32::from_bits(crate::bid::pack_finite(sign, target_biased, coef as u32)),
                 Status::OK,
             );
         }
@@ -262,15 +262,7 @@ impl Decimal32 {
                 coefficient,
             } => {
                 let q = biased_exp as i32 - BIAS as i32 + n;
-                round_and_pack_finite(
-                    u64::from(coefficient),
-                    q,
-                    q,
-                    sign,
-                    false,
-                    rm,
-                    Status::OK,
-                )
+                round_and_pack_finite(u64::from(coefficient), q, q, sign, false, rm, Status::OK)
             }
         }
     }

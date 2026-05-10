@@ -298,7 +298,9 @@ mod tests {
             42.0
         );
         assert_eq!(
-            <Decimal64 as FromPrimitive>::from_f64(2.5).unwrap().to_f64(),
+            <Decimal64 as FromPrimitive>::from_f64(2.5)
+                .unwrap()
+                .to_f64(),
             2.5
         );
         assert!(<Decimal64 as FromPrimitive>::from_f64(f64::NAN).is_none());
@@ -314,11 +316,11 @@ mod tests {
         assert_eq!(<Decimal64 as ToPrimitive>::to_i64(&neg), Some(-3));
         assert_eq!(<Decimal64 as ToPrimitive>::to_u64(&neg), None);
 
-        assert_eq!(
-            <Decimal64 as ToPrimitive>::to_f64(&d),
-            Some(42.0)
-        );
+        assert_eq!(<Decimal64 as ToPrimitive>::to_f64(&d), Some(42.0));
         assert_eq!(<Decimal64 as ToPrimitive>::to_i64(&Decimal64::NAN), None);
-        assert_eq!(<Decimal64 as ToPrimitive>::to_i64(&Decimal64::INFINITY), None);
+        assert_eq!(
+            <Decimal64 as ToPrimitive>::to_i64(&Decimal64::INFINITY),
+            None
+        );
     }
 }

@@ -6,7 +6,9 @@
 use ferrodec_decimal64::{Decimal64, RoundingMode};
 
 fn parse(s: &str) -> Decimal64 {
-    Decimal64::parse_str(s, RoundingMode::NearestEven).unwrap().0
+    Decimal64::parse_str(s, RoundingMode::NearestEven)
+        .unwrap()
+        .0
 }
 
 fn main() {

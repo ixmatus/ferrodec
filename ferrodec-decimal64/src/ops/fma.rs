@@ -7,7 +7,7 @@
 //! plenty of headroom for alignment even when the static bound
 //! `MAX_SHIFT = 6` would not.
 
-use crate::bid::{classify_bits, BIAS, Class};
+use crate::bid::{classify_bits, Class, BIAS};
 use crate::decimal::Decimal64;
 use ferrodec_ieee::{decimal_digit_count_u128, RoundingMode, Status};
 
@@ -59,17 +59,29 @@ impl Decimal64 {
         }
 
         let (sign_a, biased_a, coef_a) = match ca {
-            Class::Finite { sign, biased_exp, coefficient } => (sign, biased_exp, coefficient),
+            Class::Finite {
+                sign,
+                biased_exp,
+                coefficient,
+            } => (sign, biased_exp, coefficient),
             Class::Zero { sign, biased_exp } => (sign, biased_exp, 0u64),
             _ => unreachable!(),
         };
         let (sign_b, biased_b, coef_b) = match cb {
-            Class::Finite { sign, biased_exp, coefficient } => (sign, biased_exp, coefficient),
+            Class::Finite {
+                sign,
+                biased_exp,
+                coefficient,
+            } => (sign, biased_exp, coefficient),
             Class::Zero { sign, biased_exp } => (sign, biased_exp, 0u64),
             _ => unreachable!(),
         };
         let (sign_c, biased_c, coef_c) = match cc {
-            Class::Finite { sign, biased_exp, coefficient } => (sign, biased_exp, coefficient),
+            Class::Finite {
+                sign,
+                biased_exp,
+                coefficient,
+            } => (sign, biased_exp, coefficient),
             Class::Zero { sign, biased_exp } => (sign, biased_exp, 0u64),
             _ => unreachable!(),
         };
@@ -98,26 +110,12 @@ impl Decimal64 {
         // preferred quantum. The non-zero summand's sign wins;
         // ab_sign / zero_sum_sign do not apply.
         if ab_coef == 0 {
-            return round_and_pack_into_u64(
-                u128::from(coef_c),
-                c_exp,
-                target_q,
-                sign_c,
-                false,
-                rm,
-            );
+            return round_and_pack_into_u64(u128::from(coef_c), c_exp, target_q, sign_c, false, rm);
         }
 
         // Zero c with non-zero product: result is ab rebased.
         if coef_c == 0 {
-            return round_and_pack_into_u64(
-                ab_coef,
-                ab_exp,
-                target_q,
-                ab_sign,
-                false,
-                rm,
-            );
+            return round_and_pack_into_u64(ab_coef, ab_exp, target_q, ab_sign, false, rm);
         }
 
         let shift_ab = (ab_exp - target_q) as u32;
@@ -175,7 +173,14 @@ impl Decimal64 {
             );
         };
 
-        round_and_pack_into_u64(combined_coef, target_q, target_q, combined_sign, pre_sticky, rm)
+        round_and_pack_into_u64(
+            combined_coef,
+            target_q,
+            target_q,
+            combined_sign,
+            pre_sticky,
+            rm,
+        )
     }
 }
 
@@ -199,8 +204,10 @@ fn handle_specials(a: Class, b: Class, c: Class) -> Option<(Decimal64, Status)> 
         }
     }
 
-    let zero_inf =
-        matches!((a, b), (Zero { .. }, Infinity { .. }) | (Infinity { .. }, Zero { .. }));
+    let zero_inf = matches!(
+        (a, b),
+        (Zero { .. }, Infinity { .. }) | (Infinity { .. }, Zero { .. })
+    );
     if zero_inf {
         return Some((Decimal64::NAN, Status::INVALID));
     }
@@ -280,8 +287,7 @@ mod tests {
 
     #[test]
     fn fma_zero_multiplicand() {
-        let (r, _) =
-            Decimal64::ZERO.fma(from_int(5, 0), from_int(7, 0), RoundingMode::NearestEven);
+        let (r, _) = Decimal64::ZERO.fma(from_int(5, 0), from_int(7, 0), RoundingMode::NearestEven);
         assert_eq!(r.to_bits(), from_int(7, 0).to_bits());
     }
 
@@ -347,8 +353,11 @@ mod tests {
 
     #[test]
     fn fma_zero_times_infinity_invalid() {
-        let (r, s) =
-            Decimal64::ZERO.fma(Decimal64::INFINITY, Decimal64::ONE, RoundingMode::NearestEven);
+        let (r, s) = Decimal64::ZERO.fma(
+            Decimal64::INFINITY,
+            Decimal64::ONE,
+            RoundingMode::NearestEven,
+        );
         assert!(r.is_quiet_nan());
         assert!(s.invalid());
     }
@@ -373,28 +382,26 @@ mod tests {
 
     #[test]
     fn fma_nan_propagation() {
-        let (r, s) =
-            Decimal64::NAN.fma(Decimal64::ONE, Decimal64::ONE, RoundingMode::NearestEven);
+        let (r, s) = Decimal64::NAN.fma(Decimal64::ONE, Decimal64::ONE, RoundingMode::NearestEven);
         assert!(r.is_quiet_nan());
         assert!(s.is_ok());
 
-        let (r, s) = Decimal64::SIGNALING_NAN.fma(
-            Decimal64::ONE,
-            Decimal64::ONE,
-            RoundingMode::NearestEven,
-        );
+        let (r, s) =
+            Decimal64::SIGNALING_NAN.fma(Decimal64::ONE, Decimal64::ONE, RoundingMode::NearestEven);
         assert!(r.is_quiet_nan());
         assert!(s.invalid());
     }
 
     #[test]
     fn fma_cancellation_zero_sign() {
-        let (r, _) =
-            from_int(1, 0).fma(from_int(1, 0), from_int(-1, 0), RoundingMode::NearestEven);
+        let (r, _) = from_int(1, 0).fma(from_int(1, 0), from_int(-1, 0), RoundingMode::NearestEven);
         assert!(r.is_zero() && !r.is_sign_negative());
 
-        let (r, _) =
-            from_int(1, 0).fma(from_int(1, 0), from_int(-1, 0), RoundingMode::TowardNegative);
+        let (r, _) = from_int(1, 0).fma(
+            from_int(1, 0),
+            from_int(-1, 0),
+            RoundingMode::TowardNegative,
+        );
         assert!(r.is_zero() && r.is_sign_negative());
     }
 }

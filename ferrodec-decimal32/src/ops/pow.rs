@@ -105,12 +105,20 @@ impl Decimal32 {
             // pow(0, negative) → ±∞ DIV_BY_ZERO.
             if self.is_zero() && y < 0.0 {
                 return (
-                    if r > 0.0 { Decimal32::INFINITY } else { Decimal32::NEG_INFINITY },
+                    if r > 0.0 {
+                        Decimal32::INFINITY
+                    } else {
+                        Decimal32::NEG_INFINITY
+                    },
                     Status::DIV_BY_ZERO,
                 );
             }
             return (
-                if r > 0.0 { Decimal32::INFINITY } else { Decimal32::NEG_INFINITY },
+                if r > 0.0 {
+                    Decimal32::INFINITY
+                } else {
+                    Decimal32::NEG_INFINITY
+                },
                 Status::OVERFLOW | Status::INEXACT,
             );
         }
@@ -140,11 +148,19 @@ impl Decimal32 {
                 Status::OK,
             ),
             Class::Infinity { sign } => (
-                if sign { Decimal32::NEG_INFINITY } else { Decimal32::INFINITY },
+                if sign {
+                    Decimal32::NEG_INFINITY
+                } else {
+                    Decimal32::INFINITY
+                },
                 Status::OK,
             ),
             Class::Zero { sign, .. } => (
-                if sign { Decimal32::NEG_ZERO } else { Decimal32::ZERO },
+                if sign {
+                    Decimal32::NEG_ZERO
+                } else {
+                    Decimal32::ZERO
+                },
                 Status::OK,
             ),
             Class::Finite { .. } => {
@@ -178,13 +194,11 @@ mod tests {
     #[test]
     fn pow_basic() {
         // 2^3 = 8
-        let (r, _) =
-            from_int(2, 0).pow(from_int(3, 0), RoundingMode::NearestEven);
+        let (r, _) = from_int(2, 0).pow(from_int(3, 0), RoundingMode::NearestEven);
         assert!(approx_equal(r, from_int(8, 0)));
 
         // 10^2 = 100
-        let (r, _) =
-            Decimal32::TEN.pow(from_int(2, 0), RoundingMode::NearestEven);
+        let (r, _) = Decimal32::TEN.pow(from_int(2, 0), RoundingMode::NearestEven);
         assert!(approx_equal(r, from_int(100, 0)));
     }
 
@@ -216,15 +230,27 @@ mod tests {
             let one_cohort = Decimal32::try_new(coef, exp).unwrap();
             // pow(this-cohort-of-1, 5) = 1
             let (r, s) = one_cohort.pow(from_int(5, 0), RoundingMode::NearestEven);
-            assert_eq!(r.to_bits(), Decimal32::ONE.to_bits(), "pow({coef}E{exp}, 5)");
+            assert_eq!(
+                r.to_bits(),
+                Decimal32::ONE.to_bits(),
+                "pow({coef}E{exp}, 5)"
+            );
             assert!(s.is_ok());
             // pow(this-cohort-of-1, qNaN) = 1
             let (r, s) = one_cohort.pow(Decimal32::NAN, RoundingMode::NearestEven);
-            assert_eq!(r.to_bits(), Decimal32::ONE.to_bits(), "pow({coef}E{exp}, NaN)");
+            assert_eq!(
+                r.to_bits(),
+                Decimal32::ONE.to_bits(),
+                "pow({coef}E{exp}, NaN)"
+            );
             assert!(s.is_ok());
             // pow(this-cohort-of-1, sNaN) = 1 + INVALID per §9.2
             let (r, s) = one_cohort.pow(Decimal32::SIGNALING_NAN, RoundingMode::NearestEven);
-            assert_eq!(r.to_bits(), Decimal32::ONE.to_bits(), "pow({coef}E{exp}, sNaN)");
+            assert_eq!(
+                r.to_bits(),
+                Decimal32::ONE.to_bits(),
+                "pow({coef}E{exp}, sNaN)"
+            );
             assert!(s.invalid());
         }
     }
@@ -232,7 +258,9 @@ mod tests {
     #[test]
     fn pow_negative_base_non_integer_invalid() {
         // (-2)^0.5 = NaN + INVALID
-        let half = Decimal32::parse_str("0.5", RoundingMode::NearestEven).unwrap().0;
+        let half = Decimal32::parse_str("0.5", RoundingMode::NearestEven)
+            .unwrap()
+            .0;
         let (r, s) = from_int(-2, 0).pow(half, RoundingMode::NearestEven);
         assert!(r.is_quiet_nan());
         assert!(s.invalid());
@@ -241,8 +269,7 @@ mod tests {
     #[test]
     fn pow_zero_negative_div_by_zero() {
         // 0^-1 = +∞ + DIV_BY_ZERO
-        let (r, s) =
-            Decimal32::ZERO.pow(from_int(-1, 0), RoundingMode::NearestEven);
+        let (r, s) = Decimal32::ZERO.pow(from_int(-1, 0), RoundingMode::NearestEven);
         assert!(r.is_infinite());
         assert!(s.div_by_zero());
     }
@@ -250,8 +277,7 @@ mod tests {
     #[test]
     fn pow_overflow() {
         // 10^100 overflows.
-        let (r, s) =
-            Decimal32::TEN.pow(from_int(100, 0), RoundingMode::NearestEven);
+        let (r, s) = Decimal32::TEN.pow(from_int(100, 0), RoundingMode::NearestEven);
         assert!(r.is_infinite());
         assert!(s.overflow() && s.inexact());
     }

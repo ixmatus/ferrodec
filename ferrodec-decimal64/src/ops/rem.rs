@@ -6,7 +6,7 @@
 //! quotient would exceed `PRECISION` (= 16) digits or when an operand
 //! makes the operation undefined.
 
-use crate::bid::{classify_bits, BIAS, Class, COEFFICIENT_LIMIT};
+use crate::bid::{classify_bits, Class, BIAS, COEFFICIENT_LIMIT};
 use crate::decimal::Decimal64;
 use ferrodec_ieee::{RoundingMode, Status};
 
@@ -48,12 +48,20 @@ impl Decimal64 {
         }
 
         let (sign_a, biased_a, coef_a) = match ca {
-            Class::Finite { sign, biased_exp, coefficient } => (sign, biased_exp, coefficient),
+            Class::Finite {
+                sign,
+                biased_exp,
+                coefficient,
+            } => (sign, biased_exp, coefficient),
             Class::Zero { sign, biased_exp } => (sign, biased_exp, 0u64),
             _ => unreachable!(),
         };
         let (_sign_b, biased_b, coef_b) = match cb {
-            Class::Finite { sign, biased_exp, coefficient } => (sign, biased_exp, coefficient),
+            Class::Finite {
+                sign,
+                biased_exp,
+                coefficient,
+            } => (sign, biased_exp, coefficient),
             Class::Zero { sign, biased_exp } => (sign, biased_exp, 0u64),
             _ => unreachable!(),
         };
@@ -150,7 +158,12 @@ fn handle_specials(a: Class, b: Class) -> Option<(Decimal64, Status)> {
         return Some((Decimal64::NAN, Status::INVALID));
     }
     if matches!(b, Infinity { .. }) {
-        if let Finite { sign, biased_exp, coefficient } = a {
+        if let Finite {
+            sign,
+            biased_exp,
+            coefficient,
+        } = a
+        {
             return Some((
                 Decimal64::from_bits(crate::bid::pack_finite(sign, biased_exp, coefficient)),
                 Status::OK,

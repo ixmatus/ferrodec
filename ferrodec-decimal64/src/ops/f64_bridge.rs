@@ -26,11 +26,7 @@ use ferrodec_ieee::{RoundingMode, Status};
 
 /// Route `op` over the `f64` value of `d`, converting back to
 /// `Decimal64` with the §9.2 status-tagging convention.
-pub(crate) fn f64_unary(
-    d: Decimal64,
-    op: fn(f64) -> f64,
-    rm: RoundingMode,
-) -> (Decimal64, Status) {
+pub(crate) fn f64_unary(d: Decimal64, op: fn(f64) -> f64, rm: RoundingMode) -> (Decimal64, Status) {
     f64_unary_via_value(d.to_f64(), op, rm)
 }
 

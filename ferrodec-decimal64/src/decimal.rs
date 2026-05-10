@@ -229,9 +229,6 @@ mod tests {
     fn max_canonical_coefficient() {
         let max_coef = bid::COEFFICIENT_LIMIT - 1; // 10^16 - 1
         let x = Decimal64::try_new_unsigned(max_coef, 0).unwrap();
-        assert_eq!(
-            x.to_bits(),
-            bid::pack_finite(false, bid::BIAS, max_coef)
-        );
+        assert_eq!(x.to_bits(), bid::pack_finite(false, bid::BIAS, max_coef));
     }
 }

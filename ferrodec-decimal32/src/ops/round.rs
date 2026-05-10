@@ -16,9 +16,7 @@
 //! 34-digit precision can't be held in `u128` after alignment expansion.
 //! This module is the simpler analogue.
 
-use crate::bid::{
-    pack_finite, pack_infinity, BIAS, BIASED_EXP_MAX, COEFFICIENT_LIMIT, PRECISION,
-};
+use crate::bid::{pack_finite, pack_infinity, BIAS, BIASED_EXP_MAX, COEFFICIENT_LIMIT, PRECISION};
 use crate::decimal::Decimal32;
 use ferrodec_ieee::{should_round_up, RoundingMode, Status};
 
@@ -306,15 +304,30 @@ mod tests {
 
     #[test]
     fn round_no_rounding_required() {
-        let (d, s) = round_and_pack_finite(123, 0, 0, false, false, RoundingMode::NearestEven, Status::OK);
+        let (d, s) = round_and_pack_finite(
+            123,
+            0,
+            0,
+            false,
+            false,
+            RoundingMode::NearestEven,
+            Status::OK,
+        );
         assert_eq!(d.to_bits(), pack(false, 0, 123).to_bits());
         assert!(s.is_ok());
     }
 
     #[test]
     fn round_seven_digits_exact() {
-        let (d, s) =
-            round_and_pack_finite(9_999_999, 0, 0, false, false, RoundingMode::NearestEven, Status::OK);
+        let (d, s) = round_and_pack_finite(
+            9_999_999,
+            0,
+            0,
+            false,
+            false,
+            RoundingMode::NearestEven,
+            Status::OK,
+        );
         assert_eq!(d.to_bits(), pack(false, 0, 9_999_999).to_bits());
         assert!(s.is_ok());
     }
@@ -415,7 +428,10 @@ mod tests {
         // Expect 1000000E+90: coef = 10^6, biased_exp = BIASED_EXP_MAX
         // = 191. The local `pack` helper takes the unbiased quantum
         // (90 = 191 − BIAS = 191 − 101).
-        assert_eq!(d.to_bits(), pack(false, BIASED_EXP_MAX as i32 - BIAS as i32, 1_000_000).to_bits());
+        assert_eq!(
+            d.to_bits(),
+            pack(false, BIASED_EXP_MAX as i32 - BIAS as i32, 1_000_000).to_bits()
+        );
         assert!(!s.overflow());
         assert!(!s.inexact());
     }

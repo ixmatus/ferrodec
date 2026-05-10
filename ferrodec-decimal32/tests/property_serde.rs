@@ -13,7 +13,16 @@ fn parse(s: &str) -> Decimal32 {
 
 #[test]
 fn json_round_trip_strings() {
-    for s in &["1", "1.5", "-1.5", "0.001", "1.234E+10", "Infinity", "-Infinity", "NaN"] {
+    for s in &[
+        "1",
+        "1.5",
+        "-1.5",
+        "0.001",
+        "1.234E+10",
+        "Infinity",
+        "-Infinity",
+        "NaN",
+    ] {
         let d = parse(s);
         let json = serde_json::to_string(&d).unwrap();
         let back: Decimal32 = serde_json::from_str(&json).unwrap();

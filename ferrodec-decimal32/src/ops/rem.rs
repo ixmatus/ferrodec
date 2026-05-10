@@ -19,7 +19,7 @@
 //!   quantum.
 //! * `finite % ±∞` → finite (the dividend) at the preferred quantum.
 
-use crate::bid::{classify_bits, BIAS, Class, COEFFICIENT_LIMIT};
+use crate::bid::{classify_bits, Class, BIAS, COEFFICIENT_LIMIT};
 use crate::decimal::Decimal32;
 use ferrodec_ieee::{RoundingMode, Status};
 
@@ -83,12 +83,20 @@ impl Decimal32 {
         }
 
         let (sign_a, biased_a, coef_a) = match ca {
-            Class::Finite { sign, biased_exp, coefficient } => (sign, biased_exp, u64::from(coefficient)),
+            Class::Finite {
+                sign,
+                biased_exp,
+                coefficient,
+            } => (sign, biased_exp, u64::from(coefficient)),
             Class::Zero { sign, biased_exp } => (sign, biased_exp, 0u64),
             _ => unreachable!("dispatcher handles non-finite"),
         };
         let (_sign_b, biased_b, coef_b) = match cb {
-            Class::Finite { sign, biased_exp, coefficient } => (sign, biased_exp, u64::from(coefficient)),
+            Class::Finite {
+                sign,
+                biased_exp,
+                coefficient,
+            } => (sign, biased_exp, u64::from(coefficient)),
             Class::Zero { sign, biased_exp } => (sign, biased_exp, 0u64),
             _ => unreachable!("dispatcher handles non-finite"),
         };
@@ -224,7 +232,12 @@ fn handle_specials(a: Class, b: Class) -> Option<(Decimal32, Status)> {
 
     // finite % ±∞ → finite (the dividend, sign preserved).
     if matches!(b, Infinity { .. }) {
-        if let Finite { sign, biased_exp, coefficient } = a {
+        if let Finite {
+            sign,
+            biased_exp,
+            coefficient,
+        } = a
+        {
             return Some((
                 Decimal32::from_bits(crate::bid::pack_finite(sign, biased_exp, coefficient)),
                 Status::OK,

@@ -17,7 +17,7 @@
 //!   minimum representable value, delegated to `round_and_pack`'s
 //!   zero branch).
 
-use crate::bid::{classify_bits, decimal_digit_count, BIAS, Class, PRECISION};
+use crate::bid::{classify_bits, decimal_digit_count, Class, BIAS, PRECISION};
 use crate::decimal::Decimal32;
 use ferrodec_ieee::{RoundingMode, Status};
 
@@ -64,12 +64,20 @@ impl Decimal32 {
 
         // Finite / finite (Zero / Finite handled via Class::Zero).
         let (sign_a, biased_a, coef_a) = match ca {
-            Class::Finite { sign, biased_exp, coefficient } => (sign, biased_exp, u64::from(coefficient)),
+            Class::Finite {
+                sign,
+                biased_exp,
+                coefficient,
+            } => (sign, biased_exp, u64::from(coefficient)),
             Class::Zero { sign, biased_exp } => (sign, biased_exp, 0u64),
             _ => unreachable!("dispatcher handles non-finite"),
         };
         let (sign_b, biased_b, coef_b) = match cb {
-            Class::Finite { sign, biased_exp, coefficient } => (sign, biased_exp, u64::from(coefficient)),
+            Class::Finite {
+                sign,
+                biased_exp,
+                coefficient,
+            } => (sign, biased_exp, u64::from(coefficient)),
             Class::Zero { sign, biased_exp } => (sign, biased_exp, 0u64),
             _ => unreachable!("dispatcher handles non-finite"),
         };
@@ -84,7 +92,15 @@ impl Decimal32 {
         if coef_a == 0 {
             // 0 / non-zero = ±0 at preferred quantum (clamped by
             // round_and_pack's zero branch if out of range).
-            return round_and_pack_finite(0, q_preferred, q_preferred, result_sign, false, rm, Status::OK);
+            return round_and_pack_finite(
+                0,
+                q_preferred,
+                q_preferred,
+                result_sign,
+                false,
+                rm,
+                Status::OK,
+            );
         }
 
         // Scale dividend so quotient has ≥ PRECISION + 1 digits.

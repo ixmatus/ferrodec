@@ -4,7 +4,7 @@
 //! back to `u64` via sticky tracking before routing through
 //! `round_and_pack_finite`.
 
-use crate::bid::{classify_bits, BIAS, Class};
+use crate::bid::{classify_bits, Class, BIAS};
 use crate::decimal::Decimal64;
 use ferrodec_ieee::{RoundingMode, Status};
 
@@ -22,12 +22,20 @@ impl Decimal64 {
         }
 
         let (sign_a, biased_a, coef_a) = match ca {
-            Class::Finite { sign, biased_exp, coefficient } => (sign, biased_exp, coefficient),
+            Class::Finite {
+                sign,
+                biased_exp,
+                coefficient,
+            } => (sign, biased_exp, coefficient),
             Class::Zero { sign, biased_exp } => (sign, biased_exp, 0u64),
             _ => unreachable!(),
         };
         let (sign_b, biased_b, coef_b) = match cb {
-            Class::Finite { sign, biased_exp, coefficient } => (sign, biased_exp, coefficient),
+            Class::Finite {
+                sign,
+                biased_exp,
+                coefficient,
+            } => (sign, biased_exp, coefficient),
             Class::Zero { sign, biased_exp } => (sign, biased_exp, 0u64),
             _ => unreachable!(),
         };
@@ -72,7 +80,10 @@ fn handle_specials(a: Class, b: Class) -> Option<(Decimal64, Status)> {
         ));
     }
 
-    if matches!((a, b), (Zero { .. }, Infinity { .. }) | (Infinity { .. }, Zero { .. })) {
+    if matches!(
+        (a, b),
+        (Zero { .. }, Infinity { .. }) | (Infinity { .. }, Zero { .. })
+    ) {
         return Some((Decimal64::NAN, Status::INVALID));
     }
 
@@ -126,8 +137,8 @@ mod tests {
 
     #[test]
     fn mul_sixteen_digits_full_precision() {
-        let (r, s) = from_int(9_999_999_999_999_999, 0)
-            .mul(from_int(1, 0), RoundingMode::NearestEven);
+        let (r, s) =
+            from_int(9_999_999_999_999_999, 0).mul(from_int(1, 0), RoundingMode::NearestEven);
         assert_eq!(r.to_bits(), from_int(9_999_999_999_999_999, 0).to_bits());
         assert!(s.is_ok());
     }
@@ -136,8 +147,10 @@ mod tests {
     fn mul_inexact_rounds() {
         // 1234567890123456 × 1234567890123456 = 32-digit product;
         // round to 16 digits.
-        let (r, s) = from_int(1_234_567_890_123_456, 0)
-            .mul(from_int(1_234_567_890_123_456, 0), RoundingMode::NearestEven);
+        let (r, s) = from_int(1_234_567_890_123_456, 0).mul(
+            from_int(1_234_567_890_123_456, 0),
+            RoundingMode::NearestEven,
+        );
         assert!(r.is_finite() && !r.is_sign_negative());
         assert!(s.inexact());
     }

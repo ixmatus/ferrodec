@@ -13,8 +13,8 @@ use crate::bid::{
     pack_signaling_nan, sign_of, type_field, Class, COEFFICIENT_LIMIT, FORM_B_MARKER,
     NAN_SIGNALING_SHIFT, PRECISION, SIGN_SHIFT, TYPE_INFINITY, TYPE_NAN, T_BITS, T_MASK,
 };
-use ferrodec_ieee::IeeeClass;
 use crate::decimal::Decimal32;
+use ferrodec_ieee::IeeeClass;
 use ferrodec_ieee::Status;
 
 /// Maximum canonical NaN payload: `10^6` (i.e. payload representable as
@@ -423,17 +423,20 @@ mod tests {
         assert_eq!(Decimal32::INFINITY.classify(), FpCategory::Infinite);
         assert_eq!(Decimal32::NAN.classify(), FpCategory::Nan);
         assert_eq!(Decimal32::SIGNALING_NAN.classify(), FpCategory::Nan);
-        assert_eq!(
-            Decimal32::MIN_POSITIVE.classify(),
-            FpCategory::Subnormal
-        );
+        assert_eq!(Decimal32::MIN_POSITIVE.classify(), FpCategory::Subnormal);
     }
 
     #[test]
     fn ieee_class_full_ten() {
-        assert_eq!(Decimal32::SIGNALING_NAN.ieee_class(), IeeeClass::SignalingNaN);
+        assert_eq!(
+            Decimal32::SIGNALING_NAN.ieee_class(),
+            IeeeClass::SignalingNaN
+        );
         assert_eq!(Decimal32::NAN.ieee_class(), IeeeClass::QuietNaN);
-        assert_eq!(Decimal32::INFINITY.ieee_class(), IeeeClass::PositiveInfinity);
+        assert_eq!(
+            Decimal32::INFINITY.ieee_class(),
+            IeeeClass::PositiveInfinity
+        );
         assert_eq!(
             Decimal32::NEG_INFINITY.ieee_class(),
             IeeeClass::NegativeInfinity

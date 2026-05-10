@@ -430,8 +430,7 @@ mod tests {
     fn parse_nan_payload_overflow() {
         // 16 nines (9_999_999_999_999_999) exceeds the 50-bit T_MASK
         // field (= 2^50 − 1 ≈ 1.13 × 10^15).
-        let res =
-            Decimal64::parse_str("NaN9999999999999999", RoundingMode::default());
+        let res = Decimal64::parse_str("NaN9999999999999999", RoundingMode::default());
         assert!(matches!(res, Err(ParseDecimalError::InvalidCharacter(_))));
     }
 
@@ -448,8 +447,7 @@ mod tests {
         // → round up. 12345678901234568 → 1234567890123457 × 10^1.
         let (d, status) =
             Decimal64::parse_str("12345678901234568", RoundingMode::NearestEven).unwrap();
-        let expected =
-            Decimal64::from_bits(pack_finite(false, BIAS + 1, 1_234_567_890_123_457));
+        let expected = Decimal64::from_bits(pack_finite(false, BIAS + 1, 1_234_567_890_123_457));
         assert_eq!(d.to_bits(), expected.to_bits());
         assert!(status.inexact());
     }

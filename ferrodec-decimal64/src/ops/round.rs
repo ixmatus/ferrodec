@@ -16,9 +16,7 @@
 //! that compresses back to `u64` via sticky tracking before routing
 //! here.
 
-use crate::bid::{
-    pack_finite, pack_infinity, BIAS, BIASED_EXP_MAX, COEFFICIENT_LIMIT, PRECISION,
-};
+use crate::bid::{pack_finite, pack_infinity, BIAS, BIASED_EXP_MAX, COEFFICIENT_LIMIT, PRECISION};
 use crate::decimal::Decimal64;
 use ferrodec_ieee::{should_round_up, RoundingMode, Status};
 
@@ -225,10 +223,7 @@ fn finalise_finite(
         }
         if final_coef >= COEFFICIENT_LIMIT {
             let bumped = final_coef / 10;
-            return (
-                Decimal64::from_bits(pack_finite(sign, 1, bumped)),
-                status,
-            );
+            return (Decimal64::from_bits(pack_finite(sign, 1, bumped)), status);
         }
         return (
             Decimal64::from_bits(pack_finite(sign, 0, final_coef)),
@@ -260,7 +255,15 @@ mod tests {
 
     #[test]
     fn round_no_rounding_required() {
-        let (d, s) = round_and_pack_finite(123, 0, 0, false, false, RoundingMode::NearestEven, Status::OK);
+        let (d, s) = round_and_pack_finite(
+            123,
+            0,
+            0,
+            false,
+            false,
+            RoundingMode::NearestEven,
+            Status::OK,
+        );
         assert_eq!(d.to_bits(), pack(false, 0, 123).to_bits());
         assert!(s.is_ok());
     }
@@ -293,10 +296,7 @@ mod tests {
             RoundingMode::NearestEven,
             Status::OK,
         );
-        assert_eq!(
-            d.to_bits(),
-            pack(false, 1, 1_234_567_890_123_457).to_bits()
-        );
+        assert_eq!(d.to_bits(), pack(false, 1, 1_234_567_890_123_457).to_bits());
         assert!(s.inexact());
     }
 

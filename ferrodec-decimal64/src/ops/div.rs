@@ -5,7 +5,7 @@
 //! 17-digit (or wider) integer quotient, then route through
 //! `round_and_pack_into_u64`.
 
-use crate::bid::{classify_bits, decimal_digit_count, BIAS, Class, PRECISION};
+use crate::bid::{classify_bits, decimal_digit_count, Class, BIAS, PRECISION};
 use crate::decimal::Decimal64;
 use ferrodec_ieee::{RoundingMode, Status};
 
@@ -28,7 +28,9 @@ const POW10_U128: [u128; 34] = {
 // Compile-time invariant: the largest reachable index is
 // `(db − da) + PRECISION + 1` with `db ≤ PRECISION = 16` and `da
 // ≥ 1`, so max = `15 + 17 = 32`. POW10_U128 needs ≥ 33 entries.
-const _: () = assert!(POW10_U128.len() > (crate::bid::PRECISION as usize - 1) + crate::bid::PRECISION as usize + 1);
+const _: () = assert!(
+    POW10_U128.len() > (crate::bid::PRECISION as usize - 1) + crate::bid::PRECISION as usize + 1
+);
 
 impl Decimal64 {
     /// IEEE 754-2019 `division(self, other)` rounded by `rm`.
@@ -42,12 +44,20 @@ impl Decimal64 {
         }
 
         let (sign_a, biased_a, coef_a) = match ca {
-            Class::Finite { sign, biased_exp, coefficient } => (sign, biased_exp, coefficient),
+            Class::Finite {
+                sign,
+                biased_exp,
+                coefficient,
+            } => (sign, biased_exp, coefficient),
             Class::Zero { sign, biased_exp } => (sign, biased_exp, 0u64),
             _ => unreachable!(),
         };
         let (sign_b, biased_b, coef_b) = match cb {
-            Class::Finite { sign, biased_exp, coefficient } => (sign, biased_exp, coefficient),
+            Class::Finite {
+                sign,
+                biased_exp,
+                coefficient,
+            } => (sign, biased_exp, coefficient),
             Class::Zero { sign, biased_exp } => (sign, biased_exp, 0u64),
             _ => unreachable!(),
         };

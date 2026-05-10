@@ -14,9 +14,9 @@ use crate::bid::{
 use crate::decimal::Decimal128;
 use crate::multiword::U256;
 use crate::ops::nan_from;
-use ferrodec_ieee::should_round_up;
 use crate::ops::round_and_pack_finite;
 use crate::status::{RoundingMode, Status};
+use ferrodec_ieee::should_round_up;
 
 /// GDA `scaleb` second-operand magnitude limit: `2 × (E_max + precision)`.
 /// For Decimal128: `2 × (6144 + 34) = 12356`. Anything beyond this raises

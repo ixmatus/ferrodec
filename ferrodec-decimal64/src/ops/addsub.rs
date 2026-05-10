@@ -17,7 +17,7 @@
 //! * `diff > 23`: the lower operand sits below the working window
 //!   entirely; only its non-zeroness contributes.
 
-use crate::bid::{classify_bits, BIAS, Class};
+use crate::bid::{classify_bits, Class, BIAS};
 use crate::decimal::Decimal64;
 use ferrodec_ieee::{RoundingMode, Status};
 
@@ -70,12 +70,20 @@ fn add_inner(a: Decimal64, b: Decimal64, rm: RoundingMode) -> (Decimal64, Status
     }
 
     let (sign_a, biased_a, coef_a) = match ca {
-        Class::Finite { sign, biased_exp, coefficient } => (sign, biased_exp, coefficient),
+        Class::Finite {
+            sign,
+            biased_exp,
+            coefficient,
+        } => (sign, biased_exp, coefficient),
         Class::Zero { sign, biased_exp } => (sign, biased_exp, 0u64),
         _ => unreachable!("non-finite handled by dispatcher"),
     };
     let (sign_b, biased_b, coef_b) = match cb {
-        Class::Finite { sign, biased_exp, coefficient } => (sign, biased_exp, coefficient),
+        Class::Finite {
+            sign,
+            biased_exp,
+            coefficient,
+        } => (sign, biased_exp, coefficient),
         Class::Zero { sign, biased_exp } => (sign, biased_exp, 0u64),
         _ => unreachable!("non-finite handled by dispatcher"),
     };
@@ -133,14 +141,7 @@ fn add_inner(a: Decimal64, b: Decimal64, rm: RoundingMode) -> (Decimal64, Status
     } else {
         let q_preferred = exp_a.min(exp_b);
         if pre_sticky {
-            return round_and_pack_into_u64(
-                1,
-                exp_lo,
-                q_preferred,
-                sign_lo,
-                false,
-                rm,
-            );
+            return round_and_pack_into_u64(1, exp_lo, q_preferred, sign_lo, false, rm);
         }
         let result_sign = zero_sum_sign(sign_a, sign_b, rm);
         return (
@@ -301,8 +302,8 @@ mod tests {
     #[test]
     fn add_with_carry_renormalises() {
         // 9_999_999_999_999_999 + 1 = 10^16 → renormalises.
-        let (r, _) = from_int(9_999_999_999_999_999, 0)
-            .add(from_int(1, 0), RoundingMode::NearestEven);
+        let (r, _) =
+            from_int(9_999_999_999_999_999, 0).add(from_int(1, 0), RoundingMode::NearestEven);
         let expected = Decimal64::from_bits(pack_finite(false, BIAS + 1, 1_000_000_000_000_000));
         assert_eq!(r.to_bits(), expected.to_bits());
     }

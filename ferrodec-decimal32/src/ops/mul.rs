@@ -16,7 +16,7 @@
 //!   preferred quantum `exp_a + exp_b` clamped to the representable
 //!   range (delegated to `round_and_pack_finite`'s zero branch).
 
-use crate::bid::{classify_bits, BIAS, Class};
+use crate::bid::{classify_bits, Class, BIAS};
 use crate::decimal::Decimal32;
 use ferrodec_ieee::{RoundingMode, Status};
 
@@ -35,12 +35,20 @@ impl Decimal32 {
 
         // Finite × finite (Zero × Finite handled via Class::Zero).
         let (sign_a, biased_a, coef_a) = match ca {
-            Class::Finite { sign, biased_exp, coefficient } => (sign, biased_exp, u64::from(coefficient)),
+            Class::Finite {
+                sign,
+                biased_exp,
+                coefficient,
+            } => (sign, biased_exp, u64::from(coefficient)),
             Class::Zero { sign, biased_exp } => (sign, biased_exp, 0u64),
             _ => unreachable!("dispatcher handles non-finite"),
         };
         let (sign_b, biased_b, coef_b) = match cb {
-            Class::Finite { sign, biased_exp, coefficient } => (sign, biased_exp, u64::from(coefficient)),
+            Class::Finite {
+                sign,
+                biased_exp,
+                coefficient,
+            } => (sign, biased_exp, u64::from(coefficient)),
             Class::Zero { sign, biased_exp } => (sign, biased_exp, 0u64),
             _ => unreachable!("dispatcher handles non-finite"),
         };
@@ -54,7 +62,15 @@ impl Decimal32 {
         // within u64.
         let product = coef_a * coef_b;
 
-        round_and_pack_finite(product, q_preferred, q_preferred, result_sign, false, rm, Status::OK)
+        round_and_pack_finite(
+            product,
+            q_preferred,
+            q_preferred,
+            result_sign,
+            false,
+            rm,
+            Status::OK,
+        )
     }
 }
 
@@ -170,8 +186,7 @@ mod tests {
     fn mul_inexact_rounds() {
         // 1234567 × 1234567 = 1_524_155_677_489 (13 digits). Round to
         // 7 → 1524156 × 10^6.
-        let (r, s) =
-            from_int(1_234_567, 0).mul(from_int(1_234_567, 0), RoundingMode::NearestEven);
+        let (r, s) = from_int(1_234_567, 0).mul(from_int(1_234_567, 0), RoundingMode::NearestEven);
         let expected = Decimal32::from_bits(pack_finite(false, BIAS + 6, 1_524_156));
         assert_eq!(r.to_bits(), expected.to_bits());
         assert!(s.inexact());

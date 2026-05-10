@@ -429,8 +429,7 @@ mod tests {
     #[test]
     fn parse_nan_payload_overflow() {
         // 8 nines exceeds the 20-bit field (max 1_048_575).
-        let res =
-            Decimal32::parse_str("NaN99999999", RoundingMode::default());
+        let res = Decimal32::parse_str("NaN99999999", RoundingMode::default());
         assert!(matches!(res, Err(ParseDecimalError::InvalidCharacter(_))));
     }
 

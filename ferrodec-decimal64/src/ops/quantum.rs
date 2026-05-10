@@ -12,7 +12,7 @@
 //!   navigation operations to the next representable value.
 
 use crate::bid::{
-    classify_bits, decimal_digit_count, BIAS, BIASED_EXP_MAX, Class, COEFFICIENT_LIMIT, PRECISION,
+    classify_bits, decimal_digit_count, Class, BIAS, BIASED_EXP_MAX, COEFFICIENT_LIMIT, PRECISION,
 };
 use crate::decimal::Decimal64;
 use ferrodec_ieee::{should_round_up, RoundingMode, Status};
@@ -90,7 +90,11 @@ impl Decimal64 {
 
         // Both finite (or self zero).
         let (sign, biased_self, coef) = match ca {
-            Class::Finite { sign, biased_exp, coefficient } => (sign, biased_exp, coefficient),
+            Class::Finite {
+                sign,
+                biased_exp,
+                coefficient,
+            } => (sign, biased_exp, coefficient),
             Class::Zero { sign, biased_exp } => (sign, biased_exp, 0u64),
             _ => unreachable!(),
         };
@@ -118,11 +122,7 @@ impl Decimal64 {
         if target_q == self_q {
             // Already at the right quantum; pack as-is.
             return (
-                Decimal64::from_bits(crate::bid::pack_finite(
-                    sign,
-                    target_biased,
-                    coef,
-                )),
+                Decimal64::from_bits(crate::bid::pack_finite(sign, target_biased, coef)),
                 Status::OK,
             );
         }
@@ -193,11 +193,7 @@ impl Decimal64 {
             }
 
             return (
-                Decimal64::from_bits(crate::bid::pack_finite(
-                    sign,
-                    target_biased,
-                    final_coef,
-                )),
+                Decimal64::from_bits(crate::bid::pack_finite(sign, target_biased, final_coef)),
                 status,
             );
         }
@@ -221,11 +217,7 @@ impl Decimal64 {
         let new_coef = coef * POW10_U64[pad as usize];
         debug_assert!(new_coef < COEFFICIENT_LIMIT);
         (
-            Decimal64::from_bits(crate::bid::pack_finite(
-                sign,
-                target_biased,
-                new_coef,
-            )),
+            Decimal64::from_bits(crate::bid::pack_finite(sign, target_biased, new_coef)),
             Status::OK,
         )
     }
@@ -262,15 +254,7 @@ impl Decimal64 {
                 coefficient,
             } => {
                 let q = biased_exp as i32 - BIAS as i32 + n;
-                round_and_pack_finite(
-                    coefficient,
-                    q,
-                    q,
-                    sign,
-                    false,
-                    rm,
-                    Status::OK,
-                )
+                round_and_pack_finite(coefficient, q, q, sign, false, rm, Status::OK)
             }
         }
     }
@@ -432,7 +416,6 @@ impl Decimal64 {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -556,8 +539,7 @@ mod tests {
         // BIAS - 15 = 383, coefficient = 5_000_000_000_000_001.
         assert_eq!(
             r.to_bits(),
-            Decimal64::from_bits(pack_finite(false, BIAS - 15, 5_000_000_000_000_001))
-                .to_bits()
+            Decimal64::from_bits(pack_finite(false, BIAS - 15, 5_000_000_000_000_001)).to_bits()
         );
         assert!(s.is_ok());
     }

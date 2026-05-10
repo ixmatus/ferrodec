@@ -18,7 +18,7 @@
 //! The preferred quantum per §6.3 is `floor(Q(x) / 2)`. The pack
 //! routine pads or strips toward this quantum.
 
-use crate::bid::{classify_bits, decimal_digit_count, BIAS, Class};
+use crate::bid::{classify_bits, decimal_digit_count, Class, BIAS};
 use crate::decimal::Decimal32;
 use ferrodec_ieee::{RoundingMode, Status};
 
@@ -91,11 +91,7 @@ impl Decimal32 {
     }
 }
 
-fn sqrt_positive_finite(
-    coef: u64,
-    biased_exp: u32,
-    rm: RoundingMode,
-) -> (Decimal32, Status) {
+fn sqrt_positive_finite(coef: u64, biased_exp: u32, rm: RoundingMode) -> (Decimal32, Status) {
     let exp = biased_exp as i32 - BIAS as i32;
     let q_preferred = exp.div_euclid(2);
 
@@ -249,7 +245,11 @@ mod tests {
         // but cohort can be (10^7) × 10^41 = 10^48 too. Just check magnitude.
         let class = crate::bid::classify_bits(r.to_bits());
         match class {
-            Class::Finite { sign, biased_exp, coefficient } => {
+            Class::Finite {
+                sign,
+                biased_exp,
+                coefficient,
+            } => {
                 assert!(!sign);
                 let unbiased = biased_exp as i32 - BIAS as i32;
                 let value_log10 = unbiased + decimal_digit_count(coefficient) as i32 - 1;

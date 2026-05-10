@@ -6,7 +6,7 @@
 //! `round_and_pack_into_u64` with the squared-back-residue feeding
 //! the rounding sticky bit.
 
-use crate::bid::{classify_bits, BIAS, Class};
+use crate::bid::{classify_bits, Class, BIAS};
 use crate::decimal::Decimal64;
 use ferrodec_ieee::{decimal_digit_count_u128, RoundingMode, Status};
 
@@ -71,11 +71,7 @@ impl Decimal64 {
     }
 }
 
-fn sqrt_positive_finite(
-    coef: u64,
-    biased_exp: u32,
-    rm: RoundingMode,
-) -> (Decimal64, Status) {
+fn sqrt_positive_finite(coef: u64, biased_exp: u32, rm: RoundingMode) -> (Decimal64, Status) {
     let exp = biased_exp as i32 - BIAS as i32;
     let q_preferred = exp.div_euclid(2);
 
@@ -109,7 +105,6 @@ fn sqrt_positive_finite(
 
     round_and_pack_into_u64(isqrt_val, result_exp, q_preferred, false, sticky, rm)
 }
-
 
 #[cfg(test)]
 mod tests {
