@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-05-10
+
+Initial release. IEEE 754-2019 Decimal32 in pure Rust, `no_std`-
+capable, with the verification posture established by ferrodec/
+Decimal128.
+
 ### Added
 
 - Skeleton crate. `Decimal32(u32)` type wrapper, no methods yet.
