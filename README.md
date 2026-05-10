@@ -11,7 +11,7 @@ This repository hosts the ferrodec family of canonical pure-Rust IEEE 754 decima
 
 - **[`ferrodec`](https://crates.io/crates/ferrodec)** — Decimal128 (this README's subject). 34-digit precision, exponent range `10⁻⁶¹⁴³..=10⁺⁶¹⁴⁴`. The reference implementation; production-ready.
 - **[`ferrodec-decimal32`](ferrodec-decimal32/)** — Decimal32. 7-digit precision, exponent range `10⁻¹⁰¹..=10⁹⁶`. Sized for embedded telemetry, small-ledger reporting, and footprint-sensitive applications.
-- **`ferrodec-decimal64`** — Decimal64. 16-digit precision. In development.
+- **[`ferrodec-decimal64`](ferrodec-decimal64/)** — Decimal64. 16-digit precision, exponent range `10⁻³⁸³..=10⁺³⁸⁴`. The natural sweet spot for financial general-ledger arithmetic and scientific aggregates that outgrow Decimal32's 7 digits without needing Decimal128's 128 bits.
 
 Each sibling stands alone on crates.io with its own version cadence. They share the verification methodology documented in `docs/decisions/` and the workspace-level lint / MSRV / license discipline.
 

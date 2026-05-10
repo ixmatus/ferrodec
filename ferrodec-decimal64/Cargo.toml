@@ -1,6 +1,6 @@
 [package]
 name = "ferrodec-decimal64"
-version = "0.1.0"
+version = "1.0.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -69,6 +69,18 @@ serde = { version = "1", default-features = false, optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_test = "1"
+
+[[example]]
+name = "money"
+required-features = ["fmt"]
+
+[[example]]
+name = "rounding_modes"
+required-features = ["fmt"]
+
+[[example]]
+name = "transcendentals"
+required-features = ["transcendentals"]
 
 [lints]
 workspace = true

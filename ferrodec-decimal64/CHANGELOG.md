@@ -7,8 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-05-10
+
+Initial release. IEEE 754-2019 Decimal64 in pure Rust, `no_std`-
+capable, sized for financial general-ledger arithmetic and
+scientific aggregates that outgrow Decimal32's 7 digits without
+needing Decimal128's 128 bits of storage.
+
 ### Added
 
+- Examples at `examples/`: `money` (16-digit ledger arithmetic with
+  cent quantisation and tax accumulation), `rounding_modes` (the
+  five IEEE 754 modes applied to halfway cases), `transcendentals`
+  (tour of exp / ln / sin / cos / sqrt / acos with INVALID
+  propagation).
+- README at v1.0 shape: parameters table, feature surface,
+  callable methods, accuracy posture (Decimal64 / f64 precision-
+  boundary tradeoff documented), supported targets, verification
+  pillars, "Why no core::ops" rationale, and the three-way
+  decision matrix between ferrodec-decimal32 / ferrodec-decimal64
+  / ferrodec.
 - Skeleton crate. `Decimal64(u64)` type wrapper, no methods yet.
   Initial groundwork for the full Decimal64 implementation per the
   plan archived at
