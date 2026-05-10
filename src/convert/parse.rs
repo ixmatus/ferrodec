@@ -149,42 +149,44 @@ fn parse_str_inner(
                 has_digit = true;
                 let d = (c - b'0') as u32;
                 if digits_total < MAX_PARSED_DIGITS {
-                    if !(coef.is_zero() && d == 0 && !decimal_seen) {
-                        // Skip leading zeros in the integer part for
-                        // counting (so "000123" parses with 3 digits).
+                    let leading_int_zero = coef.is_zero() && d == 0 && !decimal_seen;
+                    let leading_frac_zero = coef.is_zero() && d == 0 && decimal_seen;
+                    if leading_int_zero {
+                        // Pure leading zero in the integer part —
+                        // ignore.
+                    } else if leading_frac_zero {
+                        // Leading zero AFTER the decimal point but
+                        // BEFORE the first non-zero digit. Shifts the
+                        // quantum down by one but does not "spend" a
+                        // digit-budget slot — the value's significant
+                        // figures haven't started yet.
+                        digits_after_point += 1;
+                    } else {
                         coef = coef.mul10().add(U256::from_u128(d as u128));
                         digits_total += 1;
-                    } else if decimal_seen {
-                        // Leading zeros after the decimal still count
-                        // toward `digits_after_point` to keep the quantum
-                        // correct; "0.001" is `1 × 10^-3`.
-                        digits_after_point += 1;
-                        // Fall through: don't add to coef but record the digit.
-                        idx += 1;
-                        continue;
-                    } else {
-                        // Pure leading zero in integer part — ignore.
-                        idx += 1;
-                        continue;
-                    }
-                    if decimal_seen {
-                        digits_after_point += 1;
+                        if decimal_seen {
+                            digits_after_point += 1;
+                        }
                     }
                 } else {
-                    // Beyond capacity: feeds the sticky bit.
                     if d != 0 {
                         sticky = true;
                     }
-                    if decimal_seen {
-                        digits_after_point += 1;
-                    } else {
-                        // Trailing-integer digits we can't fold into
+                    if !decimal_seen {
+                        // Trailing-integer digits we cannot fold into
                         // `coef` act as a 10× shift on the value (each
-                        // digit pushes the implicit decimal point one
-                        // place further right). Track them so the
-                        // final `unbiased_exp` can absorb the shift.
+                        // such digit pushes the implicit decimal point
+                        // one place further right). Track them so the
+                        // final `unbiased_exp` absorbs the shift.
                         extra_int_digits = extra_int_digits.saturating_add(1);
                     }
+                    // Sticky-only fractional digits sit *below* the
+                    // coefficient's representation precision and feed
+                    // rounding only — `digits_after_point` is *not*
+                    // incremented, since `unbiased_exp =
+                    // -digits_after_point` must reflect the
+                    // coefficient's quantum, not the input's full
+                    // fractional length.
                 }
                 idx += 1;
             }
@@ -613,6 +615,52 @@ mod tests {
                 "parse(\"1\" + \"0\"×{n}) = {a:?}, expected 10^{n} = {b:?}",
             );
         }
+    }
+
+    #[test]
+    fn parse_leading_fractional_zeros_past_budget() {
+        // Regression: leading fractional zeros after `.` used to spend
+        // digit-budget slots even though the coefficient stayed at zero,
+        // pushing the first significant digits past the
+        // MAX_PARSED_DIGITS = 76 boundary and into the sticky bit. The
+        // result deflated by 10× per zero past the budget.
+        //
+        // Anchor: "0." + 80 zeros + 34 ones must equal 1.111…1E−81 exactly
+        // (34 sig digits, all ones).
+        let zeros = "0".repeat(80);
+        let ones = "1".repeat(34);
+        let s = format!("0.{zeros}{ones}");
+        let (a, _) = Decimal128::parse_str(&s, RoundingMode::NearestEven).unwrap();
+        let canonical = "1.111111111111111111111111111111111E-81";
+        let (b, _) = Decimal128::parse_str(canonical, RoundingMode::NearestEven).unwrap();
+        let (cmp, _) = a.partial_cmp(b);
+        assert_eq!(
+            cmp,
+            Some(core::cmp::Ordering::Equal),
+            "parse(\"0.{{80 zeros}}{{34 ones}}\") = {a:?}, expected {b:?}",
+        );
+    }
+
+    #[test]
+    fn parse_post_budget_fractional_digits_keep_quantum() {
+        // Regression: once digits_total reaches MAX_PARSED_DIGITS = 76,
+        // subsequent fractional digits used to keep incrementing
+        // digits_after_point — which made unbiased_exp = -digits_after_point
+        // deflate the value by 10× per extra fractional digit. The fix:
+        // post-budget fractional digits feed *only* the sticky bit.
+        //
+        // "1." + 80 ones must equal 1.111…1 (34 sig digits) within the
+        // round-half-even tie-break, not 0.0001111… or similar.
+        let s = "1.".to_string() + &"1".repeat(80);
+        let (a, _) = Decimal128::parse_str(&s, RoundingMode::NearestEven).unwrap();
+        let canonical = "1.111111111111111111111111111111111";
+        let (b, _) = Decimal128::parse_str(canonical, RoundingMode::NearestEven).unwrap();
+        let (cmp, _) = a.partial_cmp(b);
+        assert_eq!(
+            cmp,
+            Some(core::cmp::Ordering::Equal),
+            "parse(\"1.{{80 ones}}\") = {a:?}, expected {b:?}",
+        );
     }
 
     #[test]

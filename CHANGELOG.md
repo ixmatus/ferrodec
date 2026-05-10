@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.14.5] - 2026-05-10
+
+### Fixed
+
+- `Decimal128::parse_str` now correctly handles fractional inputs
+  whose leading-zero span pushes the first significant digits past
+  `MAX_PARSED_DIGITS = 76`, and inputs whose total fractional length
+  exceeds the budget. The previous loop body had two distinct bugs:
+  (a) leading fractional zeros consumed digit-budget slots even
+  though the coefficient stayed at zero, deflating the result by
+  10× per zero past the budget; (b) post-budget fractional digits
+  kept incrementing `digits_after_point` so `unbiased_exp =
+  -digits_after_point` deflated the value by another 10× per
+  digit. Surfaced by the same algorithmic shape on Decimal64 (where
+  the smaller 19-digit budget made the bug practical to hit) —
+  Decimal64 was patched at `0.1.0` and the sibling pattern is now
+  back-ported here. Two regression tests cover the
+  leading-fractional-zero and post-budget shapes.
+
 ## [1.14.4] - 2026-05-10
 
 ### Changed
