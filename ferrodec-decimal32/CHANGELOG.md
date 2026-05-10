@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-05-10
+
+### Breaking
+
+- `Decimal32::next_up` and `Decimal32::next_down` now return
+  `(Decimal32, Status)` instead of `Decimal32`. Required to
+  honour IEEE 754-2019 §5.3.1 for signaling-NaN inputs: a
+  signaling NaN is quieted *and* raises `INVALID`. The previous
+  `-> Self` signature couldn't carry the flag. Migration: where
+  you wrote `let x = d.next_up();`, write `let (x, _) =
+  d.next_up();` (or destructure the status if you care).
+  Surfaced by the 6-agent review.
+
+### Fixed
+
+- `next_up` / `next_down` now correctly return the
+  *numerically adjacent* representable value, not the next value
+  in the *stored* cohort. The previous implementation
+  incremented the coefficient at the input's stored exponent, so
+  `next_up(5)` returned `6` instead of the actual ULP `5
+  + 10⁻⁶ = 5.000001`. The fix renormalises to the lowest
+  representable cohort (max coefficient digits, bounded by
+  biased_exp = 0) before stepping. Same algorithmic shape as
+  Decimal128's mature implementation.
+- `next_up` of a signaling NaN now correctly quiets the NaN
+  *and* raises INVALID (was: silently passed sNaN through). See
+  the Breaking entry above.
+
 ## [1.0.4] - 2026-05-10
 
 ### Fixed

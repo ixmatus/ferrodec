@@ -320,60 +320,115 @@ impl Decimal64 {
     }
 
     /// IEEE 754-2019 §5.3.1 `nextUp(self)`: the next representable
-    /// `Decimal64` strictly greater than `self`, navigating along the
-    /// `Decimal64` number line (signed-zero distinguished, +∞ stays
-    /// at +∞, −∞ moves to MIN, NaN propagates).
+    /// `Decimal64` strictly greater than `self`, navigating along
+    /// the `Decimal64` number line (signed-zero distinguished, +∞
+    /// stays at +∞, −∞ moves to MIN, NaN propagates).
+    ///
+    /// Returns `(value, Status)`. A signaling-NaN input is quieted
+    /// and raises `INVALID`; all other inputs return `Status::OK`.
+    /// Per IEEE 754-2019 §5.3.1 the finite-to-+∞ transition does
+    /// not raise OVERFLOW.
     #[must_use]
-    pub fn next_up(self) -> Self {
-        let class = classify_bits(self.0);
-        match class {
-            Class::SignalingNaN { .. } | Class::QuietNaN { .. } => self,
-            Class::Infinity { sign: false } => Decimal64::INFINITY,
-            Class::Infinity { sign: true } => Decimal64::MIN,
-            Class::Zero { .. } => Decimal64::MIN_POSITIVE,
-            Class::Finite {
-                sign: false,
-                biased_exp,
-                coefficient,
-            } => {
-                // Positive: increment coefficient. If it crosses
-                // 10^7, carry into the next biased_exp.
-                if coefficient + 1 < COEFFICIENT_LIMIT {
-                    Decimal64::from_bits(crate::bid::pack_finite(false, biased_exp, coefficient + 1))
-                } else if biased_exp < BIASED_EXP_MAX {
-                    Decimal64::from_bits(crate::bid::pack_finite(false, biased_exp + 1, COEFFICIENT_LIMIT / 10))
-                } else {
-                    Decimal64::INFINITY
-                }
-            }
-            Class::Finite {
-                sign: true,
-                biased_exp,
-                coefficient,
-            } => {
-                // Negative: decrement magnitude (toward zero), then
-                // toward +∞.
-                if coefficient > 1 {
-                    Decimal64::from_bits(crate::bid::pack_finite(true, biased_exp, coefficient - 1))
-                } else if biased_exp > 0 {
-                    // Coefficient = 1 at biased_exp > 0: previous step
-                    // is biased_exp-1 with coefficient = 10^7 - 1 (all
-                    // 9s) — gives the "wider" cohort one step closer
-                    // to zero.
-                    Decimal64::from_bits(crate::bid::pack_finite(true, biased_exp - 1, COEFFICIENT_LIMIT - 1))
-                } else {
-                    // -MIN_POSITIVE → -0 → ... actually next_up of
-                    // -MIN_POSITIVE is -0.
-                    Decimal64::NEG_ZERO
-                }
+    pub fn next_up(self) -> (Self, Status) {
+        if self.is_signaling_nan() {
+            if let Class::SignalingNaN { sign, payload } = classify_bits(self.0) {
+                return (
+                    Decimal64::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
+                    Status::INVALID,
+                );
             }
         }
+        if self.is_nan() {
+            return (self, Status::OK);
+        }
+        if self.is_zero() {
+            return (Decimal64::MIN_POSITIVE, Status::OK);
+        }
+        if self.is_infinite() {
+            return (
+                if self.is_sign_negative() {
+                    Decimal64::MIN
+                } else {
+                    Decimal64::INFINITY
+                },
+                Status::OK,
+            );
+        }
+        let (sign, bexp, coef) = match classify_bits(self.0) {
+            Class::Finite {
+                sign,
+                biased_exp,
+                coefficient,
+            } => (sign, biased_exp, coefficient),
+            _ => unreachable!(),
+        };
+        // Renormalise to the lowest representable cohort: expand the
+        // coefficient toward PRECISION digits, bounded by biased_exp
+        // = 0 (the subnormal floor). Without this, an in-cohort ±1
+        // step at a high-quantum input would skip over numerically
+        // adjacent values (`next_up(5)` would return `6`, not the
+        // actual ULP `5.000000000000001`).
+        let digits = crate::bid::decimal_digit_count(coef);
+        let expand = (PRECISION - digits).min(bexp);
+        let new_coef = coef * crate::bid::pow10(expand);
+        let new_bexp = bexp - expand;
+        if !sign {
+            if new_coef + 1 < COEFFICIENT_LIMIT {
+                return (
+                    Decimal64::from_bits(crate::bid::pack_finite(false, new_bexp, new_coef + 1)),
+                    Status::OK,
+                );
+            }
+            if new_bexp == BIASED_EXP_MAX {
+                return (Decimal64::INFINITY, Status::OK);
+            }
+            return (
+                Decimal64::from_bits(crate::bid::pack_finite(
+                    false,
+                    new_bexp + 1,
+                    COEFFICIENT_LIMIT / 10,
+                )),
+                Status::OK,
+            );
+        }
+        if new_coef == COEFFICIENT_LIMIT / 10 && new_bexp > 0 {
+            return (
+                Decimal64::from_bits(crate::bid::pack_finite(
+                    true,
+                    new_bexp - 1,
+                    COEFFICIENT_LIMIT - 1,
+                )),
+                Status::OK,
+            );
+        }
+        if new_coef > 1 {
+            return (
+                Decimal64::from_bits(crate::bid::pack_finite(true, new_bexp, new_coef - 1)),
+                Status::OK,
+            );
+        }
+        (
+            Decimal64::from_bits(crate::bid::pack_finite(true, 0, 0)),
+            Status::OK,
+        )
     }
 
-    /// IEEE 754-2019 §5.3.1 `nextDown(self) = -nextUp(-self)`.
+    /// IEEE 754-2019 §5.3.1 `nextDown(self) = −nextUp(−self)`.
+    ///
+    /// Returns `(value, Status)`. A signaling-NaN input is quieted
+    /// and raises `INVALID`; all other inputs return `Status::OK`.
     #[must_use]
-    pub fn next_down(self) -> Self {
-        self.neg().next_up().neg()
+    pub fn next_down(self) -> (Self, Status) {
+        if self.is_signaling_nan() {
+            if let Class::SignalingNaN { sign, payload } = classify_bits(self.0) {
+                return (
+                    Decimal64::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
+                    Status::INVALID,
+                );
+            }
+        }
+        let (r, s) = self.neg().next_up();
+        (r.neg(), s)
     }
 }
 
@@ -499,53 +554,81 @@ mod tests {
 
     #[test]
     fn next_up_zero_to_min_positive() {
-        let r = Decimal64::ZERO.next_up();
+        let (r, s) = Decimal64::ZERO.next_up();
         assert_eq!(r.to_bits(), Decimal64::MIN_POSITIVE.to_bits());
+        assert!(s.is_ok());
 
-        let r = Decimal64::NEG_ZERO.next_up();
+        let (r, s) = Decimal64::NEG_ZERO.next_up();
         assert_eq!(r.to_bits(), Decimal64::MIN_POSITIVE.to_bits());
+        assert!(s.is_ok());
     }
 
     #[test]
-    fn next_up_finite_increment() {
-        // next_up of a positive finite should increment the
-        // coefficient.
-        let x = from_int(5, 0);
-        let r = x.next_up();
-        let expected = from_int(6, 0); // bit-pattern adjacent
-        // The coefficient just increments: 5 → 6 at the same biased_exp.
-        // Bit pattern is the same form but with coef bumped.
+    fn next_up_finite_renormalises_to_ulp() {
+        // Regression: the previous implementation incremented the
+        // coefficient in the *stored* cohort, returning `6` for
+        // next_up(5). The IEEE 754 spec requires the *adjacent
+        // representable value*, which for 5 stored at the maximum
+        // cohort is 5 + 10^-15 = 5.000000000000001.
+        let (r, s) = from_int(5, 0).next_up();
+        // Expected: 5_000_000_000_000_001 × 10^-15 — biased_exp =
+        // BIAS - 15 = 383, coefficient = 5_000_000_000_000_001.
         assert_eq!(
             r.to_bits(),
-            Decimal64::from_bits(pack_finite(false, BIAS, 6)).to_bits()
+            Decimal64::from_bits(pack_finite(false, BIAS - 15, 5_000_000_000_000_001))
+                .to_bits()
         );
-        let _ = expected;
+        assert!(s.is_ok());
     }
 
     #[test]
     fn next_up_at_infinity() {
-        let r = Decimal64::INFINITY.next_up();
+        let (r, s) = Decimal64::INFINITY.next_up();
         assert!(r.is_infinite() && !r.is_sign_negative());
+        assert!(s.is_ok());
 
         // -∞.next_up() = MIN
-        let r = Decimal64::NEG_INFINITY.next_up();
+        let (r, s) = Decimal64::NEG_INFINITY.next_up();
         assert_eq!(r.to_bits(), Decimal64::MIN.to_bits());
+        assert!(s.is_ok());
     }
 
     #[test]
     fn next_down_basic() {
         // next_down(0) = -MIN_POSITIVE
-        let r = Decimal64::ZERO.next_down();
+        let (r, s) = Decimal64::ZERO.next_down();
         assert_eq!(r.to_bits(), Decimal64::MIN_POSITIVE.neg().to_bits());
+        assert!(s.is_ok());
 
         // next_down(MIN_POSITIVE) = 0
-        let r = Decimal64::MIN_POSITIVE.next_down();
+        let (r, s) = Decimal64::MIN_POSITIVE.next_down();
         assert!(r.is_zero() && !r.is_sign_negative());
+        assert!(s.is_ok());
     }
 
     #[test]
-    fn next_up_nan_propagation() {
-        let r = Decimal64::NAN.next_up();
+    fn next_up_qnan_propagates() {
+        let (r, s) = Decimal64::NAN.next_up();
         assert!(r.is_quiet_nan());
+        assert!(s.is_ok());
+    }
+
+    #[test]
+    fn next_up_snan_quiets_and_raises_invalid() {
+        // Regression: §5.3.1 says a signaling-NaN input must be
+        // quieted *and* raise INVALID. The previous signature `pub
+        // fn next_up(self) -> Self` couldn't carry the flag.
+        let (r, s) = Decimal64::SIGNALING_NAN.next_up();
+        assert!(r.is_quiet_nan());
+        assert!(!r.is_signaling_nan());
+        assert!(s.invalid());
+    }
+
+    #[test]
+    fn next_down_snan_quiets_and_raises_invalid() {
+        let (r, s) = Decimal64::SIGNALING_NAN.next_down();
+        assert!(r.is_quiet_nan());
+        assert!(!r.is_signaling_nan());
+        assert!(s.invalid());
     }
 }
