@@ -16,6 +16,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Inherits workspace lints, edition, MSRV (1.84), license, and
   repository metadata. `fmt` and `kani` features are declared with
   empty bodies for future use.
+- `Decimal64::mul`, `Decimal64::div`, `Decimal64::rem` per
+  IEEE 754-2019 §6.3 / §7. mul: `u64 × u64 → u128` (max product
+  (10¹⁶ − 1)² ≈ 10³², fits in u128 with headroom), routed through
+  `round_and_pack_into_u64` with the q_preferred = exp_a + exp_b
+  cohort rule. div: scale dividend by `10^(db − da + PRECISION + 1)
+  = 10^(db − da + 17)` over u128 working precision so the integer
+  quotient holds ≥ 17 digits, then `round_and_pack_into_u64` with
+  the post-scale remainder as the sticky bit. rem: align both
+  operands at `target_q = min(Q(a), Q(b))` over u128 working
+  precision; `MAX_SAFE_SHIFT = 22` short-circuits to NaN+INVALID
+  on `|a| ≫ |b|` and to `a` itself on `|b| ≫ |a|`. 11 unit tests
+  for mul, 10 for div, 8 for rem.
 - `Decimal64::add(self, other, rm)` and `Decimal64::sub(self, other, rm)`
   per IEEE 754-2019 §6.3 / §7. Same algorithmic shape as
   ferrodec-decimal32's add / sub but at u128 working width because

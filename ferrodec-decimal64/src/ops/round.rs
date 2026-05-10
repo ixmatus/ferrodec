@@ -306,6 +306,27 @@ mod tests {
 
     #[test]
     fn round_overflow_to_infinity_nearest() {
+        // True overflow: 10^16 × 10^384 has adjusted exponent
+        // 16 + 384 - 1 = 399 > E_MAX = 384, so clamping is not
+        // possible. Expect ±∞ + OVERFLOW + INEXACT.
+        let (d, s) = round_and_pack_finite(
+            9_999_999_999_999_999,
+            384,
+            384,
+            false,
+            false,
+            RoundingMode::NearestEven,
+            Status::OK,
+        );
+        assert!(d.is_infinite() && !d.is_sign_negative());
+        assert!(s.overflow() && s.inexact());
+    }
+
+    #[test]
+    fn round_clamp_when_adjusted_in_range() {
+        // 1E+384 — biased = 782 > 767, but adjusted_exp = 384 ≤ E_MAX.
+        // Clamp pads coef to 10^15 at biased_exp = 767, giving the
+        // same numeric value at a representable cohort.
         let (d, s) = round_and_pack_finite(
             1,
             384,
@@ -315,9 +336,8 @@ mod tests {
             RoundingMode::NearestEven,
             Status::OK,
         );
-        // 1E+384 — biased = 384 + 398 = 782 > 767. Overflow.
-        assert!(d.is_infinite() && !d.is_sign_negative());
-        assert!(s.overflow() && s.inexact());
+        assert!(d.is_finite() && !d.is_zero());
+        assert!(!s.overflow());
     }
 
     #[test]
