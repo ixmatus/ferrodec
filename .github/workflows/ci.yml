@@ -108,7 +108,7 @@ jobs:
       - uses: model-checking/kani-github-action@v1.1
       - run: cargo kani --features=transcendentals
       - run: cargo kani --package ferrodec-decimal32 --features=fmt
-      - run: cargo kani --package ferrodec-decimal64 --features=fmt
+      - run: cargo kani --package ferrodec-decimal64 --features=transcendentals
 
   # ---------- ferrodec-decimal32 (sibling crate, in development) ----------
   decimal32:
@@ -144,7 +144,10 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --package ferrodec-decimal64 --verbose
       - run: cargo build --package ferrodec-decimal64 --no-default-features --verbose
+      - run: cargo build --package ferrodec-decimal64 --features=transcendentals --verbose
       - run: cargo build --package ferrodec-decimal64 --target thumbv6m-none-eabi --no-default-features --verbose
+      - run: cargo build --package ferrodec-decimal64 --target thumbv6m-none-eabi --features=transcendentals --verbose
       - run: cargo build --package ferrodec-decimal64 --target thumbv6m-none-eabi --all-features --verbose
       - run: cargo clippy --package ferrodec-decimal64 --all-features --all-targets -- -D warnings
       - run: cargo test --package ferrodec-decimal64 --features=fmt --test conformance -- --nocapture
+      - run: cargo test --package ferrodec-decimal64 --features=transcendentals --verbose

@@ -35,6 +35,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   +∞`. 10 unit tests cover all of these plus a round-trip property
   test. Decimal64's exp overflow threshold is at x ≈ 885 (since
   e⁸⁸⁵ ≈ 10³⁸⁴).
+- `trig` feature: `Decimal64::sin`, `cos`, `tan`, `asin`, `acos`,
+  `atan`, `atan2` per IEEE 754-2019 §9.2. All route through `libm`
+  via the binary-float path. Special-case dispatch matches
+  ferrodec-decimal32's: NaN propagation, `sin / cos / tan(±∞) =
+  NaN + INVALID`, `cos(±0) = 1`, `atan(±∞) = ±π/2`, domain
+  enforcement for `asin` / `acos` (|x| > 1 → INVALID). 11 unit
+  tests.
+- `hyperbolic` feature: `Decimal64::sinh`, `cosh`, `tanh`, `asinh`,
+  `acosh`, `atanh` per IEEE 754-2019 §9.2. Routes through libm.
+  Domain enforcement: `acosh(x < 1) = NaN + INVALID`, `atanh(±1) =
+  ±∞ + DIV_BY_ZERO`, `atanh(|x| > 1) = NaN + INVALID`. 9 unit
+  tests. Implies `exp-log`.
+- `pow` feature: `Decimal64::pow(self, exponent, rm)` and
+  `Decimal64::cbrt(self, rm)` per IEEE 754-2019 §9.2. `pow` follows
+  ISO C / f64::powf semantics: `pow(±0, +y) = +0`, `pow(±0, −y) =
+  ±∞ + DIV_BY_ZERO`, `pow(1, y) = 1` for any y including NaN, `pow(x,
+  0) = 1` for any x including NaN, negative-base non-integer
+  exponent → NaN + INVALID. Overflow propagates through f64::INFINITY
+  detection. cbrt accepts negative inputs (real cube root).
+  9 unit tests.
 - Kani verification harnesses at `src/verify/` (cfg(kani)-gated).
   Six modules (addsub, mul, div, sqrt, fma, cmp) mirror
   ferrodec-decimal32's verify/ tree: bounded 10-constant operand

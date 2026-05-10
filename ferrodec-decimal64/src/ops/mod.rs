@@ -13,11 +13,17 @@ pub(crate) mod div;
 #[cfg(feature = "exp-log")]
 pub(crate) mod exp;
 pub(crate) mod fma;
+#[cfg(feature = "hyperbolic")]
+pub(crate) mod hyper;
 pub(crate) mod mul;
+#[cfg(feature = "pow")]
+pub(crate) mod pow;
 pub(crate) mod quantum;
 pub(crate) mod rem;
 pub(crate) mod round;
 pub(crate) mod sqrt;
+#[cfg(feature = "trig")]
+pub(crate) mod trig;
 
 #[allow(unused_imports)] // consumed by convert::parse and arithmetic ops in subsequent commits
 pub(crate) use round::round_and_pack_finite;
