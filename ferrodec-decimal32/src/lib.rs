@@ -37,9 +37,13 @@
 mod bid;
 mod classify;
 mod classify_types;
+mod convert;
 mod decimal;
+mod ops;
 mod status;
 
 pub use classify_types::IeeeClass;
+#[cfg(feature = "fmt")]
+pub use convert::{Engineering, ParseDecimalError};
 pub use decimal::{Decimal32, Decimal32BuildError};
 pub use status::{RoundingMode, Status};

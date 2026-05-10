@@ -64,6 +64,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Decimal32BuildError` on coefficient or exponent out-of-range),
   and a `Debug` impl that surfaces the bit pattern and decoded
   class.
+- Rounding kernel at `src/ops/round.rs`. The
+  `round_and_pack_finite(coef: u64, unbiased_exp, q_preferred, sign,
+  pre_sticky, rm, status)` entry point handles digit drop with
+  guard / sticky tracking, applies the five IEEE 754 rounding modes,
+  renormalises across power-of-10 boundaries, shifts toward the
+  preferred quantum (pad on inexact, strip trailing zeros on exact),
+  and emits `INEXACT` / `OVERFLOW` / `UNDERFLOW` flags. Both
+  `parse_str` and the arithmetic ops (B7+) route through this single
+  function. 9 unit tests cover the rounding axes (no rounding
+  required, halfway-to-even, carry-renormalises, overflow to
+  infinity vs. MAX, underflow to zero, zero-quantum preservation).
+- `parse_str(&str, RoundingMode) -> Result<(Decimal32, Status),
+  ParseDecimalError>` under the `fmt` feature. Accepts signed
+  decimals, scientific notation, NaN / sNaN with optional payloads
+  (≤ 20-bit field), and Infinity. Up to 16 mantissa digits are
+  accumulated exactly in a `u64`; trailing digits feed the rounding
+  sticky bit. `FromStr` defers to `parse_str` with `NearestEven`.
+  11 unit tests cover zero, integers, fixed decimals, scientific,
+  specials, NaN payloads (including overflow), leading zeros,
+  rounding at the precision boundary, and invalid inputs.
+- `Display`, `LowerExp`, `UpperExp`, and `Engineering` adapters under
+  the `fmt` feature. `Display` follows the General Decimal Arithmetic
+  toSci convention: plain decimal notation when the unbiased exponent
+  is ≤ 0 and the adjusted exponent is ≥ -6, otherwise scientific
+  with `E±N`. `LowerExp` / `UpperExp` force scientific with the
+  matching letter. `Engineering` (returned by `Decimal32::engineering`)
+  forces the exponent to a multiple of 3, mantissa in `[1, 1000)`.
+  All four routes use a fixed 8-byte stack scratch buffer; no `alloc`
+  or heap allocation. 12 unit tests cover zero with sign, distinguished
+  constants, plain vs. scientific dispatch, negative finite values,
+  and the engineering rebase. `{:.N}` precision support is deferred
+  until `quantize` lands with the arithmetic ops.
 - Classification predicates and operations: `is_nan`,
   `is_signaling_nan`, `is_quiet_nan`, `is_infinite`, `is_finite`,
   `is_zero`, `is_normal`, `is_subnormal`, `is_sign_negative`,
