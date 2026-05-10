@@ -44,3 +44,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   commits, with the rationale documented in
   `tests/vectors/README.md`. The conformance harness consuming these
   vectors lands in B5.
+- Conformance harness skeleton at `tests/conformance.rs` (gated on
+  the `fmt` feature). Parses `.decTest` files into structured cases
+  with directive-aware context (precision, max/min exponent,
+  rounding); dispatches every case to a stub that returns `Skip`
+  pending implementation of the operations. The harness already
+  loads all 1175 cases from `dsBase` and `dsEncode` and reports
+  per-file pass / fail / skip counts. The asymmetric per-file
+  expectation guard (per ADR-0010) starts at 0 passes for both
+  files; each subsequent commit that wires a dispatch arm raises
+  the corresponding row by the cases it now passes. CI runs the
+  harness in the `decimal32` job under `--features=fmt`.
