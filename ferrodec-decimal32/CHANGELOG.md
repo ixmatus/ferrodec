@@ -64,6 +64,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Decimal32BuildError` on coefficient or exponent out-of-range),
   and a `Debug` impl that surfaces the bit pattern and decoded
   class.
+- Fuzz harnesses at `ferrodec-decimal32/fuzz/`. Four cargo-fuzz
+  targets (mirroring ferrodec's pattern, scoped to operations the
+  Decimal32 surface exposes): `parse` (asserts no panic on
+  arbitrary byte input plus `Display` round-trip equality on
+  successful parses), `arith` (no panic on arbitrary `(u32, u32)`
+  bit-pattern pairs through add / sub / mul / div / rem; checks
+  `a + 0 == a` and `a - a == 0` algebraic identities for non-NaN
+  finite `a`), `transcendentals` (no panic on arbitrary `u32`
+  through every kernel: exp, ln, sin, cos, tan, asin, acos, atan,
+  sinh, cosh, tanh, asinh, acosh, atanh, cbrt, sqrt), and
+  `total_cmp` (totalOrder anti-symmetry, reflexivity, and a
+  transitivity surrogate). The `fuzz/` directory is a separate
+  cargo-fuzz crate (not a workspace member) so the standard
+  workspace build is unaffected.
 - Trig: `Decimal32::sin`, `cos`, `tan`, `asin`, `acos`, `atan`,
   `atan2` under the `trig` feature. Same f64-via-libm pattern as
   exp/ln. Special cases per IEEE 754-2019 §9.2: `sin/cos/tan(±∞)`
