@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-05-10
+
+### Fixed
+
+- IEEE 754-2019 §6.3 exponent clamping (the "Clamped" condition).
+  Values whose adjusted exponent is in range but whose biased
+  exponent exceeds `BIASED_EXP_MAX = 191` are now padded with
+  trailing zeros into the canonical encoding rather than rounded
+  to ±∞ + OVERFLOW. The smallest demonstrator: `1E+96` now packs
+  as `1000000E+90` (coef = 10^6, biased_exp = 191) instead of
+  rounding to ±∞. Decimal64 has had this fix since 0.1.0; the
+  surface review surfaced its absence on Decimal32. The previous
+  unit test that baked in the wrong overflow behaviour at this
+  boundary has been split: `round_clamp_at_emax_nearest` now
+  asserts the §6.3 clamp; `round_overflow_to_infinity_nearest`
+  uses `1E+97` (genuine overflow at adjusted = 97 > E_MAX = 96).
+
 ## [1.0.1] - 2026-05-10
 
 ### Changed

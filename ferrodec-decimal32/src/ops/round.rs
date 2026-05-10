@@ -216,8 +216,28 @@ fn finalise_finite(
     let biased = unbiased_exp + bias;
 
     if biased > biased_exp_max {
-        // Overflow: rounded magnitude exceeds MAX. Per IEEE 754-2019
-        // §7.4, the result depends on the rounding mode.
+        // Try IEEE 754-2019 §6.3 exponent clamping: if the adjusted
+        // exponent is within the format's range, pad the coefficient
+        // with trailing zeros to bring biased down to BIASED_EXP_MAX.
+        // This is the "Clamped" condition — informational only, no
+        // OVERFLOW raised. The smallest case: `1E+96` packs as
+        // `1000000E+90` (coef = 10^6, biased_exp = BIASED_EXP_MAX).
+        let shift_needed = (biased - biased_exp_max) as u32;
+        let digits = digit_count_u64(coef);
+        if (digits + shift_needed) as i32 <= PRECISION as i32
+            && (shift_needed as usize) < POW10_U64.len()
+            && coef != 0
+        {
+            let shifted = coef * POW10_U64[shift_needed as usize];
+            if shifted < u64::from(COEFFICIENT_LIMIT) {
+                return (
+                    Decimal32::from_bits(pack_finite(sign, BIASED_EXP_MAX, shifted as u32)),
+                    status,
+                );
+            }
+        }
+        // Genuine overflow: rounded magnitude exceeds MAX. Per
+        // IEEE 754-2019 §7.4, the result depends on the rounding mode.
         status |= Status::OVERFLOW | Status::INEXACT;
         let to_inf = match rm {
             RoundingMode::NearestEven | RoundingMode::NearestAway => true,
@@ -381,7 +401,13 @@ mod tests {
     }
 
     #[test]
-    fn round_overflow_to_infinity_nearest() {
+    fn round_clamp_at_emax_nearest() {
+        // 1E+96 has adjusted exponent `e + digits − 1 = 96 + 1 − 1 = 96
+        // = E_MAX`, so the value is in range; biased = 96 + 101 = 197 >
+        // BIASED_EXP_MAX = 191. IEEE 754-2019 §6.3 says: pad the
+        // coefficient with trailing zeros to bring the biased exponent
+        // down to BIASED_EXP_MAX — the "Clamped" condition. No
+        // OVERFLOW raised; the result is exact.
         let (d, s) = round_and_pack_finite(
             1,
             96,
@@ -391,9 +417,29 @@ mod tests {
             RoundingMode::NearestEven,
             Status::OK,
         );
-        // Just at boundary: 1E+96 — biased = 96 + 101 = 197 > 191.
-        // Wait, 1E+96 = 1 × 10^96. Adjusted: digit_count(1) + 96 = 97 > 96
-        // = E_MAX, so this overflows. Per nearest, → +∞.
+        // Expect 1000000E+90: coef = 10^6, biased_exp = BIASED_EXP_MAX
+        // = 191. The local `pack` helper takes the unbiased quantum
+        // (90 = 191 − BIAS = 191 − 101).
+        assert_eq!(d.to_bits(), pack(false, BIASED_EXP_MAX as i32 - BIAS as i32, 1_000_000).to_bits());
+        assert!(!s.overflow());
+        assert!(!s.inexact());
+    }
+
+    #[test]
+    fn round_overflow_to_infinity_nearest() {
+        // 1E+97: adjusted = 97 > E_MAX = 96, so this is genuine
+        // overflow. Even after attempted clamping the digit budget is
+        // insufficient (would need 1 followed by 7 zeros = 8 digits >
+        // PRECISION = 7).
+        let (d, s) = round_and_pack_finite(
+            1,
+            97,
+            97,
+            false,
+            false,
+            RoundingMode::NearestEven,
+            Status::OK,
+        );
         assert!(d.is_infinite() && !d.is_sign_negative());
         assert!(s.overflow() && s.inexact());
     }
