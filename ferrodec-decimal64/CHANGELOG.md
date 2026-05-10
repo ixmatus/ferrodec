@@ -16,6 +16,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Inherits workspace lints, edition, MSRV (1.84), license, and
   repository metadata. `fmt` and `kani` features are declared with
   empty bodies for future use.
+- Conformance harness skeleton at `tests/conformance.rs` (gated on
+  the `fmt` feature). Parses `.decTest` files into structured cases
+  with directive-aware context (precision, max/min exponent,
+  rounding); dispatches every case to a stub that returns `Skip`
+  pending implementation of the operations. Loads all 14 428 cases
+  across the 42 vendored `dd*.decTest` files. The asymmetric
+  per-file expectation guard (per ADR-0010) starts with
+  `ddBase.decTest = 0` and `ddEncode.decTest = 0`; each subsequent
+  commit that wires a dispatch arm raises the rows it now passes.
+  CI runs the harness in the `decimal64` job under `--features=fmt`.
 - Vendored IBM decTest conformance vectors at `tests/vectors/`. All
   42 `dd*.decTest` files extracted from the speleotrove archive
   (17 901 lines total). Coverage spans every IEEE 754-2019 §5

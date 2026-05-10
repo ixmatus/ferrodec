@@ -146,3 +146,4 @@ jobs:
       - run: cargo build --package ferrodec-decimal64 --target thumbv6m-none-eabi --no-default-features --verbose
       - run: cargo build --package ferrodec-decimal64 --target thumbv6m-none-eabi --all-features --verbose
       - run: cargo clippy --package ferrodec-decimal64 --all-features --all-targets -- -D warnings
+      - run: cargo test --package ferrodec-decimal64 --features=fmt --test conformance -- --nocapture
