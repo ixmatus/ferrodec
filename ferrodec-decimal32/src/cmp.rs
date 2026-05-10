@@ -77,51 +77,64 @@ impl Decimal32 {
         total_cmp_inner(self.abs(), other.abs())
     }
 
-    /// IEEE 754-2019 §5.3.1 `minimum(self, other)`.
+    /// `min(x, y)` per IEEE 754-2019 §9.6 `minimumNumber` (GDA's
+    /// `min` / decTest's `min`).
     ///
-    /// NaN propagates: a signaling NaN raises `INVALID` and the
-    /// quieted result is the propagated NaN; a quiet NaN passes
-    /// through. For non-NaN inputs the lesser of the two is returned;
-    /// `min(+0, −0) = −0`.
+    /// * Any signaling NaN poisons the result: returns NaN with
+    ///   `INVALID` raised.
+    /// * Both operands quiet NaN → NaN.
+    /// * One operand quiet NaN, the other finite → the finite
+    ///   operand (qNaN is "missing value").
+    /// * Otherwise → the operand that is *smaller in totalOrder*.
+    ///   This handles equal-magnitude cohort tie-breaking (e.g.
+    ///   `min(+0, −0) = −0`, `min(1.0, 1.00) = 1.0`).
+    ///
+    /// Matches `Decimal128`'s `min` exactly so values flow across
+    /// precisions without semantic drift.
+    #[inline]
     #[must_use]
     pub fn min(self, other: Self) -> (Self, Status) {
-        if let Some(out) = nan_propagate(self, other) {
-            return out;
+        if self.is_signaling_nan() || other.is_signaling_nan() {
+            return (Self::NAN, Status::INVALID);
         }
-        let cmp = numeric_cmp_non_nan(classify_bits(self.0), classify_bits(other.0));
-        match cmp {
-            Ordering::Less => (self, Status::OK),
-            Ordering::Greater => (other, Status::OK),
-            Ordering::Equal => {
-                // +0 / -0 tie: prefer −0.
-                if self.is_sign_negative() {
-                    (self, Status::OK)
-                } else {
-                    (other, Status::OK)
-                }
-            }
+        if self.is_nan() && other.is_nan() {
+            return (Self::NAN, Status::OK);
         }
+        if self.is_nan() {
+            return (other, Status::OK);
+        }
+        if other.is_nan() {
+            return (self, Status::OK);
+        }
+        let result = match self.total_cmp(other) {
+            Ordering::Less | Ordering::Equal => self,
+            Ordering::Greater => other,
+        };
+        (result, Status::OK)
     }
 
-    /// IEEE 754-2019 §5.3.1 `maximum(self, other)`.
+    /// `max(x, y)` — symmetric to [`Decimal32::min`]; matches IEEE
+    /// 754-2019 §9.6 `maximumNumber`.
+    #[inline]
     #[must_use]
     pub fn max(self, other: Self) -> (Self, Status) {
-        if let Some(out) = nan_propagate(self, other) {
-            return out;
+        if self.is_signaling_nan() || other.is_signaling_nan() {
+            return (Self::NAN, Status::INVALID);
         }
-        let cmp = numeric_cmp_non_nan(classify_bits(self.0), classify_bits(other.0));
-        match cmp {
-            Ordering::Greater => (self, Status::OK),
-            Ordering::Less => (other, Status::OK),
-            Ordering::Equal => {
-                // +0 / -0 tie: prefer +0.
-                if self.is_sign_negative() {
-                    (other, Status::OK)
-                } else {
-                    (self, Status::OK)
-                }
-            }
+        if self.is_nan() && other.is_nan() {
+            return (Self::NAN, Status::OK);
         }
+        if self.is_nan() {
+            return (other, Status::OK);
+        }
+        if other.is_nan() {
+            return (self, Status::OK);
+        }
+        let result = match self.total_cmp(other) {
+            Ordering::Greater | Ordering::Equal => self,
+            Ordering::Less => other,
+        };
+        (result, Status::OK)
     }
 }
 
@@ -212,37 +225,6 @@ fn sign_of_class(c: Class) -> bool {
         | Class::Finite { sign, .. } => sign,
         Class::QuietNaN { sign, .. } | Class::SignalingNaN { sign, .. } => sign,
     }
-}
-
-/// IEEE 754-2019 §5.3.1 NaN propagation rule for min / max:
-/// signaling NaN raises INVALID and quietens; quiet NaN passes
-/// through (with the second operand returned if both are non-NaN).
-fn nan_propagate(a: Decimal32, b: Decimal32) -> Option<(Decimal32, Status)> {
-    let ca = classify_bits(a.0);
-    let cb = classify_bits(b.0);
-
-    // sNaN: raise INVALID and return the quieted NaN. a is preferred
-    // when both are sNaN (matches §6.2.3 propagation order).
-    if let Class::SignalingNaN { sign, payload } = ca {
-        return Some((
-            Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
-            Status::INVALID,
-        ));
-    }
-    if let Class::SignalingNaN { sign, payload } = cb {
-        return Some((
-            Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
-            Status::INVALID,
-        ));
-    }
-    // qNaN: propagate quietly. Per §6.2 / §5.3.1 the qNaN propagates.
-    if matches!(ca, Class::QuietNaN { .. }) {
-        return Some((a, Status::OK));
-    }
-    if matches!(cb, Class::QuietNaN { .. }) {
-        return Some((b, Status::OK));
-    }
-    None
 }
 
 fn total_cmp_inner(a: Decimal32, b: Decimal32) -> Ordering {
@@ -467,12 +449,23 @@ mod tests {
 
     #[test]
     fn min_max_nan() {
-        // qNaN propagates quietly.
+        // §9.6 minimumNumber: a *quiet* NaN is "missing value", so
+        // min(qNaN, x) returns x with no exception. Both operands
+        // qNaN → NaN.
         let (r, s) = Decimal32::NAN.min(from_int(1, 0));
+        assert_eq!(r.to_bits(), from_int(1, 0).to_bits());
+        assert!(s.is_ok());
+
+        let (r, s) = from_int(7, 0).max(Decimal32::NAN);
+        assert_eq!(r.to_bits(), from_int(7, 0).to_bits());
+        assert!(s.is_ok());
+
+        let (r, s) = Decimal32::NAN.min(Decimal32::NAN);
         assert!(r.is_quiet_nan());
         assert!(s.is_ok());
 
-        // sNaN raises INVALID.
+        // sNaN still poisons: result is NaN + INVALID regardless of
+        // the other operand.
         let (r, s) = Decimal32::SIGNALING_NAN.min(from_int(1, 0));
         assert!(r.is_quiet_nan());
         assert!(s.invalid());

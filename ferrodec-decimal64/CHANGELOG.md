@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-05-10
+
+### Changed (behaviour, not API)
+
+- `min` / `max` now follow IEEE 754-2019 §9.6 `minimumNumber` /
+  `maximumNumber` semantics — a *quiet* NaN is treated as a
+  "missing value" and the non-NaN operand is returned. Both
+  operands NaN → NaN; signaling NaN still poisons with INVALID.
+  This matches `Decimal128::min` / `Decimal128::max`, the General
+  Decimal Arithmetic specification, and the IBM decTest
+  conformance suite. Previously implemented §5.3.1 `minimum` /
+  `maximum`, which propagates qNaN. Both behaviours are 754-2019
+  conforming under different op names; the cross-precision-
+  consistent choice is `minimumNumber`. Surfaced by the 6-agent
+  review.
+
 ## [1.1.1] - 2026-05-10
 
 ### Fixed
