@@ -42,6 +42,8 @@ mod convert;
 mod decimal;
 mod ops;
 mod status;
+#[cfg(kani)]
+mod verify;
 
 pub use classify_types::IeeeClass;
 #[cfg(feature = "fmt")]

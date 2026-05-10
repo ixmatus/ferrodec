@@ -64,6 +64,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Decimal32BuildError` on coefficient or exponent out-of-range),
   and a `Debug` impl that surfaces the bit pattern and decoded
   class.
+- Kani verification harnesses at `src/verify/` (compiled only under
+  `cfg(kani)`). Six modules cover the major arithmetic surface
+  (addsub, mul, div, sqrt, fma, cmp). Each harness binds operands to
+  a 10-constant set (NaN, sNaN, ±∞, ±0, ±1, ±MAX, ±MIN_POSITIVE) so
+  the SAT problem stays tractable, then asserts no-panic plus
+  IEEE 754 properties: NaN propagation, sNaN raises INVALID,
+  `(±∞) + (±∞)` opposite-sign → NaN+INVALID, `(+0) + (−0)` zero-sign
+  rule per §6.3, `0 × ±∞` → NaN+INVALID, finite/0 raises
+  DIV_BY_ZERO with XOR sign, `sqrt(−x)` and `sqrt(−∞)` → NaN+INVALID,
+  `partial_cmp` returns `None` for any NaN, `total_cmp` is total
+  (never panics, reflexive on equal operand selectors). Strategy
+  mirrors ferrodec's verify/ tree: prove the special-case lattice
+  symbolically; defer finite-finite arithmetic correctness to
+  property tests. CI's `kani` job extended with
+  `cargo kani --package ferrodec-decimal32 --features=fmt`.
 - Quantum-manipulating operations: `Decimal32::quantize`,
   `scaleb`, `logb`, `next_up`, `next_down`. `quantize(target, rm)`
   rescales `self` to `target`'s quantum (rounding when reducing the
