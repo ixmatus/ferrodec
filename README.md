@@ -13,7 +13,12 @@ This repository hosts the ferrodec family of canonical pure-Rust IEEE 754 decima
 - **[`ferrodec-decimal32`](ferrodec-decimal32/)** — Decimal32. 7-digit precision, exponent range `10⁻¹⁰¹..=10⁹⁶`. Sized for embedded telemetry, small-ledger reporting, and footprint-sensitive applications.
 - **[`ferrodec-decimal64`](ferrodec-decimal64/)** — Decimal64. 16-digit precision, exponent range `10⁻³⁸³..=10⁺³⁸⁴`. The natural sweet spot for financial general-ledger arithmetic and scientific aggregates that outgrow Decimal32's 7 digits without needing Decimal128's 128 bits.
 
-Each sibling stands alone on crates.io with its own version cadence. They share the verification methodology documented in `docs/decisions/` and the workspace-level lint / MSRV / license discipline.
+Plus two workspace-internal crates that the three public crates share:
+
+- **[`ferrodec-ieee`](ferrodec-ieee/)** — the shared IEEE 754-2019 metadata types (`Status`, `RoundingMode`, `IeeeClass`). All three sibling crates re-export from here, so values flow across precisions without conversion. See [ADR-0012](docs/decisions/0012-extract-ferrodec-ieee.md).
+- **[`ferrodec-test-support`](ferrodec-test-support/)** — the IBM decTest harness scaffolding (parser, directive accumulator, expectation guard, run-suite driver). Workspace-internal only (`publish = false`); not part of any consumer's published surface. See [ADR-0013](docs/decisions/0013-conformance-harness-consolidation.md).
+
+Each public sibling stands alone on crates.io with its own version cadence. They share the verification methodology documented in `docs/decisions/` and the workspace-level lint / MSRV / license discipline.
 
 ## What ferrodec is
 

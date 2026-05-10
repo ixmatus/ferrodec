@@ -224,7 +224,7 @@ checksum = "9f1f227452a390804cdb637b74a86990f2a7d7ba4b7d5693aac9b4dd6defd8d6"
 
 [[package]]
 name = "ferrodec"
-version = "1.14.4"
+version = "1.14.5"
 dependencies = [
  "astro-float",
  "criterion",
@@ -238,7 +238,7 @@ dependencies = [
 
 [[package]]
 name = "ferrodec-decimal32"
-version = "1.0.1"
+version = "1.2.0"
 dependencies = [
  "ferrodec-ieee",
  "ferrodec-test-support",
@@ -251,7 +251,7 @@ dependencies = [
 
 [[package]]
 name = "ferrodec-decimal64"
-version = "1.0.1"
+version = "1.2.0"
 dependencies = [
  "ferrodec-ieee",
  "ferrodec-test-support",

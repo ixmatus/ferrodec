@@ -1,20 +1,16 @@
-//! IEEE 754-2019 Decimal32 in pure Rust. `no_std` capable, targeted at
-//! embedded use, with the verification posture established by the
-//! `ferrodec` crate (Decimal128).
+//! IEEE 754-2019 Decimal32 in pure Rust. `no_std` capable, targeted
+//! at embedded use, with the verification posture established by
+//! the `ferrodec` crate (Decimal128).
 //!
-//! This crate is in early development. The currently exposed surface is
-//! the [`Decimal32`] type with classification methods (`is_nan`,
-//! `is_infinite`, `is_finite`, `is_zero`, `is_normal`, `is_subnormal`,
-//! `is_signaling_nan`, `is_quiet_nan`, `is_sign_negative`,
-//! `is_sign_positive`, `classify`, `ieee_class`), sign manipulation
-//! (`abs`, `neg`, `abs_with_status`, `neg_with_status`, `copysign`),
-//! canonicalisation (`is_canonical`, `canonicalize`), constructors
-//! (`try_new`, `try_new_unsigned`, `from_bits`, `to_bits`), and a set
-//! of distinguished constants (`ZERO`, `ONE`, `MAX`, `INFINITY`,
-//! `NAN`, ...). Arithmetic, parse, format, and verification land in
-//! subsequent commits per the plan archived at
-//! `docs/decisions/plans/2026-05-09-workspace-and-decimal-siblings.md`
-//! in the workspace root.
+//! # Surface
+//!
+//! Every IEEE 754-2019 §5 mandatory operation on [`Decimal32`] plus
+//! the §9.2 transcendentals under feature flags. Each operation
+//! returns `(Decimal32, Status)` so callers compose IEEE 754
+//! exception flags across a sequence of operations without
+//! consulting any thread-local state. See the
+//! [README](https://github.com/ixmatus/ferrodec/blob/main/ferrodec-decimal32/README.md)
+//! for the full list.
 //!
 //! # IEEE 754-2019 §3.5 Decimal32 parameters
 //!
@@ -24,13 +20,31 @@
 //! - Maximum normal magnitude: 9.999999 × 10⁹⁶.
 //! - Minimum positive normal magnitude: 1 × 10⁻⁹⁵.
 //! - Encoding: BID (binary integer significand) for arithmetic; DPD
-//!   (densely packed decimal) planned for IEEE byte-pattern interchange.
+//!   (densely packed decimal) planned for IEEE byte-pattern
+//!   interchange.
+//!
+//! # Family-wide conventions
+//!
+//! - `Status`, `RoundingMode`, `IeeeClass` re-export from
+//!   [`ferrodec-ieee`](https://crates.io/crates/ferrodec-ieee), so
+//!   `ferrodec_decimal32::Status` and `ferrodec::Status` resolve to
+//!   the *same* concrete type and flow across precisions without
+//!   conversion (ADR-0012).
+//! - `min` / `max` follow IEEE 754-2019 §9.6 `minimumNumber` /
+//!   `maximumNumber` (quiet NaN is "missing value"), matching
+//!   Decimal128, GDA, and decTest.
+//! - Default `Display` uses the General Decimal Arithmetic `toSci`
+//!   rule. This diverges from Decimal128's `f64::Display`-style
+//!   boundary; ADR-0014 records the rationale and the v2.0
+//!   harmonization plan.
 //!
 //! # Companion crates
 //!
-//! - [`ferrodec`](https://crates.io/crates/ferrodec): Decimal128, the
-//!   sibling at v1.x.
-//! - `ferrodec-decimal64`: Decimal64, in development.
+//! - [`ferrodec`](https://crates.io/crates/ferrodec): Decimal128.
+//! - [`ferrodec-decimal64`](https://crates.io/crates/ferrodec-decimal64):
+//!   Decimal64.
+//! - [`ferrodec-ieee`](https://crates.io/crates/ferrodec-ieee):
+//!   the shared IEEE 754 metadata types.
 
 #![no_std]
 

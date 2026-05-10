@@ -1,5 +1,27 @@
 # Plan: ferrodec workspace conversion, then ferrodec-decimal32 and ferrodec-decimal64
 
+> **Status**: completed 2026-05-10.
+>
+> All four phases shipped on the `workspace-conversion` branch (65
+> commits). Phase A delivered the single-member workspace + lint /
+> MSRV / metadata hoist (commits `d87ae0a` / `6bcc5d0` / `8b7c516`).
+> Phase B shipped `ferrodec-decimal32` v1.0 through B19 (commits
+> `9e34126` … `7006a24`). Phase C shipped `ferrodec-decimal64` v1.0
+> through C19 (commits `c2058d6` … `6e3c4d8`). Phase D extracted
+> `ferrodec-ieee` (`cca3bb4` / `6e3fe76`) and `ferrodec-test-support`
+> (`35baa08` / `70e6c97`), recorded in ADR-0012 and ADR-0013.
+>
+> A 6-agent correctness review on 2026-05-10 surfaced 9 bugs and 2
+> behavioural divergences; each is fixed under its own commit
+> (`3964871` parse, `1df6292` clamp, `4a9d40d` zero+sticky,
+> `56be535` pow value-equality, `09e2346` next_up signature,
+> `66aad49` FMA, `60855d3` min/max, `dff6bac` Display ADR-0014).
+> Low-severity polish in `cd90243` / `69e7053` / `4b30690`.
+>
+> Final versions: `ferrodec` 1.14.5, `ferrodec-decimal32` 1.2.0,
+> `ferrodec-decimal64` 1.2.0, `ferrodec-ieee` 0.1.0,
+> `ferrodec-test-support` 0.1.0 (publish = false).
+
 ## Context
 
 ferrodec is a published Rust crate (v1.14.3) at `/Users/parnell/Development/ferrodec` implementing IEEE 754-2019 Decimal128: no_std, BID-encoded, 8,622 IBM decTest conformance cases passing, 15 Kani harnesses, 6 fuzz targets, and a property-test suite cross-checked against astro-float. Per `~/Development/plant-flag/PRINCIPLES.md`, the next-priority work is `ferrodec-decimal32` and `ferrodec-decimal64` (IEEE 754-2019 Decimal32 and Decimal64 within ferrodec's verification idiom). The catalog notes both as "largely re-parameterization rather than new design."
