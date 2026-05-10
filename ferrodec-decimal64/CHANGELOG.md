@@ -55,6 +55,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   exponent → NaN + INVALID. Overflow propagates through f64::INFINITY
   detection. cbrt accepts negative inputs (real cube root).
   9 unit tests.
+- cargo-fuzz harness suite at `fuzz/`. Four targets mirror
+  ferrodec-decimal32's:
+  * `parse` — arbitrary byte strings through `parse_str`. Verifies
+    no panic, Display round-trips back through parse_str.
+  * `arith` — arbitrary `(u64, u64)` bit-pattern pairs through
+    add / sub / mul / div / rem. Asserts no panic, plus `a + 0 = a`
+    (numerically) and `a − a = ±0` for non-NaN, non-Inf a.
+  * `transcendentals` — arbitrary `u64` bit patterns through all
+    enabled transcendental kernels (exp, ln, sin, cos, tan,
+    asin, acos, atan, sinh, cosh, tanh, asinh, acosh, atanh,
+    cbrt, sqrt). Panic-freedom only.
+  * `total_cmp` — arbitrary `(u64, u64, u64)` triples through
+    `total_cmp` / `partial_cmp` / `compare_total_magnitude`.
+    Verifies anti-symmetry, reflexivity, and a transitivity
+    surrogate (a ≤ b ≤ c → a ≤ c).
+  Bit-pattern type bumped from Decimal32's `u32` to Decimal64's
+  `u64` throughout. Run via `cargo +nightly fuzz run <target>`
+  from the `ferrodec-decimal64` package; CI does not gate fuzz
+  (smoke runs are local). The fuzz sub-crate lives outside the
+  Cargo workspace by convention.
 - Kani verification harnesses at `src/verify/` (cfg(kani)-gated).
   Six modules (addsub, mul, div, sqrt, fma, cmp) mirror
   ferrodec-decimal32's verify/ tree: bounded 10-constant operand
