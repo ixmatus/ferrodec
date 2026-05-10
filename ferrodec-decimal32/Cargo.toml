@@ -1,0 +1,83 @@
+[package]
+name = "ferrodec-decimal32"
+version = "1.2.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "no_std IEEE 754-2019 Decimal32 for embedded use, with Kani-verified properties"
+repository.workspace = true
+keywords = ["decimal", "decimal32", "ieee754", "no_std", "embedded"]
+categories = ["embedded", "mathematics", "no-std", "no-std::no-alloc"]
+
+[features]
+default = ["fmt"]
+# String parse + format. Uses core::fmt::Write, no alloc.
+fmt = []
+# f64 conversions (Decimal32 ↔ f64). No alloc; routes via the canonical
+# decimal-string round-trip.
+binary-float = ["fmt"]
+# Transcendental sub-features. Each pulls in `binary-float` because the
+# kernels route through f64 via `libm` (pure Rust, no_std-compatible,
+# no FFI). The libm round-trip is correctly rounded for almost all
+# Decimal32 inputs; the worst-case double-rounding error is under
+# 1 ULP at 7 digits.
+#
+# `exp-log`     — exp, ln.
+# `trig`        — sin, cos, tan, asin, acos, atan.
+# `hyperbolic`  — sinh, cosh, tanh, asinh, acosh, atanh. Implies
+#                 `exp-log`.
+# `pow`         — pow, cbrt. Implies `exp-log`.
+exp-log = ["binary-float", "dep:libm"]
+trig = ["binary-float", "dep:libm"]
+hyperbolic = ["exp-log"]
+pow = ["exp-log"]
+# Convenience meta-feature: enable every transcendental at once.
+transcendentals = ["trig", "exp-log", "hyperbolic", "pow"]
+# `core::ops` operator overloads (Add / Sub / Mul / Div / Rem and the
+# *Assign variants, plus Neg). Opt-in: defaults to
+# RoundingMode::NearestEven and drops the per-operation Status. Users
+# who need explicit rounding-mode or status control should keep using
+# the explicit `add` / `sub` / `mul` / `div` / `rem` methods.
+ops = []
+# Serde Serialize / Deserialize for Decimal32. Round-trips through the
+# canonical decimal string by default; the `serde_bid` helper module is
+# provided for callers that prefer to serialize the raw 32-bit BID
+# pattern in binary formats. Pulls in `fmt` because the default
+# representation goes through `parse_str` / `Display`.
+serde = ["fmt", "dep:serde"]
+# `num-traits` adapter: implements `Zero`, `One`, `Bounded`,
+# `Signed`, `Num`, and the `From|To|Primitive` traits on Decimal32.
+# `Num` requires `Add + Sub + Mul + Div + Rem`, so this feature
+# auto-enables `ops`. Pulls `fmt` because `Num::from_str_radix`
+# routes through `parse_str`. Pulls `binary-float` because
+# integer-conversion paths route through `f64`.
+num-traits = ["fmt", "ops", "binary-float", "dep:num-traits", "dep:libm"]
+# Compile Kani proof harnesses. Off in normal builds.
+kani = []
+
+[dependencies]
+ferrodec-ieee = { path = "../ferrodec-ieee", version = "0.1.2" }
+libm = { version = "0.2", default-features = false, optional = true }
+num-traits = { version = "0.2", default-features = false, optional = true }
+serde = { version = "1", default-features = false, optional = true }
+
+[dev-dependencies]
+ferrodec-test-support = { path = "../ferrodec-test-support", version = "0.1.0" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_test = "1"
+
+[[example]]
+name = "money"
+required-features = ["fmt"]
+
+[[example]]
+name = "rounding_modes"
+required-features = ["fmt"]
+
+[[example]]
+name = "transcendentals"
+required-features = ["transcendentals"]
+
+[lints]
+workspace = true

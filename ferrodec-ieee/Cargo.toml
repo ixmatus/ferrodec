@@ -1,0 +1,13 @@
+[package]
+name = "ferrodec-ieee"
+version = "0.1.2"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Shared IEEE 754-2019 metadata types (Status, RoundingMode, IeeeClass) for the ferrodec family"
+repository.workspace = true
+keywords = ["decimal", "ieee754", "no_std", "embedded", "rounding"]
+categories = ["embedded", "mathematics", "no-std", "no-std::no-alloc"]
+
+[lints]
+workspace = true

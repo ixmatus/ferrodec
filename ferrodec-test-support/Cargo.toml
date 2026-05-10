@@ -1,0 +1,15 @@
+[package]
+name = "ferrodec-test-support"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Shared test scaffolding for the ferrodec family (workspace-internal; publish = false)"
+repository.workspace = true
+publish = false
+
+[dependencies]
+ferrodec-ieee = { path = "../ferrodec-ieee", version = "0.1.2" }
+
+[lints]
+workspace = true

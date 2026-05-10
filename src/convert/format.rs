@@ -55,6 +55,15 @@ enum Notation {
     Engineering(char),
 }
 
+/// Default `Display` for `Decimal128`.
+///
+/// Uses an `f64::Display`-style fixed/scientific boundary: plain
+/// notation when the magnitude is roughly in `[10⁻⁶, 10²¹)`, even
+/// when the input was typed in scientific form (`"1E+3"` displays
+/// as `"1000"`). This intentionally diverges from the GDA `toSci`
+/// rule used by `ferrodec-decimal32` / `ferrodec-decimal64`. See
+/// `docs/decisions/0014-display-notation-divergence.md` for the
+/// rationale and the v2.0 harmonization plan.
 impl fmt::Display for Decimal128 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         format_to(*self, f, Notation::Auto)

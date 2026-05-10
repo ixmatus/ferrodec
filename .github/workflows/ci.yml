@@ -107,3 +107,81 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: model-checking/kani-github-action@v1.1
       - run: cargo kani --features=transcendentals
+      - run: cargo kani --package ferrodec-decimal32 --features=fmt
+      - run: cargo kani --package ferrodec-decimal64 --features=transcendentals
+
+  # ---------- ferrodec-ieee (shared metadata crate) ----------
+  ieee:
+    name: ferrodec-ieee
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+          targets: thumbv6m-none-eabi
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --package ferrodec-ieee --verbose
+      - run: cargo build --package ferrodec-ieee --target thumbv6m-none-eabi --verbose
+      - run: cargo clippy --package ferrodec-ieee --all-targets -- -D warnings
+      - run: cargo test --package ferrodec-ieee --verbose
+
+  # ---------- ferrodec-test-support (workspace-internal dev crate) ----------
+  test_support:
+    name: ferrodec-test-support
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --package ferrodec-test-support --verbose
+      - run: cargo clippy --package ferrodec-test-support --all-targets -- -D warnings
+      - run: cargo test --package ferrodec-test-support --verbose
+
+  # ---------- ferrodec-decimal32 (sibling crate, in development) ----------
+  decimal32:
+    name: ferrodec-decimal32
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+          targets: thumbv6m-none-eabi
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --package ferrodec-decimal32 --verbose
+      - run: cargo build --package ferrodec-decimal32 --no-default-features --verbose
+      - run: cargo build --package ferrodec-decimal32 --features=transcendentals --verbose
+      - run: cargo build --package ferrodec-decimal32 --target thumbv6m-none-eabi --no-default-features --verbose
+      - run: cargo build --package ferrodec-decimal32 --target thumbv6m-none-eabi --features=transcendentals --verbose
+      - run: cargo build --package ferrodec-decimal32 --target thumbv6m-none-eabi --all-features --verbose
+      - run: cargo clippy --package ferrodec-decimal32 --all-features --all-targets -- -D warnings
+      - run: cargo test --package ferrodec-decimal32 --features=fmt --test conformance -- --nocapture
+      - run: cargo test --package ferrodec-decimal32 --features=transcendentals --verbose
+
+  # ---------- ferrodec-decimal64 (sibling crate, in development) ----------
+  decimal64:
+    name: ferrodec-decimal64
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+          targets: thumbv6m-none-eabi
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --package ferrodec-decimal64 --verbose
+      - run: cargo build --package ferrodec-decimal64 --no-default-features --verbose
+      - run: cargo build --package ferrodec-decimal64 --features=transcendentals --verbose
+      - run: cargo build --package ferrodec-decimal64 --features=serde,ops,num-traits --verbose
+      - run: cargo build --package ferrodec-decimal64 --all-features --verbose
+      - run: cargo build --package ferrodec-decimal64 --target thumbv6m-none-eabi --no-default-features --verbose
+      - run: cargo build --package ferrodec-decimal64 --target thumbv6m-none-eabi --features=transcendentals --verbose
+      - run: cargo build --package ferrodec-decimal64 --target thumbv6m-none-eabi --features=fmt,serde,ops,num-traits --verbose
+      - run: cargo build --package ferrodec-decimal64 --target thumbv6m-none-eabi --all-features --verbose
+      - run: cargo clippy --package ferrodec-decimal64 --all-features --all-targets -- -D warnings
+      - run: cargo test --package ferrodec-decimal64 --features=fmt --test conformance -- --nocapture
+      - run: cargo test --package ferrodec-decimal64 --features=transcendentals --verbose
+      - run: cargo test --package ferrodec-decimal64 --all-features --verbose

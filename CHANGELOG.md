@@ -7,6 +7,67 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.14.5] - 2026-05-10
+
+### Fixed
+
+- `Decimal128::parse_str` now correctly handles fractional inputs
+  whose leading-zero span pushes the first significant digits past
+  `MAX_PARSED_DIGITS = 76`, and inputs whose total fractional length
+  exceeds the budget. The previous loop body had two distinct bugs:
+  (a) leading fractional zeros consumed digit-budget slots even
+  though the coefficient stayed at zero, deflating the result by
+  10× per zero past the budget; (b) post-budget fractional digits
+  kept incrementing `digits_after_point` so `unbiased_exp =
+  -digits_after_point` deflated the value by another 10× per
+  digit. Surfaced by the same algorithmic shape on Decimal64 (where
+  the smaller 19-digit budget made the bug practical to hit) —
+  Decimal64 was patched at `0.1.0` and the sibling pattern is now
+  back-ported here. Two regression tests cover the
+  leading-fractional-zero and post-budget shapes.
+
+## [1.14.4] - 2026-05-10
+
+### Changed
+
+- `Status`, `RoundingMode`, and `IeeeClass` now re-export from the
+  new [`ferrodec-ieee`](https://crates.io/crates/ferrodec-ieee)
+  crate (v0.1.0). The types are byte-compatible with previous
+  releases — `ferrodec::Status` and `ferrodec_decimal32::Status`
+  resolve to the *same* concrete type, so cross-precision interop
+  works without conversion. Triggered by the "stand alone first;
+  resist framework abstraction until 3 concrete uses exist"
+  threshold being met (Decimal128 + Decimal32 + Decimal64), per
+  ADR-0012.
+
+### Internal
+
+- **Convert ferrodec to a single-member Cargo workspace.** Adds
+  `[workspace] members = ["."] resolver = "2"` to the root
+  `Cargo.toml`. No behavior change; the published crate's name,
+  version, feature surface, and source paths are unchanged. Sets up
+  the structural frame for sibling crates `ferrodec-decimal32` and
+  `ferrodec-decimal64` (ADR-0011 and the archived plan at
+  `docs/decisions/plans/2026-05-09-workspace-and-decimal-siblings.md`).
+  The explicit `resolver = "2"` matches the package's
+  edition-2021-implied resolver and keeps feature unification
+  behavior identical.
+- **Hoist lint configuration into `[workspace.lints]`.** The
+  `unsafe_code = "forbid"` rule, the `unexpected_cfgs` configuration,
+  and the clippy pedantic-with-allowlist block move to
+  `[workspace.lints.rust]` and `[workspace.lints.clippy]`. The
+  package-level `[lints]` table becomes a single
+  `lints.workspace = true` pointer. Sibling crates pick the same
+  lint discipline up by default. Clippy diagnostics are unchanged.
+- **Hoist shared package metadata into `[workspace.package]`.**
+  Edition (2021), MSRV (1.84), license (MIT OR Apache-2.0), and
+  repository URL move to `[workspace.package]`; the package
+  consumes them via `*.workspace = true`. Per-crate fields (name,
+  version, description, keywords, categories) stay in `[package]`
+  because each sibling will have its own values. Establishes a
+  single MSRV for the workspace; `cargo +1.84 build --all-features`
+  remains green.
+
 ## [1.14.3] - 2026-05-09
 
 Documentation-only release. No code change; the published artifact

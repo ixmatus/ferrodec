@@ -27,6 +27,7 @@ use crate::decimal::Decimal128;
 use crate::multiword::u256::POW10_U128;
 use crate::multiword::U256;
 use crate::status::{RoundingMode, Status};
+use ferrodec_ieee::should_round_up;
 
 /// Round `coef × 10^unbiased_exp` (with sign `sign`) to a canonical
 /// `Decimal128`, accumulating the operation's prior `status`.
@@ -236,32 +237,6 @@ fn drop_excess_digits(
 ) -> (U256, i32, u32, bool) {
     let (kept, round_digit, sticky) = extract_dropped_digits(coef, excess, pre_sticky);
     (kept, unbiased_exp + excess as i32, round_digit, sticky)
-}
-
-/// Decide whether to round the kept coefficient up by one ULP, given the
-/// IEEE 754 rounding mode and the bits we discarded.
-pub(crate) fn should_round_up(
-    rm: RoundingMode,
-    sign: bool,
-    last_kept: u32,
-    round_digit: u32,
-    sticky: bool,
-) -> bool {
-    let dropped_nonzero = round_digit != 0 || sticky;
-    if !dropped_nonzero {
-        return false;
-    }
-    match rm {
-        RoundingMode::TowardZero => false,
-        RoundingMode::TowardPositive => !sign,
-        RoundingMode::TowardNegative => sign,
-        RoundingMode::NearestAway => round_digit >= 5,
-        RoundingMode::NearestEven => match round_digit.cmp(&5) {
-            core::cmp::Ordering::Less => false,
-            core::cmp::Ordering::Greater => true,
-            core::cmp::Ordering::Equal => sticky || (last_kept & 1) == 1,
-        },
-    }
 }
 
 /// Convert a fully rounded `(coef, unbiased_exp, sign)` triple to the
