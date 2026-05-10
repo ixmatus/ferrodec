@@ -37,3 +37,4 @@ The ADRs in number order:
 - [0009 — DPD interchange behind the `dpd` feature (1.12.0)](0009-dpd-interchange.md)
 - [0010 — Testing strategy after the 6-agent correctness review](0010-testing-strategy-after-six-agent-review.md)
 - [0011 — Cargo workspace for sibling decimal-precision crates](0011-workspace-for-decimal-siblings.md)
+- [0012 — Extract `ferrodec-ieee` after three concrete consumers](0012-extract-ferrodec-ieee.md)
