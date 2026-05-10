@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-05-10
+
+### Fixed
+
+- `fma` no longer drops `c` when one product factor is zero and the
+  other has a far exponent. The previous alignment-shift early-
+  return assumed `shift > MAX_SHIFT` implies the shifted side
+  dominates, but `0 × anything = 0` so the *other* side is the
+  answer. `fma(1e30, 0, 1)` now returns 1, not 0; `fma(1, 1,
+  0E+30)` returns 1, not 0.
+- `fma`'s alignment dispatch now uses a *dynamic* shift bound
+  (`digit_count(operand) + shift ≤ 38`) instead of the previous
+  static `MAX_SHIFT = 24`. The static bound mis-classified small
+  products with comparable `c`: `fma(1, 1, 0.999999)` returned 1
+  instead of 1.999999. The dynamic bound admits the case through
+  the normal align-and-sum path whenever `u128` headroom permits.
+
 ## [1.1.0] - 2026-05-10
 
 ### Breaking

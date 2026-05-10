@@ -1,10 +1,11 @@
 //! IEEE 754-2019 fused multiply-add for [`Decimal64`].
 //!
-//! Same shape as ferrodec-decimal32's FMA at u128 working width. The
-//! exact product `coef_a × coef_b` fits in u128 (max (10¹⁶ − 1)²
-//! ≈ 10³²); aligning with `c` over u128 fits when shift ≤ 6. For
-//! larger shifts we retarget to keep the dominant operand in the
-//! window and let the smaller one feed sticky.
+//! u128 working width. The exact product `coef_a × coef_b` fits in
+//! u128 (max (10¹⁶ − 1)² ≈ 10³²); aligning with `c` over u128 fits
+//! whenever `digit_count(operand) + shift ≤ 38`. The shift bound is
+//! dynamic, not static: a small operand (e.g. `1 × 1 = 1`) leaves
+//! plenty of headroom for alignment even when the static bound
+//! `MAX_SHIFT = 6` would not.
 
 use crate::bid::{classify_bits, BIAS, Class};
 use crate::decimal::Decimal64;
@@ -12,13 +13,21 @@ use ferrodec_ieee::{RoundingMode, Status};
 
 use super::addsub::round_and_pack_into_u64;
 
-const POW10_U128: [u128; 7] = {
-    let mut t = [0u128; 7];
+fn decimal_digit_count_u128(n: u128) -> u32 {
+    if n == 0 {
+        1
+    } else {
+        n.ilog10() + 1
+    }
+}
+
+const POW10_U128: [u128; 39] = {
+    let mut t = [0u128; 39];
     let mut i = 0;
     let mut v: u128 = 1;
-    while i < 7 {
+    while i < 39 {
         t[i] = v;
-        if i < 6 {
+        if i < 38 {
             v *= 10;
         }
         i += 1;
@@ -26,10 +35,20 @@ const POW10_U128: [u128; 7] = {
     t
 };
 
-/// Maximum shift we apply to either operand during alignment. The
-/// product coef has up to ~32 digits; we need enough u128 headroom
-/// for `coef × 10^shift < 2^128 ≈ 3.4 × 10³⁸`, so `shift ≤ 6`.
-const MAX_SHIFT: u32 = 6;
+/// Upper bound on `digit_count(coef) + shift` that keeps the product
+/// within `u128::MAX`. `10^38 < 2^128 ≈ 3.4 × 10³⁸`, so any product
+/// with at most 38 decimal digits fits.
+///
+/// A *static* `MAX_SHIFT` bound (the previous design, `MAX_SHIFT = 6`)
+/// is wrong: it assumes the product `ab_coef` is near its maximum
+/// (~10³² digits), so only 6 digits of alignment headroom remain.
+/// But `ab_coef` can be much smaller — `1 × 1 = 1` has 1 digit, so
+/// 37 digits of alignment headroom remain. Using the static bound,
+/// `fma(1, 1, 0.999999999999999)` mis-classified `ab` as dominant
+/// and dropped `c`. The dynamic bound below uses
+/// `digit_count(ab_coef)` instead, restoring correctness whenever
+/// the actual operand fits.
+const U128_DIGIT_CAP: u32 = 38;
 
 impl Decimal64 {
     /// IEEE 754-2019 `fusedMultiplyAdd(self, b, c)` rounded by `rm`.
@@ -64,33 +83,70 @@ impl Decimal64 {
         let ab_exp = (biased_a as i32 - BIAS as i32) + (biased_b as i32 - BIAS as i32);
         let c_exp = biased_c as i32 - BIAS as i32;
 
+        let target_q = ab_exp.min(c_exp);
+
+        // Both zero: §6.3 sign rule for the cancellation `±0 + ±0`.
         if ab_coef == 0 && coef_c == 0 {
-            let q_preferred = ab_exp.min(c_exp);
             let result_sign = zero_sum_sign(ab_sign, sign_c, rm);
             return (
                 Decimal64::from_bits(crate::bid::pack_finite(
                     result_sign,
-                    (q_preferred + BIAS as i32) as u32,
+                    (target_q + BIAS as i32) as u32,
                     0,
                 )),
                 Status::OK,
             );
         }
 
-        let target_q = ab_exp.min(c_exp);
+        // Zero product with non-zero c: result is c rebased to the
+        // preferred quantum. The non-zero summand's sign wins;
+        // ab_sign / zero_sum_sign do not apply.
+        if ab_coef == 0 {
+            return round_and_pack_into_u64(
+                u128::from(coef_c),
+                c_exp,
+                target_q,
+                sign_c,
+                false,
+                rm,
+            );
+        }
+
+        // Zero c with non-zero product: result is ab rebased.
+        if coef_c == 0 {
+            return round_and_pack_into_u64(
+                ab_coef,
+                ab_exp,
+                target_q,
+                ab_sign,
+                false,
+                rm,
+            );
+        }
+
         let shift_ab = (ab_exp - target_q) as u32;
         let shift_c = (c_exp - target_q) as u32;
 
+        let ab_digits = decimal_digit_count_u128(ab_coef);
+        let c_digits = decimal_digit_count_u128(u128::from(coef_c));
+        let ab_safe_shift = U128_DIGIT_CAP - ab_digits;
+        let c_safe_shift = U128_DIGIT_CAP - c_digits;
+
         let mut pre_sticky = false;
 
-        let ab_u128: u128 = if shift_ab <= MAX_SHIFT {
+        // If aligning either operand into u128 would overflow, that
+        // side's value at `target_q` exceeds `10³⁸`, which is far
+        // beyond the other side's representable range (at most ~16
+        // digits at `target_q`). It therefore *actually* dominates,
+        // and the early-return is correct.
+        let ab_u128: u128 = if shift_ab <= ab_safe_shift {
             ab_coef * POW10_U128[shift_ab as usize]
         } else {
             pre_sticky |= coef_c != 0;
             return round_and_pack_into_u64(ab_coef, ab_exp, ab_exp, ab_sign, pre_sticky, rm);
         };
 
-        let c_u128: u128 = if shift_c <= MAX_SHIFT {
+        let c_u128: u128 = if shift_c <= c_safe_shift {
             u128::from(coef_c) * POW10_U128[shift_c as usize]
         } else {
             pre_sticky |= ab_coef != 0;
@@ -231,6 +287,66 @@ mod tests {
         let (r, _) =
             Decimal64::ZERO.fma(from_int(5, 0), from_int(7, 0), RoundingMode::NearestEven);
         assert_eq!(r.to_bits(), from_int(7, 0).to_bits());
+    }
+
+    #[test]
+    fn fma_zero_product_at_far_exponent_does_not_drop_c() {
+        // Regression: when one product factor is zero AND the other
+        // has a far exponent, the alignment-shift early-return used
+        // to discard `c`. `1e50 × 0 + 1 = 1`, not `0`.
+        let a = from_int(1, 50);
+        let b = Decimal64::ZERO;
+        let c = from_int(1, 0);
+        let (r, _) = a.fma(b, c, RoundingMode::NearestEven);
+        let one = from_int(1, 0);
+        let (cmp, _) = r.partial_cmp(one);
+        assert_eq!(
+            cmp,
+            Some(core::cmp::Ordering::Equal),
+            "fma(1e50, 0, 1) = {r:?}, expected value 1"
+        );
+    }
+
+    #[test]
+    fn fma_far_exponent_with_small_product_does_not_drop_c() {
+        // Regression: the previous *static* MAX_SHIFT = 6 made
+        // `shift_ab > 6` route through the early-return, which
+        // assumes ab dominates. But ab can be small (here ab =
+        // 1 × 1 = 1, 1 digit) and c at the lower quantum can be
+        // comparable, so neither dominates. The dynamic bound
+        // `digit_count(ab_coef) + shift_ab ≤ 38` admits this case
+        // through the normal align-and-sum path.
+        //
+        // fma(1, 1, 0.999999999999999) = 1.999999999999999
+        let a = from_int(1, 0);
+        let b = from_int(1, 0);
+        let c = Decimal64::try_new(999_999_999_999_999, -15).unwrap();
+        let (r, _) = a.fma(b, c, RoundingMode::NearestEven);
+        let expected = Decimal64::try_new(1_999_999_999_999_999, -15).unwrap();
+        let (cmp, _) = r.partial_cmp(expected);
+        assert_eq!(
+            cmp,
+            Some(core::cmp::Ordering::Equal),
+            "fma(1, 1, 0.999_999_999_999_999) = {r:?}, expected {expected:?}",
+        );
+    }
+
+    #[test]
+    fn fma_zero_c_at_far_exponent_does_not_drop_product() {
+        // Regression: when c is a zero at a far quantum, the
+        // alignment-shift early-return used to discard the product.
+        // `1 × 1 + 0E+50 = 1`, not `0`.
+        let a = from_int(1, 0);
+        let b = from_int(1, 0);
+        let c = Decimal64::try_new(0, 50).unwrap();
+        let (r, _) = a.fma(b, c, RoundingMode::NearestEven);
+        let one = from_int(1, 0);
+        let (cmp, _) = r.partial_cmp(one);
+        assert_eq!(
+            cmp,
+            Some(core::cmp::Ordering::Equal),
+            "fma(1, 1, 0E+50) = {r:?}, expected value 1"
+        );
     }
 
     #[test]

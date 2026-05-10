@@ -49,12 +49,23 @@ const POW10_U128: [u128; 39] = {
     t
 };
 
-/// Maximum u128 shift we apply to either operand during alignment.
-/// `10¹⁴ × 10²⁴ = 10³⁸ < 2¹²⁸` so 24 is safe for the product side; the
-/// `c` side has `coef ≤ 10⁷` so it can shift further. We unify under
-/// the more conservative cap and accept that beyond 24 the smaller
-/// operand only contributes via sticky.
-const MAX_SHIFT: u32 = 24;
+/// Upper bound on `digit_count(coef) + shift` that keeps the product
+/// within `u128::MAX`. `10³⁸ < 2¹²⁸ ≈ 3.4 × 10³⁸`, so any product
+/// with at most 38 decimal digits fits.
+///
+/// Used for the *dynamic* alignment-shift bound: shift each operand
+/// by up to `U128_DIGIT_CAP − digit_count(operand)` decimal positions
+/// before overflow risk. A small operand (e.g. `1 × 1`) leaves more
+/// headroom than the worst-case product (`(10⁷ − 1)² ≈ 10¹⁴`).
+const U128_DIGIT_CAP: u32 = 38;
+
+fn decimal_digit_count_u128(n: u128) -> u32 {
+    if n == 0 {
+        1
+    } else {
+        n.ilog10() + 1
+    }
+}
 
 impl Decimal32 {
     /// IEEE 754-2019 `fusedMultiplyAdd(self, b, c)` rounded by `rm`.
@@ -93,52 +104,88 @@ impl Decimal32 {
         let ab_exp = (biased_a as i32 - BIAS as i32) + (biased_b as i32 - BIAS as i32);
         let c_exp = biased_c as i32 - BIAS as i32;
 
+        let target_q = ab_exp.min(c_exp);
+
         // Both zero: §6.3 sign rule (cancellation between ab=0 and c=0).
         if ab_coef == 0 && coef_c == 0 {
-            let q_preferred = ab_exp.min(c_exp);
             let result_sign = zero_sum_sign(ab_sign, sign_c, rm);
             return (
                 Decimal32::from_bits(crate::bid::pack_finite(
                     result_sign,
-                    (q_preferred + BIAS as i32) as u32,
+                    (target_q + BIAS as i32) as u32,
                     0,
                 )),
                 Status::OK,
             );
         }
 
-        // Compute alignment shifts. target_q is the lower of the two
-        // exponents; both operands shift left by their differential.
-        let target_q = ab_exp.min(c_exp);
+        // Zero product with non-zero c: result is c rebased to the
+        // preferred quantum. The non-zero summand's sign wins;
+        // ab_sign / zero_sum_sign do not apply.
+        if ab_coef == 0 {
+            return round_and_pack_into_u32(
+                coef_c as u128,
+                c_exp,
+                target_q,
+                sign_c,
+                false,
+                rm,
+            );
+        }
+
+        // Zero c with non-zero product: result is ab rebased.
+        if coef_c == 0 {
+            return round_and_pack_into_u32(
+                u128::from(ab_coef),
+                ab_exp,
+                target_q,
+                ab_sign,
+                false,
+                rm,
+            );
+        }
+
         let shift_ab = (ab_exp - target_q) as u32;
         let shift_c = (c_exp - target_q) as u32;
 
+        let ab_digits = decimal_digit_count_u128(u128::from(ab_coef));
+        let c_digits = decimal_digit_count_u128(u128::from(coef_c));
+        let ab_safe_shift = U128_DIGIT_CAP - ab_digits;
+        let c_safe_shift = U128_DIGIT_CAP - c_digits;
+
         let mut pre_sticky = false;
 
-        let ab_u128: u128 = if shift_ab <= MAX_SHIFT {
-            (ab_coef as u128) * POW10_U128[shift_ab as usize]
+        // If aligning either operand into u128 would overflow, that
+        // side's value at `target_q` exceeds `10³⁸`, which is far
+        // beyond the other side's representable range (at most ~14
+        // digits at `target_q` for ab, ~7 for c). It therefore
+        // *actually* dominates, and the early-return is correct.
+        let ab_u128: u128 = if shift_ab <= ab_safe_shift {
+            u128::from(ab_coef) * POW10_U128[shift_ab as usize]
         } else {
-            // ab dominates; c is far below the working window. Set
-            // sticky from c and use ab's coefficient at its own quantum.
-            // We'll re-target_q to ab_exp.
-            // (Actually unreachable in practice for Decimal32: shift_ab
-            // > 24 would require c_exp << ab_exp by > 24. Since ab_exp
-            // ∈ [-202, 192] and c_exp ∈ [-101, 96], the maximum
-            // shift_ab is 192 - (-101) = 293 — yes possible.)
             pre_sticky |= coef_c != 0;
-            // Re-anchor target_q at ab_exp's level: skip c entirely.
-            let ab_only = ab_coef as u128;
-            return round_and_pack_into_u32(ab_only, ab_exp, ab_exp, ab_sign, pre_sticky, rm);
+            return round_and_pack_into_u32(
+                u128::from(ab_coef),
+                ab_exp,
+                ab_exp,
+                ab_sign,
+                pre_sticky,
+                rm,
+            );
         };
 
-        let c_u128: u128 = if shift_c <= MAX_SHIFT {
-            (coef_c as u128) * POW10_U128[shift_c as usize]
+        let c_u128: u128 = if shift_c <= c_safe_shift {
+            u128::from(coef_c) * POW10_U128[shift_c as usize]
         } else {
-            // c dominates; ab is far below. Truncate ab to sticky and
-            // re-target at c_exp.
             pre_sticky |= ab_coef != 0;
-            let c_only = coef_c as u128;
-            return round_and_pack_into_u32(c_only, c_exp, c_exp, sign_c, pre_sticky, rm);
+            return round_and_pack_into_u32(
+                u128::from(coef_c),
+                c_exp,
+                c_exp,
+                sign_c,
+                pre_sticky,
+                rm,
+            );
         };
 
         // Sign-aware combine in u128.
@@ -381,6 +428,67 @@ mod tests {
         let (r, _) =
             Decimal32::ZERO.fma(from_int(5, 0), from_int(7, 0), RoundingMode::NearestEven);
         assert_eq!(r.to_bits(), from_int(7, 0).to_bits());
+    }
+
+    #[test]
+    fn fma_zero_product_at_far_exponent_does_not_drop_c() {
+        // Regression: when one product factor is zero AND the other
+        // has a far exponent (shift_ab > MAX_SHIFT = 24), the
+        // alignment-shift early-return used to discard `c`.
+        // `1e30 × 0 + 1 = 1`, not `0`.
+        let a = from_int(1, 30);
+        let b = Decimal32::ZERO;
+        let c = from_int(1, 0);
+        let (r, _) = a.fma(b, c, RoundingMode::NearestEven);
+        let one = from_int(1, 0);
+        let (cmp, _) = r.partial_cmp(one);
+        assert_eq!(
+            cmp,
+            Some(core::cmp::Ordering::Equal),
+            "fma(1e30, 0, 1) = {r:?}, expected value 1"
+        );
+    }
+
+    #[test]
+    fn fma_far_exponent_with_small_product_does_not_drop_c() {
+        // Regression: the previous *static* MAX_SHIFT = 24 made
+        // `shift_ab > 24` route through the early-return, which
+        // assumes ab dominates. But ab can be small (here ab =
+        // 1 × 1 = 1, 1 digit) and c at the lower quantum can be
+        // comparable, so neither dominates. The dynamic bound
+        // `digit_count(ab_coef) + shift_ab ≤ 38` admits this case
+        // through the normal align-and-sum path.
+        //
+        // fma(1, 1, 0.999999) = 1.999999
+        let a = from_int(1, 0);
+        let b = from_int(1, 0);
+        let c = Decimal32::try_new(999_999, -6).unwrap();
+        let (r, _) = a.fma(b, c, RoundingMode::NearestEven);
+        let expected = Decimal32::try_new(1_999_999, -6).unwrap();
+        let (cmp, _) = r.partial_cmp(expected);
+        assert_eq!(
+            cmp,
+            Some(core::cmp::Ordering::Equal),
+            "fma(1, 1, 0.999999) = {r:?}, expected {expected:?}",
+        );
+    }
+
+    #[test]
+    fn fma_zero_c_at_far_exponent_does_not_drop_product() {
+        // Regression: when c is a zero at a far quantum (shift_c >
+        // MAX_SHIFT), the alignment-shift early-return used to
+        // discard the product. `1 × 1 + 0E+30 = 1`, not `0`.
+        let a = from_int(1, 0);
+        let b = from_int(1, 0);
+        let c = Decimal32::try_new(0, 30).unwrap();
+        let (r, _) = a.fma(b, c, RoundingMode::NearestEven);
+        let one = from_int(1, 0);
+        let (cmp, _) = r.partial_cmp(one);
+        assert_eq!(
+            cmp,
+            Some(core::cmp::Ordering::Equal),
+            "fma(1, 1, 0E+30) = {r:?}, expected value 1"
+        );
     }
 
     #[test]
