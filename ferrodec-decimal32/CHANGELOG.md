@@ -64,6 +64,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Decimal32BuildError` on coefficient or exponent out-of-range),
   and a `Debug` impl that surfaces the bit pattern and decoded
   class.
+- `Decimal32::add(self, other, rm)` and `Decimal32::sub(self, other, rm)`
+  per IEEE 754-2019 §6.3 (sign rules) and §7 (exception flags). Both
+  return `(Decimal32, Status)`. Subtract is implemented as
+  `add(a, neg(b))` after the special-case dispatcher quietens any
+  signaling NaN. The finite path aligns coefficients over a `u64`
+  working width with three regimes: shifts up to ALIGN_LIMIT = 12
+  preserve full precision; shifts in (12, WORKING_PRECISION = 14]
+  truncate the lower operand with sticky tracking; shifts beyond 14
+  leave the lower operand entirely below the working window and
+  feed its non-zeroness into sticky. Sign-aware combine handles
+  cancellation cases (including the IEEE 754 §6.3 rule that
+  `x + (−x)` and `(±0) + (∓0)` produce `+0` in all rounding modes
+  except `roundTowardNegative`, which yields `−0`). 11 unit tests
+  cover basic add, carry-renormalisation, alignment-induced
+  inexactness, sign-disagreement cancellation, zero combinations,
+  NaN propagation (including signaling-NaN INVALID emission),
+  Infinity arithmetic (including `+∞ + (−∞) → NaN, INVALID`),
+  overflow to ∞, and basic subtract.
 - Conformance harness `toSci` dispatch arm wired up. The dispatch
   parses the operand string, formats the result via `Display`, and
   compares both the rendered output and the emitted IEEE 754 status
