@@ -85,14 +85,24 @@ impl Decimal32 {
             );
         }
 
-        let mut buf = [0u8; 32];
+        // 48-byte buffer for `{:.17e}` worst-case rendering of any
+        // finite f64. The longest output `-1.<17 digits>e-308` is
+        // ~26 chars; subnormal `5e-324`-shaped values render to ~24.
+        // We allocate 48 (~2× headroom) so the future stdlib float
+        // formatter can grow without silently overflowing.
+        let mut buf = [0u8; 48];
         let mut writer = BufWriter {
             buf: &mut buf,
             len: 0,
         };
-        // {:.17e} renders 17 significant digits in scientific
-        // notation — enough to capture any f64 precisely.
-        let _ = write!(writer, "{x:.17e}");
+        let write_result = write!(writer, "{x:.17e}");
+        if write_result.is_err() {
+            // Buffer overflow — defensive fallback. With 48 bytes
+            // this is unreachable on every libcore version we know
+            // of, but we don't return a wrong value if a future
+            // libcore extends the format.
+            return (Decimal32::NAN, Status::INVALID);
+        }
         let len = writer.len;
         let s = match core::str::from_utf8(&buf[..len]) {
             Ok(s) => s,
