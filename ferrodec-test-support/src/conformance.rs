@@ -307,7 +307,7 @@ pub struct Failure {
 pub fn run_suite<F>(
     vectors_dir: &str,
     expected_per_file: &[(&str, usize)],
-    initial_context: Context,
+    initial_context: &Context,
     mut dispatch: F,
 ) where
     F: FnMut(&TestCase, &Context) -> Outcome,

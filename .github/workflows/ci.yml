@@ -126,6 +126,20 @@ jobs:
       - run: cargo clippy --package ferrodec-ieee --all-targets -- -D warnings
       - run: cargo test --package ferrodec-ieee --verbose
 
+  # ---------- ferrodec-test-support (workspace-internal dev crate) ----------
+  test_support:
+    name: ferrodec-test-support
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --package ferrodec-test-support --verbose
+      - run: cargo clippy --package ferrodec-test-support --all-targets -- -D warnings
+      - run: cargo test --package ferrodec-test-support --verbose
+
   # ---------- ferrodec-decimal32 (sibling crate, in development) ----------
   decimal32:
     name: ferrodec-decimal32

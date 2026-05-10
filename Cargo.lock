@@ -241,6 +241,7 @@ name = "ferrodec-decimal32"
 version = "1.0.1"
 dependencies = [
  "ferrodec-ieee",
+ "ferrodec-test-support",
  "libm",
  "num-traits",
  "serde",
@@ -253,6 +254,7 @@ name = "ferrodec-decimal64"
 version = "1.0.1"
 dependencies = [
  "ferrodec-ieee",
+ "ferrodec-test-support",
  "libm",
  "num-traits",
  "serde",
@@ -263,6 +265,13 @@ dependencies = [
 [[package]]
 name = "ferrodec-ieee"
 version = "0.1.0"
+
+[[package]]
+name = "ferrodec-test-support"
+version = "0.1.0"
+dependencies = [
+ "ferrodec-ieee",
+]
 
 [[package]]
 name = "fnv"
