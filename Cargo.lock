@@ -237,7 +237,7 @@ dependencies = [
 
 [[package]]
 name = "ferrodec-decimal32"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "libm",
  "num-traits",
@@ -245,6 +245,10 @@ dependencies = [
  "serde_json",
  "serde_test",
 ]
+
+[[package]]
+name = "ferrodec-decimal64"
+version = "0.1.0"
 
 [[package]]
 name = "fnv"
