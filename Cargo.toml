@@ -1,5 +1,5 @@
 [workspace]
-members = ["."]
+members = [".", "ferrodec-decimal32"]
 resolver = "2"
 
 [workspace.package]

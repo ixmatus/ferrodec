@@ -1,0 +1,20 @@
+[package]
+name = "ferrodec-decimal32"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "no_std IEEE 754-2019 Decimal32 for embedded use, with Kani-verified properties"
+repository.workspace = true
+keywords = ["decimal", "decimal32", "ieee754", "no_std", "embedded"]
+categories = ["embedded", "mathematics", "no-std", "no-std::no-alloc"]
+
+[features]
+default = ["fmt"]
+# String parse + format. Uses core::fmt::Write, no alloc.
+fmt = []
+# Compile Kani proof harnesses. Off in normal builds.
+kani = []
+
+[lints]
+workspace = true
