@@ -8,7 +8,7 @@
 
 use crate::bid::{classify_bits, BIAS, Class};
 use crate::decimal::Decimal64;
-use ferrodec_ieee::{RoundingMode, Status};
+use ferrodec_ieee::{decimal_digit_count_u128, RoundingMode, Status};
 
 use super::addsub::round_and_pack_into_u64;
 
@@ -110,13 +110,6 @@ fn sqrt_positive_finite(
     round_and_pack_into_u64(isqrt_val, result_exp, q_preferred, false, sticky, rm)
 }
 
-fn decimal_digit_count_u128(n: u128) -> u32 {
-    if n == 0 {
-        1
-    } else {
-        n.ilog10() + 1
-    }
-}
 
 #[cfg(test)]
 mod tests {

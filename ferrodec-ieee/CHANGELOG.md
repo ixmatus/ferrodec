@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.2] - 2026-05-10
+
+### Added
+
+- `decimal_digit_count_u128(n: u128) -> u32` — the decimal digit
+  count for a u128 coefficient, lifted from three byte-identical
+  copies in the sibling crates (`fma.rs` in both, plus
+  Decimal64's `sqrt.rs`). `const fn`; returns 1 for `n == 0` per
+  the GDA convention. 4 unit tests cover the boundary
+  (zero / powers-of-ten / one-below / u128::MAX = 39 digits).
+
 ## [0.1.1] - 2026-05-10
 
 ### Added

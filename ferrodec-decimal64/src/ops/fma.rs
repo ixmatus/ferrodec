@@ -9,17 +9,9 @@
 
 use crate::bid::{classify_bits, BIAS, Class};
 use crate::decimal::Decimal64;
-use ferrodec_ieee::{RoundingMode, Status};
+use ferrodec_ieee::{decimal_digit_count_u128, RoundingMode, Status};
 
 use super::addsub::round_and_pack_into_u64;
-
-fn decimal_digit_count_u128(n: u128) -> u32 {
-    if n == 0 {
-        1
-    } else {
-        n.ilog10() + 1
-    }
-}
 
 const POW10_U128: [u128; 39] = {
     let mut t = [0u128; 39];

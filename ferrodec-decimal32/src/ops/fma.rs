@@ -31,7 +31,7 @@
 
 use crate::bid::{classify_bits, BIAS, Class, COEFFICIENT_LIMIT, PRECISION};
 use crate::decimal::Decimal32;
-use ferrodec_ieee::{RoundingMode, Status};
+use ferrodec_ieee::{decimal_digit_count_u128, RoundingMode, Status};
 
 use super::round::round_and_pack_finite;
 
@@ -62,14 +62,6 @@ const _: () = assert!(POW10_U128.len() > 38);
 /// before overflow risk. A small operand (e.g. `1 × 1`) leaves more
 /// headroom than the worst-case product (`(10⁷ − 1)² ≈ 10¹⁴`).
 const U128_DIGIT_CAP: u32 = 38;
-
-fn decimal_digit_count_u128(n: u128) -> u32 {
-    if n == 0 {
-        1
-    } else {
-        n.ilog10() + 1
-    }
-}
 
 impl Decimal32 {
     /// IEEE 754-2019 `fusedMultiplyAdd(self, b, c)` rounded by `rm`.

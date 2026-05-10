@@ -9,7 +9,7 @@ repository.workspace = true
 publish = false
 
 [dependencies]
-ferrodec-ieee = { path = "../ferrodec-ieee", version = "0.1.1" }
+ferrodec-ieee = { path = "../ferrodec-ieee", version = "0.1.2" }
 
 [lints]
 workspace = true
