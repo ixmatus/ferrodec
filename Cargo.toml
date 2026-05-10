@@ -2,6 +2,12 @@
 members = ["."]
 resolver = "2"
 
+[workspace.package]
+edition = "2021"
+rust-version = "1.84"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/ixmatus/ferrodec"
+
 [workspace.lints.rust]
 unsafe_code = "forbid"
 unexpected_cfgs = { level = "warn", check-cfg = ["cfg(kani)"] }
@@ -54,11 +60,11 @@ missing_panics_doc = "allow"
 [package]
 name = "ferrodec"
 version = "1.14.3"
-edition = "2021"
-rust-version = "1.84"
-license = "MIT OR Apache-2.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
 description = "no_std IEEE 754-2019 Decimal128 for embedded use, with Kani-verified properties"
-repository = "https://github.com/ixmatus/ferrodec"
+repository.workspace = true
 keywords = ["decimal", "ieee754", "no_std", "embedded", "decimal128"]
 categories = ["embedded", "mathematics", "no-std", "no-std::no-alloc"]
 
