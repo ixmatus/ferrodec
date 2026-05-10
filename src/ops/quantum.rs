@@ -14,7 +14,7 @@ use crate::bid::{
 use crate::decimal::Decimal128;
 use crate::multiword::U256;
 use crate::ops::nan_from;
-use crate::ops::round::should_round_up;
+use ferrodec_ieee::should_round_up;
 use crate::ops::round_and_pack_finite;
 use crate::status::{RoundingMode, Status};
 

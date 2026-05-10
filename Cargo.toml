@@ -129,7 +129,7 @@ dpd = []
 kani = []
 
 [dependencies]
-ferrodec-ieee = { path = "ferrodec-ieee", version = "0.1.0" }
+ferrodec-ieee = { path = "ferrodec-ieee", version = "0.1.1" }
 serde = { version = "1", default-features = false, optional = true }
 num-traits = { version = "0.2", default-features = false, optional = true }
 

@@ -15,7 +15,7 @@ use crate::bid::{
     classify_bits, decimal_digit_count, BIAS, BIASED_EXP_MAX, Class, COEFFICIENT_LIMIT, PRECISION,
 };
 use crate::decimal::Decimal32;
-use ferrodec_ieee::{RoundingMode, Status};
+use ferrodec_ieee::{should_round_up, RoundingMode, Status};
 
 use super::round::round_and_pack_finite;
 
@@ -442,26 +442,6 @@ impl Decimal32 {
         }
         let (r, s) = self.neg().next_up();
         (r.neg(), s)
-    }
-}
-
-fn should_round_up(
-    rm: RoundingMode,
-    sign: bool,
-    last_kept_lsb: u32,
-    round_digit: u32,
-    sticky: bool,
-) -> bool {
-    match rm {
-        RoundingMode::NearestEven => match round_digit.cmp(&5) {
-            core::cmp::Ordering::Less => false,
-            core::cmp::Ordering::Greater => true,
-            core::cmp::Ordering::Equal => sticky || (last_kept_lsb & 1) == 1,
-        },
-        RoundingMode::NearestAway => round_digit >= 5,
-        RoundingMode::TowardZero => false,
-        RoundingMode::TowardPositive => !sign && (round_digit > 0 || sticky),
-        RoundingMode::TowardNegative => sign && (round_digit > 0 || sticky),
     }
 }
 

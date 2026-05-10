@@ -20,7 +20,7 @@ use crate::bid::{
     pack_finite, pack_infinity, BIAS, BIASED_EXP_MAX, COEFFICIENT_LIMIT, PRECISION,
 };
 use crate::decimal::Decimal64;
-use ferrodec_ieee::{RoundingMode, Status};
+use ferrodec_ieee::{should_round_up, RoundingMode, Status};
 
 /// `10^k` for `k <= 19` (the largest power of ten that fits in `u64`).
 const POW10_U64: [u64; 20] = [
@@ -149,27 +149,6 @@ fn drop_excess_digits(
         i += 1;
     }
     (coef, unbiased_exp + n as i32, round_digit, sticky)
-}
-
-#[allow(clippy::similar_names)]
-fn should_round_up(
-    rm: RoundingMode,
-    sign: bool,
-    last_kept_lsb: u32,
-    round_digit: u32,
-    sticky: bool,
-) -> bool {
-    match rm {
-        RoundingMode::NearestEven => match round_digit.cmp(&5) {
-            core::cmp::Ordering::Less => false,
-            core::cmp::Ordering::Greater => true,
-            core::cmp::Ordering::Equal => sticky || (last_kept_lsb & 1) == 1,
-        },
-        RoundingMode::NearestAway => round_digit >= 5,
-        RoundingMode::TowardZero => false,
-        RoundingMode::TowardPositive => !sign && (round_digit > 0 || sticky),
-        RoundingMode::TowardNegative => sign && (round_digit > 0 || sticky),
-    }
 }
 
 fn finalise_finite(

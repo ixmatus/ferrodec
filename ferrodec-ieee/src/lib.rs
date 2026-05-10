@@ -14,6 +14,9 @@
 //! * [`IeeeClass`] — the IEEE 754-2019 §5.7.2 `class(x)` enum, with
 //!   the ten standard classes a decimal floating-point datum can
 //!   occupy.
+//! * [`should_round_up`] — the rounding-decision predicate every
+//!   sibling's `round_and_pack_finite` consumes. Pure function of
+//!   `(RoundingMode, sign, last_kept_lsb, round_digit, sticky)`.
 //!
 //! The siblings re-export these types verbatim, so callers writing
 //! `ferrodec::Status` and `ferrodec_decimal32::Status` see the same
@@ -25,7 +28,9 @@
 #![no_std]
 
 mod classify;
+mod round;
 mod status;
 
 pub use classify::IeeeClass;
+pub use round::should_round_up;
 pub use status::{RoundingMode, Status};

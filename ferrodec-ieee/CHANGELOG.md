@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1] - 2026-05-10
+
+### Added
+
+- `should_round_up(rm, sign, last_kept_lsb, round_digit, sticky)
+  -> bool` — the rounding-decision function shared across every
+  precision's `round_and_pack_finite`. Lifted from four byte-
+  identical copies in the three sibling crates' `ops/round.rs` /
+  `ops/quantum.rs`; ferrodec (Decimal128) also adopts the shared
+  function. Pure function of the five inputs; const fn; covered
+  by five unit tests inside this crate.
+
 ## [0.1.0] - 2026-05-10
 
 Initial release. Shared IEEE 754-2019 metadata types extracted from
