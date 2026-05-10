@@ -64,6 +64,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Decimal32BuildError` on coefficient or exponent out-of-range),
   and a `Debug` impl that surfaces the bit pattern and decoded
   class.
+- `Decimal32::rem(self, other, rm)` per IEEE 754-2019 §5.3.1 (truncated
+  remainder, sign of dividend). Returns `(Decimal32, Status)`. Result
+  has the sign of `self`, magnitude strictly less than `|other|`, and
+  quantum `min(Q(self), Q(other))`. Operation is exact when defined;
+  the `rm` parameter is carried for API parity. Special cases:
+  `±∞ % anything` and `anything % 0` → NaN + INVALID; `finite % ±∞`
+  → finite (the dividend). Per the GDA spec, the integer quotient
+  must fit in `PRECISION` (= 7) digits; otherwise NaN + INVALID.
+  When the exponent gap exceeds `MAX_SAFE_SHIFT` (= 12) one of two
+  shortcuts fires: `|a| ≫ |b|` returns NaN + INVALID, `|b| ≫ |a|`
+  returns the dividend at `Q(a)`. 8 unit tests cover basic remainder,
+  sign of dividend, quantum-min cohort selection, zero dividend,
+  divide-by-zero, infinity cases, the too-large-quotient path
+  (MAX % MIN_POSITIVE), and NaN propagation.
 - `Decimal32::div(self, other, rm)` per IEEE 754-2019 §6.3 / §7.
   Returns `(Decimal32, Status)`. The finite path scales the dividend
   by `10^(db - da + PRECISION + 1)` so the integer quotient holds
