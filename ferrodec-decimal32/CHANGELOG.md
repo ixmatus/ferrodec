@@ -64,6 +64,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Decimal32BuildError` on coefficient or exponent out-of-range),
   and a `Debug` impl that surfaces the bit pattern and decoded
   class.
+- `Decimal32::fma(self, b, c, rm)` per IEEE 754-2019 §5.4.1 fused
+  multiply-add. Computes `self * b + c` with a single rounding step;
+  the intermediate product is preserved exactly before the addition.
+  Returns `(Decimal32, Status)`. The finite path forms the exact
+  product (`u32 × u32 → u64`, max ~10¹⁴), aligns with `c` over a
+  `u128` working width (max value ~10³⁸), sign-aware combines, then
+  compresses back to `u64` with sticky tracking before routing through
+  `round_and_pack_finite`. Special cases: sNaN in any operand → quiet
+  NaN + INVALID; qNaN propagation in argument order; `0 × ±∞` and
+  `±∞ × 0` → NaN + INVALID (regardless of `c`); `(±∞) + (∓∞)` from
+  product + addend → NaN + INVALID; `(±∞) + finite` → ±∞ XOR;
+  `finite × finite + ±∞` → ±∞ (sign of `c`). 11 unit tests cover
+  basic FMA, the single-rounding advantage (1234567² + (-1.524156×10¹²)
+  yields exact -322511 even though the rounded product alone would
+  lose precision), alignment, zero addend / multiplicand, sign
+  combinations, the 0 × ∞ INVALID, ∞-∞ INVALID, NaN propagation
+  (including sNaN in c), and zero-sum sign rule.
 - `Decimal32::sqrt(self, rm)` per IEEE 754-2019 §5.4.1. Returns
   `(Decimal32, Status)`. The finite path makes the working exponent
   even (multiplying coefficient by 10 if exp was odd), scales further
