@@ -55,6 +55,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   exponent → NaN + INVALID. Overflow propagates through f64::INFINITY
   detection. cbrt accepts negative inputs (real cube root).
   9 unit tests.
+- `ops` feature: `core::ops` operator overloads for `Decimal64`:
+  Add, Sub, Mul, Div, Rem and their *Assign variants, plus Neg.
+  Default rounding is NearestEven; per-operation Status is dropped.
+  Callers needing explicit rounding-mode or status control should
+  keep using the methods. 3 unit tests cover basic arithmetic,
+  Neg, and the *Assign forms.
+- `serde` feature: `Serialize` and `Deserialize` for `Decimal64`.
+  Default path serializes the canonical decimal string. The
+  `serde_bid` helper module serializes the raw 64-bit BID pattern
+  for binary formats; visit_u32 / visit_u64 / visit_str accepted
+  so binary and text deserializers both work.
+- `num-traits` feature: `Zero`, `One`, `Bounded`, `Num`, `Signed`,
+  `FromPrimitive`, `ToPrimitive`. `FromPrimitive::from_i64` and
+  `from_u64` route through `try_new` for the exact Decimal64 range
+  (|n| < 10¹⁶), falling back to the f64 round-trip for larger
+  magnitudes (Decimal64 has more range than Decimal32, so most
+  i64 / u64 values land in the exact path). Implies `ops` and
+  `binary-float`.
 - cargo-fuzz harness suite at `fuzz/`. Four targets mirror
   ferrodec-decimal32's:
   * `parse` — arbitrary byte strings through `parse_str`. Verifies
