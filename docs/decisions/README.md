@@ -35,3 +35,4 @@ The ADRs in number order:
 - [0007 — Performance baseline (1.10.1 + bench expansion)](0007-perf-baseline.md)
 - [0008 — Performance pass results (1.11.0)](0008-perf-results.md)
 - [0009 — DPD interchange behind the `dpd` feature (1.12.0)](0009-dpd-interchange.md)
+- [0010 — Testing strategy after the 6-agent correctness review](0010-testing-strategy-after-six-agent-review.md)
