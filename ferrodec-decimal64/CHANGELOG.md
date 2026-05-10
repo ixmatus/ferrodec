@@ -16,6 +16,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Inherits workspace lints, edition, MSRV (1.84), license, and
   repository metadata. `fmt` and `kani` features are declared with
   empty bodies for future use.
+- `Decimal64::sqrt` and `Decimal64::fma` per IEEE 754-2019.
+  sqrt scales the working coefficient to 33 or 34 decimal digits in
+  u128 (parity-matched to the working exponent's parity), takes
+  `u128::isqrt` to land in `[10¹⁶, 10¹⁷)` for 17-digit precision,
+  and routes through `round_and_pack_into_u64`. Special cases per
+  §5.4.1: NaN propagation, sqrt(±0) = ±0, sqrt(+∞) = +∞,
+  sqrt(−∞) and sqrt(−finite) → NaN+INVALID. Preferred quantum is
+  floor(Q(x) / 2). 8 unit tests cover perfect squares, sqrt(2)
+  inexact, zero (with sign preservation), one, negative-input
+  INVALID, infinities, and NaN propagation. fma forms the exact
+  product u64 × u64 → u128, aligns with `c` over u128 with
+  MAX_SHIFT = 6 (since the product can have up to ~32 digits and
+  u128 caps at ~38 digits), then routes through
+  `round_and_pack_into_u64`. Special cases per §5.4.1 and §7:
+  0×∞ in the product → NaN+INVALID, ±∞×finite → ±∞ XOR, ±∞ + ∓∞
+  from the addition → NaN+INVALID, NaN propagation in argument
+  order. 8 unit tests.
 - `Decimal64::mul`, `Decimal64::div`, `Decimal64::rem` per
   IEEE 754-2019 §6.3 / §7. mul: `u64 × u64 → u128` (max product
   (10¹⁶ − 1)² ≈ 10³², fits in u128 with headroom), routed through
