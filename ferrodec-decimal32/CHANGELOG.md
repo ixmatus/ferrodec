@@ -64,6 +64,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Decimal32BuildError` on coefficient or exponent out-of-range),
   and a `Debug` impl that surfaces the bit pattern and decoded
   class.
+- New `ops` feature: `core::ops` overloads on `Decimal32` —
+  `Add`, `Sub`, `Mul`, `Div`, `Rem`, `Neg`, plus the `*Assign`
+  variants. Default to `RoundingMode::NearestEven` and discard the
+  per-operation `Status`. Users who need explicit rounding-mode or
+  status control keep using the `add` / `sub` / `mul` / `div` /
+  `rem` methods. The trade-off mirrors ferrodec/Decimal128: the
+  ergonomic operators are an opt-in for callers migrating from
+  `f64` or `rust_decimal`. 3 unit tests cover the basic `+ - * / %`
+  shapes, `Neg`, and the `*=` family.
 - Fuzz harnesses at `ferrodec-decimal32/fuzz/`. Four cargo-fuzz
   targets (mirroring ferrodec's pattern, scoped to operations the
   Decimal32 surface exposes): `parse` (asserts no panic on

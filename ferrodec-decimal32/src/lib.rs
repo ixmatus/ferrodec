@@ -41,6 +41,8 @@ mod cmp;
 mod convert;
 mod decimal;
 mod ops;
+#[cfg(feature = "ops")]
+mod ops_traits;
 mod status;
 #[cfg(kani)]
 mod verify;

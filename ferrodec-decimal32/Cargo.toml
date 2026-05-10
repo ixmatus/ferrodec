@@ -33,6 +33,12 @@ hyperbolic = ["exp-log"]
 pow = ["exp-log"]
 # Convenience meta-feature: enable every transcendental at once.
 transcendentals = ["trig", "exp-log", "hyperbolic", "pow"]
+# `core::ops` operator overloads (Add / Sub / Mul / Div / Rem and the
+# *Assign variants, plus Neg). Opt-in: defaults to
+# RoundingMode::NearestEven and drops the per-operation Status. Users
+# who need explicit rounding-mode or status control should keep using
+# the explicit `add` / `sub` / `mul` / `div` / `rem` methods.
+ops = []
 # Compile Kani proof harnesses. Off in normal builds.
 kani = []
 
