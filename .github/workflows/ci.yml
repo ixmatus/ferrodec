@@ -108,6 +108,7 @@ jobs:
       - uses: model-checking/kani-github-action@v1.1
       - run: cargo kani --features=transcendentals
       - run: cargo kani --package ferrodec-decimal32 --features=fmt
+      - run: cargo kani --package ferrodec-decimal64 --features=fmt
 
   # ---------- ferrodec-decimal32 (sibling crate, in development) ----------
   decimal32:

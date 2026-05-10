@@ -16,6 +16,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Inherits workspace lints, edition, MSRV (1.84), license, and
   repository metadata. `fmt` and `kani` features are declared with
   empty bodies for future use.
+- Kani verification harnesses at `src/verify/` (cfg(kani)-gated).
+  Six modules (addsub, mul, div, sqrt, fma, cmp) mirror
+  ferrodec-decimal32's verify/ tree: bounded 10-constant operand
+  selector keeps the SAT problem tractable; harnesses prove
+  no-panic and IEEE 754 special-case propagation. CI's `kani` job
+  extended with `cargo kani --package ferrodec-decimal64
+  --features=fmt`.
 - Comparison and ordering: `Decimal64::partial_cmp`,
   `Decimal64::total_cmp`, `Decimal64::compare_total_magnitude`,
   `Decimal64::min`, `Decimal64::max` (mirrors Decimal32's surface
