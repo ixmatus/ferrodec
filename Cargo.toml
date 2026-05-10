@@ -2,6 +2,55 @@
 members = ["."]
 resolver = "2"
 
+[workspace.lints.rust]
+unsafe_code = "forbid"
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(kani)"] }
+
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+# Pedantic lints we explicitly allow. Two categories:
+#
+# 1. Cast lints — IEEE/BID arithmetic does width-shrinking and
+#    sign-changing casts deliberately, with bounds maintained by the
+#    surrounding logic. Letting clippy fight them adds noise.
+# 2. Style lints that disagree with the kernel's needs:
+#    - `match_same_arms` for IEEE classification dispatches that
+#      *deliberately* enumerate every Class variant for clarity, even
+#      when adjacent arms share a body.
+#    - `similar_names` flags `lo` vs. `lo_lo`, `mid` vs. `mid_lo` etc.
+#      in the multi-word arithmetic; those names are semantically
+#      precise.
+#    - `float_cmp` — sometimes the right test (e.g. checking f64 == 0.0
+#      to detect underflow exactly).
+#    - `unreadable_literal` — some constants are clearer without
+#      digit-separator clutter (e.g. bit masks, error code values).
+#    - The various "too many" / "single char" counts — math kernels
+#      legitimately have wide operand surfaces and short symbolic names.
+module_name_repetitions = "allow"
+missing_errors_doc = "allow"
+must_use_candidate = "allow"
+cast_possible_truncation = "allow"
+cast_lossless = "allow"
+cast_sign_loss = "allow"
+cast_possible_wrap = "allow"
+cast_precision_loss = "allow"
+match_same_arms = "allow"
+similar_names = "allow"
+float_cmp = "allow"
+single_match_else = "allow"
+unreadable_literal = "allow"
+items_after_statements = "allow"
+many_single_char_names = "allow"
+too_many_lines = "allow"
+too_many_arguments = "allow"
+assertions_on_constants = "allow"
+trivially_copy_pass_by_ref = "allow"
+fn_params_excessive_bools = "allow"
+should_implement_trait = "allow"
+manual_let_else = "allow"
+enum_variant_names = "allow"
+missing_panics_doc = "allow"
+
 [package]
 name = "ferrodec"
 version = "1.14.3"
@@ -84,54 +133,8 @@ criterion = { version = "0.5", default-features = false, features = ["cargo_benc
 serde_json = "1"
 serde_test = "1"
 
-[lints.rust]
-unsafe_code = "forbid"
-unexpected_cfgs = { level = "warn", check-cfg = ["cfg(kani)"] }
-
-[lints.clippy]
-pedantic = { level = "warn", priority = -1 }
-# Pedantic lints we explicitly allow. Two categories:
-#
-# 1. Cast lints — IEEE/BID arithmetic does width-shrinking and
-#    sign-changing casts deliberately, with bounds maintained by the
-#    surrounding logic. Letting clippy fight them adds noise.
-# 2. Style lints that disagree with the kernel's needs:
-#    - `match_same_arms` for IEEE classification dispatches that
-#      *deliberately* enumerate every Class variant for clarity, even
-#      when adjacent arms share a body.
-#    - `similar_names` flags `lo` vs. `lo_lo`, `mid` vs. `mid_lo` etc.
-#      in the multi-word arithmetic; those names are semantically
-#      precise.
-#    - `float_cmp` — sometimes the right test (e.g. checking f64 == 0.0
-#      to detect underflow exactly).
-#    - `unreadable_literal` — some constants are clearer without
-#      digit-separator clutter (e.g. bit masks, error code values).
-#    - The various "too many" / "single char" counts — math kernels
-#      legitimately have wide operand surfaces and short symbolic names.
-module_name_repetitions = "allow"
-missing_errors_doc = "allow"
-must_use_candidate = "allow"
-cast_possible_truncation = "allow"
-cast_lossless = "allow"
-cast_sign_loss = "allow"
-cast_possible_wrap = "allow"
-cast_precision_loss = "allow"
-match_same_arms = "allow"
-similar_names = "allow"
-float_cmp = "allow"
-single_match_else = "allow"
-unreadable_literal = "allow"
-items_after_statements = "allow"
-many_single_char_names = "allow"
-too_many_lines = "allow"
-too_many_arguments = "allow"
-assertions_on_constants = "allow"
-trivially_copy_pass_by_ref = "allow"
-fn_params_excessive_bools = "allow"
-should_implement_trait = "allow"
-manual_let_else = "allow"
-enum_variant_names = "allow"
-missing_panics_doc = "allow"
+[lints]
+workspace = true
 
 [[example]]
 name = "money"

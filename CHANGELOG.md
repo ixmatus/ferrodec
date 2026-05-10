@@ -19,6 +19,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The explicit `resolver = "2"` matches the package's
   edition-2021-implied resolver and keeps feature unification
   behavior identical.
+- **Hoist lint configuration into `[workspace.lints]`.** The
+  `unsafe_code = "forbid"` rule, the `unexpected_cfgs` configuration,
+  and the clippy pedantic-with-allowlist block move to
+  `[workspace.lints.rust]` and `[workspace.lints.clippy]`. The
+  package-level `[lints]` table becomes a single
+  `lints.workspace = true` pointer. Sibling crates pick the same
+  lint discipline up by default. Clippy diagnostics are unchanged.
 
 ## [1.14.3] - 2026-05-09
 
