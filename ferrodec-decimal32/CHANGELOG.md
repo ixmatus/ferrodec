@@ -64,6 +64,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Decimal32BuildError` on coefficient or exponent out-of-range),
   and a `Debug` impl that surfaces the bit pattern and decoded
   class.
+- `Decimal32::sqrt(self, rm)` per IEEE 754-2019 §5.4.1. Returns
+  `(Decimal32, Status)`. The finite path makes the working exponent
+  even (multiplying coefficient by 10 if exp was odd), scales further
+  so the working coefficient has 15 or 16 decimal digits — `isqrt`
+  then lands in `[10⁷, 10⁸)` (8 digits, one above PRECISION for
+  correct rounding) — and routes through `round_and_pack_finite`
+  with `sticky = (isqrt² != working_coef)`. Special cases: sNaN
+  → quiet NaN + INVALID; qNaN propagation; `sqrt(±0) = ±0` (sign
+  preserved per IEEE 754); `sqrt(+∞) = +∞`; `sqrt(−∞)` and
+  `sqrt(−finite)` → NaN + INVALID. Preferred quantum is
+  `floor(Q(x) / 2)` per §6.3 (using `i32::div_euclid` to floor
+  correctly for negative exponents). 10 unit tests cover perfect
+  squares (4, 9, 100, 10000, 1234²), inexact (sqrt(2) → 1.414214
+  Inexact), zero (with sign), one, negative-input INVALID,
+  infinities, NaN propagation, negative exponent (sqrt(0.04) =
+  0.2), large exponent (sqrt(10⁹⁶) = 10⁴⁸), and 7-digit perfect
+  square.
 - `Decimal32::rem(self, other, rm)` per IEEE 754-2019 §5.3.1 (truncated
   remainder, sign of dividend). Returns `(Decimal32, Status)`. Result
   has the sign of `self`, magnitude strictly less than `|other|`, and

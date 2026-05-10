@@ -13,6 +13,7 @@ pub(crate) mod div;
 pub(crate) mod mul;
 pub(crate) mod rem;
 pub(crate) mod round;
+pub(crate) mod sqrt;
 
 #[allow(unused_imports)] // consumed by convert::parse and arithmetic ops in subsequent commits
 pub(crate) use round::round_and_pack_finite;
