@@ -16,6 +16,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Inherits workspace lints, edition, MSRV (1.84), license, and
   repository metadata. `fmt` and `kani` features are declared with
   empty bodies for future use.
+- Vendored IBM decTest conformance vectors at `tests/vectors/`. All
+  42 `dd*.decTest` files extracted from the speleotrove archive
+  (17 901 lines total). Coverage spans every IEEE 754-2019 §5
+  operation at decimal64 precision (16 digits, exponent range
+  `10⁻³⁸³..=10⁺³⁸⁴`), plus GDA-specific ops (`and`, `or`, `xor`,
+  `rotate`, `shift`, `invert`, `copy*`) that sit outside IEEE 754
+  and will skip in the harness. The conformance harness consuming
+  these vectors lands in C5.
 - BID encoding foundation: parameters, decoder, encoder, helpers per
   IEEE 754-2019 §3.5.2 for decimal64. Form A (coefficient < 2⁵³)
   and Form B (coefficient ∈ [2⁵³, 10¹⁶)) are both canonical and
