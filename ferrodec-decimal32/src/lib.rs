@@ -43,6 +43,8 @@ mod decimal;
 mod ops;
 #[cfg(feature = "ops")]
 mod ops_traits;
+#[cfg(feature = "serde")]
+mod serde_impls;
 mod status;
 #[cfg(kani)]
 mod verify;
@@ -51,4 +53,6 @@ pub use classify_types::IeeeClass;
 #[cfg(feature = "fmt")]
 pub use convert::{Engineering, ParseDecimalError};
 pub use decimal::{Decimal32, Decimal32BuildError};
+#[cfg(feature = "serde")]
+pub use serde_impls::serde_bid;
 pub use status::{RoundingMode, Status};

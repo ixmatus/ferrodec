@@ -39,11 +39,23 @@ transcendentals = ["trig", "exp-log", "hyperbolic", "pow"]
 # who need explicit rounding-mode or status control should keep using
 # the explicit `add` / `sub` / `mul` / `div` / `rem` methods.
 ops = []
+# Serde Serialize / Deserialize for Decimal32. Round-trips through the
+# canonical decimal string by default; the `serde_bid` helper module is
+# provided for callers that prefer to serialize the raw 32-bit BID
+# pattern in binary formats. Pulls in `fmt` because the default
+# representation goes through `parse_str` / `Display`.
+serde = ["fmt", "dep:serde"]
 # Compile Kani proof harnesses. Off in normal builds.
 kani = []
 
 [dependencies]
 libm = { version = "0.2", default-features = false, optional = true }
+serde = { version = "1", default-features = false, optional = true }
+
+[dev-dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_test = "1"
 
 [lints]
 workspace = true

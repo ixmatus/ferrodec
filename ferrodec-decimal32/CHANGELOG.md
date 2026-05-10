@@ -64,6 +64,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Decimal32BuildError` on coefficient or exponent out-of-range),
   and a `Debug` impl that surfaces the bit pattern and decoded
   class.
+- New `serde` feature: `Serialize` / `Deserialize` impls for
+  `Decimal32`. Default serialisation routes through the canonical
+  decimal string (`Display` for serialise, `parse_str` for
+  deserialise) so values stay human-readable in JSON / TOML / YAML
+  and survive every format. The `serde_bid` helper module (used via
+  `#[serde(with = "ferrodec_decimal32::serde_bid")]`) serialises the
+  raw 32-bit BID pattern; binary formats get a 4-byte representation
+  while text formats fall back to the string parser. Pulls in `fmt`
+  and `dep:serde`. 4 integration tests cover JSON round-trip across
+  finite, infinity, and NaN; the `serde_bid` round-trip; and the
+  string-fallback path.
 - New `ops` feature: `core::ops` overloads on `Decimal32` —
   `Add`, `Sub`, `Mul`, `Div`, `Rem`, `Neg`, plus the `*Assign`
   variants. Default to `RoundingMode::NearestEven` and discard the
