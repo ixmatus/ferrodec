@@ -26,6 +26,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   package-level `[lints]` table becomes a single
   `lints.workspace = true` pointer. Sibling crates pick the same
   lint discipline up by default. Clippy diagnostics are unchanged.
+- **Hoist shared package metadata into `[workspace.package]`.**
+  Edition (2021), MSRV (1.84), license (MIT OR Apache-2.0), and
+  repository URL move to `[workspace.package]`; the package
+  consumes them via `*.workspace = true`. Per-crate fields (name,
+  version, description, keywords, categories) stay in `[package]`
+  because each sibling will have its own values. Establishes a
+  single MSRV for the workspace; `cargo +1.84 build --all-features`
+  remains green.
 
 ## [1.14.3] - 2026-05-09
 
