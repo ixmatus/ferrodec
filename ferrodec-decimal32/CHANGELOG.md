@@ -64,6 +64,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Decimal32BuildError` on coefficient or exponent out-of-range),
   and a `Debug` impl that surfaces the bit pattern and decoded
   class.
+- Quantum-manipulating operations: `Decimal32::quantize`,
+  `scaleb`, `logb`, `next_up`, `next_down`. `quantize(target, rm)`
+  rescales `self` to `target`'s quantum (rounding when reducing the
+  exponent, padding when increasing); raises `INVALID` when the
+  rescaled coefficient would exceed PRECISION digits or when an
+  operand has incompatible specialness (e.g. `quantize(finite,
+  ±∞)`). `scaleb(n, rm)` returns `self * 10^n` via the standard
+  `round_and_pack_finite` path; routes overflow to ±∞ and underflow
+  to ±0 via the rounding mode. `logb()` returns the floor of
+  log₁₀(|self|) — equivalently, the adjusted exponent — at quantum
+  0; `logb(±0) = −∞ + DIV_BY_ZERO`, `logb(±∞) = +∞`. `next_up`
+  navigates one ULP toward +∞ (with the cohort step from
+  `pack_finite(false, biased+1, 10⁶)` when the coefficient carries),
+  and `next_down(self) = -next_up(-self)`. 13 unit tests cover
+  pad-with-zeros quantize, round-to-target quantum, the overflow-
+  to-INVALID path, infinity passthrough, scaleb basics and
+  overflow / underflow, logb basics and specials, next_up at zero
+  / finite / ±∞, and next_up NaN propagation.
 - Comparison and ordering: `Decimal32::partial_cmp`,
   `Decimal32::total_cmp`, `Decimal32::compare_total_magnitude`,
   `Decimal32::min`, `Decimal32::max`. `partial_cmp` returns
