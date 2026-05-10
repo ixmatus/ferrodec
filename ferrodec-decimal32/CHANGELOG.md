@@ -64,6 +64,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Decimal32BuildError` on coefficient or exponent out-of-range),
   and a `Debug` impl that surfaces the bit pattern and decoded
   class.
+- `Decimal32::div(self, other, rm)` per IEEE 754-2019 §6.3 / §7.
+  Returns `(Decimal32, Status)`. The finite path scales the dividend
+  by `10^(db - da + PRECISION + 1)` so the integer quotient holds
+  ≥ 8 digits, then routes through `round_and_pack_finite` with the
+  post-scale remainder feeding the rounding sticky bit. `q_preferred
+  = exp_a - exp_b`. Special cases: `0 / 0` and `±∞ / ±∞` → NaN +
+  INVALID; `finite / 0` (finite ≠ 0) → ±∞ + DIV_BY_ZERO with XOR
+  sign; `±∞ / finite` → ±∞ XOR; `finite / ±∞` → ±0 XOR; sNaN /
+  qNaN propagation. 10 unit tests cover exact and inexact division
+  (1/3 → 0.3333333 Inexact), sign combinations, divide-by-zero,
+  zero-divided-by-zero, zero divided by finite, infinities,
+  overflow, underflow, and NaN propagation.
 - `Decimal32::mul(self, other, rm)` per IEEE 754-2019 §6.3 / §7.
   Returns `(Decimal32, Status)`. The finite path multiplies u32 × u32
   → u64 directly (no multiword machinery; the product max fits in

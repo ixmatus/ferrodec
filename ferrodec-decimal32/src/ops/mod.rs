@@ -9,6 +9,7 @@
 //! [`Decimal32`]: crate::Decimal32
 
 pub(crate) mod addsub;
+pub(crate) mod div;
 pub(crate) mod mul;
 pub(crate) mod round;
 
