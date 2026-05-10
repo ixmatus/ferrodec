@@ -64,6 +64,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Decimal32BuildError` on coefficient or exponent out-of-range),
   and a `Debug` impl that surfaces the bit pattern and decoded
   class.
+- Examples at `examples/`: `money.rs` (small-ledger telemetry with
+  tax-rate multiplication and cent-quantized totals; demonstrates
+  Decimal32's 7-digit headroom suits per-transaction reporting),
+  `rounding_modes.rs` (a side-by-side table showing every IEEE 754
+  rounding mode applied to halfway values like 1.005 / 1.015 /
+  -1.005 / -1.015), `transcendentals.rs` (exp, ln, sin, cos, sqrt
+  plus an INVALID-flag demo via `acos(2)`). All three run via
+  `cargo run --example NAME --features {fmt,transcendentals}`.
 - New `num-traits` feature: implements `Zero`, `One`, `Bounded`,
   `Signed`, `Num`, and the `From|To|Primitive` traits on Decimal32.
   Auto-enables `ops` (because `Num` requires
