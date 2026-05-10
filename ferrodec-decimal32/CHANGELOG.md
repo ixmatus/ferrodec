@@ -64,6 +64,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Decimal32BuildError` on coefficient or exponent out-of-range),
   and a `Debug` impl that surfaces the bit pattern and decoded
   class.
+- Conformance harness `toSci` dispatch arm wired up. The dispatch
+  parses the operand string, formats the result via `Display`, and
+  compares both the rendered output and the emitted IEEE 754 status
+  flags against the decTest expected output and `Conversion_syntax`
+  / `Inexact` / `Underflow` / `Overflow` conditions. Parse errors
+  (other than `ExponentOutOfRange`, which is deferred) are translated
+  into `(NaN, Status::INVALID)` to match decTest's negative-test
+  shape. Per-file expectation table now records 698 passes for
+  `dsBase.decTest` (of 909 cases; 209 skip under non-IEEE rounding
+  directives or extreme exponents) and 2 passes for `dsEncode.decTest`
+  (of 268 cases; the rest defer to the `dpd` feature in B16). 700
+  conformance cases pass with 0 failures.
 - Rounding kernel at `src/ops/round.rs`. The
   `round_and_pack_finite(coef: u64, unbiased_exp, q_preferred, sign,
   pre_sticky, rm, status)` entry point handles digit drop with

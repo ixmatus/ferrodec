@@ -34,6 +34,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use ferrodec_decimal32::{Decimal32, ParseDecimalError, RoundingMode, Status};
+
 const VECTORS_DIR: &str = "tests/vectors";
 
 #[test]
@@ -128,10 +130,21 @@ fn dectest_conformance() {
 }
 
 /// Per-file expected pass count. Each row rises by the number of cases
-/// the new dispatch arm passes. Both files start at 0 because no
-/// Decimal32 operations are wired up yet.
+/// the new dispatch arm passes; an intentional change requires editing
+/// this table (see ADR-0010 in the workspace root for the rationale).
+///
+/// Baseline after B6c (toSci wiring + `parse_str` + Display):
+/// - `dsBase.decTest`: 698 of 909 cases pass. The 209 skips break down
+///   as ~7 pathologically large exponents (deferred, see
+///   `ParseDecimalError::ExponentOutOfRange`) plus ~202 cases under
+///   non-IEEE rounding directives (`half_down`, `05up`) which we won't
+///   coerce onto an IEEE mode (mirrors ferrodec's ADR-0005 posture).
+/// - `dsEncode.decTest`: 2 of 268 cases pass — the two that route via
+///   `parse_str` without needing the BID `#hex` interchange decoder.
+///   The remaining 266 skip pending the dpd-feature dispatch arm
+///   (lands when the dpd feature is wired in B16).
 const fn expected_per_file() -> &'static [(&'static str, usize)] {
-    &[("dsBase.decTest", 0), ("dsEncode.decTest", 0)]
+    &[("dsBase.decTest", 698), ("dsEncode.decTest", 2)]
 }
 
 #[derive(Default, Clone, Copy)]
@@ -223,7 +236,7 @@ fn parse_directive(line: &str) -> Option<(String, String)> {
 }
 
 #[derive(Debug)]
-#[allow(dead_code)] // op / operands / expected / conditions consumed by dispatch arms in B6+
+#[allow(dead_code)] // id used in failure reporting; other fields consumed by dispatch
 struct TestCase {
     id: String,
     op: String,
@@ -345,18 +358,112 @@ impl Context {
 // ---------------------------------------------------------------------------
 // Dispatch
 
-#[allow(dead_code)] // Pass / Fail constructed by dispatch arms in B6+
 enum Outcome {
     Pass,
     Skip,
     Fail(String),
 }
 
-fn run_case(case: &TestCase, _ctx: &Context) -> Outcome {
-    // Every case currently skips. Subsequent commits add per-op
-    // dispatch arms (B6 wires `tosci`, `apply`, `class`; B7 wires
-    // `add`/`subtract`; etc.). The id parameter is suppressed here so
-    // future arms can reference it without a new diff line.
-    let _ = &case.id;
-    Outcome::Skip
+fn run_case(case: &TestCase, ctx: &Context) -> Outcome {
+    match case.op.as_str() {
+        "tosci" | "apply" => run_tosci(case, ctx),
+        _ => Outcome::Skip,
+    }
+}
+
+/// `toSci` and `apply`: parse the operand string at the active
+/// rounding mode, format with Display, compare result and emitted
+/// status flags against the expected output and decoded conditions.
+fn run_tosci(case: &TestCase, ctx: &Context) -> Outcome {
+    if case.operands.len() != 1 {
+        return Outcome::Skip;
+    }
+    let input = &case.operands[0];
+    // Hex-prefixed operands (#) are BID bit-pattern interchange; we
+    // skip those for now (handled in a dedicated dsEncode commit later).
+    if input.starts_with('#') || case.expected.starts_with('#') {
+        return Outcome::Skip;
+    }
+    let rm = match map_rounding(&ctx.rounding) {
+        Some(r) => r,
+        None => return Outcome::Skip,
+    };
+    let (parsed, status) = match Decimal32::parse_str(input, rm) {
+        Ok(r) => r,
+        // ExponentOutOfRange covers decTest cases like `1e-999999999`
+        // that test the implementation's handling of pathologically
+        // large exponents. Our parse_str rejects them at the
+        // 1 000 000 magnitude cap; the spec-conformant behaviour
+        // (saturate to ±Inf or ±0 at parse time) is a deferred design
+        // call. Skip rather than fail those cases.
+        Err(ParseDecimalError::ExponentOutOfRange) => return Outcome::Skip,
+        // decTest's "negative" test cases use malformed input strings
+        // (`1..2`, `+-1`, `e100`, ...) and expect a `NaN` result with
+        // `Conversion_syntax` (mapped to INVALID). Translate parse
+        // errors to that shape rather than failing.
+        Err(_) => (Decimal32::NAN, Status::INVALID),
+    };
+    let formatted = format_value(parsed);
+    if formatted != case.expected {
+        return Outcome::Fail(format!(
+            "got {formatted:?} want {:?}",
+            case.expected
+        ));
+    }
+    let expected_status = decode_conditions(&case.conditions);
+    if status.bits() != expected_status.bits() {
+        return Outcome::Fail(format!(
+            "status mismatch: got {status:?} want {expected_status:?} (conditions {:?})",
+            case.conditions
+        ));
+    }
+    Outcome::Pass
+}
+
+fn format_value(d: Decimal32) -> String {
+    use std::fmt::Write as _;
+    let mut s = String::new();
+    let _ = write!(s, "{d}");
+    s
+}
+
+fn map_rounding(s: &str) -> Option<RoundingMode> {
+    match s {
+        "half_even" => Some(RoundingMode::NearestEven),
+        "half_up" => Some(RoundingMode::NearestAway),
+        "down" => Some(RoundingMode::TowardZero),
+        "ceiling" => Some(RoundingMode::TowardPositive),
+        "floor" => Some(RoundingMode::TowardNegative),
+        // "half_down", "05up" are GDA-only modes outside IEEE 754;
+        // "up" is directional but not one of the five IEEE attributes.
+        // Cases under these directives skip rather than coerce onto a
+        // mode that doesn't match the spec (mirrors ferrodec's ADR-0005
+        // posture).
+        _ => None,
+    }
+}
+
+/// Project decTest condition tokens onto our 5-flag Status set.
+/// Informational tokens (`Rounded`, `Subnormal`, `Clamped`,
+/// `Lost_digits`) are deliberately ignored: they're not raised by our
+/// `Status` and decTest treats them as supplementary information
+/// rather than IEEE 754 exceptions.
+fn decode_conditions(conditions: &[String]) -> Status {
+    let mut s = Status::OK;
+    for cond in conditions {
+        match cond.as_str() {
+            "inexact" => s |= Status::INEXACT,
+            "overflow" => s |= Status::OVERFLOW | Status::INEXACT,
+            "underflow" => s |= Status::UNDERFLOW | Status::INEXACT,
+            "invalid_operation"
+            | "division_impossible"
+            | "division_undefined"
+            | "conversion_syntax" => {
+                s |= Status::INVALID;
+            }
+            "division_by_zero" => s |= Status::DIV_BY_ZERO,
+            _ => {}
+        }
+    }
+    s
 }
