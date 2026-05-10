@@ -64,6 +64,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Decimal32BuildError` on coefficient or exponent out-of-range),
   and a `Debug` impl that surfaces the bit pattern and decoded
   class.
+- `Decimal32::mul(self, other, rm)` per IEEE 754-2019 §6.3 / §7.
+  Returns `(Decimal32, Status)`. The finite path multiplies u32 × u32
+  → u64 directly (no multiword machinery; the product max fits in
+  ~47 bits) and adds the unbiased exponents to produce the preferred
+  quantum, then routes through `round_and_pack_finite`. The
+  special-case dispatcher handles sNaN propagation, qNaN propagation
+  (a preferred per §6.2.3), `0 × ±∞` → NaN + INVALID, and the XOR
+  sign rule for ±∞ × ±finite and ±∞ × ±∞. 11 unit tests cover
+  basics, sign combinations, quantum addition, full-precision
+  products, inexact rounding (1234567² → 1524156 × 10⁶ Inexact),
+  zero and overflow, underflow to zero, NaN propagation, and the
+  invalid 0 × ∞ case.
 - `Decimal32::add(self, other, rm)` and `Decimal32::sub(self, other, rm)`
   per IEEE 754-2019 §6.3 (sign rules) and §7 (exception flags). Both
   return `(Decimal32, Status)`. Subtract is implemented as

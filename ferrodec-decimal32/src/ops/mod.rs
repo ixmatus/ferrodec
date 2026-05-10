@@ -9,6 +9,7 @@
 //! [`Decimal32`]: crate::Decimal32
 
 pub(crate) mod addsub;
+pub(crate) mod mul;
 pub(crate) mod round;
 
 #[allow(unused_imports)] // consumed by convert::parse and arithmetic ops in subsequent commits
