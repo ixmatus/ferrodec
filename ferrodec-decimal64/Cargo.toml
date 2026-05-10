@@ -13,8 +13,36 @@ categories = ["embedded", "mathematics", "no-std", "no-std::no-alloc"]
 default = ["fmt"]
 # String parse + format. Uses core::fmt::Write, no alloc.
 fmt = []
+# f64 conversions (Decimal64 ↔ f64). No alloc; routes via the canonical
+# decimal-string round-trip. Decimal64 carries 16 digits whereas f64
+# only ~15.95, so the round-trip may lose the last Decimal64 digit;
+# callers needing full Decimal64 precision should use `parse_str` /
+# `Display` instead. Pulls `fmt` for the round-trip path.
+binary-float = ["fmt"]
+# Transcendental sub-features. Each pulls in `binary-float` because the
+# kernels route through f64 via `libm` (pure Rust, no_std-compatible,
+# no FFI). The libm f64 path caps achievable precision at ~10⁻¹⁵
+# relative — one digit below Decimal64's nominal 16. v1.0 ships this
+# baseline; a follow-on can replace it with a pure-decimal Taylor /
+# Newton kernel at u128 working precision when needed (public surface
+# is drop-in compatible).
+#
+# `exp-log`     — exp, ln.
+# `trig`        — sin, cos, tan, asin, acos, atan.
+# `hyperbolic`  — sinh, cosh, tanh, asinh, acosh, atanh. Implies
+#                 `exp-log`.
+# `pow`         — pow, cbrt. Implies `exp-log`.
+exp-log = ["binary-float", "dep:libm"]
+trig = ["binary-float", "dep:libm"]
+hyperbolic = ["exp-log"]
+pow = ["exp-log"]
+# Convenience meta-feature: enable every transcendental at once.
+transcendentals = ["trig", "exp-log", "hyperbolic", "pow"]
 # Compile Kani proof harnesses. Off in normal builds.
 kani = []
+
+[dependencies]
+libm = { version = "0.2", default-features = false, optional = true }
 
 [lints]
 workspace = true

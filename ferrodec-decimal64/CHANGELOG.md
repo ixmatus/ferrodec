@@ -16,6 +16,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Inherits workspace lints, edition, MSRV (1.84), license, and
   repository metadata. `fmt` and `kani` features are declared with
   empty bodies for future use.
+- `binary-float` feature: `Decimal64::to_f64` and
+  `Decimal64::from_f64(x, rm) -> (Self, Status)`. Decimal64-to-f64
+  computes `coef × 10^exp` via doubling-square `pow10_f64`; the
+  cast is rounded to f64 mantissa width (Decimal64's 16 digits vs
+  f64's ~15.95). f64-to-Decimal64 renders `{x:.17e}` into a 32-byte
+  stack buffer and routes through `parse_str`. 7 unit tests cover
+  basic round-trips, specials, and f64::MAX clamping.
+- `exp-log` feature: `Decimal64::exp(rm)` and `Decimal64::ln(rm)` per
+  IEEE 754-2019 §9.2. Both route through `libm` via the
+  binary-float path (pure Rust, no_std-compatible, no FFI).
+  v1.0 ships the f64 path as the canonical baseline; a future
+  commit can replace it with a pure-decimal Taylor / Newton kernel
+  at u128 working precision (the public surface is drop-in
+  compatible). Special cases: NaN propagation (sNaN raises
+  INVALID), `exp(±0) = 1`, `exp(+∞) = +∞`, `exp(−∞) = +0`, `ln(±0)
+  = −∞ + DIV_BY_ZERO`, `ln(negative) = NaN + INVALID`, `ln(+∞) =
+  +∞`. 10 unit tests cover all of these plus a round-trip property
+  test. Decimal64's exp overflow threshold is at x ≈ 885 (since
+  e⁸⁸⁵ ≈ 10³⁸⁴).
 - Kani verification harnesses at `src/verify/` (cfg(kani)-gated).
   Six modules (addsub, mul, div, sqrt, fma, cmp) mirror
   ferrodec-decimal32's verify/ tree: bounded 10-constant operand

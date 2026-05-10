@@ -6,6 +6,9 @@
 //!
 //! [`Decimal64`]: crate::Decimal64
 
+#[cfg(feature = "binary-float")]
+mod binary;
+
 #[cfg(feature = "fmt")]
 mod format;
 
