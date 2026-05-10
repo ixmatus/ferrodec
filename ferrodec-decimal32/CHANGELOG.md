@@ -64,6 +64,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Decimal32BuildError` on coefficient or exponent out-of-range),
   and a `Debug` impl that surfaces the bit pattern and decoded
   class.
+- Comparison and ordering: `Decimal32::partial_cmp`,
+  `Decimal32::total_cmp`, `Decimal32::compare_total_magnitude`,
+  `Decimal32::min`, `Decimal32::max`. `partial_cmp` returns
+  `(Option<Ordering>, Status)` per IEEE 754-2019 §5.6.1: `None` on
+  any NaN with `INVALID` raised for sNaN, `Some(Ordering)` otherwise
+  with cohort-equal values comparing equal numerically (so `+0 = -0`
+  and `1.0 = 1.00`). `total_cmp` returns `Ordering` directly per
+  §5.10 totalOrder: negative qNaN < negative sNaN < negative ∞ <
+  negative finite < `−0` < `+0` < positive finite < positive ∞ <
+  positive sNaN < positive qNaN, with NaN payloads breaking ties
+  ascending in the positive band and descending in the negative
+  band, and same-numeric-value cohorts ordered by biased exponent
+  (ascending for positive, descending for negative).
+  `compare_total_magnitude` is `total_cmp` applied to absolute
+  values. `min` / `max` per §5.3.1: NaN propagates (sNaN raises
+  INVALID and quietens; qNaN passes through), `min(+0, −0) = −0`,
+  `max(+0, −0) = +0`. 13 unit tests cover basic ordering, sign
+  comparison, zero-cohort equality, finite-cohort equality,
+  infinities, NaN comparison and INVALID emission, total-order
+  rank checks (including negative qNaN at the bottom and `−0 < +0`),
+  cohort ordering for equal numerics, min/max basics, min/max zero
+  signs, min/max NaN behaviour, and totalOrderMag sign
+  independence.
 - `Decimal32::fma(self, b, c, rm)` per IEEE 754-2019 §5.4.1 fused
   multiply-add. Computes `self * b + c` with a single rounding step;
   the intermediate product is preserved exactly before the addition.

@@ -37,6 +37,7 @@
 mod bid;
 mod classify;
 mod classify_types;
+mod cmp;
 mod convert;
 mod decimal;
 mod ops;
