@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-05-10
+
+### Changed
+
+- `Status`, `RoundingMode`, and `IeeeClass` now re-export from the
+  new [`ferrodec-ieee`](https://crates.io/crates/ferrodec-ieee)
+  crate (v0.1.0). The types are byte-compatible with the previous
+  release — `ferrodec_decimal64::Status` and `ferrodec::Status`
+  resolve to the *same* concrete type, so cross-precision interop
+  works without conversion. ADR-0012 records the rationale.
+
 ## [1.0.0] - 2026-05-10
 
 Initial release. IEEE 754-2019 Decimal64 in pure Rust, `no_std`-

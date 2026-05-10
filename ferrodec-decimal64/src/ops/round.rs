@@ -20,7 +20,7 @@ use crate::bid::{
     pack_finite, pack_infinity, BIAS, BIASED_EXP_MAX, COEFFICIENT_LIMIT, PRECISION,
 };
 use crate::decimal::Decimal64;
-use crate::status::{RoundingMode, Status};
+use ferrodec_ieee::{RoundingMode, Status};
 
 /// `10^k` for `k <= 19` (the largest power of ten that fits in `u64`).
 const POW10_U64: [u64; 20] = [

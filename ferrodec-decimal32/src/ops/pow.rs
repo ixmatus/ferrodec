@@ -6,7 +6,7 @@
 
 use crate::bid::{classify_bits, Class};
 use crate::decimal::Decimal32;
-use crate::status::{RoundingMode, Status};
+use ferrodec_ieee::{RoundingMode, Status};
 
 impl Decimal32 {
     /// IEEE 754-2019 §9.2 `pow(self, exponent)` rounded by `rm`.

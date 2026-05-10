@@ -16,7 +16,7 @@ use core::fmt::Write as _;
 
 use crate::bid::{classify_bits, BIAS, Class};
 use crate::decimal::Decimal32;
-use crate::status::{RoundingMode, Status};
+use ferrodec_ieee::{RoundingMode, Status};
 
 impl Decimal32 {
     /// Lossy convert to `f64`. Specials map straight through: `NaN →

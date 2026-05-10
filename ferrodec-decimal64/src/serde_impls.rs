@@ -20,7 +20,7 @@ use serde::de::{self, Deserialize, Deserializer, Visitor};
 use serde::ser::{Serialize, Serializer};
 
 use crate::decimal::Decimal64;
-use crate::status::RoundingMode;
+use ferrodec_ieee::RoundingMode;
 
 impl Serialize for Decimal64 {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
@@ -91,7 +91,7 @@ pub mod serde_bid {
                 Ok(Decimal64::from_bits(v))
             }
             fn visit_str<E: de::Error>(self, v: &str) -> Result<Self::Value, E> {
-                Decimal64::parse_str(v, crate::status::RoundingMode::NearestEven)
+                Decimal64::parse_str(v, ferrodec_ieee::RoundingMode::NearestEven)
                     .map(|(d, _)| d)
                     .map_err(E::custom)
             }

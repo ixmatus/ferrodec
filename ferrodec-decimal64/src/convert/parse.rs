@@ -30,7 +30,7 @@
 use crate::bid::{pack_quiet_nan, pack_signaling_nan, T_MASK};
 use crate::decimal::Decimal64;
 use crate::ops::round_and_pack_finite;
-use crate::status::{RoundingMode, Status};
+use ferrodec_ieee::{RoundingMode, Status};
 
 /// Parse error returned by [`Decimal64::parse_str`].
 ///

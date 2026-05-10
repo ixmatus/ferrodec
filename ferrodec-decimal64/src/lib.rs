@@ -24,7 +24,6 @@
 
 mod bid;
 mod classify;
-mod classify_types;
 mod cmp;
 mod convert;
 mod decimal;
@@ -35,14 +34,12 @@ mod ops;
 mod ops_traits;
 #[cfg(feature = "serde")]
 mod serde_impls;
-mod status;
 #[cfg(kani)]
 mod verify;
 
-pub use classify_types::IeeeClass;
 #[cfg(feature = "fmt")]
 pub use convert::{Engineering, ParseDecimalError};
 pub use decimal::{Decimal64, Decimal64BuildError};
+pub use ferrodec_ieee::{IeeeClass, RoundingMode, Status};
 #[cfg(feature = "serde")]
 pub use serde_impls::serde_bid;
-pub use status::{RoundingMode, Status};

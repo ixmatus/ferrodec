@@ -21,7 +21,7 @@
 
 use crate::bid::{classify_bits, BIAS, Class, COEFFICIENT_LIMIT};
 use crate::decimal::Decimal32;
-use crate::status::{RoundingMode, Status};
+use ferrodec_ieee::{RoundingMode, Status};
 
 const POW10_U64: [u64; 16] = [
     1,

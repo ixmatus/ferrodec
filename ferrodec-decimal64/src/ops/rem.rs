@@ -8,7 +8,7 @@
 
 use crate::bid::{classify_bits, BIAS, Class, COEFFICIENT_LIMIT};
 use crate::decimal::Decimal64;
-use crate::status::{RoundingMode, Status};
+use ferrodec_ieee::{RoundingMode, Status};
 
 const POW10_U128: [u128; 24] = {
     let mut t = [0u128; 24];

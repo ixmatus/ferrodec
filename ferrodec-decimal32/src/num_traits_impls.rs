@@ -5,7 +5,7 @@
 //! [`Zero`], [`One`], [`Bounded`], [`Num`], [`Signed`],
 //! [`FromPrimitive`], [`ToPrimitive`]. All conversions default to
 //! [`RoundingMode::NearestEven`] when a rounding decision is needed
-//! and drop the per-operation [`Status`](crate::status::Status).
+//! and drop the per-operation [`Status`](ferrodec_ieee::Status).
 //!
 //! Decimal32's 7-digit precision is narrower than `i64` / `u64`, so
 //! the integer-conversion paths through `to_*` may lose precision.
@@ -17,7 +17,7 @@ use num_traits::{Bounded, FromPrimitive, Num, One, Signed, ToPrimitive, Zero};
 
 use crate::convert::ParseDecimalError;
 use crate::decimal::Decimal32;
-use crate::status::RoundingMode;
+use ferrodec_ieee::RoundingMode;
 
 const RM: RoundingMode = RoundingMode::NearestEven;
 

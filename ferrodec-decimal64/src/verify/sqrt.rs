@@ -1,7 +1,7 @@
 //! Kani harnesses for `Decimal64::sqrt`.
 
 use super::{operand, rm_from_u8, NUM_OPERANDS};
-use crate::status::RoundingMode;
+use ferrodec_ieee::RoundingMode;
 use crate::decimal::Decimal64;
 
 #[kani::proof]

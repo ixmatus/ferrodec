@@ -23,7 +23,7 @@ mod mul;
 mod sqrt;
 
 use crate::decimal::Decimal32;
-use crate::status::RoundingMode;
+use ferrodec_ieee::RoundingMode;
 
 const NUM_OPERANDS: u8 = 10;
 

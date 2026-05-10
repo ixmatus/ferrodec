@@ -32,7 +32,7 @@
 
 use crate::bid::{classify_bits, BIAS, Class};
 use crate::decimal::Decimal32;
-use crate::status::{RoundingMode, Status};
+use ferrodec_ieee::{RoundingMode, Status};
 
 use super::round::round_and_pack_finite;
 

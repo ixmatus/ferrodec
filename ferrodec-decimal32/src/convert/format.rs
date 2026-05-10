@@ -272,7 +272,7 @@ fn write_engineering(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::status::RoundingMode;
+    use ferrodec_ieee::RoundingMode;
 
     extern crate alloc;
     use alloc::format;

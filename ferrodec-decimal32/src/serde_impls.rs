@@ -20,7 +20,7 @@ use serde::de::{self, Deserialize, Deserializer, Visitor};
 use serde::ser::{Serialize, Serializer};
 
 use crate::decimal::Decimal32;
-use crate::status::RoundingMode;
+use ferrodec_ieee::RoundingMode;
 
 impl Serialize for Decimal32 {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
@@ -93,7 +93,7 @@ pub mod serde_bid {
                     .map_err(|_| E::custom("u64 value out of u32 range for BID-32"))
             }
             fn visit_str<E: de::Error>(self, v: &str) -> Result<Self::Value, E> {
-                Decimal32::parse_str(v, crate::status::RoundingMode::NearestEven)
+                Decimal32::parse_str(v, ferrodec_ieee::RoundingMode::NearestEven)
                     .map(|(d, _)| d)
                     .map_err(E::custom)
             }

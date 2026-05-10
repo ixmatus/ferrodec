@@ -16,7 +16,7 @@ use core::cmp::Ordering;
 
 use crate::bid::{classify_bits, decimal_digit_count, BIAS, Class};
 use crate::decimal::Decimal64;
-use crate::status::Status;
+use ferrodec_ieee::Status;
 
 impl Decimal64 {
     /// IEEE 754-2019 §5.6.1 numeric comparison.

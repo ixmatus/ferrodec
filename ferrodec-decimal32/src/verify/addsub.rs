@@ -13,7 +13,7 @@
 //!    rounding modes except `TowardNegative`, which yields `−0`.
 
 use super::{operand, rm_from_u8, NUM_OPERANDS};
-use crate::status::RoundingMode;
+use ferrodec_ieee::RoundingMode;
 use crate::decimal::Decimal32;
 
 #[kani::proof]

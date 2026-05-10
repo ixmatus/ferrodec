@@ -13,9 +13,9 @@ use crate::bid::{
     pack_signaling_nan, sign_of, type_field, Class, COEFFICIENT_LIMIT, FORM_B_MARKER,
     NAN_SIGNALING_SHIFT, PRECISION, SIGN_SHIFT, TYPE_INFINITY, TYPE_NAN, T_BITS, T_MASK,
 };
-use crate::classify_types::IeeeClass;
+use ferrodec_ieee::IeeeClass;
 use crate::decimal::Decimal32;
-use crate::status::Status;
+use ferrodec_ieee::Status;
 
 /// Maximum canonical NaN payload: `10^6` (i.e. payload representable as
 /// a 6-decimal-digit integer). For BID-32 the payload field is 20 bits

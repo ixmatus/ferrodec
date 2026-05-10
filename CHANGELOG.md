@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.14.4] - 2026-05-10
+
+### Changed
+
+- `Status`, `RoundingMode`, and `IeeeClass` now re-export from the
+  new [`ferrodec-ieee`](https://crates.io/crates/ferrodec-ieee)
+  crate (v0.1.0). The types are byte-compatible with previous
+  releases — `ferrodec::Status` and `ferrodec_decimal32::Status`
+  resolve to the *same* concrete type, so cross-precision interop
+  works without conversion. Triggered by the "stand alone first;
+  resist framework abstraction until 3 concrete uses exist"
+  threshold being met (Decimal128 + Decimal32 + Decimal64), per
+  ADR-0012.
+
 ### Internal
 
 - **Convert ferrodec to a single-member Cargo workspace.** Adds

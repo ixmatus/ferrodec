@@ -12,7 +12,7 @@
 use core::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Rem, RemAssign, Sub, SubAssign};
 
 use crate::decimal::Decimal32;
-use crate::status::RoundingMode;
+use ferrodec_ieee::RoundingMode;
 
 const DEFAULT_RM: RoundingMode = RoundingMode::NearestEven;
 
