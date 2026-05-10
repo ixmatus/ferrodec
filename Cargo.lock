@@ -240,6 +240,7 @@ name = "ferrodec-decimal32"
 version = "0.1.0"
 dependencies = [
  "libm",
+ "num-traits",
  "serde",
  "serde_json",
  "serde_test",

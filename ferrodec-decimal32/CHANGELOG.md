@@ -64,6 +64,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Decimal32BuildError` on coefficient or exponent out-of-range),
   and a `Debug` impl that surfaces the bit pattern and decoded
   class.
+- New `num-traits` feature: implements `Zero`, `One`, `Bounded`,
+  `Signed`, `Num`, and the `From|To|Primitive` traits on Decimal32.
+  Auto-enables `ops` (because `Num` requires
+  `Add + Sub + Mul + Div + Rem`), `binary-float` (because the
+  integer-conversion paths route through f64), and `fmt` (because
+  `Num::from_str_radix` routes through `parse_str`). 7 unit tests
+  cover the trait shapes plus a banker's-rounding `signum`,
+  `is_positive` / `is_negative` semantics on NaN, the
+  positive-difference `abs_sub`, and `to_i64` / `to_u64` /
+  `to_f64` for representative values (rejecting NaN / Infinity /
+  out-of-range).
 - New `serde` feature: `Serialize` / `Deserialize` impls for
   `Decimal32`. Default serialisation routes through the canonical
   decimal string (`Display` for serialise, `parse_str` for

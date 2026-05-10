@@ -45,11 +45,19 @@ ops = []
 # pattern in binary formats. Pulls in `fmt` because the default
 # representation goes through `parse_str` / `Display`.
 serde = ["fmt", "dep:serde"]
+# `num-traits` adapter: implements `Zero`, `One`, `Bounded`,
+# `Signed`, `Num`, and the `From|To|Primitive` traits on Decimal32.
+# `Num` requires `Add + Sub + Mul + Div + Rem`, so this feature
+# auto-enables `ops`. Pulls `fmt` because `Num::from_str_radix`
+# routes through `parse_str`. Pulls `binary-float` because
+# integer-conversion paths route through `f64`.
+num-traits = ["fmt", "ops", "binary-float", "dep:num-traits", "dep:libm"]
 # Compile Kani proof harnesses. Off in normal builds.
 kani = []
 
 [dependencies]
 libm = { version = "0.2", default-features = false, optional = true }
+num-traits = { version = "0.2", default-features = false, optional = true }
 serde = { version = "1", default-features = false, optional = true }
 
 [dev-dependencies]

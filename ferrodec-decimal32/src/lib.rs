@@ -40,6 +40,8 @@ mod classify_types;
 mod cmp;
 mod convert;
 mod decimal;
+#[cfg(feature = "num-traits")]
+mod num_traits_impls;
 mod ops;
 #[cfg(feature = "ops")]
 mod ops_traits;
