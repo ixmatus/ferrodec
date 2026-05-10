@@ -28,6 +28,7 @@
 
 #![no_std]
 
+mod bid;
 mod classify_types;
 mod status;
 
