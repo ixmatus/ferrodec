@@ -4,9 +4,36 @@
 //! `cbrt(x)` is the real cube root, defined for all real x including
 //! negatives.
 
-use crate::bid::{classify_bits, Class};
+use crate::bid::{classify_bits, Class, BIAS};
 use crate::decimal::Decimal32;
 use ferrodec_ieee::{RoundingMode, Status};
+
+/// `true` iff `d` numerically equals `+1`, regardless of cohort.
+///
+/// Matches every Form A / Form B encoding of `1 × 10⁰`, `10 × 10⁻¹`,
+/// `100 × 10⁻²`, ..., up to the largest power-of-10 coefficient that
+/// fits in 7 digits (`10⁶ × 10⁻⁶`).
+fn equals_one(d: Decimal32) -> bool {
+    if let Class::Finite {
+        sign: false,
+        biased_exp,
+        coefficient,
+    } = classify_bits(d.0)
+    {
+        let exp = biased_exp as i32 - BIAS as i32;
+        if exp > 0 {
+            return false;
+        }
+        let k = (-exp) as u32;
+        // Coefficient must equal 10^k. k is bounded by PRECISION-1 = 6
+        // for the largest power-of-10 cohort that fits.
+        if k > 6 {
+            return false;
+        }
+        return coefficient == 10u32.pow(k);
+    }
+    false
+}
 
 impl Decimal32 {
     /// IEEE 754-2019 §9.2 `pow(self, exponent)` rounded by `rm`.
@@ -28,7 +55,10 @@ impl Decimal32 {
             return (Decimal32::ONE, Status::OK);
         }
         // pow(1, y) = 1 (even for y = NaN, including signaling NaN).
-        if self.to_bits() == Decimal32::ONE.to_bits() {
+        // §9.2 ties this to *value*, not cohort, so we must catch
+        // every cohort of 1 (`1×10⁰`, `10×10⁻¹`, `100×10⁻²`, ...),
+        // not just the canonical bit pattern.
+        if equals_one(self) {
             // sNaN exponent still raises INVALID per the §9.2 rule.
             if let Class::SignalingNaN { .. } = classify_bits(exponent.0) {
                 return (Decimal32::ONE, Status::INVALID);
@@ -175,6 +205,28 @@ mod tests {
 
         let (r, _) = Decimal32::ONE.pow(Decimal32::NAN, RoundingMode::NearestEven);
         assert_eq!(r.to_bits(), Decimal32::ONE.to_bits());
+    }
+
+    #[test]
+    fn pow_non_canonical_one_cohort_short_circuits() {
+        // Regression: §9.2 ties pow(1, y) = 1 to *value*, not cohort.
+        // The earlier bit-pattern check missed `10 × 10⁻¹`, `100 ×
+        // 10⁻²`, etc. — non-canonical cohorts of the value 1.
+        for (coef, exp) in [(10i32, -1), (100, -2), (1_000_000, -6)] {
+            let one_cohort = Decimal32::try_new(coef, exp).unwrap();
+            // pow(this-cohort-of-1, 5) = 1
+            let (r, s) = one_cohort.pow(from_int(5, 0), RoundingMode::NearestEven);
+            assert_eq!(r.to_bits(), Decimal32::ONE.to_bits(), "pow({coef}E{exp}, 5)");
+            assert!(s.is_ok());
+            // pow(this-cohort-of-1, qNaN) = 1
+            let (r, s) = one_cohort.pow(Decimal32::NAN, RoundingMode::NearestEven);
+            assert_eq!(r.to_bits(), Decimal32::ONE.to_bits(), "pow({coef}E{exp}, NaN)");
+            assert!(s.is_ok());
+            // pow(this-cohort-of-1, sNaN) = 1 + INVALID per §9.2
+            let (r, s) = one_cohort.pow(Decimal32::SIGNALING_NAN, RoundingMode::NearestEven);
+            assert_eq!(r.to_bits(), Decimal32::ONE.to_bits(), "pow({coef}E{exp}, sNaN)");
+            assert!(s.invalid());
+        }
     }
 
     #[test]

@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.4] - 2026-05-10
+
+### Fixed
+
+- `pow(self, exponent)` now correctly short-circuits the
+  `pow(1, y) = 1` rule for every cohort of the value 1, not just
+  the canonical `1 × 10⁰` bit pattern. `10 × 10⁻¹`, `100 × 10⁻²`,
+  …, `10⁶ × 10⁻⁶` all now route through the short-circuit. Per
+  IEEE 754-2019 §9.2 the rule is value-bound, not cohort-bound.
+  Surfaced by the 6-agent review.
+
 ## [1.0.3] - 2026-05-10
 
 ### Fixed
