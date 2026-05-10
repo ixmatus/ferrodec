@@ -22,6 +22,8 @@ use crate::bid::{classify_bits, Class};
 use crate::decimal::Decimal32;
 use ferrodec_ieee::{RoundingMode, Status};
 
+use super::f64_bridge::{f64_unary, f64_unary_via_value};
+
 impl Decimal32 {
     /// IEEE 754-2019 §9.2 `sin(self)` rounded by `rm`.
     #[must_use]
@@ -194,22 +196,6 @@ impl Decimal32 {
         }
         (val, status)
     }
-}
-
-fn f64_unary(d: Decimal32, op: fn(f64) -> f64, rm: RoundingMode) -> (Decimal32, Status) {
-    f64_unary_via_value(d.to_f64(), op, rm)
-}
-
-fn f64_unary_via_value(x: f64, op: fn(f64) -> f64, rm: RoundingMode) -> (Decimal32, Status) {
-    let r = op(x);
-    if r.is_nan() {
-        return (Decimal32::NAN, Status::INVALID);
-    }
-    let (val, mut status) = Decimal32::from_f64(r, rm);
-    if !val.is_zero() {
-        status |= Status::INEXACT;
-    }
-    (val, status)
 }
 
 #[cfg(test)]

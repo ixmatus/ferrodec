@@ -24,6 +24,8 @@ use crate::bid::{classify_bits, Class};
 use crate::decimal::Decimal64;
 use ferrodec_ieee::{RoundingMode, Status};
 
+use super::f64_bridge::{f64_unary, f64_unary_via_value};
+
 impl Decimal64 {
     /// IEEE 754-2019 §9.2 `sinh(self)` rounded by `rm`.
     #[must_use]
@@ -182,24 +184,6 @@ impl Decimal64 {
     }
 }
 
-fn f64_unary(d: Decimal64, op: fn(f64) -> f64, rm: RoundingMode) -> (Decimal64, Status) {
-    f64_unary_via_value(d.to_f64(), op, rm)
-}
-
-fn f64_unary_via_value(x: f64, op: fn(f64) -> f64, rm: RoundingMode) -> (Decimal64, Status) {
-    let r = op(x);
-    if r.is_infinite() {
-        return (
-            if r > 0.0 { Decimal64::INFINITY } else { Decimal64::NEG_INFINITY },
-            Status::OVERFLOW | Status::INEXACT,
-        );
-    }
-    let (val, mut status) = Decimal64::from_f64(r, rm);
-    if !val.is_zero() {
-        status |= Status::INEXACT;
-    }
-    (val, status)
-}
 
 #[cfg(test)]
 mod tests {
