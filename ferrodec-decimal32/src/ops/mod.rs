@@ -10,6 +10,8 @@
 
 pub(crate) mod addsub;
 pub(crate) mod div;
+#[cfg(feature = "exp-log")]
+pub(crate) mod exp;
 pub(crate) mod fma;
 pub(crate) mod mul;
 pub(crate) mod quantum;

@@ -64,6 +64,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Decimal32BuildError` on coefficient or exponent out-of-range),
   and a `Debug` impl that surfaces the bit pattern and decoded
   class.
+- `Decimal32::exp` and `Decimal32::ln` per IEEE 754-2019 §9.2 under
+  the new `exp-log` feature. Both route through `f64` via `libm`
+  (pure Rust, `no_std`-compatible, no FFI). The double-rounding
+  error is below 1 ULP at Decimal32's 7-digit precision because
+  `f64` carries ~15.95 digits, far above what we need. Special
+  cases handled directly: `exp(±0) = 1`, `exp(+∞) = +∞`,
+  `exp(−∞) = +0`, `ln(±0) = −∞ + DIV_BY_ZERO`,
+  `ln(negative) = NaN + INVALID`, NaN propagation; overflow /
+  underflow in the f64 result raises `OVERFLOW + INEXACT` /
+  `UNDERFLOW + INEXACT` explicitly. `INEXACT` is set on every
+  non-zero finite output (the irrationality of typical
+  transcendental results means an exact 7-digit Decimal32 match
+  is essentially never coincidental). 11 unit tests cover
+  `exp(0) = 1`, `exp(1) ≈ e`, `exp(-1) ≈ 1/e`, overflow,
+  underflow, infinity / NaN, `ln(1) = 0`, `ln(e) ≈ 1`,
+  `ln(10) ≈ ln10`, the `ln(±0)` and `ln(negative)` errors, and
+  exp/ln round-trip on integer inputs.
+- New optional dependency: `libm = "0.2"` (default-features = false,
+  optional). Pulled in by the transcendental features (`exp-log`,
+  `trig`, `hyperbolic`, `pow`).
+- New `binary-float` feature for `Decimal32 ↔ f64` conversion
+  (`Decimal32::to_f64`, `Decimal32::from_f64(f64, RoundingMode)`).
+  No allocation: `from_f64` formats via `core::fmt::Write` into a
+  32-byte stack buffer, then routes through the existing
+  `parse_str`. Auto-enabled by every transcendental feature.
+- New `transcendentals` meta-feature (mirrors ferrodec): enables
+  every transcendental cluster at once.
+- Bug fix in `parse_str`: fractional digits beyond
+  `MAX_PARSED_DIGITS` no longer increment `digits_after_point`.
+  Previously they did, which placed the coefficient at the wrong
+  quantum (off by the count of trailing sticky digits) for inputs
+  with more than 16 significant fractional digits. The bug never
+  surfaced before because Decimal32 conformance vectors don't
+  exercise that boundary directly; it manifested when the new
+  `from_f64` path emitted 17-digit scientific-notation strings
+  for parsing.
 - Kani verification harnesses at `src/verify/` (compiled only under
   `cfg(kani)`). Six modules cover the major arithmetic surface
   (addsub, mul, div, sqrt, fma, cmp). Each harness binds operands to

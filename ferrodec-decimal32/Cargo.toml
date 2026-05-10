@@ -13,8 +13,31 @@ categories = ["embedded", "mathematics", "no-std", "no-std::no-alloc"]
 default = ["fmt"]
 # String parse + format. Uses core::fmt::Write, no alloc.
 fmt = []
+# f64 conversions (Decimal32 ↔ f64). No alloc; routes via the canonical
+# decimal-string round-trip.
+binary-float = ["fmt"]
+# Transcendental sub-features. Each pulls in `binary-float` because the
+# kernels route through f64 via `libm` (pure Rust, no_std-compatible,
+# no FFI). The libm round-trip is correctly rounded for almost all
+# Decimal32 inputs; the worst-case double-rounding error is under
+# 1 ULP at 7 digits.
+#
+# `exp-log`     — exp, ln.
+# `trig`        — sin, cos, tan, asin, acos, atan.
+# `hyperbolic`  — sinh, cosh, tanh, asinh, acosh, atanh. Implies
+#                 `exp-log`.
+# `pow`         — pow, cbrt. Implies `exp-log`.
+exp-log = ["binary-float", "dep:libm"]
+trig = ["binary-float", "dep:libm"]
+hyperbolic = ["exp-log"]
+pow = ["exp-log"]
+# Convenience meta-feature: enable every transcendental at once.
+transcendentals = ["trig", "exp-log", "hyperbolic", "pow"]
 # Compile Kani proof harnesses. Off in normal builds.
 kani = []
+
+[dependencies]
+libm = { version = "0.2", default-features = false, optional = true }
 
 [lints]
 workspace = true

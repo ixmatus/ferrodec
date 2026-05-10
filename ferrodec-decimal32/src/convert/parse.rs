@@ -146,11 +146,21 @@ fn parse_str_inner(
                     if d != 0 {
                         sticky = true;
                     }
-                    if decimal_seen {
-                        digits_after_point += 1;
-                    } else {
+                    if !decimal_seen {
+                        // Trailing-integer digits we cannot fold into
+                        // `coef` act as a 10× shift on the value (each
+                        // such digit pushes the implicit decimal point
+                        // one place further right). Track them so the
+                        // final `unbiased_exp` absorbs the shift.
                         extra_int_digits = extra_int_digits.saturating_add(1);
                     }
+                    // Sticky-only fractional digits sit *below* the
+                    // coefficient's representation precision and feed
+                    // rounding only — `digits_after_point` is *not*
+                    // incremented, since `unbiased_exp =
+                    // -digits_after_point` must reflect the
+                    // coefficient's quantum, not the input's full
+                    // fractional length.
                 }
                 idx += 1;
             }
