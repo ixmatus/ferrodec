@@ -16,6 +16,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Inherits workspace lints, edition, MSRV (1.84), license, and
   repository metadata. `fmt` and `kani` features are declared with
   empty bodies for future use.
+- Comparison and ordering: `Decimal64::partial_cmp`,
+  `Decimal64::total_cmp`, `Decimal64::compare_total_magnitude`,
+  `Decimal64::min`, `Decimal64::max` (mirrors Decimal32's surface
+  per IEEE 754-2019 §5.6.1, §5.10, §5.3.1). 13 unit tests.
+- Quantum-manipulating operations: `Decimal64::quantize`, `scaleb`,
+  `logb`, `next_up`, `next_down` (mirrors Decimal32's per
+  IEEE 754-2019 §5.3.1 / §5.3.3). 13 unit tests.
 - `Decimal64::sqrt` and `Decimal64::fma` per IEEE 754-2019.
   sqrt scales the working coefficient to 33 or 34 decimal digits in
   u128 (parity-matched to the working exponent's parity), takes

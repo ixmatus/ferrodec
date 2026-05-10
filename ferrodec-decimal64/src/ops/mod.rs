@@ -12,6 +12,7 @@ pub(crate) mod addsub;
 pub(crate) mod div;
 pub(crate) mod fma;
 pub(crate) mod mul;
+pub(crate) mod quantum;
 pub(crate) mod rem;
 pub(crate) mod round;
 pub(crate) mod sqrt;
