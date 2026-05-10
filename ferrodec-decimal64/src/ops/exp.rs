@@ -15,9 +15,16 @@
 //! * NaN propagates (sNaN raises INVALID).
 //! * `exp(±∞)`: `+∞ → +∞`, `−∞ → +0`.
 //! * `exp(±0) = 1`.
-//! * Out of range: `exp(x)` for `x` above the format's overflow
-//!   threshold (~885) → `+∞ + OVERFLOW`. For `x` below the underflow
-//!   threshold (~−908) → `+0 + UNDERFLOW + INEXACT`.
+//! * Out of range: in principle, Decimal64's exponent range supports
+//!   `exp(x)` up to `x ≈ 885` (since `e^885 ≈ 10^384 = MAX`) and
+//!   underflow to subnormals down to `x ≈ −908`. **In practice the
+//!   `f64`-pipeline overflows first**: `libm::exp` saturates `f64`
+//!   at `x ≈ 709.78`, and `libm::exp(-x)` underflows `f64` at
+//!   `x ≈ 745`. So this implementation returns `+∞ + OVERFLOW` at
+//!   `x ≥ 710` (rather than 885) and `+0 + UNDERFLOW + INEXACT` at
+//!   `x ≤ −745` (rather than −908). A future pure-decimal Taylor /
+//!   Newton kernel at u128 working precision would close the gap;
+//!   the public surface is drop-in compatible.
 //!
 //! # Special cases for `ln`
 //!

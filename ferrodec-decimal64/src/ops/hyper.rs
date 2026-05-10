@@ -6,6 +6,19 @@
 //! so the f64 round-trip caps achievable precision at ~10⁻¹⁵
 //! relative. v1.0 ships this baseline; a future commit can replace
 //! it with a pure-decimal kernel at u128 working precision.
+//!
+//! # f64-pipeline range limits
+//!
+//! `sinh` and `cosh` grow as `±e^|x| / 2`, so they saturate `f64` at
+//! the same threshold as [`Decimal64::exp`]: `|x| ≳ 710` overflows
+//! `f64` and the implementation returns `±∞ + OVERFLOW + INEXACT`.
+//! Decimal64's exponent range in principle supports magnitudes up to
+//! `~e^885`, but the f64 pipeline gives up first. A future
+//! pure-decimal kernel would close the gap (see
+//! [`Decimal64::exp`]'s module doc for the same discussion).
+//!
+//! `tanh`, `asinh`, `acosh`, `atanh` saturate well inside the f64
+//! range and are unaffected.
 
 use crate::bid::{classify_bits, Class};
 use crate::decimal::Decimal64;
