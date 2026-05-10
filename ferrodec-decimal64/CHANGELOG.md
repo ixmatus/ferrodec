@@ -16,6 +16,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Inherits workspace lints, edition, MSRV (1.84), license, and
   repository metadata. `fmt` and `kani` features are declared with
   empty bodies for future use.
+- `Decimal64` struct moved from `lib.rs` into `decimal.rs` alongside
+  IEEE 754 distinguished constants (`ZERO`, `NEG_ZERO`, `ONE`,
+  `NEG_ONE`, `TEN`, `MAX`, `MIN`, `MIN_POSITIVE`,
+  `MIN_POSITIVE_NORMAL`, `INFINITY`, `NEG_INFINITY`, `NAN`,
+  `SIGNALING_NAN`), `from_bits` / `to_bits` (raw u64 round-trip),
+  `try_new` and `try_new_unsigned` constructors (return
+  `Decimal64BuildError` on coefficient or exponent out-of-range),
+  and a `Debug` impl that surfaces the bit pattern and decoded
+  class.
+- Classification predicates and operations: `is_nan`,
+  `is_signaling_nan`, `is_quiet_nan`, `is_infinite`, `is_finite`,
+  `is_zero`, `is_normal`, `is_subnormal`, `is_sign_negative`,
+  `is_sign_positive`, `classify` (returning `core::num::FpCategory`),
+  `ieee_class` (returning `IeeeClass`), `abs` and `neg` (no status),
+  `abs_with_status` and `neg_with_status` (raise `Status::INVALID`
+  on signaling-NaN input, otherwise quiet), `copysign`,
+  `is_canonical` (handles BID-64's Form A / Form B asymmetry: Form
+  A always canonical because its 53-bit coefficient field is
+  bounded below 10¹⁶; Form B canonical iff the decoded coefficient
+  is < 10¹⁶), and `canonicalize` (rewrites non-canonical inputs to
+  the equivalent canonical encoding). 21 unit tests cover the
+  predicates, sign manipulation, canonicalisation, and the
+  `Decimal64` constructor surface.
 - Conformance harness skeleton at `tests/conformance.rs` (gated on
   the `fmt` feature). Parses `.decTest` files into structured cases
   with directive-aware context (precision, max/min exponent,

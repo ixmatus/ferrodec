@@ -1,13 +1,7 @@
 //! IEEE 754-2019 Decimal64 in pure Rust. `no_std` capable, targeted at
 //! embedded use, with the verification posture established by the
-//! `ferrodec` crate (Decimal128).
-//!
-//! This crate is in early development. The currently exposed surface
-//! is only the [`Decimal64`] type wrapper; arithmetic, classification,
-//! parse, format, and verification land in subsequent commits per the
-//! plan archived at
-//! `docs/decisions/plans/2026-05-09-workspace-and-decimal-siblings.md`
-//! in the workspace root.
+//! `ferrodec` crate (Decimal128) and the smaller sibling
+//! `ferrodec-decimal32`.
 //!
 //! # IEEE 754-2019 §3.5 Decimal64 parameters
 //!
@@ -29,16 +23,11 @@
 #![no_std]
 
 mod bid;
+mod classify;
 mod classify_types;
+mod decimal;
 mod status;
 
 pub use classify_types::IeeeClass;
+pub use decimal::{Decimal64, Decimal64BuildError};
 pub use status::{RoundingMode, Status};
-
-/// IEEE 754-2019 binary integer-significand Decimal64.
-///
-/// Wraps a 64-bit BID encoding. Arithmetic, classification, parse,
-/// format, and conversions are added in subsequent commits.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
-#[repr(transparent)]
-pub struct Decimal64(pub(crate) u64);
