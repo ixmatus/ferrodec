@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Internal
+
+- **Convert ferrodec to a single-member Cargo workspace.** Adds
+  `[workspace] members = ["."] resolver = "2"` to the root
+  `Cargo.toml`. No behavior change; the published crate's name,
+  version, feature surface, and source paths are unchanged. Sets up
+  the structural frame for sibling crates `ferrodec-decimal32` and
+  `ferrodec-decimal64` (ADR-0011 and the archived plan at
+  `docs/decisions/plans/2026-05-09-workspace-and-decimal-siblings.md`).
+  The explicit `resolver = "2"` matches the package's
+  edition-2021-implied resolver and keeps feature unification
+  behavior identical.
+
 ## [1.14.3] - 2026-05-09
 
 Documentation-only release. No code change; the published artifact
