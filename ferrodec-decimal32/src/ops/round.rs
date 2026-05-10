@@ -237,20 +237,12 @@ fn finalise_finite(
     if biased < 0 {
         // Underflow toward subnormal or zero. Shift the coefficient
         // right by `-biased` decimal positions, accumulating a sticky
-        // bit; pack at biased_exp = 0.
+        // bit; pack at biased_exp = 0. drop_excess_digits handles the
+        // shift >= digit_count case correctly (final coefficient is
+        // zero with the MSD becoming the round digit), so the
+        // rounding decision below covers both "zero result" and
+        // "rounds up to MIN_POSITIVE".
         let shift = (-biased) as u32;
-        let coef_digits = digit_count_u64(coef);
-        if shift >= coef_digits {
-            // The rounded coefficient sits entirely below the smallest
-            // representable quantum: produces ±0 with biased_exp = 0
-            // and INEXACT (since coef != 0 here, otherwise we'd have
-            // returned early).
-            status |= Status::INEXACT | Status::UNDERFLOW;
-            return (
-                Decimal32::from_bits(pack_finite(sign, 0, 0)),
-                status,
-            );
-        }
         let (kept, _, round_digit, sticky) = drop_excess_digits(coef, shift, false, biased);
         let last_lsb = (kept % 10) as u32;
         let round_up = should_round_up(rm, sign, last_lsb, round_digit, sticky);
@@ -259,7 +251,7 @@ fn finalise_finite(
             status |= Status::INEXACT | Status::UNDERFLOW;
         }
         // After rounding the subnormal could cross back over to normal
-        // if it gained a digit (e.g. 999_9999 + ulp ≈ 10_000_000): in
+        // if it gained a digit (e.g. 9_999_999 + ulp = 10_000_000): in
         // that case re-pack at biased_exp = 1.
         if final_coef >= u64::from(COEFFICIENT_LIMIT) {
             let bumped = final_coef / 10;
