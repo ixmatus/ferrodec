@@ -3,9 +3,16 @@
 //! `ferrodec` crate (Decimal128).
 //!
 //! This crate is in early development. The currently exposed surface is
-//! only the [`Decimal32`] type wrapper; arithmetic, classification,
-//! parse, format, and verification land in subsequent commits per the
-//! plan archived at
+//! the [`Decimal32`] type with classification methods (`is_nan`,
+//! `is_infinite`, `is_finite`, `is_zero`, `is_normal`, `is_subnormal`,
+//! `is_signaling_nan`, `is_quiet_nan`, `is_sign_negative`,
+//! `is_sign_positive`, `classify`, `ieee_class`), sign manipulation
+//! (`abs`, `neg`, `abs_with_status`, `neg_with_status`, `copysign`),
+//! canonicalisation (`is_canonical`, `canonicalize`), constructors
+//! (`try_new`, `try_new_unsigned`, `from_bits`, `to_bits`), and a set
+//! of distinguished constants (`ZERO`, `ONE`, `MAX`, `INFINITY`,
+//! `NAN`, ...). Arithmetic, parse, format, and verification land in
+//! subsequent commits per the plan archived at
 //! `docs/decisions/plans/2026-05-09-workspace-and-decimal-siblings.md`
 //! in the workspace root.
 //!
@@ -28,16 +35,11 @@
 #![no_std]
 
 mod bid;
+mod classify;
 mod classify_types;
+mod decimal;
 mod status;
 
 pub use classify_types::IeeeClass;
+pub use decimal::{Decimal32, Decimal32BuildError};
 pub use status::{RoundingMode, Status};
-
-/// IEEE 754-2019 binary integer-significand Decimal32.
-///
-/// Wraps a 32-bit BID encoding. Arithmetic, classification, parse,
-/// format, and conversions are added in subsequent commits.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
-#[repr(transparent)]
-pub struct Decimal32(pub(crate) u32);

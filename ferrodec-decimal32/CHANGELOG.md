@@ -55,3 +55,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   files; each subsequent commit that wires a dispatch arm raises
   the corresponding row by the cases it now passes. CI runs the
   harness in the `decimal32` job under `--features=fmt`.
+- `Decimal32` struct moved from `lib.rs` into `decimal.rs` alongside
+  IEEE 754 distinguished constants (`ZERO`, `NEG_ZERO`, `ONE`,
+  `NEG_ONE`, `TEN`, `MAX`, `MIN`, `MIN_POSITIVE`,
+  `MIN_POSITIVE_NORMAL`, `INFINITY`, `NEG_INFINITY`, `NAN`,
+  `SIGNALING_NAN`), `from_bits` / `to_bits` (raw u32 round-trip),
+  `try_new` and `try_new_unsigned` constructors (return
+  `Decimal32BuildError` on coefficient or exponent out-of-range),
+  and a `Debug` impl that surfaces the bit pattern and decoded
+  class.
+- Classification predicates and operations: `is_nan`,
+  `is_signaling_nan`, `is_quiet_nan`, `is_infinite`, `is_finite`,
+  `is_zero`, `is_normal`, `is_subnormal`, `is_sign_negative`,
+  `is_sign_positive`, `classify` (returning `core::num::FpCategory`),
+  `ieee_class` (returning `IeeeClass`), `abs` and `neg` (no status),
+  `abs_with_status` and `neg_with_status` (raise `Status::INVALID`
+  on signaling-NaN input, otherwise quiet), `copysign`,
+  `is_canonical` (handles BID-32's Form A and Form B canonicalisation
+  symmetrically — Form A is always canonical, Form B is canonical
+  iff the decoded coefficient is `< 10^7`), and `canonicalize`
+  (rewrites non-canonical inputs to the equivalent canonical
+  encoding). 16 unit tests cover all predicates and operations
+  against the distinguished constants and dirty bit patterns.

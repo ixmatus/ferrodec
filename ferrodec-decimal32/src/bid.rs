@@ -33,14 +33,12 @@
 //! IEEE 754 parameters for decimal32: precision p = 7 digits, emax = 96,
 //! emin = −95, bias = 101, biased exponent range 0..191.
 
-// Most items below are unused in the foundations layer but will be consumed
-// by the classify, parse, format, and arithmetic modules landed in
-// subsequent commits per the plan archived at
+// Items marked `#[allow(dead_code)]` below are unused in the foundations
+// layer but will be consumed by the parse, format, and arithmetic modules
+// landed in subsequent commits per the plan archived at
 // `docs/decisions/plans/2026-05-09-workspace-and-decimal-siblings.md`.
-// The blanket allow is removed as those modules begin consuming, leaving
-// only the targeted #[allow(dead_code)] attributes on items that are
-// genuinely consumed only by future modules.
-#![allow(dead_code)]
+// As those modules begin consuming, the per-item `allow` attributes are
+// removed.
 
 // Bit-position constants -----------------------------------------------------
 
@@ -49,6 +47,7 @@ pub(crate) const SIGN_SHIFT: u32 = 31;
 /// Top of the 5-bit type field.
 pub(crate) const TYPE_SHIFT: u32 = 26;
 /// Mask for the 5-bit type field, in place.
+#[allow(dead_code)] // consumed by arithmetic modules
 pub(crate) const TYPE_MASK: u32 = 0b11111u32 << TYPE_SHIFT;
 
 /// Type-field marker for ±Infinity.
