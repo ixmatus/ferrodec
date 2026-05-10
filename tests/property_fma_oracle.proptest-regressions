@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc f30ba7b5d39aa0e846aa4b1d459f142b94dcbab3cb53aaa81a2e8ff0178560bf # shrinks to (a, b, c) = (Decimal128(0x220640000000001B1AE4D6E2EF500002), Decimal128(0xA204C00000000000000012309CE54005), Decimal128(0x2208000000000000000000000000001E))

@@ -93,10 +93,20 @@ proptest! {
         );
     }
 
-    /// `fma(a, b, c)` agrees with `mul`-then-`add` whenever the
-    /// product fits in 34 digits and no overflow / underflow occurs
-    /// at either step. This catches "FMA disagrees with the obvious
-    /// implementation" without needing the extended-precision oracle.
+    /// `fma(a, b, c)` agrees with `mul`-then-`add` (numerically)
+    /// whenever the product fits in 34 digits and no overflow /
+    /// underflow occurs at either step. This catches "FMA disagrees
+    /// with the obvious implementation" without needing the
+    /// extended-precision oracle.
+    ///
+    /// **Cohort note**: the two paths may legitimately produce
+    /// different *cohorts* of the same value because their preferred
+    /// quanta differ. `mul`'s preferred quantum is `qa + qb`; the
+    /// subsequent `add`'s preferred quantum is `min(prod_q, qc)`,
+    /// which can shift if `mul` renormalised away a trailing zero in
+    /// the product. `fma` uses the exact-product preferred quantum
+    /// throughout. So we compare numerical values via `partial_cmp`,
+    /// not bit patterns.
     #[test]
     fn fma_agrees_with_mul_then_add_when_product_fits(
         (a, b, c) in fma_triple(),
@@ -107,10 +117,14 @@ proptest! {
         prop_assume!(sum.is_finite() && !st_s.inexact());
 
         let (got, _) = a.fma(b, c, RoundingMode::NearestEven);
+        let (cmp, _) = got.partial_cmp(sum);
         prop_assert_eq!(
-            got.to_bits(),
-            sum.to_bits(),
-            "FMA must equal mul-then-add when both stages are exact",
+            cmp,
+            Some(core::cmp::Ordering::Equal),
+            "FMA must equal mul-then-add (numerically) when both stages are exact: \
+             fma = {:?}, sum = {:?}",
+            got,
+            sum,
         );
     }
 }
