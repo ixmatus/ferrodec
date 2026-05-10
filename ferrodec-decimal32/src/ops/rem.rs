@@ -46,6 +46,21 @@ const POW10_U64: [u64; 16] = [
 /// within u64. `(10^7 - 1) × 10^12 < 10^19 < 2^64`.
 const MAX_SAFE_SHIFT: u32 = 12;
 
+// Compile-time invariants. POW10_U64 must hold every reachable
+// index (MAX_SAFE_SHIFT = 12), and the largest aligned coefficient
+// `(COEFFICIENT_LIMIT − 1) × POW10_U64[MAX_SAFE_SHIFT]` must fit in
+// u64. With COEFFICIENT_LIMIT = 10^7 and POW10_U64[12] = 10^12, the
+// product is < 10^19 < u64::MAX = 1.84 × 10^19. One unit of slack;
+// any future PRECISION bump silently overflows without this check.
+const _: () = assert!(POW10_U64.len() > MAX_SAFE_SHIFT as usize);
+const _: () = {
+    let max_coef = COEFFICIENT_LIMIT - 1;
+    let factor = POW10_U64[MAX_SAFE_SHIFT as usize];
+    // u128 product compared against a literal u128 of u64::MAX +
+    // 1, sidestepping the trivially-true `u64 <= u64::MAX` form.
+    assert!((max_coef as u128) * (factor as u128) < 18_446_744_073_709_551_616u128);
+};
+
 impl Decimal32 {
     /// Truncated remainder: `self − trunc(self / other) × other`.
     ///

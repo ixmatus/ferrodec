@@ -43,6 +43,11 @@ const POW10_U64: [u64; 16] = [
     1_000_000_000_000_000,
 ];
 
+// Compile-time invariant: the largest reachable index is `target_d −
+// d` with `target_d ∈ {15, 16}` and `d ≥ 1`, so max = 15. POW10_U64
+// must hold ≥ 16 entries.
+const _: () = assert!(POW10_U64.len() > 15);
+
 impl Decimal32 {
     /// IEEE 754-2019 `squareRoot(self)` rounded by `rm`.
     #[must_use]

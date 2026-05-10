@@ -40,6 +40,13 @@ const POW10_U128: [u128; 24] = {
 const ALIGN_LIMIT: u32 = 22;
 const WORKING_PRECISION: u32 = 23;
 
+// Compile-time invariants: every `POW10_U128[k]` access in this
+// module must satisfy `k < POW10_U128.len()`. The largest index
+// reachable is `ALIGN_LIMIT = 22` (the cap on per-side alignment
+// shift), so we need at least 23 entries.
+const _: () = assert!(POW10_U128.len() > ALIGN_LIMIT as usize);
+const _: () = assert!(POW10_U128.len() > WORKING_PRECISION as usize - 1);
+
 impl Decimal64 {
     /// IEEE 754-2019 `addition(self, other)` rounded by `rm`.
     #[must_use]
@@ -169,7 +176,15 @@ pub(crate) fn round_and_pack_into_u64(
     mut pre_sticky: bool,
     rm: RoundingMode,
 ) -> (Decimal64, Status) {
+    // KEEP = 19 fits the post-compression value into u64:
+    // 10^19 = 10_000_000_000_000_000_000 < u64::MAX =
+    // 18_446_744_073_709_551_615. Bumping KEEP to 20 would
+    // overflow u64 silently; the invariant below catches the
+    // regression at compile time. (u128::MAX comparison avoids
+    // the trivially-true `u64 ≤ u64::MAX` form that clippy
+    // diagnoses.)
     const KEEP: u32 = 19;
+    const _: () = assert!(10u128.pow(KEEP) < 18_446_744_073_709_551_616u128);
     let keep_threshold = 10u128.pow(KEEP);
 
     if coef_u128 < keep_threshold {

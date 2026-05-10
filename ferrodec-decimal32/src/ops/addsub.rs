@@ -66,6 +66,13 @@ const ALIGN_LIMIT: u32 = 12;
 /// the last kept digit and only contributes via sticky.
 const WORKING_PRECISION: u32 = 14;
 
+// Compile-time invariants: POW10_U64 must hold every reachable
+// index. ALIGN_LIMIT = 12 needs entry 12; WORKING_PRECISION = 14
+// is exclusive (the hot path uses the index `WORKING_PRECISION −
+// 1 = 13`).
+const _: () = assert!(POW10_U64.len() > ALIGN_LIMIT as usize);
+const _: () = assert!(POW10_U64.len() > WORKING_PRECISION as usize - 1);
+
 impl Decimal32 {
     /// IEEE 754-2019 `addition(self, other)` rounded by `rm`.
     ///

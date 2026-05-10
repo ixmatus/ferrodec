@@ -42,6 +42,15 @@ const POW10_U64: [u64; 16] = [
     1_000_000_000_000_000,
 ];
 
+// Compile-time invariant: the largest reachable index is `scale =
+// (db − da) + PRECISION + 1`, bounded by `db ≤ PRECISION = 7` and
+// `da ≥ 1`, so max = 6 + 8 = 14. The scaled dividend `coef_a ×
+// 10^scale` fits in u64 (max ≈ 1.84 × 10^19) because `10^da ×
+// 10^(db − da + 8) = 10^(db + 8) ≤ 10^15`. Type-checking the
+// u64-valued POW10_U64 entries enforces the u64 bound; the length
+// check below catches index overflow at compile time.
+const _: () = assert!(POW10_U64.len() > 2 * PRECISION as usize);
+
 impl Decimal32 {
     /// IEEE 754-2019 `division(self, other)` rounded by `rm`.
     #[must_use]

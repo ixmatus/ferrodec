@@ -25,6 +25,11 @@ const POW10_U128: [u128; 34] = {
     t
 };
 
+// Compile-time invariant: the largest reachable index is
+// `(db − da) + PRECISION + 1` with `db ≤ PRECISION = 16` and `da
+// ≥ 1`, so max = `15 + 17 = 32`. POW10_U128 needs ≥ 33 entries.
+const _: () = assert!(POW10_U128.len() > (crate::bid::PRECISION as usize - 1) + crate::bid::PRECISION as usize + 1);
+
 impl Decimal64 {
     /// IEEE 754-2019 `division(self, other)` rounded by `rm`.
     #[must_use]

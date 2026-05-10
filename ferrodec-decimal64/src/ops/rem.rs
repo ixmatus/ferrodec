@@ -24,6 +24,15 @@ const POW10_U128: [u128; 24] = {
     t
 };
 
+// Compile-time invariant: every `POW10_U128[k]` access satisfies
+// `k <= MAX_SAFE_SHIFT`.
+const _: () = {
+    // Defined further down; reproduced here so the assert can sit
+    // next to the table.
+    const MAX_SAFE_SHIFT: u32 = 22;
+    assert!(POW10_U128.len() > MAX_SAFE_SHIFT as usize);
+};
+
 const MAX_SAFE_SHIFT: u32 = 22;
 
 impl Decimal64 {

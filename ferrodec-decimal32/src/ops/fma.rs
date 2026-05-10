@@ -49,6 +49,10 @@ const POW10_U128: [u128; 39] = {
     t
 };
 
+// Compile-time invariant: the largest reachable index is
+// `U128_DIGIT_CAP = 38`. The table needs ≥ 39 entries.
+const _: () = assert!(POW10_U128.len() > 38);
+
 /// Upper bound on `digit_count(coef) + shift` that keeps the product
 /// within `u128::MAX`. `10³⁸ < 2¹²⁸ ≈ 3.4 × 10³⁸`, so any product
 /// with at most 38 decimal digits fits.

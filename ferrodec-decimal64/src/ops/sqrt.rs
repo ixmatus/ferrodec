@@ -26,6 +26,13 @@ const POW10_U128: [u128; 34] = {
     t
 };
 
+// Compile-time invariant: the largest reachable index is `target_d
+// − d` with `target_d ∈ {33, 34}` and `d ≥ 1`, so max = 33. The
+// previous version of this table was 32 entries and crashed on
+// d = 1 inputs (now fixed); the assert below catches a regression
+// at compile time.
+const _: () = assert!(POW10_U128.len() > 33);
+
 impl Decimal64 {
     /// IEEE 754-2019 `squareRoot(self)` rounded by `rm`.
     #[must_use]
