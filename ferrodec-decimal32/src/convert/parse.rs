@@ -126,16 +126,18 @@ fn parse_str_inner(
                 let d = u32::from(c - b'0');
                 if digits_total < MAX_PARSED_DIGITS {
                     let leading_int_zero = coef == 0 && d == 0 && !decimal_seen;
+                    let leading_frac_zero = coef == 0 && d == 0 && decimal_seen;
                     if leading_int_zero {
                         // Pure leading zero in the integer part —
-                        // ignore. Quantum tracking still works because
-                        // `digits_after_point` only increments past
-                        // the decimal.
+                        // ignore.
+                    } else if leading_frac_zero {
+                        // Leading zero AFTER the decimal point but
+                        // BEFORE the first non-zero digit. Shifts the
+                        // quantum down by one but does not "spend" a
+                        // digit-budget slot — the value's significant
+                        // figures haven't started yet.
+                        digits_after_point += 1;
                     } else {
-                        // Either non-zero digit, or zero past the
-                        // decimal point, or zero following a non-zero
-                        // digit — all three contribute to `coef` and
-                        // `digits_total`.
                         coef = coef * 10 + u64::from(d);
                         digits_total += 1;
                         if decimal_seen {

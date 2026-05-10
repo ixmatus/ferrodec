@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `parse_str` now correctly handles inputs with leading zeros after
+  the decimal point that exceed `MAX_PARSED_DIGITS = 16`. Previously
+  the leading fractional zeros (e.g. the four `0`s in
+  `0.00001234567890123456`) "spent" digit-budget slots and pushed
+  the last significant digit into the sticky bit, dropping the
+  result by one significant figure. The fix adds a
+  `leading_frac_zero` branch that increments only
+  `digits_after_point` (shifting the quantum) without incrementing
+  `digits_total`. Discovered via the same algorithmic shape on
+  Decimal64 where `MAX_PARSED_DIGITS = 19` and the boundary is more
+  often reached.
+
 ## [1.0.0] - 2026-05-10
 
 Initial release. IEEE 754-2019 Decimal32 in pure Rust, `no_std`-
