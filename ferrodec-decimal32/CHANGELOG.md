@@ -64,6 +64,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Decimal32BuildError` on coefficient or exponent out-of-range),
   and a `Debug` impl that surfaces the bit pattern and decoded
   class.
+- Trig: `Decimal32::sin`, `cos`, `tan`, `asin`, `acos`, `atan`,
+  `atan2` under the `trig` feature. Same f64-via-libm pattern as
+  exp/ln. Special cases per IEEE 754-2019 §9.2: `sin/cos/tan(±∞)`
+  → NaN+INVALID; `asin / acos` outside `[-1, +1]` → NaN+INVALID;
+  `atan(±∞) = ±π/2`. 12 unit tests cover the special cases plus
+  representative values (sin(π/2) ≈ 1, cos(π) ≈ -1, asin(1) = π/2,
+  atan(1) = π/4, atan2(1,1) = π/4).
+- Hyperbolic: `Decimal32::sinh`, `cosh`, `tanh`, `asinh`, `acosh`,
+  `atanh` under the `hyperbolic` feature (which auto-pulls
+  `exp-log`). Special cases: `tanh(±∞) = ±1`, `acosh` domain `[1, ∞)`
+  enforced (returns NaN+INVALID below 1), `atanh(±1) = ±∞ +
+  DIV_BY_ZERO`, `atanh(|x| > 1)` NaN+INVALID. 8 unit tests cover
+  the boundaries.
+- `Decimal32::pow` and `Decimal32::cbrt` under the `pow` feature
+  (auto-pulls `exp-log`). `pow` special-cases the IEEE 754-2019 §9.2
+  rules: `pow(x, 0) = 1` (including `pow(NaN, 0)`), `pow(1, y) = 1`
+  (including `pow(1, NaN)`), `pow(0, negative)` → ±∞ + DIV_BY_ZERO,
+  negative-base with non-integer exponent → NaN + INVALID, NaN
+  propagation. `cbrt` defined for all reals (preserves sign on ±0
+  and ±∞). 7 unit tests.
 - `Decimal32::exp` and `Decimal32::ln` per IEEE 754-2019 §9.2 under
   the new `exp-log` feature. Both route through `f64` via `libm`
   (pure Rust, `no_std`-compatible, no FFI). The double-rounding
