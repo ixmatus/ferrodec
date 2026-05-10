@@ -8,6 +8,7 @@
 //!
 //! [`Decimal64`]: crate::Decimal64
 
+pub(crate) mod addsub;
 pub(crate) mod round;
 
 #[allow(unused_imports)] // consumed by convert::parse and arithmetic ops in subsequent commits

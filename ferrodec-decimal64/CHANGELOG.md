@@ -16,6 +16,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Inherits workspace lints, edition, MSRV (1.84), license, and
   repository metadata. `fmt` and `kani` features are declared with
   empty bodies for future use.
+- `Decimal64::add(self, other, rm)` and `Decimal64::sub(self, other, rm)`
+  per IEEE 754-2019 §6.3 / §7. Same algorithmic shape as
+  ferrodec-decimal32's add / sub but at u128 working width because
+  Decimal64's 16-digit coefficients plus alignment shifts can
+  exceed u64. ALIGN_LIMIT = 22 (max safe shift in u128 with
+  10^16 coefficient max ≈ 3.4 × 10³⁸); WORKING_PRECISION = 23.
+  `round_and_pack_into_u64` helper compresses the u128 result back
+  to u64 via sticky tracking before routing through
+  `round_and_pack_finite`. 11 unit tests cover basic arithmetic,
+  carry-renormalisation across the 16-digit boundary
+  (9_999_999_999_999_999 + 1 = 10¹⁶), alignment-induced
+  inexactness, sign-disagreement cancellation, zero combinations,
+  NaN propagation, Infinity arithmetic, overflow, and
+  finite-plus-zero cohort preservation.
 - Rounding kernel at `src/ops/round.rs`. The
   `round_and_pack_finite(coef: u64, unbiased_exp, q_preferred, sign,
   pre_sticky, rm, status)` entry point handles digit drop with
