@@ -39,3 +39,4 @@ The ADRs in number order:
 - [0011 — Cargo workspace for sibling decimal-precision crates](0011-workspace-for-decimal-siblings.md)
 - [0012 — Extract `ferrodec-ieee` after three concrete consumers](0012-extract-ferrodec-ieee.md)
 - [0013 — Conformance harness consolidation across the ferrodec family](0013-conformance-harness-consolidation.md)
+- [0014 — `Display` notation divergence between Decimal128 and the siblings](0014-display-notation-divergence.md)

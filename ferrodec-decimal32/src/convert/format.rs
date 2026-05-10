@@ -36,6 +36,16 @@ enum Notation {
     Engineering(char),
 }
 
+/// Default `Display` for `Decimal32`.
+///
+/// Uses the General Decimal Arithmetic `toSci` rule: plain notation
+/// when `unbiased_exp ≤ 0 && adjusted_exp ≥ -6`, otherwise
+/// scientific notation. The cohort the value was typed with is
+/// preserved (`"1E+3"` displays as `"1E+3"`, not `"1000"`). This
+/// intentionally diverges from the `f64::Display`-style rule on
+/// `ferrodec` (Decimal128); see
+/// `docs/decisions/0014-display-notation-divergence.md` for the
+/// rationale and the v2.0 harmonization plan.
 impl fmt::Display for Decimal32 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         format_to(*self, f, Notation::Auto)
