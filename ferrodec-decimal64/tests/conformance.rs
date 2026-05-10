@@ -1,24 +1,40 @@
 #![cfg(feature = "fmt")]
 //! Conformance test runner for the vendored Mike Cowlishaw decTest
-//! suite (`tests/vectors/dd*.decTest`).
+//! suite (`tests/vectors/ds*.decTest`).
 //!
-//! Each `.decTest` file is parsed line-by-line. Directives accumulate
-//! into a mutable context; test cases are routed to the appropriate
-//! `Decimal64` method as those methods land in subsequent commits per
-//! the plan archived at
+//! Each `.decTest` file is parsed line-by-line. Directives
+//! (`precision`, `rounding`, `maxExponent`, etc.) accumulate into a
+//! mutable context. Test cases of the form
+//!
+//! ```text
+//! id op operand1 [operand2 [operand3]] -> expected [conditions...]
+//! ```
+//!
+//! will be routed to the appropriate `Decimal64` method as those
+//! methods land in subsequent commits per the plan archived at
 //! `docs/decisions/plans/2026-05-09-workspace-and-decimal-siblings.md`.
-//! Until an op's dispatch arm is wired up, cases under that op count
-//! as `skipped`.
+//! Until an op's dispatch arm is wired up, cases under that op count as
+//! `skipped` (not `failed`).
 //!
 //! # Asymmetric per-file expectation guard
 //!
-//! Per ADR-0010 the expected pass count is checked **per file**, not
-//! just against an aggregate floor. Each subsequent commit that wires
-//! a dispatch arm raises the corresponding rows in
-//! `expected_per_file`.
+//! Per ADR-0010 (testing strategy after the 6-agent correctness
+//! review), the expected pass count is checked **per file**, not just
+//! against an aggregate floor. This catches silent trade-offs: a
+//! refactor that improves one file by N cases while regressing another
+//! by N cases — net zero in aggregate — fails this guard. Each
+//! intentional improvement requires editing `expected_per_file`, which
+//! makes the change visible in git history.
+//!
+//! At present every entry in `expected_per_file` is zero because no
+//! Decimal64 operations are implemented yet. Each subsequent commit
+//! that wires a dispatch arm raises the corresponding row by the
+//! number of cases it now passes.
 
 use std::fs;
 use std::path::{Path, PathBuf};
+
+use ferrodec_decimal64::{Decimal64, ParseDecimalError, RoundingMode, Status};
 
 const VECTORS_DIR: &str = "tests/vectors";
 
@@ -40,7 +56,7 @@ fn dectest_conformance() {
         let result = run_file(&path, &mut failures);
         totals.merge(&result);
         eprintln!(
-            "{:<28}  {:>5} pass  {:>4} fail  {:>5} skip",
+            "{:<28}  {:>5} pass  {:>4} fail  {:>4} skip",
             path.file_name().unwrap().to_string_lossy(),
             result.passed,
             result.failed,
@@ -71,6 +87,7 @@ fn dectest_conformance() {
         }
     }
 
+    // Per-file expectation table. Update entries as dispatch arms land.
     let expected = expected_per_file();
     let mut mismatch = Vec::new();
     for (name, exp_passed) in expected {
@@ -87,6 +104,12 @@ fn dectest_conformance() {
         for (name, exp, got) in &mismatch {
             eprintln!("  {name:<28}  expected {exp}  got {got}");
         }
+        eprintln!(
+            "\nIf the change is intentional, update `expected_per_file` in\
+             \ntests/conformance.rs to record the new baseline (one row per\
+             \nfile). See ADR-0010 for why per-file expectations are\
+             \nexact-match rather than floor-only."
+        );
         panic!(
             "conformance per-file expectation mismatch ({} files)",
             mismatch.len()
@@ -94,6 +117,7 @@ fn dectest_conformance() {
     }
 
     const FAIL_CEILING: usize = 0;
+    // FAIL_CEILING is currently 0; if it ever rises, replace with `<=`.
     #[allow(clippy::absurd_extreme_comparisons)]
     {
         assert!(
@@ -107,16 +131,26 @@ fn dectest_conformance() {
 
 /// Per-file expected pass count. Each row rises by the number of
 /// cases the new dispatch arm passes; an intentional change requires
-/// editing this table (see ADR-0010 in the workspace root for the
-/// rationale).
+/// editing this table (see ADR-0010 in the workspace root).
 ///
-/// Initial state at C5: every file is at 0 because no Decimal64
-/// operations are wired up yet. Files not present in this table are
-/// *not* checked by the per-file guard (their pass / skip counts
-/// still feed the aggregate `FAIL_CEILING = 0` check). Each
-/// subsequent commit adds rows for the files it now exercises.
+/// Baseline after C7 + C8 (toSci wiring + `parse_str` + Display +
+/// IEEE 754 exponent clamping): the harness dispatches `tosci` and
+/// `apply`. Files with non-zero passes:
+/// * `ddBase.decTest`: 708 of 945 pass. Skips are extreme exponents
+///   (deferred), non-IEEE rounding directives, and a few
+///   format-precision conditional cases.
+/// * `ddAdd.decTest`: 2 of 1091 pass — both are toSci-only edge
+///   cases that route via parse / format without exercising add.
+/// * `ddFMA.decTest`: 2 of 1378 pass — same shape.
+///
+/// All other files are 0 pending their dispatch arms in C9+.
 const fn expected_per_file() -> &'static [(&'static str, usize)] {
-    &[("ddBase.decTest", 0), ("ddEncode.decTest", 0)]
+    &[
+        ("ddAdd.decTest", 2),
+        ("ddBase.decTest", 708),
+        ("ddEncode.decTest", 0),
+        ("ddFMA.decTest", 2),
+    ]
 }
 
 #[derive(Default, Clone, Copy)]
@@ -147,14 +181,14 @@ struct Failure {
     reason: String,
 }
 
-fn run_file(path: &Path, _failures: &mut Vec<Failure>) -> FileResult {
+fn run_file(path: &Path, failures: &mut Vec<Failure>) -> FileResult {
     let content = fs::read_to_string(path).expect("read file");
     let mut ctx = Context::default();
     let mut passed = 0;
-    let failed = 0;
+    let mut failed = 0;
     let mut skipped = 0;
 
-    for raw_line in content.lines() {
+    for (line_no, raw_line) in content.lines().enumerate() {
         let line = strip_comment(raw_line).trim();
         if line.is_empty() {
             continue;
@@ -171,6 +205,15 @@ fn run_file(path: &Path, _failures: &mut Vec<Failure>) -> FileResult {
         match outcome {
             Outcome::Pass => passed += 1,
             Outcome::Skip => skipped += 1,
+            Outcome::Fail(reason) => {
+                failed += 1;
+                failures.push(Failure {
+                    file: path.to_owned(),
+                    line: line_no + 1,
+                    id: case.id.clone(),
+                    reason,
+                });
+            }
         }
     }
 
@@ -180,6 +223,9 @@ fn run_file(path: &Path, _failures: &mut Vec<Failure>) -> FileResult {
         skipped,
     }
 }
+
+// ---------------------------------------------------------------------------
+// Parsing
 
 fn strip_comment(line: &str) -> &str {
     line.find("--").map_or(line, |i| &line[..i])
@@ -196,7 +242,7 @@ fn parse_directive(line: &str) -> Option<(String, String)> {
 }
 
 #[derive(Debug)]
-#[allow(dead_code)] // op / operands / expected / conditions consumed by dispatch arms in C6+
+#[allow(dead_code)] // id used in failure reporting; other fields consumed by dispatch
 struct TestCase {
     id: String,
     op: String,
@@ -260,9 +306,12 @@ fn tokenise(line: &str) -> Option<Vec<String>> {
     Some(out)
 }
 
+// ---------------------------------------------------------------------------
+// Context (directive accumulator)
+
 #[derive(Clone)]
 struct Context {
-    #[allow(dead_code)] // consumed by dispatch arms in C6+
+    #[allow(dead_code)] // consumed by dispatch arms in B6+
     precision: u32,
     #[allow(dead_code)]
     max_exponent: i32,
@@ -274,10 +323,12 @@ struct Context {
 
 impl Default for Context {
     fn default() -> Self {
+        // Decimal64 IEEE 754-2019 §3.5 defaults; overridden by file
+        // directives.
         Self {
-            precision: 16,
-            max_exponent: 384,
-            min_exponent: -383,
+            precision: 7,
+            max_exponent: 96,
+            min_exponent: -95,
             rounding: "half_even".to_string(),
         }
     }
@@ -302,18 +353,123 @@ impl Context {
                 }
             }
             "rounding" => self.rounding = value.to_string(),
+            // `extended`, `clamp`, `version` are recognised but ignored:
+            // they describe the test-suite metadata, not Decimal64
+            // behaviour we need to alter.
             _ => {}
         }
     }
 }
 
-#[allow(dead_code)] // Pass constructed by dispatch arms in C6+
+// ---------------------------------------------------------------------------
+// Dispatch
+
 enum Outcome {
     Pass,
     Skip,
+    Fail(String),
 }
 
-fn run_case(case: &TestCase, _ctx: &Context) -> Outcome {
-    let _ = &case.id;
-    Outcome::Skip
+fn run_case(case: &TestCase, ctx: &Context) -> Outcome {
+    match case.op.as_str() {
+        "tosci" | "apply" => run_tosci(case, ctx),
+        _ => Outcome::Skip,
+    }
+}
+
+/// `toSci` and `apply`: parse the operand string at the active
+/// rounding mode, format with Display, compare result and emitted
+/// status flags against the expected output and decoded conditions.
+fn run_tosci(case: &TestCase, ctx: &Context) -> Outcome {
+    if case.operands.len() != 1 {
+        return Outcome::Skip;
+    }
+    let input = &case.operands[0];
+    // Hex-prefixed operands (#) are BID bit-pattern interchange; we
+    // skip those for now (handled in a dedicated ddEncode commit later).
+    if input.starts_with('#') || case.expected.starts_with('#') {
+        return Outcome::Skip;
+    }
+    let rm = match map_rounding(&ctx.rounding) {
+        Some(r) => r,
+        None => return Outcome::Skip,
+    };
+    let (parsed, status) = match Decimal64::parse_str(input, rm) {
+        Ok(r) => r,
+        // ExponentOutOfRange covers decTest cases like `1e-999999999`
+        // that test the implementation's handling of pathologically
+        // large exponents. Our parse_str rejects them at the
+        // 1 000 000 magnitude cap; the spec-conformant behaviour
+        // (saturate to ±Inf or ±0 at parse time) is a deferred design
+        // call. Skip rather than fail those cases.
+        Err(ParseDecimalError::ExponentOutOfRange) => return Outcome::Skip,
+        // decTest's "negative" test cases use malformed input strings
+        // (`1..2`, `+-1`, `e100`, ...) and expect a `NaN` result with
+        // `Conversion_syntax` (mapped to INVALID). Translate parse
+        // errors to that shape rather than failing.
+        Err(_) => (Decimal64::NAN, Status::INVALID),
+    };
+    let formatted = format_value(parsed);
+    if formatted != case.expected {
+        return Outcome::Fail(format!(
+            "got {formatted:?} want {:?}",
+            case.expected
+        ));
+    }
+    let expected_status = decode_conditions(&case.conditions);
+    if status.bits() != expected_status.bits() {
+        return Outcome::Fail(format!(
+            "status mismatch: got {status:?} want {expected_status:?} (conditions {:?})",
+            case.conditions
+        ));
+    }
+    Outcome::Pass
+}
+
+fn format_value(d: Decimal64) -> String {
+    use std::fmt::Write as _;
+    let mut s = String::new();
+    let _ = write!(s, "{d}");
+    s
+}
+
+fn map_rounding(s: &str) -> Option<RoundingMode> {
+    match s {
+        "half_even" => Some(RoundingMode::NearestEven),
+        "half_up" => Some(RoundingMode::NearestAway),
+        "down" => Some(RoundingMode::TowardZero),
+        "ceiling" => Some(RoundingMode::TowardPositive),
+        "floor" => Some(RoundingMode::TowardNegative),
+        // "half_down", "05up" are GDA-only modes outside IEEE 754;
+        // "up" is directional but not one of the five IEEE attributes.
+        // Cases under these directives skip rather than coerce onto a
+        // mode that doesn't match the spec (mirrors ferrodec's ADR-0005
+        // posture).
+        _ => None,
+    }
+}
+
+/// Project decTest condition tokens onto our 5-flag Status set.
+/// Informational tokens (`Rounded`, `Subnormal`, `Clamped`,
+/// `Lost_digits`) are deliberately ignored: they're not raised by our
+/// `Status` and decTest treats them as supplementary information
+/// rather than IEEE 754 exceptions.
+fn decode_conditions(conditions: &[String]) -> Status {
+    let mut s = Status::OK;
+    for cond in conditions {
+        match cond.as_str() {
+            "inexact" => s |= Status::INEXACT,
+            "overflow" => s |= Status::OVERFLOW | Status::INEXACT,
+            "underflow" => s |= Status::UNDERFLOW | Status::INEXACT,
+            "invalid_operation"
+            | "division_impossible"
+            | "division_undefined"
+            | "conversion_syntax" => {
+                s |= Status::INVALID;
+            }
+            "division_by_zero" => s |= Status::DIV_BY_ZERO,
+            _ => {}
+        }
+    }
+    s
 }

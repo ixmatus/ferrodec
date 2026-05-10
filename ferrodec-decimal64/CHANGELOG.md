@@ -16,6 +16,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Inherits workspace lints, edition, MSRV (1.84), license, and
   repository metadata. `fmt` and `kani` features are declared with
   empty bodies for future use.
+- Rounding kernel at `src/ops/round.rs`. The
+  `round_and_pack_finite(coef: u64, unbiased_exp, q_preferred, sign,
+  pre_sticky, rm, status)` entry point handles digit drop with
+  guard / sticky tracking, applies the five IEEE 754 rounding modes,
+  renormalises across power-of-10 boundaries, shifts toward the
+  preferred quantum, and emits `INEXACT` / `OVERFLOW` / `UNDERFLOW`
+  flags. Includes IEEE 754-2019 §6.3 exponent clamping: when the
+  result's biased exponent exceeds `BIASED_EXP_MAX` but the
+  adjusted exponent is in range, the coefficient is padded with
+  trailing zeros to fit the encoding (the "Clamped" condition).
+  7 unit tests cover the rounding axes, overflow, underflow,
+  carry-renormalisation, and zero-quantum preservation.
+- `parse_str(&str, RoundingMode) -> Result<(Decimal64, Status),
+  ParseDecimalError>` under the `fmt` feature. Up to 19 mantissa
+  digits accumulated exactly in `u64`; trailing digits feed the
+  rounding sticky bit. Leading zeros after the decimal point shift
+  the quantum without spending the `MAX_PARSED_DIGITS` budget — a
+  bug-fix carried back to ferrodec-decimal32 in the same commit.
+- `Display`, `LowerExp`, `UpperExp`, and `Engineering` adapters
+  under the `fmt` feature. Same toSci convention as
+  ferrodec-decimal32: plain decimal notation when unbiased exponent
+  ≤ 0 and adjusted exponent ≥ -6, otherwise scientific with `E±N`.
+  18-byte stack scratch buffer for the digit string (room for 16
+  digits + transient overflow during pre-rounded rendering).
+- Conformance harness now dispatches `tosci` / `apply`. Per-file
+  expectation table records the C7 + C8 baseline:
+  * `ddBase.decTest`: 708 of 945 pass.
+  * `ddAdd.decTest`: 2 of 1091 (toSci edge cases not exercising
+    add).
+  * `ddFMA.decTest`: 2 of 1378 (same shape).
+  * `ddEncode.decTest`: 0 of 268 (deferred to a dpd-feature
+    commit).
+  Total: 712 of 14 428 cases pass, 0 fail, 13 716 skip.
 - `Decimal64` struct moved from `lib.rs` into `decimal.rs` alongside
   IEEE 754 distinguished constants (`ZERO`, `NEG_ZERO`, `ONE`,
   `NEG_ONE`, `TEN`, `MAX`, `MIN`, `MIN_POSITIVE`,
