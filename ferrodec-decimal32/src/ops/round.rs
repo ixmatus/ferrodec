@@ -215,6 +215,23 @@ fn finalise_finite(
     let biased_exp_max = BIASED_EXP_MAX as i32;
     let biased = unbiased_exp + bias;
 
+    // Zero with any quantum is always representable: clamp the
+    // exponent into the encodable range and emit a canonical zero.
+    // Reachable when the caller passes pre_sticky = true and the
+    // dropped digits round to zero — the up-front fast path at
+    // round_and_pack_finite's entry only fires when pre_sticky is
+    // false. Without this short-circuit, an extreme alignment
+    // cancellation that produces a zero coefficient with an
+    // out-of-range biased exponent would spuriously raise OVERFLOW
+    // and round to ±∞ instead.
+    if coef == 0 {
+        let clamped = biased.clamp(0, biased_exp_max);
+        return (
+            Decimal32::from_bits(pack_finite(sign, clamped as u32, 0)),
+            status,
+        );
+    }
+
     if biased > biased_exp_max {
         // Try IEEE 754-2019 §6.3 exponent clamping: if the adjusted
         // exponent is within the format's range, pad the coefficient
@@ -423,6 +440,27 @@ mod tests {
         assert_eq!(d.to_bits(), pack(false, BIASED_EXP_MAX as i32 - BIAS as i32, 1_000_000).to_bits());
         assert!(!s.overflow());
         assert!(!s.inexact());
+    }
+
+    #[test]
+    fn round_zero_with_pre_sticky_at_overflow_exp_clamps() {
+        // Regression: coef = 0, pre_sticky = true, unbiased_exp far
+        // beyond E_MAX. Without the zero short-circuit in
+        // finalise_finite this would raise OVERFLOW and round to
+        // ±∞ — wrong, because zero with any quantum is representable
+        // (the encoded biased_exp is just clamped).
+        let (d, s) = round_and_pack_finite(
+            0,
+            200,
+            200,
+            false,
+            true, // pre_sticky
+            RoundingMode::NearestEven,
+            Status::OK,
+        );
+        assert!(d.is_zero(), "expected zero, got {d:?}");
+        assert!(!d.is_sign_negative());
+        assert!(!s.overflow());
     }
 
     #[test]

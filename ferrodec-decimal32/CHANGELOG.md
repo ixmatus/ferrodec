@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.3] - 2026-05-10
+
+### Fixed
+
+- `finalise_finite` now short-circuits a zero coefficient before
+  the OVERFLOW check. The up-front zero fast path at
+  `round_and_pack_finite`'s entry only fires when `pre_sticky =
+  false`; an extreme alignment cancellation that produced a zero
+  coefficient with `pre_sticky = true` and an out-of-range biased
+  exponent used to fall through to the overflow path and round to
+  ±∞ + OVERFLOW. Now: zero with any quantum clamps the encoded
+  biased exponent into the encodable range and returns canonical
+  zero. Surfaced by the 6-agent review.
+
 ## [1.0.2] - 2026-05-10
 
 ### Fixed
