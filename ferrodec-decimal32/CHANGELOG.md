@@ -35,3 +35,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   module-level `#![allow(dead_code)]` is transient: the BID items
   become consumed when classify, parse, format, and arithmetic
   modules land in subsequent commits.
+- Vendored IBM decTest conformance vectors at
+  `tests/vectors/dsBase.decTest` (909 cases, parse/format/rounding)
+  and `tests/vectors/dsEncode.decTest` (268 cases, BID and DPD
+  bit-pattern encoding). These are the only `ds*` files in the IBM
+  decTest distribution; arithmetic surface coverage will lean on
+  property tests against the astro-float oracle in subsequent
+  commits, with the rationale documented in
+  `tests/vectors/README.md`. The conformance harness consuming these
+  vectors lands in B5.
