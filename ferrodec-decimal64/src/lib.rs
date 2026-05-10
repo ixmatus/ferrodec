@@ -28,6 +28,12 @@
 
 #![no_std]
 
+mod classify_types;
+mod status;
+
+pub use classify_types::IeeeClass;
+pub use status::{RoundingMode, Status};
+
 /// IEEE 754-2019 binary integer-significand Decimal64.
 ///
 /// Wraps a 64-bit BID encoding. Arithmetic, classification, parse,
