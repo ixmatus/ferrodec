@@ -16,7 +16,10 @@
 //! that compresses back to `u64` via sticky tracking before routing
 //! here.
 
-use crate::bid::{pack_finite, pack_infinity, BIAS, BIASED_EXP_MAX, COEFFICIENT_LIMIT, PRECISION};
+use crate::bid::{
+    pack_finite, pack_infinity, BiasedExp, Coefficient, BIAS, BIASED_EXP_MAX, COEFFICIENT_LIMIT,
+    PRECISION,
+};
 use crate::decimal::Decimal64;
 use ferrodec_ieee::{should_round_up, RoundingMode, Status};
 
@@ -69,8 +72,11 @@ pub(crate) fn round_and_pack_finite(
         let q = q_preferred.min(unbiased_exp);
         let bias = BIAS as i32;
         let q_clamped = q.clamp(-bias, BIASED_EXP_MAX as i32 - bias);
+        // q_clamped is in the representable unbiased range by construction.
+        let biased_exp = BiasedExp::try_from_unbiased(q_clamped)
+            .expect("q_clamped in [-BIAS, BIASED_EXP_MAX - BIAS]");
         return (
-            Decimal64::from_bits(pack_finite(sign, biased(q_clamped), 0)),
+            Decimal64::from_bits(pack_finite(sign, biased_exp, Coefficient::ZERO)),
             status,
         );
     }
@@ -171,8 +177,11 @@ fn finalise_finite(
     // and round to ±∞ instead.
     if coef == 0 {
         let clamped = biased.clamp(0, biased_exp_max);
+        // clamped is in [0, BIASED_EXP_MAX] by clamp() above.
+        let biased_exp =
+            BiasedExp::try_from_biased(clamped as u32).expect("clamped in [0, BIASED_EXP_MAX]");
         return (
-            Decimal64::from_bits(pack_finite(sign, clamped as u32, 0)),
+            Decimal64::from_bits(pack_finite(sign, biased_exp, Coefficient::ZERO)),
             status,
         );
     }
@@ -191,8 +200,10 @@ fn finalise_finite(
         {
             let shifted = coef * POW10_U64[shift_needed as usize];
             if shifted < COEFFICIENT_LIMIT {
+                let shifted_coef =
+                    Coefficient::try_new(shifted).expect("shifted < COEFFICIENT_LIMIT");
                 return (
-                    Decimal64::from_bits(pack_finite(sign, BIASED_EXP_MAX, shifted)),
+                    Decimal64::from_bits(pack_finite(sign, BiasedExp::MAX, shifted_coef)),
                     status,
                 );
             }
@@ -207,7 +218,7 @@ fn finalise_finite(
         let bits = if to_inf {
             pack_infinity(sign)
         } else {
-            pack_finite(sign, BIASED_EXP_MAX, COEFFICIENT_LIMIT - 1)
+            pack_finite(sign, BiasedExp::MAX, Coefficient::MAX)
         };
         return (Decimal64::from_bits(bits), status);
     }
@@ -223,24 +234,33 @@ fn finalise_finite(
         }
         if final_coef >= COEFFICIENT_LIMIT {
             let bumped = final_coef / 10;
-            return (Decimal64::from_bits(pack_finite(sign, 1, bumped)), status);
+            // bumped < COEFFICIENT_LIMIT by construction (final_coef < 10 * COEFFICIENT_LIMIT).
+            let bumped_coef = Coefficient::try_new(bumped).expect("bumped < COEFFICIENT_LIMIT");
+            return (
+                Decimal64::from_bits(pack_finite(
+                    sign,
+                    BiasedExp::try_from_biased(1).unwrap(),
+                    bumped_coef,
+                )),
+                status,
+            );
         }
+        let final_coefficient =
+            Coefficient::try_new(final_coef).expect("final_coef < COEFFICIENT_LIMIT");
         return (
-            Decimal64::from_bits(pack_finite(sign, 0, final_coef)),
+            Decimal64::from_bits(pack_finite(sign, BiasedExp::MIN, final_coefficient)),
             status,
         );
     }
 
-    debug_assert!(coef < COEFFICIENT_LIMIT);
+    // biased ∈ [0, biased_exp_max] from the if-arms above, coef < COEFFICIENT_LIMIT.
+    let biased_exp =
+        BiasedExp::try_from_biased(biased as u32).expect("biased in [0, BIASED_EXP_MAX]");
+    let coefficient = Coefficient::try_new(coef).expect("coef < COEFFICIENT_LIMIT");
     (
-        Decimal64::from_bits(pack_finite(sign, biased as u32, coef)),
+        Decimal64::from_bits(pack_finite(sign, biased_exp, coefficient)),
         status,
     )
-}
-
-#[inline]
-fn biased(unbiased_exp: i32) -> u32 {
-    (unbiased_exp + BIAS as i32) as u32
 }
 
 #[cfg(test)]

@@ -115,7 +115,7 @@ fn handle_specials(a: Class, b: Class) -> Option<(Decimal64, Status)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bid::pack_finite;
+    use crate::bid::{pack_finite, BiasedExp, Coefficient};
 
     fn from_int(n: i64, exp: i32) -> Decimal64 {
         Decimal64::try_new(n, exp).unwrap()
@@ -141,7 +141,11 @@ mod tests {
     fn mul_quantum_addition() {
         // 1.5 × 2.0 = 3.00 (q_preferred = -1 + -1 = -2).
         let (r, _) = from_int(15, -1).mul(from_int(20, -1), RoundingMode::NearestEven);
-        let expected = Decimal64::from_bits(pack_finite(false, BIAS - 2, 300));
+        let expected = Decimal64::from_bits(pack_finite(
+            false,
+            BiasedExp::try_from_biased(BIAS - 2).unwrap(),
+            Coefficient::try_new(300).unwrap(),
+        ));
         assert_eq!(r.to_bits(), expected.to_bits());
     }
 

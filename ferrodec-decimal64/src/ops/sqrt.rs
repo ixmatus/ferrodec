@@ -81,7 +81,12 @@ fn sqrt_special_cases(class: Class) -> Option<(Decimal64, Status)> {
             let exp = biased_exp as i32 - BIAS as i32;
             let q = exp.div_euclid(2);
             Some((
-                Decimal64::from_bits(crate::bid::pack_finite(sign, (q + BIAS as i32) as u32, 0)),
+                Decimal64::from_bits(crate::bid::pack_finite(
+                    sign,
+                    crate::bid::BiasedExp::try_from_unbiased(q)
+                        .expect("sqrt zero quantum in representable range"),
+                    crate::bid::Coefficient::ZERO,
+                )),
                 Status::OK,
             ))
         }

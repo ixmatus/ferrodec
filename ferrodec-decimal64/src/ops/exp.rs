@@ -112,7 +112,7 @@ impl Decimal64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bid::{pack_finite, BIAS};
+    use crate::bid::{pack_finite, BiasedExp, Coefficient, BIAS};
 
     fn from_int(n: i64, exp: i32) -> Decimal64 {
         Decimal64::try_new(n, exp).unwrap()
@@ -143,7 +143,11 @@ mod tests {
     fn exp_one_is_e() {
         let (r, _) = Decimal64::ONE.exp(RoundingMode::NearestEven);
         // e ≈ 2.718281828459045 at 16 digits.
-        let expected = Decimal64::from_bits(pack_finite(false, BIAS - 15, 2_718_281_828_459_045));
+        let expected = Decimal64::from_bits(pack_finite(
+            false,
+            BiasedExp::try_from_biased(BIAS - 15).unwrap(),
+            Coefficient::try_new(2_718_281_828_459_045).unwrap(),
+        ));
         assert!(approx_equal(r, expected, 1));
     }
 
@@ -151,7 +155,11 @@ mod tests {
     fn exp_negative_one_is_reciprocal_e() {
         let (r, _) = Decimal64::NEG_ONE.exp(RoundingMode::NearestEven);
         // 1/e ≈ 0.3678794411714423
-        let expected = Decimal64::from_bits(pack_finite(false, BIAS - 16, 3_678_794_411_714_423));
+        let expected = Decimal64::from_bits(pack_finite(
+            false,
+            BiasedExp::try_from_biased(BIAS - 16).unwrap(),
+            Coefficient::try_new(3_678_794_411_714_423).unwrap(),
+        ));
         assert!(approx_equal(r, expected, 1));
     }
 
@@ -197,7 +205,11 @@ mod tests {
     fn ln_e_is_one() {
         // ln(2.718281828459045) ≈ 1 at 16 digits (slight rounding noise
         // from both the input truncation and the f64 round-trip).
-        let e_approx = Decimal64::from_bits(pack_finite(false, BIAS - 15, 2_718_281_828_459_045));
+        let e_approx = Decimal64::from_bits(pack_finite(
+            false,
+            BiasedExp::try_from_biased(BIAS - 15).unwrap(),
+            Coefficient::try_new(2_718_281_828_459_045).unwrap(),
+        ));
         let (r, _) = e_approx.ln(RoundingMode::NearestEven);
         assert!(approx_equal(r, Decimal64::ONE, 10));
     }
@@ -206,7 +218,11 @@ mod tests {
     fn ln_ten_is_ln10() {
         let (r, _) = Decimal64::TEN.ln(RoundingMode::NearestEven);
         // ln(10) ≈ 2.302585092994046 at 16 digits.
-        let expected = Decimal64::from_bits(pack_finite(false, BIAS - 15, 2_302_585_092_994_046));
+        let expected = Decimal64::from_bits(pack_finite(
+            false,
+            BiasedExp::try_from_biased(BIAS - 15).unwrap(),
+            Coefficient::try_new(2_302_585_092_994_046).unwrap(),
+        ));
         assert!(approx_equal(r, expected, 1));
     }
 

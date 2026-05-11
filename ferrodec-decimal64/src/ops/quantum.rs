@@ -118,11 +118,22 @@ impl Decimal64 {
         // fires up to PRECISION digits; for cases that need shifting
         // outside that envelope we have to handle directly.
 
+        // target_biased came from classify_bits (10-bit field decode).
+        let target_biased_typed = crate::bid::BiasedExp::try_from_biased(target_biased)
+            .expect("target_biased from classify_bits");
+
         // Step 1: rescale to target_q.
         if target_q == self_q {
-            // Already at the right quantum; pack as-is.
+            // Already at the right quantum; pack as-is. coef came from
+            // classify_bits which bounds it below COEFFICIENT_LIMIT.
+            let coef_typed =
+                crate::bid::Coefficient::try_new(coef).expect("coef from classify_bits");
             return (
-                Decimal64::from_bits(crate::bid::pack_finite(sign, target_biased, coef)),
+                Decimal64::from_bits(crate::bid::pack_finite(
+                    sign,
+                    target_biased_typed,
+                    coef_typed,
+                )),
                 Status::OK,
             );
         }
@@ -192,8 +203,15 @@ impl Decimal64 {
                 return (Decimal64::NAN, Status::INVALID);
             }
 
+            // The COEFFICIENT_LIMIT check above guarantees final_coef < limit.
+            let final_coefficient = crate::bid::Coefficient::try_new(final_coef)
+                .expect("final_coef < COEFFICIENT_LIMIT");
             return (
-                Decimal64::from_bits(crate::bid::pack_finite(sign, target_biased, final_coef)),
+                Decimal64::from_bits(crate::bid::pack_finite(
+                    sign,
+                    target_biased_typed,
+                    final_coefficient,
+                )),
                 status,
             );
         }
@@ -215,9 +233,15 @@ impl Decimal64 {
             return (Decimal64::NAN, Status::INVALID);
         }
         let new_coef = coef * POW10_U64[pad as usize];
-        debug_assert!(new_coef < COEFFICIENT_LIMIT);
+        // new_digits <= PRECISION (checked above), so new_coef < 10^PRECISION = COEFFICIENT_LIMIT.
+        let new_coefficient =
+            crate::bid::Coefficient::try_new(new_coef).expect("new_coef < COEFFICIENT_LIMIT");
         (
-            Decimal64::from_bits(crate::bid::pack_finite(sign, target_biased, new_coef)),
+            Decimal64::from_bits(crate::bid::pack_finite(
+                sign,
+                target_biased_typed,
+                new_coefficient,
+            )),
             Status::OK,
         )
     }
@@ -356,43 +380,61 @@ impl Decimal64 {
         let expand = (PRECISION - digits).min(bexp);
         let new_coef = coef * crate::bid::pow10(expand);
         let new_bexp = bexp - expand;
+        // new_bexp ≤ bexp ≤ BIASED_EXP_MAX (bexp from classify_bits).
+        let new_bexp_typed = crate::bid::BiasedExp::try_from_biased(new_bexp)
+            .expect("new_bexp <= bexp from classify_bits");
         if !sign {
             if new_coef + 1 < COEFFICIENT_LIMIT {
+                let coef_typed = crate::bid::Coefficient::try_new(new_coef + 1)
+                    .expect("checked < COEFFICIENT_LIMIT");
                 return (
-                    Decimal64::from_bits(crate::bid::pack_finite(false, new_bexp, new_coef + 1)),
+                    Decimal64::from_bits(crate::bid::pack_finite(
+                        false,
+                        new_bexp_typed,
+                        coef_typed,
+                    )),
                     Status::OK,
                 );
             }
             if new_bexp == BIASED_EXP_MAX {
                 return (Decimal64::INFINITY, Status::OK);
             }
+            // new_bexp < BIASED_EXP_MAX checked above, so new_bexp + 1 fits.
+            let bumped_bexp = crate::bid::BiasedExp::try_from_biased(new_bexp + 1)
+                .expect("new_bexp + 1 <= BIASED_EXP_MAX");
+            let pow_coef = crate::bid::Coefficient::try_new(COEFFICIENT_LIMIT / 10)
+                .expect("COEFFICIENT_LIMIT / 10 < COEFFICIENT_LIMIT");
             return (
-                Decimal64::from_bits(crate::bid::pack_finite(
-                    false,
-                    new_bexp + 1,
-                    COEFFICIENT_LIMIT / 10,
-                )),
+                Decimal64::from_bits(crate::bid::pack_finite(false, bumped_bexp, pow_coef)),
                 Status::OK,
             );
         }
         if new_coef == COEFFICIENT_LIMIT / 10 && new_bexp > 0 {
+            let dec_bexp =
+                crate::bid::BiasedExp::try_from_biased(new_bexp - 1).expect("new_bexp > 0 checked");
             return (
                 Decimal64::from_bits(crate::bid::pack_finite(
                     true,
-                    new_bexp - 1,
-                    COEFFICIENT_LIMIT - 1,
+                    dec_bexp,
+                    crate::bid::Coefficient::MAX,
                 )),
                 Status::OK,
             );
         }
         if new_coef > 1 {
+            let coef_typed = crate::bid::Coefficient::try_new(new_coef - 1)
+                .expect("new_coef - 1 < new_coef < COEFFICIENT_LIMIT");
             return (
-                Decimal64::from_bits(crate::bid::pack_finite(true, new_bexp, new_coef - 1)),
+                Decimal64::from_bits(crate::bid::pack_finite(true, new_bexp_typed, coef_typed)),
                 Status::OK,
             );
         }
         (
-            Decimal64::from_bits(crate::bid::pack_finite(true, 0, 0)),
+            Decimal64::from_bits(crate::bid::pack_finite(
+                true,
+                crate::bid::BiasedExp::MIN,
+                crate::bid::Coefficient::ZERO,
+            )),
             Status::OK,
         )
     }
@@ -419,7 +461,7 @@ impl Decimal64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bid::pack_finite;
+    use crate::bid::{pack_finite, BiasedExp, Coefficient};
 
     fn from_int(n: i64, exp: i32) -> Decimal64 {
         Decimal64::try_new(n, exp).unwrap()
@@ -429,7 +471,11 @@ mod tests {
     fn quantize_pad_with_zeros() {
         // quantize(1, 1E-2) = 1.00 (= 100 × 10^-2)
         let (r, s) = from_int(1, 0).quantize(from_int(1, -2), RoundingMode::NearestEven);
-        let expected = Decimal64::from_bits(pack_finite(false, BIAS - 2, 100));
+        let expected = Decimal64::from_bits(pack_finite(
+            false,
+            BiasedExp::try_from_biased(BIAS - 2).unwrap(),
+            Coefficient::try_new(100).unwrap(),
+        ));
         assert_eq!(r.to_bits(), expected.to_bits());
         assert!(s.is_ok());
     }
@@ -438,7 +484,11 @@ mod tests {
     fn quantize_round_to_target_quantum() {
         // quantize(1.234, 1E-1) = 1.2 (rounded)
         let (r, s) = from_int(1234, -3).quantize(from_int(1, -1), RoundingMode::NearestEven);
-        let expected = Decimal64::from_bits(pack_finite(false, BIAS - 1, 12));
+        let expected = Decimal64::from_bits(pack_finite(
+            false,
+            BiasedExp::try_from_biased(BIAS - 1).unwrap(),
+            Coefficient::try_new(12).unwrap(),
+        ));
         assert_eq!(r.to_bits(), expected.to_bits());
         assert!(s.inexact());
     }
@@ -467,12 +517,20 @@ mod tests {
     fn scaleb_basic() {
         // 1.5 × 10^2 = 150
         let (r, _) = from_int(15, -1).scaleb(2, RoundingMode::NearestEven);
-        let expected = Decimal64::from_bits(pack_finite(false, BIAS + 1, 15));
+        let expected = Decimal64::from_bits(pack_finite(
+            false,
+            BiasedExp::try_from_biased(BIAS + 1).unwrap(),
+            Coefficient::try_new(15).unwrap(),
+        ));
         assert_eq!(r.to_bits(), expected.to_bits());
 
         // 5 × 10^-3 = 0.005
         let (r, _) = from_int(5, 0).scaleb(-3, RoundingMode::NearestEven);
-        let expected = Decimal64::from_bits(pack_finite(false, BIAS - 3, 5));
+        let expected = Decimal64::from_bits(pack_finite(
+            false,
+            BiasedExp::try_from_biased(BIAS - 3).unwrap(),
+            Coefficient::try_new(5).unwrap(),
+        ));
         assert_eq!(r.to_bits(), expected.to_bits());
     }
 
@@ -539,7 +597,12 @@ mod tests {
         // BIAS - 15 = 383, coefficient = 5_000_000_000_000_001.
         assert_eq!(
             r.to_bits(),
-            Decimal64::from_bits(pack_finite(false, BIAS - 15, 5_000_000_000_000_001)).to_bits()
+            Decimal64::from_bits(pack_finite(
+                false,
+                BiasedExp::try_from_biased(BIAS - 15).unwrap(),
+                Coefficient::try_new(5_000_000_000_000_001).unwrap()
+            ))
+            .to_bits()
         );
         assert!(s.is_ok());
     }

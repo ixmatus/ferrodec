@@ -115,11 +115,16 @@ fn add_inner(a: Decimal64, b: Decimal64, rm: RoundingMode) -> (Decimal64, Status
     if coef_a == 0 && coef_b == 0 {
         let q_preferred = exp_a.min(exp_b);
         let result_sign = zero_sum_sign(sign_a, sign_b, rm);
+        // Both `exp_a` and `exp_b` came from `classify_bits`, so
+        // `q_preferred ∈ [-BIAS, BIASED_EXP_MAX - BIAS as i32]` and the
+        // unbiased-to-biased conversion is in range.
+        let biased_exp = crate::bid::BiasedExp::try_from_unbiased(q_preferred)
+            .expect("q_preferred from classify_bits-derived exponents");
         return (
             Decimal64::from_bits(crate::bid::pack_finite(
                 result_sign,
-                (q_preferred + BIAS as i32) as u32,
-                0,
+                biased_exp,
+                crate::bid::Coefficient::ZERO,
             )),
             Status::OK,
         );
@@ -165,11 +170,15 @@ fn add_inner(a: Decimal64, b: Decimal64, rm: RoundingMode) -> (Decimal64, Status
             return round_and_pack_into_u64(1, exp_lo, q_preferred, sign_lo, false, rm);
         }
         let result_sign = zero_sum_sign(sign_a, sign_b, rm);
+        // As in the both-zero early return above, `q_preferred` is
+        // bounded by the classify_bits-derived exponent range.
+        let biased_exp = crate::bid::BiasedExp::try_from_unbiased(q_preferred)
+            .expect("q_preferred from classify_bits-derived exponents");
         return (
             Decimal64::from_bits(crate::bid::pack_finite(
                 result_sign,
-                (q_preferred + BIAS as i32) as u32,
-                0,
+                biased_exp,
+                crate::bid::Coefficient::ZERO,
             )),
             Status::OK,
         );
@@ -304,7 +313,7 @@ fn handle_specials(a: Class, b: Class, rm: RoundingMode) -> Option<(Decimal64, S
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bid::{pack_finite, BIAS};
+    use crate::bid::{pack_finite, BiasedExp, Coefficient, BIAS};
 
     fn from_int(n: i64, exp: i32) -> Decimal64 {
         Decimal64::try_new(n, exp).unwrap()
@@ -325,7 +334,11 @@ mod tests {
         // 9_999_999_999_999_999 + 1 = 10^16 → renormalises.
         let (r, _) =
             from_int(9_999_999_999_999_999, 0).add(from_int(1, 0), RoundingMode::NearestEven);
-        let expected = Decimal64::from_bits(pack_finite(false, BIAS + 1, 1_000_000_000_000_000));
+        let expected = Decimal64::from_bits(pack_finite(
+            false,
+            BiasedExp::try_from_biased(BIAS + 1).unwrap(),
+            Coefficient::try_new(1_000_000_000_000_000).unwrap(),
+        ));
         assert_eq!(r.to_bits(), expected.to_bits());
     }
 
@@ -356,7 +369,11 @@ mod tests {
         let a = from_int(1, 0);
         let b = from_int(5, -1);
         let (r, _) = a.add(b, RoundingMode::NearestEven);
-        let expected = Decimal64::from_bits(pack_finite(false, BIAS - 1, 15));
+        let expected = Decimal64::from_bits(pack_finite(
+            false,
+            BiasedExp::try_from_biased(BIAS - 1).unwrap(),
+            Coefficient::try_new(15).unwrap(),
+        ));
         assert_eq!(r.to_bits(), expected.to_bits());
     }
 
@@ -415,7 +432,11 @@ mod tests {
     #[test]
     fn add_finite_zero_returns_finite() {
         let (r, _) = from_int(123, -2).add(Decimal64::ZERO, RoundingMode::NearestEven);
-        let expected = Decimal64::from_bits(pack_finite(false, BIAS - 2, 123));
+        let expected = Decimal64::from_bits(pack_finite(
+            false,
+            BiasedExp::try_from_biased(BIAS - 2).unwrap(),
+            Coefficient::try_new(123).unwrap(),
+        ));
         assert_eq!(r.to_bits(), expected.to_bits());
     }
 }
