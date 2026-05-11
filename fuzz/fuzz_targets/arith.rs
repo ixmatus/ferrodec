@@ -1,10 +1,10 @@
-//! Fuzz target: arbitrary `(Decimal128, Decimal128)` triples through
-//! `add` / `sub` / `mul` / `div`. Asserts:
+//! Fuzz target: arbitrary `(Decimal128, Decimal128, Decimal128)` triples
+//! through `add` / `sub` / `mul` / `div` / `fma`. Asserts:
 //!
 //! * No panic on any defined input (including sNaN and overflow paths).
 //! * Identity invariants: `a + 0` is numerically equal to `a` for
 //!   non-NaN finite `a`; `a * 1` numerically equals `a`; `a - a == 0`
-//!   for finite `a`.
+//!   for finite `a`; `a.fma(1, 0) == a`.
 //!
 //! Kani proves these for the special-case dispatch on bounded operands;
 //! libFuzzer covers the un-bounded space.
@@ -16,9 +16,10 @@ use libfuzzer_sys::fuzz_target;
 use ferrodec::{Decimal128, RoundingMode};
 
 #[derive(arbitrary::Arbitrary, Debug)]
-struct Pair {
+struct Triple {
     a: u128,
     b: u128,
+    c: u128,
 }
 
 fn nums_equal(x: Decimal128, y: Decimal128) -> bool {
@@ -28,15 +29,17 @@ fn nums_equal(x: Decimal128, y: Decimal128) -> bool {
     matches!(x.partial_cmp(y).0, Some(core::cmp::Ordering::Equal))
 }
 
-fuzz_target!(|p: Pair| {
+fuzz_target!(|p: Triple| {
     let a = Decimal128::from_bits(p.a);
     let b = Decimal128::from_bits(p.b);
+    let c = Decimal128::from_bits(p.c);
     let rm = RoundingMode::NearestEven;
 
     let _ = a.add(b, rm);
     let _ = a.sub(b, rm);
     let _ = a.mul(b, rm);
     let _ = a.div(b, rm);
+    let _ = a.fma(b, c, rm);
 
     if a.is_finite() && !a.is_nan() {
         let (sum, _) = a.add(Decimal128::ZERO, rm);
@@ -47,5 +50,11 @@ fuzz_target!(|p: Pair| {
 
         let (diff, _) = a.sub(a, rm);
         assert!(diff.is_zero(), "a - a != 0 (a = {a:?})");
+
+        // FMA identity: a * 1 + 0 = a (numerically). FMA's
+        // single-rounding contract collapses to the multiply's
+        // (which is the identity here), so the result matches a.
+        let (fma_id, _) = a.fma(Decimal128::ONE, Decimal128::ZERO, rm);
+        assert!(nums_equal(fma_id, a), "a.fma(1, 0) != a (a = {a:?})");
     }
 });
