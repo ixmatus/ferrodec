@@ -52,8 +52,6 @@ serde = ["fmt", "dep:serde"]
 # routes through `parse_str`. Pulls `binary-float` because
 # integer-conversion paths route through `f64`.
 num-traits = ["fmt", "ops", "binary-float", "dep:num-traits", "dep:libm"]
-# Compile Kani proof harnesses. Off in normal builds.
-kani = []
 
 [dependencies]
 ferrodec-ieee = { path = "../ferrodec-ieee", version = "0.1.2" }

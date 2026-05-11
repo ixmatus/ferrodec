@@ -125,8 +125,6 @@ num-traits = ["fmt", "ops", "dep:num-traits"]
 # code-size floor. See ADR-0001 (BID for arithmetic) and the plan at
 # `docs/decisions/plans/2026-05-07-dpd-interchange.md`.
 dpd = []
-# Compile Kani proof harnesses. Off in normal builds.
-kani = []
 
 [dependencies]
 ferrodec-ieee = { path = "ferrodec-ieee", version = "0.1.2" }
