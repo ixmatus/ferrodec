@@ -77,8 +77,7 @@ fn dectest_skip_taxonomy_non_ieee_rounding_directive_count() {
                 ctx.apply(&name, &value);
                 continue;
             }
-            if parse_test_case(line).is_some()
-                && matches!(ctx.rounding, CaseRounding::Unsupported)
+            if parse_test_case(line).is_some() && matches!(ctx.rounding, CaseRounding::Unsupported)
             {
                 non_ieee_count += 1;
             }
