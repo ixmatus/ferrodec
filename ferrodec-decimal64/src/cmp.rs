@@ -94,8 +94,14 @@ impl Decimal64 {
     #[inline]
     #[must_use]
     pub fn min(self, other: Self) -> (Self, Status) {
-        if self.is_signaling_nan() || other.is_signaling_nan() {
-            return (Self::NAN, Status::INVALID);
+        // IEEE 754-2019 §6.2.3: the result NaN from an sNaN operand
+        // must carry that operand's payload (signal cleared).
+        // First-sNaN wins.
+        if self.is_signaling_nan() {
+            return (quieten_snan(self), Status::INVALID);
+        }
+        if other.is_signaling_nan() {
+            return (quieten_snan(other), Status::INVALID);
         }
         if self.is_nan() && other.is_nan() {
             return (Self::NAN, Status::OK);
@@ -118,8 +124,12 @@ impl Decimal64 {
     #[inline]
     #[must_use]
     pub fn max(self, other: Self) -> (Self, Status) {
-        if self.is_signaling_nan() || other.is_signaling_nan() {
-            return (Self::NAN, Status::INVALID);
+        // IEEE 754-2019 §6.2.3 sNaN payload preservation; see `min`.
+        if self.is_signaling_nan() {
+            return (quieten_snan(self), Status::INVALID);
+        }
+        if other.is_signaling_nan() {
+            return (quieten_snan(other), Status::INVALID);
         }
         if self.is_nan() && other.is_nan() {
             return (Self::NAN, Status::OK);
@@ -136,6 +146,16 @@ impl Decimal64 {
         };
         (result, Status::OK)
     }
+}
+
+/// Quieten an sNaN to a qNaN preserving sign and payload.
+#[inline]
+fn quieten_snan(x: Decimal64) -> Decimal64 {
+    debug_assert!(x.is_signaling_nan());
+    let bits = x.to_bits();
+    let sign = (bits >> 63) & 1 == 1;
+    let payload = bits & crate::bid::T_MASK;
+    Decimal64::from_bits(crate::bid::pack_quiet_nan(sign, payload))
 }
 
 /// Numeric compare assuming neither operand is NaN.
@@ -516,6 +536,35 @@ mod tests {
         let (r, s) = from_int(1, 0).max(Decimal64::SIGNALING_NAN);
         assert!(r.is_quiet_nan());
         assert!(s.invalid());
+    }
+
+    #[test]
+    fn min_max_snan_preserves_payload() {
+        // IEEE 754-2019 §6.2.3: result NaN from an sNaN operand must
+        // carry that operand's payload.
+        use crate::bid::{pack_signaling_nan, T_MASK};
+        let payload: u64 = 0x1_2345_6789;
+        let snan_pos = Decimal64::from_bits(pack_signaling_nan(false, payload));
+        let snan_neg = Decimal64::from_bits(pack_signaling_nan(true, payload));
+
+        let (r, s) = from_int(1, 0).min(snan_pos);
+        assert!(r.is_quiet_nan());
+        assert!(s.invalid());
+        assert_eq!(r.to_bits() & T_MASK, payload);
+        assert!(!Decimal64::from_bits(r.to_bits()).is_sign_negative());
+
+        let (r, s) = from_int(1, 0).max(snan_neg);
+        assert!(r.is_quiet_nan());
+        assert!(s.invalid());
+        assert_eq!(r.to_bits() & T_MASK, payload);
+        assert!(Decimal64::from_bits(r.to_bits()).is_sign_negative());
+
+        // First-sNaN wins.
+        let lhs = Decimal64::from_bits(pack_signaling_nan(false, 0xAAAA));
+        let rhs = Decimal64::from_bits(pack_signaling_nan(false, 0xBBBB));
+        let (r, s) = lhs.min(rhs);
+        assert!(s.invalid());
+        assert_eq!(r.to_bits() & T_MASK, 0xAAAA);
     }
 
     #[test]
