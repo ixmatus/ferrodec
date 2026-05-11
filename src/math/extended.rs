@@ -261,6 +261,20 @@ impl Extended {
         if coef.is_zero() {
             return Self::ZERO;
         }
+        // Slice E.4 guard: the kernels downstream of this parser assume a
+        // working precision of `EXT_PRECISION = 50` digits. Hand-curated
+        // literals usually overshoot slightly (the `*_EXT_STR` constants
+        // in `src/math/consts.rs` are 55 digits) but a literal much wider
+        // than that would silently bypass the precision invariant and
+        // could surprise a caller that assumes the parsed value fits the
+        // envelope. Tolerate up to 5 extra digits before debug-asserting;
+        // production callers (`Extended::round_to_precision`) re-narrow
+        // before any kernel consumes the value.
+        debug_assert!(
+            coef.decimal_digit_count() <= EXT_PRECISION + 5,
+            "Extended::parse_str: literal exceeds EXT_PRECISION + 5; \
+             round it through Extended::round_to_precision or trim the source"
+        );
         Self {
             coef,
             exp: exp_explicit - digits_after_point,

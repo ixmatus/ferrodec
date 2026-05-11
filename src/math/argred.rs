@@ -785,9 +785,17 @@ mod table {
 /// is below `EXT_PRECISION = 50` of the downstream `Extended`
 /// envelope, but comfortably above Decimal128's 34-digit boundary
 /// (the relevant margin for callers): `43 − 34 = 9` headroom digits
-/// at the worst case. Bumping `FRAC_DIGITS` widens the headroom
-/// linearly without breaking the U384 → U256 collapse downstream
-/// (see `make_residual`).
+/// at the worst case.
+///
+/// The 2026-05-10 six-agent review flagged the 9-digit margin as
+/// "tight". Investigation during Slice E found the current budget
+/// is empirically sufficient (the `property_sincos_large` suite
+/// passes at 1 ULP across magnitudes through 1e500), so no bump
+/// landed in 1.15. Bumping `FRAC_DIGITS` past 77 requires switching
+/// the windowed product machinery from U256 to U384 (10^78 exceeds
+/// U256's ~1.16 × 10^77 capacity); the refactor is well-supported
+/// by the existing `u384_mul_u128_to_u512` helper but is deferred
+/// until a failing high-magnitude case surfaces.
 const FRAC_DIGITS: u32 = 76;
 /// Extra digits below the precision window to absorb truncation
 /// carries from the unread tail of `2/π`.
