@@ -374,7 +374,10 @@ mod tests {
         // The dividend's class is Zero, not Finite — proving the
         // classify_bits canonicalisation that makes the rem
         // short-circuit safe.
-        assert!(a.is_zero(), "non-canonical Form A must canonicalise to Zero on decode");
+        assert!(
+            a.is_zero(),
+            "non-canonical Form A must canonicalise to Zero on decode"
+        );
 
         // rem(non_canonical_form_a, +Inf) returns the operand
         // verbatim per rem_special_cases line 157. Because the
