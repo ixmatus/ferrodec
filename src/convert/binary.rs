@@ -70,9 +70,18 @@ impl core::fmt::Write for StrBuf {
 impl Decimal128 {
     /// Convert `self` to `f64`, using the canonical decimal-string
     /// round-trip. NaN / ±∞ / ±0 are passed through bit-exactly.
-    /// Finite values are rendered to a buffer via `Display` and parsed
-    /// by `f64::from_str`, giving correctly-rounded conversion to
-    /// nearest within the f64 precision envelope (~17 decimal digits).
+    /// Finite values are rendered to a buffer via `Display` and
+    /// parsed by `f64::from_str`. The resulting `f64` is the
+    /// shortest-decimal-that-round-trips representation of the
+    /// Decimal128 value rounded to the f64 grid, not the IEEE 754
+    /// §5.4.2 `convertFormat` correctly-rounded conversion. For
+    /// values inside f64's ~17-digit precision envelope the two
+    /// definitions agree; for wider Decimal128 values the
+    /// shortest-decimal step may diverge from the
+    /// best-rounded-f64 by up to 1 ULP. The L5 finding in the
+    /// 2026-05-10 review flagged the earlier "correctly-rounded"
+    /// wording as inviting the stronger contract; this docstring
+    /// records the actual semantics.
     ///
     /// `rm` currently informs only the unrepresentable-edge cases
     /// (overflow ⇒ ±∞, underflow ⇒ ±0); the dominant rounding is

@@ -350,6 +350,43 @@ mod tests {
         assert!(r.is_sign_negative());
     }
 
+    /// `rem(x, ±∞)` short-circuits via `return Some((a, status))`
+    /// (operand verbatim), distinct from the other special arms which
+    /// re-canonicalise via `pack_finite`. The 2026-05-10 review (M-2
+    /// in the core-arithmetic finding) flagged this asymmetry. In
+    /// practice the asymmetry is benign because `classify_bits`
+    /// canonicalises non-canonical Form A (coefficient ≥ 10^34) to
+    /// `Class::Zero` at decode, so by the time `rem` reaches the
+    /// Infinity-divisor case the dividend has already been classified
+    /// as either Zero or Finite (with coefficient < 10^34). Pin the
+    /// invariant explicitly so a future refactor that touches either
+    /// `classify_bits`'s canonicalisation rule or `rem_special_cases`'s
+    /// short-circuit surfaces the implicit dependency.
+    #[test]
+    fn rem_with_inf_divisor_preserves_non_canonical_form_a_safely() {
+        // Construct a non-canonical Form A bit pattern: coefficient
+        // 10^34 + 5 (just past COEFFICIENT_LIMIT), biased_exp BIAS.
+        // `classify_bits` decodes this as Class::Zero per §3.5.2.
+        let bias = crate::bid::BIAS;
+        let non_canonical_coef = crate::bid::COEFFICIENT_LIMIT + 5;
+        let bits = crate::bid::pack_finite(false, bias, non_canonical_coef);
+        let a = Decimal128::from_bits(bits);
+        // The dividend's class is Zero, not Finite — proving the
+        // classify_bits canonicalisation that makes the rem
+        // short-circuit safe.
+        assert!(
+            a.is_zero(),
+            "non-canonical Form A must canonicalise to Zero on decode"
+        );
+
+        // rem(non_canonical_form_a, +Inf) returns the operand
+        // verbatim per rem_special_cases line 157. Because the
+        // operand is canonicalised, the verbatim return is safe.
+        let (r, _) = a.rem(Decimal128::INFINITY);
+        assert_eq!(r.to_bits(), a.to_bits());
+        assert!(r.is_zero());
+    }
+
     #[test]
     fn rem_trunc_basic_in_range() {
         // 7 fmod 3: trunc(7/3) = 2, 7 − 2·3 = 1 (sign of dividend).

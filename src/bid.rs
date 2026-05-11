@@ -204,14 +204,13 @@ pub(crate) const fn pack_signaling_nan(sign: bool, payload: u128) -> u128 {
 
 /// Number of significant decimal digits in `n`. Returns `1` when `n == 0`,
 /// matching the IEEE 754 convention for "digits of zero".
-#[inline]
-pub(crate) const fn decimal_digit_count(n: u128) -> u32 {
-    if n == 0 {
-        1
-    } else {
-        n.ilog10() + 1
-    }
-}
+///
+/// Re-exported from `ferrodec_ieee::decimal_digit_count_u128`, the
+/// shared-crate single source of truth introduced in 0.1.2. Aliased
+/// here so existing `crate::bid::decimal_digit_count` call sites
+/// (cmp.rs, math/argred.rs, math/ln.rs, math/pow.rs, ops/rem.rs,
+/// convert/format.rs) keep their import unchanged.
+pub(crate) use ferrodec_ieee::decimal_digit_count_u128 as decimal_digit_count;
 
 /// `10^k` for `k <= 38` (the largest power of ten that fits in `u128`).
 ///
