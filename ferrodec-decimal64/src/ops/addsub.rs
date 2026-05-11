@@ -130,6 +130,28 @@ fn add_inner(a: Decimal64, b: Decimal64, rm: RoundingMode) -> (Decimal64, Status
         );
     }
 
+    // H1 fix (`ddadd360`): when exactly one operand is zero, the
+    // result is the other operand requantised to
+    // `q_preferred = min(exp_a, exp_b)` per IEEE 754-2019 §5.4.1 +
+    // §6.3 (preferred quantum for additive operations). Without this
+    // short-circuit, an exponent gap exceeding `WORKING_PRECISION`
+    // collapses both aligned magnitudes to zero in the diff-too-wide
+    // branch below (line ~158), and the rounding funnel returns
+    // `0E+exp_hi` instead of the non-zero operand's value. The fix
+    // also subsumes Agent 1 F3's `aligned_hi == aligned_lo`
+    // degenerate case for opposite signs — that branch is reachable
+    // only when both aligned magnitudes are zero, which (with the
+    // both-zero early return above) requires at least one operand
+    // to carry `coef == 0`.
+    if coef_a == 0 {
+        let q_preferred = exp_a.min(exp_b);
+        return round_and_pack_finite(coef_b, exp_b, q_preferred, sign_b, false, rm, Status::OK);
+    }
+    if coef_b == 0 {
+        let q_preferred = exp_a.min(exp_b);
+        return round_and_pack_finite(coef_a, exp_a, q_preferred, sign_a, false, rm, Status::OK);
+    }
+
     let (sign_hi, exp_hi, coef_hi, sign_lo, exp_lo, coef_lo) = if exp_a >= exp_b {
         (sign_a, exp_a, coef_a, sign_b, exp_b, coef_b)
     } else {
@@ -361,6 +383,51 @@ mod tests {
 
         let (r, _) = Decimal64::ZERO.add(Decimal64::NEG_ZERO, RoundingMode::TowardNegative);
         assert!(r.is_sign_negative());
+    }
+
+    #[test]
+    fn add_h1_asymmetric_zero_at_far_exponent_keeps_magnitude() {
+        // H1 regression (`ddAdd.decTest:358`, case `ddadd360`).
+        // `add 0E+50 10000E+1` under any rounding mode should return
+        // `1.0000E+5` per IEEE 754-2019 §5.4.1 (`x + 0 = x` with
+        // preferred quantum `min(quantum(x), quantum(0))`). Before the
+        // fix, the diff-too-wide alignment branch collapsed both
+        // aligned magnitudes to zero and the rounding funnel returned
+        // `0E+50`.
+        let a = Decimal64::try_new(0, 50).unwrap();
+        let b = Decimal64::try_new(10000, 1).unwrap();
+        let (r, status) = a.add(b, RoundingMode::NearestEven);
+        let expected = Decimal64::try_new(10000, 1).unwrap();
+        assert_eq!(
+            r.to_bits(),
+            expected.to_bits(),
+            "0E+50 + 10000E+1 should equal 1.0000E+5, got {r:?}"
+        );
+        assert!(
+            status.is_ok(),
+            "0E+50 + 10000E+1 is exact, expected no flags raised, got {status:?}"
+        );
+
+        // Symmetric: zero on the right operand.
+        let (r, status) = b.add(a, RoundingMode::NearestEven);
+        assert_eq!(r.to_bits(), expected.to_bits());
+        assert!(status.is_ok());
+
+        // Negative zero preserves the non-zero operand's sign per §6.3.
+        let neg_zero = Decimal64::try_new(0, 50).unwrap().neg();
+        let (r, _) = neg_zero.add(b, RoundingMode::NearestEven);
+        assert!(
+            !r.is_sign_negative(),
+            "(-0E+50) + (+10000E+1) should be positive"
+        );
+
+        // Negative non-zero operand: the non-zero operand's sign wins.
+        let neg_b = b.neg();
+        let (r, _) = a.add(neg_b, RoundingMode::NearestEven);
+        assert!(
+            r.is_sign_negative(),
+            "(+0E+50) + (-10000E+1) should be negative"
+        );
     }
 
     #[test]
