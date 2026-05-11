@@ -2,11 +2,22 @@
 
 use crate::bid::{
     classify_bits, pack_finite, pack_infinity, pack_quiet_nan, pack_signaling_nan, Class,
-    BIASED_EXP_MAX, COEFFICIENT_FIELD_LIMIT,
+    BIASED_EXP_MAX, COEFFICIENT_FIELD_LIMIT, COEFFICIENT_LIMIT,
 };
 
 /// `pack_finite` followed by `classify_bits` recovers the inputs verbatim
 /// for any in-range Form-A finite triple.
+///
+/// IEEE 754-2019 §3.5.2 introduces an asymmetry: `pack_finite` accepts any
+/// coefficient `< COEFFICIENT_FIELD_LIMIT` (2¹¹³), but `classify_bits`
+/// canonicalises coefficients `>= COEFFICIENT_LIMIT` (10³⁴) as Zero. So
+/// the round-trip pairs split three ways:
+///
+/// * `coefficient == 0` → Zero (preserves sign, biased_exp).
+/// * `0 < coefficient < 10³⁴` → Finite (preserves all three).
+/// * `10³⁴ ≤ coefficient < 2¹¹³` → Zero per the canonicalisation rule
+///   (preserves sign and biased_exp; coefficient is *legitimately*
+///   dropped because the input was non-canonical Form A).
 #[kani::proof]
 fn pack_finite_unpack_roundtrip() {
     let sign: bool = kani::any();
@@ -21,7 +32,8 @@ fn pack_finite_unpack_roundtrip() {
             sign: s,
             biased_exp: e,
         } => {
-            assert!(coefficient == 0);
+            // §3.5.2 canonicalisation: zero OR non-canonical Form-A.
+            assert!(coefficient == 0 || coefficient >= COEFFICIENT_LIMIT);
             assert!(s == sign);
             assert!(e == biased_exp);
         }
@@ -30,7 +42,7 @@ fn pack_finite_unpack_roundtrip() {
             biased_exp: e,
             coefficient: c,
         } => {
-            assert!(coefficient != 0);
+            assert!(coefficient != 0 && coefficient < COEFFICIENT_LIMIT);
             assert!(s == sign);
             assert!(e == biased_exp);
             assert!(c == coefficient);
