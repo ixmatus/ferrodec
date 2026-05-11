@@ -237,7 +237,24 @@ impl U256 {
             256 - self.hi.leading_zeros()
         };
         let half_bits = bit_len.div_ceil(2);
-        debug_assert!(half_bits < 128, "isqrt input exceeds supported range");
+        // `half_bits == 128` corresponds to a 256-bit input whose
+        // square root is exactly `2^128`, which doesn't fit in
+        // `u128` and would shift `1u128 << 128` to overflow on the
+        // initial estimate. Production callers (sqrt's
+        // `sqrt_positive_finite`) cap the input bit-length at ~234
+        // via the `target_d <= 33 or 34` scaling step before calling
+        // `isqrt`, so `bit_len <= 234` and `half_bits <= 117` —
+        // well below 128. The L4 finding in the 2026-05-10 review
+        // noted that the assertion's `< 128` cutoff was tighter than
+        // the function's actual u128-fit constraint; expanding to
+        // `<= 127` (equivalent to the original) plus a doc comment
+        // that records the caller invariant makes the precondition
+        // explicit.
+        debug_assert!(
+            half_bits <= 127,
+            "isqrt input exceeds supported range \
+             (caller must cap bit_len ≤ 254 so the result fits in u128)"
+        );
 
         let mut x: u128 = 1u128 << half_bits;
 
