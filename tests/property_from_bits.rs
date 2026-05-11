@@ -16,7 +16,7 @@
 //! same shape: every `u128` decoded as a `Decimal128` must produce a
 //! safe, IEEE-conformant value at every public method.
 
-use ferrodec::{Decimal128, RoundingMode};
+use ferrodec::{Decimal128, IeeeClass, RoundingMode};
 use proptest::prelude::*;
 
 proptest! {
@@ -83,6 +83,50 @@ proptest! {
                 Some(core::cmp::Ordering::Equal),
                 "non-canonical input should add the same as its canonicalised form",
             );
+        }
+    }
+
+    /// `ieee_class` is total and self-consistent over the full u128
+    /// space. Slice F.4 closes the M-T1 op-without-proptest gap for
+    /// `ieee_class` (added in M9 of 1.14.0; previously covered only
+    /// by inline unit tests).
+    ///
+    /// Pinned invariants:
+    /// * `ieee_class(x) ∈ {SignalingNaN, QuietNaN}` iff `x.is_nan()`.
+    /// * `ieee_class(x) ∈ {PositiveInfinity, NegativeInfinity}` iff
+    ///   `x.is_infinite()`.
+    /// * Zero / subnormal / normal classes imply `is_finite()`.
+    /// * Sign-prefixed finite variants match `is_sign_negative()`.
+    #[test]
+    fn ieee_class_total_and_self_consistent(bits in any::<u128>()) {
+        let d = Decimal128::from_bits(bits);
+        let c = d.ieee_class();
+        let is_class_nan = matches!(c, IeeeClass::SignalingNaN | IeeeClass::QuietNaN);
+        prop_assert_eq!(is_class_nan, d.is_nan());
+        let is_class_inf =
+            matches!(c, IeeeClass::PositiveInfinity | IeeeClass::NegativeInfinity);
+        prop_assert_eq!(is_class_inf, d.is_infinite());
+        let is_class_finite = matches!(
+            c,
+            IeeeClass::PositiveZero
+                | IeeeClass::NegativeZero
+                | IeeeClass::PositiveSubnormal
+                | IeeeClass::NegativeSubnormal
+                | IeeeClass::PositiveNormal
+                | IeeeClass::NegativeNormal
+        );
+        prop_assert_eq!(is_class_finite, d.is_finite());
+        // Sign-aware finite classes: the IeeeClass shape collapses
+        // NaN sign into the qNaN / sNaN distinction, so this check
+        // is finite-only.
+        if d.is_finite() {
+            let class_is_negative = matches!(
+                c,
+                IeeeClass::NegativeZero
+                    | IeeeClass::NegativeSubnormal
+                    | IeeeClass::NegativeNormal
+            );
+            prop_assert_eq!(class_is_negative, d.is_sign_negative());
         }
     }
 }

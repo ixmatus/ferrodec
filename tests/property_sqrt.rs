@@ -4,6 +4,9 @@ use proptest::prelude::*;
 
 use ferrodec::{Decimal128, RoundingMode};
 
+mod common;
+use common::within_ulps;
+
 const BIAS_U32: u32 = 6176;
 
 fn decimal_finite(sign: bool, biased_exp: u32, coef: u128) -> Decimal128 {
@@ -42,18 +45,20 @@ proptest! {
     /// `sqrt(x)^2 ≈ x` within rounding for any positive `x` (we accept up
     /// to 2 ULP of relative error since we round twice — once in sqrt,
     /// once in the squaring).
+    ///
+    /// Pre-1.15 the body only checked `is_finite() && !is_zero() &&
+    /// !is_sign_negative()` — a `sqrt` that returned `0.5 * x` would
+    /// pass. Slice F's M-T6 finding from the 2026-05-10 review
+    /// rewired this through `within_ulps`.
     #[test]
     fn sqrt_roundtrip_within_2_ulp(n in 1u64..u64::MAX) {
         let x = dec_from_u64(n);
         let (s, _) = x.sqrt(RoundingMode::NearestEven);
         let (back, _) = s.mul(s, RoundingMode::NearestEven);
-        // Compute |back - x| / x and require small relative error.
-        // Easier proxy: bracket. back should be in [x - delta, x + delta]
-        // for some small delta. We use a coarse check: result is finite,
-        // positive, and within a factor of 2 of x.
-        prop_assert!(back.is_finite());
-        prop_assert!(!back.is_zero());
-        prop_assert!(!back.is_sign_negative());
+        prop_assert!(
+            within_ulps(back, x, 2),
+            "sqrt({x}).pow(2) = {back}, expected within 2 ULP of {x}"
+        );
     }
 
     /// Monotonicity: x < y (positive finite) ⇒ sqrt(x) < sqrt(y).

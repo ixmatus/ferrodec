@@ -67,4 +67,25 @@ proptest! {
         let d = Decimal128::from_bits(bits);
         prop_assert_eq!(d.compare_total_magnitude(d), Ordering::Equal);
     }
+
+    /// `logb(scaleb(1, n)) == n` for `|n| <= 6144`. Pins the
+    /// scaleb / logb inverse identity — the M-T1 op-without-proptest
+    /// finding from the 2026-05-10 review.
+    #[test]
+    fn logb_inverts_scaleb_at_one(n in -6144i32..=6144i32) {
+        use ferrodec::RoundingMode;
+        let one = Decimal128::try_new(1, 0).unwrap();
+        let (scaled, _) = one.scaleb(n, RoundingMode::NearestEven);
+        prop_assume!(scaled.is_finite() && !scaled.is_zero());
+        let (back, _) = scaled.logb();
+        let expected = Decimal128::try_new(i128::from(n), 0).unwrap();
+        prop_assert_eq!(
+            back.partial_cmp(expected).0,
+            Some(Ordering::Equal),
+            "logb(scaleb(1, {})) = {:?}, expected {:?}",
+            n,
+            back,
+            expected,
+        );
+    }
 }
