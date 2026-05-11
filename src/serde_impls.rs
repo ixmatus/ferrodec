@@ -98,6 +98,35 @@ pub mod serde_bid {
             fn visit_u64<E: de::Error>(self, v: u64) -> Result<Self::Value, E> {
                 Ok(Decimal128::from_bits(u128::from(v)))
             }
+            fn visit_u32<E: de::Error>(self, v: u32) -> Result<Self::Value, E> {
+                Ok(Decimal128::from_bits(u128::from(v)))
+            }
+            fn visit_u16<E: de::Error>(self, v: u16) -> Result<Self::Value, E> {
+                Ok(Decimal128::from_bits(u128::from(v)))
+            }
+            fn visit_u8<E: de::Error>(self, v: u8) -> Result<Self::Value, E> {
+                Ok(Decimal128::from_bits(u128::from(v)))
+            }
+            fn visit_i128<E: de::Error>(self, v: i128) -> Result<Self::Value, E> {
+                #[allow(clippy::cast_sign_loss)]
+                Ok(Decimal128::from_bits(v as u128))
+            }
+            fn visit_i64<E: de::Error>(self, v: i64) -> Result<Self::Value, E> {
+                #[allow(clippy::cast_sign_loss)]
+                Ok(Decimal128::from_bits(v as u128))
+            }
+            fn visit_i32<E: de::Error>(self, v: i32) -> Result<Self::Value, E> {
+                #[allow(clippy::cast_sign_loss)]
+                Ok(Decimal128::from_bits(u128::from(v as u32)))
+            }
+            fn visit_i16<E: de::Error>(self, v: i16) -> Result<Self::Value, E> {
+                #[allow(clippy::cast_sign_loss)]
+                Ok(Decimal128::from_bits(u128::from(v as u16)))
+            }
+            fn visit_i8<E: de::Error>(self, v: i8) -> Result<Self::Value, E> {
+                #[allow(clippy::cast_sign_loss)]
+                Ok(Decimal128::from_bits(u128::from(v as u8)))
+            }
             fn visit_str<E: de::Error>(self, v: &str) -> Result<Self::Value, E> {
                 // String fallback for human-readable formats.
                 Decimal128::parse_str(v, crate::status::RoundingMode::NearestEven)
