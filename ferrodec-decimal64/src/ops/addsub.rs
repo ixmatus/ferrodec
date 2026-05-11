@@ -59,6 +59,27 @@ impl Decimal64 {
     pub fn sub(self, other: Self, rm: RoundingMode) -> (Self, Status) {
         add_inner(self, other.neg(), rm)
     }
+
+    /// Kani-only entry point that returns the special-case branch only,
+    /// without invoking the finite-finite alignment / rounding pipeline.
+    /// Mirrors decimal128's `add_special_only_for_kani` (ADR-0016).
+    #[cfg(kani)]
+    #[doc(hidden)]
+    #[must_use]
+    pub fn add_special_only_for_kani(self, rhs: Self, rm: RoundingMode) -> Option<(Self, Status)> {
+        handle_specials(classify_bits(self.0), classify_bits(rhs.0), rm)
+    }
+
+    /// Kani-only entry point for `sub`'s special path. Negates `rhs`
+    /// before dispatching, so sNaN propagation matches
+    /// [`Decimal64::sub`].
+    #[cfg(kani)]
+    #[doc(hidden)]
+    #[must_use]
+    pub fn sub_special_only_for_kani(self, rhs: Self, rm: RoundingMode) -> Option<(Self, Status)> {
+        let negated = rhs.neg();
+        handle_specials(classify_bits(self.0), classify_bits(negated.0), rm)
+    }
 }
 
 fn add_inner(a: Decimal64, b: Decimal64, rm: RoundingMode) -> (Decimal64, Status) {

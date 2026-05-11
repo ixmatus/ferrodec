@@ -50,7 +50,9 @@ fn add_propagates_first_qnan_payload() {
 
     let a = build_qnan(sign, payload8);
     let b = Decimal128::ONE; // any non-NaN
-    let (r, _) = a.add(b, rm_from_u8(rmi));
+    let (r, _) = a
+        .add_special_only_for_kani(b, rm_from_u8(rmi))
+        .expect("qNaN_a + finite_b resolves via NaN-propagation arm");
 
     assert!(r.is_nan());
     let r_payload = r.to_bits() & ((1u128 << 110) - 1);
@@ -70,7 +72,9 @@ fn add_snan_raises_invalid_and_preserves_payload() {
 
     let a = build_snan(sign, payload8);
     let b = Decimal128::ONE;
-    let (r, s) = a.add(b, rm_from_u8(rmi));
+    let (r, s) = a
+        .add_special_only_for_kani(b, rm_from_u8(rmi))
+        .expect("sNaN_a + finite_b resolves via the sNaN arm");
 
     assert!(r.is_nan());
     assert!(r.is_quiet_nan(), "sNaN must be quieted on output");
@@ -88,10 +92,13 @@ fn mul_propagates_first_qnan_payload() {
     let payload8: u8 = kani::any();
     let rmi: u8 = kani::any();
     kani::assume(rmi <= 4);
+    let _ = rmi; // mul's shim doesn't take rm; keep symbolic for parity
 
     let a = build_qnan(sign, payload8);
     let b = Decimal128::from_i32(2);
-    let (r, _) = a.mul(b, rm_from_u8(rmi));
+    let (r, _) = a
+        .mul_special_only_for_kani(b)
+        .expect("qNaN_a × finite_b resolves via NaN-propagation arm");
 
     assert!(r.is_nan());
     let r_payload_low = ((r.to_bits() & ((1u128 << 110) - 1)) as u8) as u128;
@@ -106,10 +113,13 @@ fn mul_snan_raises_invalid_and_preserves_payload() {
     let payload8: u8 = kani::any();
     let rmi: u8 = kani::any();
     kani::assume(rmi <= 4);
+    let _ = rmi;
 
     let a = build_snan(sign, payload8);
     let b = Decimal128::from_i32(3);
-    let (r, s) = a.mul(b, rm_from_u8(rmi));
+    let (r, s) = a
+        .mul_special_only_for_kani(b)
+        .expect("sNaN_a × finite_b resolves via the sNaN arm");
 
     assert!(r.is_nan());
     assert!(r.is_quiet_nan());

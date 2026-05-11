@@ -182,6 +182,26 @@ impl Decimal64 {
             rm,
         )
     }
+
+    /// Kani-only entry point that returns the special-case branch only,
+    /// without invoking the finite-finite product / alignment / rounding
+    /// pipeline. Mirrors decimal128's `fma_special_only_for_kani`
+    /// (ADR-0016).
+    #[cfg(kani)]
+    #[doc(hidden)]
+    #[must_use]
+    pub fn fma_special_only_for_kani(
+        self,
+        b: Self,
+        c: Self,
+        _rm: RoundingMode,
+    ) -> Option<(Self, Status)> {
+        handle_specials(
+            classify_bits(self.0),
+            classify_bits(b.0),
+            classify_bits(c.0),
+        )
+    }
 }
 
 #[inline]
