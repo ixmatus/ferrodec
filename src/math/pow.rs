@@ -27,11 +27,15 @@
 //!
 //! ## Accuracy
 //!
-//! Faithfully rounded (≤ 1 ULP at 34 digits) for typical inputs via
-//! the `Extended` pipeline. Integer exponents up to `±256` use a
-//! square-and-multiply path that's still rounded at each multiply
-//! (so a few ULP at most) — exact only when the product is exactly
-//! representable.
+//! Faithfully rounded (≤ 1 ULP at 34 digits) for every finite input
+//! via the `Extended` pipeline. Integer exponents up to `±256` first
+//! try a square-and-multiply path at `Decimal128` precision; the
+//! caller falls through to `Extended` whenever any intermediate
+//! multiply rounds (i.e. the path is *only* taken when it produces
+//! a bit-exact result). Pre-1.15 the fast path was taken
+//! unconditionally for `|y| ≤ 256` and accumulated ~5 ULP for cases
+//! like `pow(3, 50)` (H1 of the 2026-05-10 six-agent correctness
+//! review).
 
 use crate::bid::{classify_bits, decimal_digit_count, Class, BIAS};
 use crate::decimal::Decimal128;
@@ -200,12 +204,20 @@ fn pow_kernel(x: Decimal128, y: Decimal128, rm: RoundingMode) -> (Decimal128, St
 
     // Rule 8: general path. `pow_special_cases` returned None, so x is
     // a finite non-zero (positive-base after rule 7 cleared the
-    // negative-non-integer case) and y is a finite non-zero. Compute
-    // the integer fast path first; fall through to `exp(y · ln(|x|))`
-    // at Extended precision otherwise.
+    // negative-non-integer case) and y is a finite non-zero. Try the
+    // integer fast path; *only* take its result when it was exact
+    // (square-and-multiply at Decimal128 precision accumulates ULP
+    // errors otherwise — the H1 finding in the 2026-05-10 review
+    // documented ~5 ULP for `pow(3, 50)`). The fast path remains
+    // valuable for small integer exponents where the result fits in
+    // 34 digits and no multiply rounds.
     let y_int = integer_test(y);
     if let Some((v, status)) = pow_integer_fast_path(x, y, &y_int, rm) {
-        return (v, status);
+        if !status.inexact() {
+            return (v, status);
+        }
+        // Fall through: int_pow accumulated rounding error; the
+        // Extended pipeline below is more accurate.
     }
 
     // General path: pow(x, y) = exp(y · ln(|x|)) evaluated entirely at

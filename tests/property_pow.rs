@@ -89,6 +89,43 @@ fn spot_close_to_one() {
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(48))]
 
+    /// Slice E.1 regression band: positive base with small integer
+    /// exponent `|y| ≤ 256`. Pre-1.15 the integer fast path
+    /// (`pow_integer_fast_path`) was taken unconditionally for any
+    /// |y| in that range and accumulated ~5 ULP via square-and-multiply
+    /// at Decimal128 precision (H1 of the 2026-05-10 six-agent
+    /// review). The fix routes inexact-fast-path results through the
+    /// Extended pipeline; this proptest hits the integer band the
+    /// original general sweep below almost never sampled.
+    #[test]
+    fn pow_integer_y_within_1_ulp(
+        x_coef in 1u128..=u128::MAX,
+        x_exp in -10i32..=10,
+        y_int in -256i32..=256,
+    ) {
+        let xc = x_coef % 10u128.pow(34);
+        if xc == 0 || y_int == 0 { return Ok(()); }
+        let x_str = format!("{xc}e{x_exp}");
+        let y_str = format!("{y_int}");
+        let x = parse(&x_str);
+        let y = parse(&y_str);
+        let exact_x = format!("{x}");
+        let exact_y = format!("{y}");
+        let (got, status) = x.pow(y, RoundingMode::NearestEven);
+        if status.overflow() || status.underflow() {
+            return Ok(());
+        }
+        let want_str = oracle_pow(&exact_x, &exact_y);
+        let want = parse(&want_str);
+        if !want.is_finite() || want.is_zero() {
+            return Ok(());
+        }
+        prop_assert!(
+            within_ulps(got, want, 1),
+            "pow({exact_x}, {exact_y}): got {got:?}, want {want:?} (oracle {want_str})"
+        );
+    }
+
     #[test]
     fn pow_random_within_1_ulp(
         x_coef in 1u128..=u128::MAX,
