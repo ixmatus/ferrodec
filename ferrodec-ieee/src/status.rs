@@ -8,7 +8,7 @@ use core::ops::{BitOr, BitOrAssign};
 
 /// IEEE 754 exception flags raised by an operation.
 ///
-/// The five flags are packed in a single byte. A freshly constructed
+/// The six flags are packed in a single byte. A freshly constructed
 /// [`Status`] has no flags set ([`Status::OK`]).
 ///
 /// Flags follow IEEE 754-2019 §7:
@@ -17,6 +17,8 @@ use core::ops::{BitOr, BitOrAssign};
 /// - `OVERFLOW`    — rounded result exceeds the largest finite magnitude
 /// - `UNDERFLOW`   — non-zero result smaller than the smallest normal magnitude (after rounding)
 /// - `INEXACT`     — rounded result differs from the infinitely precise result
+/// - `CLAMPED`     — result's preferred quantum was outside the format's representable range
+///   and was clamped to the nearest representable quantum (IEEE 754-2019 §7.4, informational)
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Hash)]
 #[repr(transparent)]
 pub struct Status(u8);
@@ -27,12 +29,14 @@ impl Status {
     const F_OVERFLOW: u8 = 0b0000_0100;
     const F_UNDERFLOW: u8 = 0b0000_1000;
     const F_INEXACT: u8 = 0b0001_0000;
+    const F_CLAMPED: u8 = 0b0010_0000;
 
     const ALL: u8 = Self::F_INVALID
         | Self::F_DIV_BY_ZERO
         | Self::F_OVERFLOW
         | Self::F_UNDERFLOW
-        | Self::F_INEXACT;
+        | Self::F_INEXACT
+        | Self::F_CLAMPED;
 
     /// No flags raised.
     pub const OK: Self = Self(0);
@@ -46,6 +50,8 @@ impl Status {
     pub const UNDERFLOW: Self = Self(Self::F_UNDERFLOW);
     /// Rounded result differs from the infinitely precise result.
     pub const INEXACT: Self = Self(Self::F_INEXACT);
+    /// Result's preferred quantum was clamped to the format's representable range.
+    pub const CLAMPED: Self = Self(Self::F_CLAMPED);
 
     /// Construct a `Status` from raw flag bits, masking unknown bits.
     #[inline]
@@ -101,6 +107,13 @@ impl Status {
     #[must_use]
     pub const fn inexact(self) -> bool {
         self.0 & Self::F_INEXACT != 0
+    }
+
+    /// `true` when the `CLAMPED` flag is raised.
+    #[inline]
+    #[must_use]
+    pub const fn clamped(self) -> bool {
+        self.0 & Self::F_CLAMPED != 0
     }
 
     /// Union of two flag sets.
@@ -159,6 +172,7 @@ mod tests {
         assert!(!s.overflow());
         assert!(!s.underflow());
         assert!(!s.inexact());
+        assert!(!s.clamped());
         assert_eq!(s.bits(), 0);
     }
 
@@ -170,6 +184,7 @@ mod tests {
             (Status::OVERFLOW, Status::F_OVERFLOW),
             (Status::UNDERFLOW, Status::F_UNDERFLOW),
             (Status::INEXACT, Status::F_INEXACT),
+            (Status::CLAMPED, Status::F_CLAMPED),
         ];
         for (i, (a, _)) in flags.iter().enumerate() {
             for (j, (b, _)) in flags.iter().enumerate() {
@@ -178,6 +193,18 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn clamped_flag_round_trips() {
+        let s = Status::CLAMPED;
+        assert!(s.clamped());
+        assert!(!s.inexact());
+        assert!(!s.overflow());
+        let merged = s | Status::INEXACT;
+        assert!(merged.clamped());
+        assert!(merged.inexact());
+        assert_eq!(merged.bits(), Status::F_CLAMPED | Status::F_INEXACT);
     }
 
     #[test]
