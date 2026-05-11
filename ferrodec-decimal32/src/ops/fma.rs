@@ -296,12 +296,21 @@ fn handle_specials(a: Class, b: Class, c: Class) -> Option<(Decimal32, Status)> 
     }
 
     // 0 × ∞ or ∞ × 0 in the product → INVALID (regardless of c, since
-    // the product is undefined).
+    // the product is undefined). Per IEEE 754-2019 §6.2.3, when c is
+    // also a NaN, the result should carry c's payload. a and b cannot
+    // be NaN here (the sNaN gate already returned, and a/b are Zero or
+    // Infinity by this branch's matches!), so c is the only NaN source.
     let zero_inf = matches!(
         (a, b),
         (Zero { .. }, Infinity { .. }) | (Infinity { .. }, Zero { .. })
     );
     if zero_inf {
+        if let QuietNaN { sign, payload } = c {
+            return Some((
+                Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
+                Status::INVALID,
+            ));
+        }
         return Some((Decimal32::NAN, Status::INVALID));
     }
 
@@ -520,6 +529,44 @@ mod tests {
         let (r, s) =
             Decimal32::INFINITY.fma(Decimal32::ZERO, Decimal32::ONE, RoundingMode::NearestEven);
         assert!(r.is_quiet_nan());
+        assert!(s.invalid());
+    }
+
+    #[test]
+    fn fma_zero_times_infinity_preserves_c_payload() {
+        // IEEE 754-2019 §6.2.3: when c is a NaN, the 0 × ∞ branch must
+        // carry c's payload. The pre-fix branch returned Decimal32::NAN
+        // (canonical payload 0), losing the signal.
+        let payload: u32 = 0x12345;
+        let qnan_c = Decimal32::from_bits(crate::bid::pack_quiet_nan(false, payload));
+        let snan_c = Decimal32::from_bits(crate::bid::pack_signaling_nan(false, payload));
+        let payload_mask: u32 = (1u32 << 20) - 1;
+
+        let (r, s) = Decimal32::ZERO.fma(Decimal32::INFINITY, qnan_c, RoundingMode::NearestEven);
+        assert!(r.is_quiet_nan());
+        assert!(s.invalid(), "0 × ∞ still raises INVALID");
+        assert_eq!(
+            r.to_bits() & payload_mask,
+            payload,
+            "qNaN c's payload should be preserved",
+        );
+
+        let (r, s) = Decimal32::INFINITY.fma(Decimal32::ZERO, snan_c, RoundingMode::NearestEven);
+        assert!(r.is_quiet_nan(), "sNaN c is quieted on output");
+        assert!(s.invalid());
+        assert_eq!(
+            r.to_bits() & payload_mask,
+            payload,
+            "sNaN c's payload should be preserved (signal cleared)",
+        );
+
+        // Non-NaN c still gets the canonical NAN; the fix is narrow.
+        let (r, s) = Decimal32::ZERO.fma(
+            Decimal32::INFINITY,
+            Decimal32::ONE,
+            RoundingMode::NearestEven,
+        );
+        assert_eq!(r.to_bits(), Decimal32::NAN.to_bits());
         assert!(s.invalid());
     }
 

@@ -204,11 +204,21 @@ fn handle_specials(a: Class, b: Class, c: Class) -> Option<(Decimal64, Status)> 
         }
     }
 
+    // 0 × ∞ or ∞ × 0 in the product → INVALID. Per IEEE 754-2019
+    // §6.2.3, if c is also a NaN, the result must carry c's payload.
+    // a and b cannot be NaN here (sNaN gate already returned; a/b are
+    // Zero or Infinity by the matches!), so c is the only NaN source.
     let zero_inf = matches!(
         (a, b),
         (Zero { .. }, Infinity { .. }) | (Infinity { .. }, Zero { .. })
     );
     if zero_inf {
+        if let QuietNaN { sign, payload } = c {
+            return Some((
+                Decimal64::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
+                Status::INVALID,
+            ));
+        }
         return Some((Decimal64::NAN, Status::INVALID));
     }
 
@@ -359,6 +369,44 @@ mod tests {
             RoundingMode::NearestEven,
         );
         assert!(r.is_quiet_nan());
+        assert!(s.invalid());
+    }
+
+    #[test]
+    fn fma_zero_times_infinity_preserves_c_payload() {
+        // IEEE 754-2019 §6.2.3: when c is a NaN, the 0 × ∞ branch must
+        // carry c's payload. The pre-fix branch returned Decimal64::NAN
+        // (canonical payload 0), losing the signal.
+        let payload: u64 = 0x12_3456_789A;
+        let qnan_c = Decimal64::from_bits(crate::bid::pack_quiet_nan(false, payload));
+        let snan_c = Decimal64::from_bits(crate::bid::pack_signaling_nan(false, payload));
+        let payload_mask: u64 = (1u64 << 50) - 1;
+
+        let (r, s) = Decimal64::ZERO.fma(Decimal64::INFINITY, qnan_c, RoundingMode::NearestEven);
+        assert!(r.is_quiet_nan());
+        assert!(s.invalid(), "0 × ∞ still raises INVALID");
+        assert_eq!(
+            r.to_bits() & payload_mask,
+            payload,
+            "qNaN c's payload should be preserved",
+        );
+
+        let (r, s) = Decimal64::INFINITY.fma(Decimal64::ZERO, snan_c, RoundingMode::NearestEven);
+        assert!(r.is_quiet_nan(), "sNaN c is quieted on output");
+        assert!(s.invalid());
+        assert_eq!(
+            r.to_bits() & payload_mask,
+            payload,
+            "sNaN c's payload should be preserved (signal cleared)",
+        );
+
+        // Non-NaN c still gets the canonical NAN; the fix is narrow.
+        let (r, s) = Decimal64::ZERO.fma(
+            Decimal64::INFINITY,
+            Decimal64::ONE,
+            RoundingMode::NearestEven,
+        );
+        assert_eq!(r.to_bits(), Decimal64::NAN.to_bits());
         assert!(s.invalid());
     }
 

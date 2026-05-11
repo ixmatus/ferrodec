@@ -87,10 +87,33 @@ pub mod serde_bid {
             fn visit_u32<E: de::Error>(self, v: u32) -> Result<Self::Value, E> {
                 Ok(Decimal32::from_bits(v))
             }
+            fn visit_u16<E: de::Error>(self, v: u16) -> Result<Self::Value, E> {
+                Ok(Decimal32::from_bits(u32::from(v)))
+            }
+            fn visit_u8<E: de::Error>(self, v: u8) -> Result<Self::Value, E> {
+                Ok(Decimal32::from_bits(u32::from(v)))
+            }
             fn visit_u64<E: de::Error>(self, v: u64) -> Result<Self::Value, E> {
                 u32::try_from(v)
                     .map(Decimal32::from_bits)
                     .map_err(|_| E::custom("u64 value out of u32 range for BID-32"))
+            }
+            fn visit_i32<E: de::Error>(self, v: i32) -> Result<Self::Value, E> {
+                #[allow(clippy::cast_sign_loss)]
+                Ok(Decimal32::from_bits(v as u32))
+            }
+            fn visit_i16<E: de::Error>(self, v: i16) -> Result<Self::Value, E> {
+                #[allow(clippy::cast_sign_loss)]
+                Ok(Decimal32::from_bits(u32::from(v as u16)))
+            }
+            fn visit_i8<E: de::Error>(self, v: i8) -> Result<Self::Value, E> {
+                #[allow(clippy::cast_sign_loss)]
+                Ok(Decimal32::from_bits(u32::from(v as u8)))
+            }
+            fn visit_i64<E: de::Error>(self, v: i64) -> Result<Self::Value, E> {
+                u32::try_from(v)
+                    .map(Decimal32::from_bits)
+                    .map_err(|_| E::custom("i64 value out of u32 range for BID-32"))
             }
             fn visit_str<E: de::Error>(self, v: &str) -> Result<Self::Value, E> {
                 Decimal32::parse_str(v, ferrodec_ieee::RoundingMode::NearestEven)

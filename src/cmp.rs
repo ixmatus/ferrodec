@@ -26,6 +26,7 @@ use core::cmp::Ordering;
 
 use crate::bid::{classify_bits, decimal_digit_count, pow10, Class};
 use crate::decimal::Decimal128;
+use crate::ops::nan_propagate::nan_from;
 use crate::status::Status;
 
 impl Decimal128 {
@@ -146,8 +147,14 @@ impl Decimal128 {
     #[inline]
     #[must_use]
     pub fn min(self, other: Self) -> (Self, Status) {
-        if self.is_signaling_nan() || other.is_signaling_nan() {
-            return (Self::NAN, Status::INVALID);
+        // IEEE 754-2019 §6.2.3: when a NaN result comes from an sNaN
+        // operand, preserve that operand's payload (signal cleared).
+        // First-sNaN wins.
+        if self.is_signaling_nan() {
+            return (nan_from(self), Status::INVALID);
+        }
+        if other.is_signaling_nan() {
+            return (nan_from(other), Status::INVALID);
         }
         if self.is_nan() && other.is_nan() {
             return (Self::NAN, Status::OK);
@@ -169,8 +176,12 @@ impl Decimal128 {
     #[inline]
     #[must_use]
     pub fn max(self, other: Self) -> (Self, Status) {
-        if self.is_signaling_nan() || other.is_signaling_nan() {
-            return (Self::NAN, Status::INVALID);
+        // IEEE 754-2019 §6.2.3 sNaN payload preservation; see `min`.
+        if self.is_signaling_nan() {
+            return (nan_from(self), Status::INVALID);
+        }
+        if other.is_signaling_nan() {
+            return (nan_from(other), Status::INVALID);
         }
         if self.is_nan() && other.is_nan() {
             return (Self::NAN, Status::OK);
@@ -593,6 +604,36 @@ mod tests {
         // Both NaN → NaN.
         let (r, _) = Decimal128::NAN.min(Decimal128::NAN);
         assert!(r.is_nan());
+    }
+
+    #[test]
+    fn min_max_snan_preserves_payload() {
+        // IEEE 754-2019 §6.2.3: the result NaN from an sNaN operand
+        // must carry that operand's payload. Pre-fix, min/max returned
+        // Self::NAN (canonical payload 0) for any sNaN input.
+        use crate::bid::{pack_signaling_nan, T_MASK};
+        let payload = 0x0123_4567_89AB_CDEFu128;
+        let snan = Decimal128::from_bits(pack_signaling_nan(false, payload));
+        let neg_snan = Decimal128::from_bits(pack_signaling_nan(true, payload));
+
+        let (r, st) = Decimal128::ONE.min(snan);
+        assert!(r.is_quiet_nan(), "sNaN min result is quieted");
+        assert!(st.invalid());
+        assert_eq!(r.to_bits() & T_MASK, payload & T_MASK);
+        assert!(!Decimal128::from_bits(r.to_bits()).is_sign_negative());
+
+        let (r, st) = Decimal128::ONE.max(neg_snan);
+        assert!(r.is_quiet_nan());
+        assert!(st.invalid());
+        assert_eq!(r.to_bits() & T_MASK, payload & T_MASK);
+        assert!(Decimal128::from_bits(r.to_bits()).is_sign_negative());
+
+        // First-sNaN-wins ordering: lhs sNaN takes precedence over rhs.
+        let lhs_snan = Decimal128::from_bits(pack_signaling_nan(false, 0xAAAA));
+        let rhs_snan = Decimal128::from_bits(pack_signaling_nan(false, 0xBBBB));
+        let (r, st) = lhs_snan.min(rhs_snan);
+        assert!(st.invalid());
+        assert_eq!(r.to_bits() & T_MASK, 0xAAAA);
     }
 
     #[test]
