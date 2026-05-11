@@ -1073,3 +1073,47 @@ fn expected_per_file() -> &'static [(&'static str, usize)] {
         ]
     }
 }
+
+// ---------------------------------------------------------------------------
+// Runner self-tests
+//
+// The conformance runner has a comparator (`compare`) whose NaN arm
+// treats any expected-NaN as matching any actual-NaN. That's correct
+// per the dec spec (most ops don't pin NaN payloads), but it admits a
+// silent-pass class if `parse_value` ever returns a NaN sentinel from
+// genuinely unparsable input. The tests below pin the parser's
+// rejection behaviour so a future change can't silently weaken the
+// runner's discrimination.
+
+#[test]
+fn parse_value_rejects_garbage_expected() {
+    // Truly malformed tokens: parse_value returns None, which routes
+    // to Outcome::Fail at the call site (line ~525). A future parser
+    // change that degraded garbage to a NaN sentinel would break the
+    // runner's ability to distinguish "computation produced a NaN"
+    // from "expected token is corrupt".
+    assert!(parse_value("garbage", RoundingMode::NearestEven, Encoding::Bid).is_none());
+    assert!(parse_value("3.14xyz", RoundingMode::NearestEven, Encoding::Bid).is_none());
+    assert!(parse_value("NaNxyz", RoundingMode::NearestEven, Encoding::Bid).is_none());
+    assert!(parse_value("", RoundingMode::NearestEven, Encoding::Bid).is_none());
+    // Bare # is the null-test sentinel handled upstream; with junk hex
+    // it should refuse.
+    assert!(parse_value("#zzzz", RoundingMode::NearestEven, Encoding::Bid).is_none());
+}
+
+#[test]
+fn parse_value_accepts_valid_special_payloads() {
+    // Positive control: payload-bearing NaN tokens parse cleanly so
+    // the rejection above is genuinely about garbage, not about
+    // collateral NaN intolerance.
+    let (qnan, _) = parse_value("NaN31", RoundingMode::NearestEven, Encoding::Bid).unwrap();
+    assert!(qnan.is_nan() && !qnan.is_signaling_nan());
+    assert_eq!(qnan.to_bits() & ((1u128 << 110) - 1), 31);
+
+    let (snan, _) = parse_value("sNaN7", RoundingMode::NearestEven, Encoding::Bid).unwrap();
+    assert!(snan.is_signaling_nan());
+    assert_eq!(snan.to_bits() & ((1u128 << 110) - 1), 7);
+
+    let (inf, _) = parse_value("Infinity", RoundingMode::NearestEven, Encoding::Bid).unwrap();
+    assert!(inf.is_infinite() && !inf.is_sign_negative());
+}
