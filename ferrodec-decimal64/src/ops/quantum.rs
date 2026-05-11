@@ -217,12 +217,32 @@ impl Decimal64 {
         }
 
         // target_q < self_q: pad coef with trailing zeros.
+        //
+        // H6 fix (Phase 1 Agent 4 Q1, `ddQuantize.decTest` case
+        // `ddqua537`): a zero coefficient is representable at any
+        // quantum in the format's exponent range, regardless of how
+        // many decimal positions of "padding" the target quantum
+        // requires. Per IEEE 754-2019 §5.3.2 + GDA `quantize`,
+        // validity depends on whether the result fits in the format's
+        // representable quantum envelope. `target_biased` was decoded
+        // from a `Decimal64` bit pattern, so it is always in the
+        // canonical envelope `[0, BIASED_EXP_MAX]`. Short-circuit
+        // before the digit-count gate so cases like
+        // `quantize(0, 1e-299)` return `0E-299` rather than
+        // `(NaN, INVALID)`.
+        if coef == 0 {
+            return (
+                Decimal64::from_bits(crate::bid::pack_finite(
+                    sign,
+                    target_biased_typed,
+                    crate::bid::Coefficient::ZERO,
+                )),
+                Status::OK,
+            );
+        }
+
         let pad = (self_q - target_q) as u32;
-        let new_digits: u32 = if coef == 0 {
-            pad
-        } else {
-            decimal_digit_count(coef) + pad
-        };
+        let new_digits: u32 = decimal_digit_count(coef) + pad;
         if new_digits > PRECISION {
             // Coefficient would not fit in PRECISION digits at the
             // target quantum: INVALID per GDA.
@@ -465,6 +485,41 @@ mod tests {
 
     fn from_int(n: i64, exp: i32) -> Decimal64 {
         Decimal64::try_new(n, exp).unwrap()
+    }
+
+    #[test]
+    fn quantize_h6_zero_at_deep_target_quantum() {
+        // H6 regression (Phase 1 Agent 4 Q1, `ddQuantize.decTest`
+        // case `ddqua537`): `quantize(0, 1E-299)` should return
+        // `0E-299` (zero at the target quantum), not `(NaN, INVALID)`.
+        // A zero coefficient is representable at any quantum in the
+        // format's exponent envelope; the digit-count gate that
+        // applies to non-zero coefficients does not apply.
+        //
+        // 1E-299 has unbiased quantum -299, well inside the
+        // representable range [-398, +369]. try_new(1, -299) is
+        // directly constructible.
+        let zero_q0 = Decimal64::ZERO;
+        let target = Decimal64::try_new(1, -299).unwrap();
+        let (r, status) = zero_q0.quantize(target, RoundingMode::NearestEven);
+        let expected = Decimal64::try_new(0, -299).unwrap();
+        assert_eq!(
+            r.to_bits(),
+            expected.to_bits(),
+            "quantize(0E+0, 1E-299) should equal 0E-299, got {r:?}"
+        );
+        assert!(status.is_ok(), "quantize zero is exact, got {status:?}");
+
+        // Symmetric: negative zero preserves sign through quantize.
+        let (r, _) = Decimal64::NEG_ZERO.quantize(target, RoundingMode::NearestEven);
+        assert!(r.is_zero() && r.is_sign_negative());
+
+        // Extreme: quantize(0, 1E-398) — quantum at format minimum.
+        let target_min = Decimal64::try_new(1, -398).unwrap();
+        let (r, status) = Decimal64::ZERO.quantize(target_min, RoundingMode::NearestEven);
+        let expected_min = Decimal64::try_new(0, -398).unwrap();
+        assert_eq!(r.to_bits(), expected_min.to_bits());
+        assert!(status.is_ok());
     }
 
     #[test]
