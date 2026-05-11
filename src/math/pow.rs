@@ -47,9 +47,38 @@ impl Decimal128 {
     pub fn pow(self, exp: Self, rm: RoundingMode) -> (Self, Status) {
         pow_kernel(self, exp, rm)
     }
+
+    /// Kani-only entry point that returns the IEEE 754-2019 §9.2.1
+    /// special-case branch only (rules 1–7), without invoking the
+    /// `Extended`-precision `exp(y · ln(x))` pipeline.
+    ///
+    /// This exists so symbolic proofs of the pow rule table don't drag
+    /// the heavyweight transcendental path through CBMC's path
+    /// explosion. Production code uses [`Decimal128::pow`]. Returns
+    /// `None` for the general-path inputs (rule 8: positive-base
+    /// non-special exponent). `rm` is accepted for convention parity
+    /// with the other `*_special_only_for_kani` shims but ignored —
+    /// rules 1–7 don't depend on rounding direction.
+    #[cfg(kani)]
+    #[doc(hidden)]
+    #[must_use]
+    pub fn pow_special_only_for_kani(self, exp: Self, _rm: RoundingMode) -> Option<(Self, Status)> {
+        pow_special_cases(self, exp)
+    }
 }
 
-fn pow_kernel(x: Decimal128, y: Decimal128, rm: RoundingMode) -> (Decimal128, Status) {
+/// Apply IEEE 754-2019 §9.2.1 rules 1–7 for `pow(x, y)` without
+/// touching the `Extended`-precision general path.
+///
+/// Returns `Some((result, status))` whenever an IEEE-distinguished
+/// rule fires; returns `None` for the rule-8 general path (finite
+/// non-zero positive-base or integer-y over negative base).
+///
+/// Loop-free and self-contained; the Kani special-case harness in
+/// `src/verify/pow.rs` proves the rule table by exhausting a small
+/// operand pool against this function rather than against the full
+/// `pow_kernel`, keeping CBMC inside its time budget.
+fn pow_special_cases(x: Decimal128, y: Decimal128) -> Option<(Decimal128, Status)> {
     // Rule 1: pow(x, ±0) = 1, even for NaN.
     if y.is_zero() {
         // sNaN x still "consumes" — IEEE 754-2019 §9.2.1 says
@@ -61,7 +90,7 @@ fn pow_kernel(x: Decimal128, y: Decimal128, rm: RoundingMode) -> (Decimal128, St
         } else {
             Status::OK
         };
-        return (Decimal128::ONE, status);
+        return Some((Decimal128::ONE, status));
     }
 
     // Rule 2: pow(1, y) = 1, regardless of y.
@@ -73,16 +102,16 @@ fn pow_kernel(x: Decimal128, y: Decimal128, rm: RoundingMode) -> (Decimal128, St
             } else {
                 Status::OK
             };
-            return (Decimal128::ONE, status);
+            return Some((Decimal128::ONE, status));
         }
     }
 
     // Rules 3: NaN propagation.
     if x.is_signaling_nan() || y.is_signaling_nan() {
-        return (propagate_nan2(x, y), Status::INVALID);
+        return Some((propagate_nan2(x, y), Status::INVALID));
     }
     if x.is_nan() || y.is_nan() {
-        return (propagate_nan2(x, y), Status::OK);
+        return Some((propagate_nan2(x, y), Status::OK));
     }
 
     let y_sign_neg = y.is_sign_negative();
@@ -93,85 +122,88 @@ fn pow_kernel(x: Decimal128, y: Decimal128, rm: RoundingMode) -> (Decimal128, St
         let result_sign = x.is_sign_negative() && matches!(y_int, IntegerKind::OddInteger);
         if y_sign_neg {
             // ±∞ + DIV_BY_ZERO
-            return (
+            return Some((
                 if result_sign {
                     Decimal128::NEG_INFINITY
                 } else {
                     Decimal128::INFINITY
                 },
                 Status::DIV_BY_ZERO,
-            );
+            ));
         }
         // ±0
-        return (
+        return Some((
             if result_sign {
                 Decimal128::NEG_ZERO
             } else {
                 Decimal128::ZERO
             },
             Status::OK,
-        );
+        ));
     }
 
     // Rule 5: pow(±∞, y).
     if x.is_infinite() {
         let result_sign = x.is_sign_negative() && matches!(y_int, IntegerKind::OddInteger);
         if y_sign_neg {
-            return (
+            return Some((
                 if result_sign {
                     Decimal128::NEG_ZERO
                 } else {
                     Decimal128::ZERO
                 },
                 Status::OK,
-            );
+            ));
         }
-        return (
+        return Some((
             if result_sign {
                 Decimal128::NEG_INFINITY
             } else {
                 Decimal128::INFINITY
             },
             Status::OK,
-        );
+        ));
     }
 
     // Rule 6: pow(x, ±∞).
     if y.is_infinite() {
         let abs_x = x.abs();
         let (cmp, _) = abs_x.partial_cmp(Decimal128::ONE);
-        match (cmp, y_sign_neg) {
-            (Some(core::cmp::Ordering::Greater), false) => {
-                return (Decimal128::INFINITY, Status::OK);
-            }
-            (Some(core::cmp::Ordering::Greater), true) => {
-                return (Decimal128::ZERO, Status::OK);
-            }
-            (Some(core::cmp::Ordering::Less), false) => {
-                return (Decimal128::ZERO, Status::OK);
-            }
-            (Some(core::cmp::Ordering::Less), true) => {
-                return (Decimal128::INFINITY, Status::OK);
-            }
+        return Some(match (cmp, y_sign_neg) {
+            (Some(core::cmp::Ordering::Greater), false) => (Decimal128::INFINITY, Status::OK),
+            (Some(core::cmp::Ordering::Greater), true) => (Decimal128::ZERO, Status::OK),
+            (Some(core::cmp::Ordering::Less), false) => (Decimal128::ZERO, Status::OK),
+            (Some(core::cmp::Ordering::Less), true) => (Decimal128::INFINITY, Status::OK),
             // pow(±1, ±∞) = 1 per IEEE 754-2019 §9.2.1. Rule 2 above
             // only short-circuits for x = +1 (so that pow(-1, qNaN)
             // can still propagate NaN), so the negative-base case
             // arrives here.
-            (Some(core::cmp::Ordering::Equal), _) => {
-                return (Decimal128::ONE, Status::OK);
-            }
+            (Some(core::cmp::Ordering::Equal), _) => (Decimal128::ONE, Status::OK),
             (None, _) => unreachable!("NaN handled above"),
-        }
+        });
     }
 
     // Rule 7: negative finite base with non-integer exponent.
     if x.is_sign_negative() && matches!(y_int, IntegerKind::NonInteger) {
-        return (Decimal128::NAN, Status::INVALID);
+        return Some((Decimal128::NAN, Status::INVALID));
     }
 
-    // Integer exponent fast path. Bit-exact (modulo overflow) for
-    // small |y|; larger integer exponents fall through to the general
-    // path below.
+    // Rule 8: general path. Caller (`pow_kernel`) handles the integer
+    // fast path and the `exp(y · ln(|x|))` Extended pipeline.
+    None
+}
+
+fn pow_kernel(x: Decimal128, y: Decimal128, rm: RoundingMode) -> (Decimal128, Status) {
+    if let Some(early) = pow_special_cases(x, y) {
+        return early;
+    }
+
+    // Rule 8: general path. `pow_special_cases` returned None, so x is
+    // a finite non-zero (positive-base after rule 7 cleared the
+    // negative-non-integer case) and y is a finite non-zero. Compute
+    // the integer fast path first; fall through to `exp(y · ln(|x|))`
+    // at Extended precision otherwise.
+    let y_int = integer_test(y);
     if let Some((v, status)) = pow_integer_fast_path(x, y, &y_int, rm) {
         return (v, status);
     }

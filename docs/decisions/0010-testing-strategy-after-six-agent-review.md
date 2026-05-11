@@ -151,9 +151,18 @@ beyond the actual claim.
   not amortized.
 - The three new property test files run in ~2 seconds aggregate
   (proptest defaults). No CI-time concern.
-- The two new Kani harnesses add ~10 seconds to the full Kani
-  proof run, well within the 2-minute budget
-  (`feedback_kani_timing.md`).
+- The two new Kani harnesses do not add measurable cost on their
+  own. The original timing claim ("well within the 2-minute budget")
+  proved wrong: `pow_special_pool_total` invoked production
+  `Decimal128::pow` over an 11-constant pool that included
+  general-path inputs (MAX, MIN, from_i32(2)), dragging the
+  `ln_extended` / `exp_from_extended` pipeline through CBMC
+  symbolically and driving the full Kani run into the chronic
+  timeout. The remediation lands in 1.15 (ADR-0015): rules 1–7
+  factor into `pow_special_cases`, the harness routes through
+  `pow_special_only_for_kani`, and the general path is delegated to
+  `tests/property_pow.rs`'s astro-float oracle. See ADR-0015 for the
+  standing Kani scope policy.
 - ADR drift: this ADR's claims need to stay accurate. If the
   per-file table or property tests are removed, this ADR should be
   marked superseded.

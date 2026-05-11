@@ -40,7 +40,7 @@ fn try_new_in_range_succeeds() {
             assert!(biased_exp == biased as u32);
             assert!(sign == (coefficient < 0));
         }
-        _ => assert!(false, "try_new should never produce NaN/Inf"),
+        _ => kani::cover!(false, "try_new should never produce NaN/Inf"),
     }
 }
 
