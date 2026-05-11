@@ -121,21 +121,26 @@ impl Signed for Decimal32 {
 
 impl FromPrimitive for Decimal32 {
     fn from_i64(n: i64) -> Option<Self> {
-        // Decimal32 carries 7 digits; values with more lose precision
-        // through the f64 round-trip but at most by 1 ULP at that
-        // magnitude. Don't reject — let parse rounding handle it.
-        if !(-(1i64 << 53)..=(1i64 << 53)).contains(&n) {
-            // i64 outside the f64-exact integer range; conversion is
-            // potentially lossy in two stages. Skip.
-            return None;
+        // Decimal32 holds 7 digits. Values with |n| < 10⁷ fit exactly
+        // via try_new; larger magnitudes round via the f64 round-trip
+        // (lossless for |n| < 2⁵³, ≤ 1 ULP at the f64 scale beyond
+        // that — well below Decimal32's 7-digit envelope).
+        if let Ok(coef) = i32::try_from(n) {
+            if let Ok(d) = Self::try_new(coef, 0) {
+                return Some(d);
+            }
         }
         #[allow(clippy::cast_precision_loss)]
         let (d, _) = Self::from_f64(n as f64, RM);
         Some(d)
     }
     fn from_u64(n: u64) -> Option<Self> {
-        if n > (1u64 << 53) {
-            return None;
+        // Same shape as from_i64; exact via try_new_unsigned for
+        // n < 10⁷, f64 round-trip otherwise.
+        if let Ok(coef) = u32::try_from(n) {
+            if let Ok(d) = Self::try_new_unsigned(coef, 0) {
+                return Some(d);
+            }
         }
         #[allow(clippy::cast_precision_loss)]
         let (d, _) = Self::from_f64(n as f64, RM);
@@ -302,6 +307,38 @@ mod tests {
             2.5
         );
         assert!(<Decimal32 as FromPrimitive>::from_f64(f64::NAN).is_none());
+    }
+
+    #[test]
+    fn from_primitive_accepts_values_above_2_pow_53() {
+        // Pre-fix: `from_i64`/`from_u64` rejected any |n| > 2⁵³ on
+        // the (mistaken) grounds that the f64 intermediate would be
+        // lossy. Decimal32 has 7 digits — rounding is the correct
+        // behaviour, not refusal.
+        let big_i: i64 = (1i64 << 60) + 7;
+        let r = <Decimal32 as FromPrimitive>::from_i64(big_i);
+        assert!(
+            r.is_some(),
+            "from_i64 should round large values, not reject"
+        );
+        let d = r.unwrap();
+        assert!(d.is_finite() && !d.is_zero());
+
+        let big_u: u64 = 1u64 << 60;
+        let r = <Decimal32 as FromPrimitive>::from_u64(big_u);
+        assert!(
+            r.is_some(),
+            "from_u64 should round large values, not reject"
+        );
+        let d = r.unwrap();
+        assert!(d.is_finite() && !d.is_zero());
+
+        // Small values still take the exact try_new path.
+        let small = <Decimal32 as FromPrimitive>::from_i64(-9999).unwrap();
+        assert_eq!(
+            small.to_bits(),
+            Decimal32::try_new(-9999, 0).unwrap().to_bits()
+        );
     }
 
     #[test]
