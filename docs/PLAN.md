@@ -1,5 +1,17 @@
 # ferrodec — IEEE 754 Decimal128 for embedded calculators
 
+> **Status (2026-05-11): superseded by the current workspace layout.**
+> This document captures the original 0.x → 1.0 plan from when
+> ferrodec was a single fresh crate. The workspace split into
+> `ferrodec` + `ferrodec-decimal32` + `ferrodec-decimal64` +
+> `ferrodec-ieee` + `ferrodec-test-support` happened in 1.2.0
+> (see ADR-0011) and reshaped the architecture beyond what this plan
+> describes. The decisions in this file remain useful as historical
+> context (where `Extended` lives, the Kani / proptest split, the
+> astro-float oracle role) but the file paths, feature flags, and
+> per-crate boundaries should be read from the current `Cargo.toml`s
+> and ADR-0011..ADR-0017 rather than from the prose below.
+
 ## Context
 
 `ferrodec` is a fresh crate (only `LICENSE` + a one-line `README.md` exist today). The
