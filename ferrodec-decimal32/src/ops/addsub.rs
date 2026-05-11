@@ -98,6 +98,31 @@ impl Decimal32 {
         // sign bit (bit 31).
         add_inner(self, other.neg(), rm)
     }
+
+    /// Kani-only entry point that returns the special-case branch only,
+    /// without invoking the alignment / rounding pipeline.
+    ///
+    /// Mirrors the decimal128 convention (ADR-0016). Symbolic proofs of
+    /// the NaN / Inf / Zero behaviour skip the finite-finite alignment
+    /// loops; production code uses [`Decimal32::add`].
+    #[cfg(kani)]
+    #[doc(hidden)]
+    #[must_use]
+    pub fn add_special_only_for_kani(self, rhs: Self, rm: RoundingMode) -> Option<(Self, Status)> {
+        handle_specials(classify_bits(self.0), classify_bits(rhs.0), rm)
+    }
+
+    /// Kani-only entry point for `sub`'s special path. Equivalent to
+    /// `add_special_only_for_kani(self, rhs.neg(), rm)`; the negation
+    /// happens before the dispatcher so sNaN propagation behaves
+    /// identically to [`Decimal32::sub`].
+    #[cfg(kani)]
+    #[doc(hidden)]
+    #[must_use]
+    pub fn sub_special_only_for_kani(self, rhs: Self, rm: RoundingMode) -> Option<(Self, Status)> {
+        let negated = rhs.neg();
+        handle_specials(classify_bits(self.0), classify_bits(negated.0), rm)
+    }
 }
 
 fn add_inner(a: Decimal32, b: Decimal32, rm: RoundingMode) -> (Decimal32, Status) {
