@@ -30,6 +30,68 @@ use ferrodec::{Decimal128, RoundingMode, Status};
 
 const VECTORS_DIR: &str = "tests/vectors";
 
+/// Slice F.3 regression guard. Pins the corpus-level count of test
+/// cases whose active `rounding:` directive maps to
+/// `CaseRounding::Unsupported` (`half_down` and `05up` per
+/// ADR-0005). The current count is 101 cases. The
+/// `KNOWN_ISSUES.md` "99 residual skips" figure is slightly smaller
+/// (2 cases also hit earlier skip reasons — precision-mismatch or
+/// `#`-operand paths — so the runner attributes them to those
+/// buckets first).
+///
+/// Future drift in either direction surfaces here as a count
+/// change rather than a silent skip-bucket migration. If the
+/// `Unsupported` taxonomy ever changes (say, ferrodec adds
+/// `half_down` support and removes 90 cases from this bucket),
+/// that's a deliberate policy change that should edit both this
+/// expected count and the matching `KNOWN_ISSUES.md` row.
+#[test]
+fn dectest_skip_taxonomy_non_ieee_rounding_directive_count() {
+    const EXPECTED_NON_IEEE_DIRECTIVE_CASES: usize = 101;
+
+    let entries = fs::read_dir(VECTORS_DIR).expect("vectors directory");
+    let mut paths: Vec<PathBuf> = entries
+        .filter_map(std::result::Result::ok)
+        .map(|e| e.path())
+        .filter(|p| p.extension().and_then(|s| s.to_str()) == Some("decTest"))
+        .collect();
+    paths.sort();
+
+    let mut non_ieee_count = 0usize;
+    for path in &paths {
+        let content = fs::read_to_string(path).expect("read decTest");
+        let mut ctx = Context {
+            encoding: if is_dpd_encoded(path) {
+                Encoding::Dpd
+            } else {
+                Encoding::Bid
+            },
+            ..Context::default()
+        };
+        for raw_line in content.lines() {
+            let line = strip_comment(raw_line).trim();
+            if line.is_empty() {
+                continue;
+            }
+            if let Some((name, value)) = parse_directive(line) {
+                ctx.apply(&name, &value);
+                continue;
+            }
+            if parse_test_case(line).is_some()
+                && matches!(ctx.rounding, CaseRounding::Unsupported)
+            {
+                non_ieee_count += 1;
+            }
+        }
+    }
+
+    assert_eq!(
+        non_ieee_count, EXPECTED_NON_IEEE_DIRECTIVE_CASES,
+        "non-IEEE rounding (half_down / 05up) directive-case count drifted; \
+         update both this expected value and the KNOWN_ISSUES.md row if intentional"
+    );
+}
+
 #[test]
 fn dectest_conformance() {
     let mut totals = Totals::default();
