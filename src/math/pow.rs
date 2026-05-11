@@ -62,11 +62,7 @@ impl Decimal128 {
     #[cfg(kani)]
     #[doc(hidden)]
     #[must_use]
-    pub fn pow_special_only_for_kani(
-        self,
-        exp: Self,
-        _rm: RoundingMode,
-    ) -> Option<(Self, Status)> {
+    pub fn pow_special_only_for_kani(self, exp: Self, _rm: RoundingMode) -> Option<(Self, Status)> {
         pow_special_cases(self, exp)
     }
 }
