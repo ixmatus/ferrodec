@@ -17,9 +17,9 @@
 //! * `diff > 23`: the lower operand sits below the working window
 //!   entirely; only its non-zeroness contributes.
 
-use crate::bid::{classify_bits, Class, BIAS};
+use crate::bid::{classify_bits, Class, BIAS, PRECISION};
 use crate::decimal::Decimal64;
-use ferrodec_ieee::{RoundingMode, Status};
+use ferrodec_ieee::{decimal_digit_count_u128, RoundingMode, Status};
 
 use super::round::round_and_pack_finite;
 
@@ -180,12 +180,19 @@ fn add_inner(a: Decimal64, b: Decimal64, rm: RoundingMode) -> (Decimal64, Status
             (u128::from(coef_hi), 0, exp_hi, coef_lo != 0)
         };
 
-    let (combined_coef, combined_sign) = if sign_hi == sign_lo {
-        (aligned_hi + aligned_lo, sign_hi)
+    let (combined_coef, combined_sign, h2_borrow) = if sign_hi == sign_lo {
+        (aligned_hi + aligned_lo, sign_hi, false)
     } else if aligned_hi > aligned_lo {
-        (aligned_hi - aligned_lo, sign_hi)
+        // H2 fix candidate: lo's truncated residue subtracts from
+        // the result magnitude. See the H2 block below for the
+        // borrow-and-extend transformation.
+        (aligned_hi - aligned_lo, sign_hi, pre_sticky)
     } else if aligned_lo > aligned_hi {
-        (aligned_lo - aligned_hi, sign_lo)
+        // Symmetric case: lo dominates AND carries the residue, so
+        // the residue is additive (`combined_coef + ε_lo` is the
+        // true magnitude). The funnel's `pre_sticky = true` encoding
+        // is already correct here; no borrow.
+        (aligned_lo - aligned_hi, sign_lo, false)
     } else {
         let q_preferred = exp_a.min(exp_b);
         if pre_sticky {
@@ -204,6 +211,45 @@ fn add_inner(a: Decimal64, b: Decimal64, rm: RoundingMode) -> (Decimal64, Status
             )),
             Status::OK,
         );
+    };
+
+    // H2 fix (`ddadd71100..71119` + 19 mirrors + 1 `ddMultiply` case +
+    // 20 `ddFMA` mirrors): when the hi-magnitude operand dominates an
+    // effective subtraction AND lo had a truncated sub-ULP residue,
+    // the result's true value sits BELOW `combined_coef × 10^align_exp`
+    // by some ε ∈ (0, 1) ULP at `align_exp`, not above. The funnel's
+    // `pre_sticky = true` convention encodes residue-above-LSB; under
+    // directional rounding modes (TowardZero, Ceiling, Floor) and at
+    // exact half-ULP ties under round-half-even, the wrong sign on
+    // the residue picks the wrong neighbour by one ULP. Borrow one
+    // ULP from `combined_coef` and extend the bottom digits to a
+    // `PRECISION`-digit cohort, turning the encoding into a
+    // correctly-signed positive sticky at a lower quantum.
+    //
+    // For `combined_coef ≥ PRECISION` digits the funnel will compress
+    // and round; a plain `-1` suffices. For fewer digits we choose
+    // `k` such that `combined_coef × 10^k - 1` has exactly
+    // `PRECISION` digits (one extra `k` is needed when `combined_coef`
+    // is itself a power of 10, where the borrow drops the leading
+    // digit).
+    let (combined_coef, align_exp) = if h2_borrow {
+        let combined_digits = decimal_digit_count_u128(combined_coef);
+        if combined_digits >= PRECISION {
+            (combined_coef - 1, align_exp)
+        } else {
+            let is_power_of_10 = combined_coef == POW10_U128[(combined_digits - 1) as usize];
+            let k = if is_power_of_10 {
+                PRECISION + 1 - combined_digits
+            } else {
+                PRECISION - combined_digits
+            };
+            (
+                combined_coef * POW10_U128[k as usize] - 1,
+                align_exp - k as i32,
+            )
+        }
+    } else {
+        (combined_coef, align_exp)
     };
 
     let q_preferred = exp_a.min(exp_b);
@@ -383,6 +429,38 @@ mod tests {
 
         let (r, _) = Decimal64::ZERO.add(Decimal64::NEG_ZERO, RoundingMode::TowardNegative);
         assert!(r.is_sign_negative());
+    }
+
+    #[test]
+    fn add_h2_effective_subtract_residue_borrows_correctly() {
+        // H2 regression (`ddAdd.decTest:802`, case `ddadd71100`):
+        // `add 1e+2 -1e-383` under TowardZero should return
+        // `99.99999999999999` (16 nines) per the residue-from-lo
+        // sub-ULP subtractive direction. Without the H2 borrow, the
+        // result was `100.0000000000000` — one ULP above the true
+        // value because the funnel read the residue as additive.
+        let a = Decimal64::try_new(1, 2).unwrap();
+        let b = Decimal64::try_new(-1, -383).unwrap();
+        let (r, status) = a.add(b, RoundingMode::TowardZero);
+        let expected = Decimal64::try_new(9_999_999_999_999_999, -14).unwrap();
+        assert_eq!(
+            r.to_bits(),
+            expected.to_bits(),
+            "1e+2 + (-1e-383) under TowardZero should equal 99.99999999999999, got {r:?}"
+        );
+        assert!(status.inexact());
+
+        // Negated mirror (the `ddadd71200..71219` family): negate
+        // both operands and the result should be the negation.
+        let neg_a = a.neg();
+        let neg_b = b.neg();
+        let (r, _) = neg_a.add(neg_b, RoundingMode::TowardPositive);
+        let expected = expected.neg();
+        assert_eq!(
+            r.to_bits(),
+            expected.to_bits(),
+            "(-1e+2) + (1e-383) under TowardPositive should equal -99.99999999999999, got {r:?}"
+        );
     }
 
     #[test]
