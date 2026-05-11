@@ -190,4 +190,117 @@ mod tests {
         let _ = ln2();
         let _ = ln10();
     }
+
+    // ------------------------------------------------------------------
+    // Extended-precision constants oracle
+    //
+    // The nine `*_EXT_STR` literals above were hand-curated via mpmath
+    // (see `tools/gen_argred.py`). A single transposed digit in any of
+    // them would silently degrade every transcendental kernel that
+    // consumes it (most visibly `INV_LN10_EXT_STR` for `log10`,
+    // `LN2_EXT_STR` for `log2`, `PI_OVER_TWO_EXT_STR` for atan's
+    // argument reduction).
+    //
+    // The 2026-05-10 six-agent review (M1) flagged the absence of an
+    // independent oracle for these literals: the only test was
+    // `pi_is_about_three_point_one_four`, which checks π between 3.14
+    // and 3.15 — wide enough to admit any digit-transposition past
+    // the third decimal.
+    //
+    // Slice E.3 closes the gap by re-deriving each constant via
+    // `astro-float` at 220-bit working precision (~66 decimal digits)
+    // and asserting agreement to ≥ 50 digits. The 50-digit envelope
+    // matches `EXT_PRECISION`; a literal that drifts past 50 digits
+    // would no longer round correctly through `Extended::parse_str`
+    // and the assertion fires immediately.
+
+    use astro_float::{BigFloat, Consts, RoundingMode as AfRm};
+
+    /// Working precision for the astro-float reference computations.
+    /// 220 bits ≈ 66 decimal digits — well above the 50-digit
+    /// agreement target so the comparison's last bits are clean.
+    const ORACLE_P: usize = 220;
+
+    fn parse_bf(s: &str, cc: &mut Consts) -> BigFloat {
+        BigFloat::parse(s, astro_float::Radix::Dec, ORACLE_P, AfRm::None, cc)
+    }
+
+    /// Assert `|our - reference| < 10^{-50}`. The bound is chosen so
+    /// the agreement covers the full `EXT_PRECISION = 50` working
+    /// envelope; a constant that drifts past that bound is no longer
+    /// a faithful 50-digit literal.
+    fn assert_ext_str_matches(label: &str, our_str: &str, reference: &BigFloat, cc: &mut Consts) {
+        let ours = parse_bf(our_str, cc);
+        let diff = ours.sub(reference, ORACLE_P, AfRm::None).abs();
+        let tolerance = parse_bf("1e-50", cc);
+        assert!(
+            matches!(
+                diff.partial_cmp(&tolerance),
+                Some(core::cmp::Ordering::Less)
+            ),
+            "{label}: {our_str} differs from astro-float reference by ≥ 10⁻⁵⁰"
+        );
+    }
+
+    #[test]
+    fn extended_constants_match_astro_float_to_50_digits() {
+        let mut cc = Consts::new().expect("init consts");
+
+        // π
+        let pi_ref = cc.pi(ORACLE_P, AfRm::None);
+        assert_ext_str_matches("PI_EXT_STR", PI_EXT_STR, &pi_ref, &mut cc);
+
+        // e = exp(1)
+        let one = parse_bf("1", &mut cc);
+        let e_ref = one.exp(ORACLE_P, AfRm::None, &mut cc);
+        assert_ext_str_matches("E_EXT_STR", E_EXT_STR, &e_ref, &mut cc);
+
+        // ln(2)
+        let two = parse_bf("2", &mut cc);
+        let ln2_ref = two.ln(ORACLE_P, AfRm::None, &mut cc);
+        assert_ext_str_matches("LN2_EXT_STR", LN2_EXT_STR, &ln2_ref, &mut cc);
+
+        // ln(10)
+        let ten = parse_bf("10", &mut cc);
+        let ln10_ref = ten.ln(ORACLE_P, AfRm::None, &mut cc);
+        assert_ext_str_matches("LN10_EXT_STR", LN10_EXT_STR, &ln10_ref, &mut cc);
+
+        // 1 / ln(10)
+        let inv_ln10_ref = ln10_ref.reciprocal(ORACLE_P, AfRm::None);
+        assert_ext_str_matches("INV_LN10_EXT_STR", INV_LN10_EXT_STR, &inv_ln10_ref, &mut cc);
+
+        // 1 / ln(2)
+        let inv_ln2_ref = ln2_ref.reciprocal(ORACLE_P, AfRm::None);
+        assert_ext_str_matches("INV_LN2_EXT_STR", INV_LN2_EXT_STR, &inv_ln2_ref, &mut cc);
+
+        // π / 2
+        let pi_over_two_ref = pi_ref.div(&two, ORACLE_P, AfRm::None);
+        assert_ext_str_matches(
+            "PI_OVER_TWO_EXT_STR",
+            PI_OVER_TWO_EXT_STR,
+            &pi_over_two_ref,
+            &mut cc,
+        );
+
+        // π / 4
+        let four = parse_bf("4", &mut cc);
+        let pi_over_four_ref = pi_ref.div(&four, ORACLE_P, AfRm::None);
+        assert_ext_str_matches(
+            "PI_OVER_FOUR_EXT_STR",
+            PI_OVER_FOUR_EXT_STR,
+            &pi_over_four_ref,
+            &mut cc,
+        );
+
+        // tan(π / 8)
+        let eight = parse_bf("8", &mut cc);
+        let pi_over_eight = pi_ref.div(&eight, ORACLE_P, AfRm::None);
+        let tan_pi_eight_ref = pi_over_eight.tan(ORACLE_P, AfRm::None, &mut cc);
+        assert_ext_str_matches(
+            "TAN_PI_OVER_EIGHT_EXT_STR",
+            TAN_PI_OVER_EIGHT_EXT_STR,
+            &tan_pi_eight_ref,
+            &mut cc,
+        );
+    }
 }
