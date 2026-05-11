@@ -7,7 +7,7 @@
 //! plenty of headroom for alignment even when the static bound
 //! `MAX_SHIFT = 6` would not.
 
-use crate::bid::{classify_bits, Class, BIAS};
+use crate::bid::{classify_bits, Class, BIAS, PRECISION};
 use crate::decimal::Decimal64;
 use ferrodec_ieee::{decimal_digit_count_u128, RoundingMode, Status};
 
@@ -45,6 +45,34 @@ const _: () = assert!(POW10_U128.len() > 38);
 /// `digit_count(ab_coef)` instead, restoring correctness whenever
 /// the actual operand fits.
 const U128_DIGIT_CAP: u32 = 38;
+
+/// Borrow one ULP from `coef` (the dominant operand on effective
+/// subtraction) and re-extend the bottom digits to a `PRECISION`-digit
+/// cohort. Used by FMA's two early-return paths to correct the
+/// sticky-bit direction when the truncated side's residue subtracts
+/// from the dominant magnitude (H2 mirror in FMA; see Phase 1 Agent
+/// 3 F4 and the analogous fix in `addsub.rs`).
+///
+/// `coef >= PRECISION` digits keeps the original quantum and just
+/// subtracts 1 (the funnel handles digit drop). For fewer digits we
+/// extend the bottom to all nines so the borrow produces a canonical
+/// `PRECISION`-digit cohort. The power-of-10 case (`coef = 10^n`)
+/// needs one extra digit of extension because the borrow drops the
+/// leading digit.
+fn h2_borrow_and_extend(coef: u128, exp: i32) -> (u128, i32) {
+    let coef_digits = decimal_digit_count_u128(coef);
+    if coef_digits >= PRECISION {
+        (coef - 1, exp)
+    } else {
+        let is_power_of_10 = coef == POW10_U128[(coef_digits - 1) as usize];
+        let k = if is_power_of_10 {
+            PRECISION + 1 - coef_digits
+        } else {
+            PRECISION - coef_digits
+        };
+        (coef * POW10_U128[k as usize] - 1, exp - k as i32)
+    }
+}
 
 impl Decimal64 {
     /// IEEE 754-2019 `fusedMultiplyAdd(self, b, c)` rounded by `rm`.
@@ -141,26 +169,51 @@ impl Decimal64 {
         // side's value at `target_q` exceeds `10³⁸`, which is far
         // beyond the other side's representable range (at most ~16
         // digits at `target_q`). It therefore *actually* dominates,
-        // and the early-return is correct.
+        // and the early-return takes the dominant value plus a
+        // sticky bit for the sub-window residue.
+        //
+        // Two findings from Phase 1 land at these two early-return
+        // sites:
+        //
+        // - **H4** (case `fma0306`): the third argument to the
+        //   funnel must be `target_q` (the §6.3 preferred quantum
+        //   for the additive operation), not the dominant side's
+        //   own `unbiased_exp`. Without this thread, the funnel
+        //   cannot pad trailing zeros to the §6.3 cohort and the
+        //   result returns in the wrong canonical form
+        //   (e.g. `1` instead of `1.000000000000000`).
+        // - **H2 mirror** (cases `ddfma371100..371119`): on
+        //   effective subtraction (`ab_sign != sign_c`), the
+        //   truncated side's residue subtracts from the dominant
+        //   magnitude, so the funnel's `pre_sticky = true`
+        //   convention (residue-above-LSB) reads the direction
+        //   backwards. Borrow one ULP from the dominant coefficient
+        //   and extend the bottom digits to a `PRECISION`-digit
+        //   cohort.
         let ab_u128: u128 = if shift_ab <= ab_safe_shift {
             ab_coef * POW10_U128[shift_ab as usize]
         } else {
             pre_sticky |= coef_c != 0;
-            return round_and_pack_into_u64(ab_coef, ab_exp, ab_exp, ab_sign, pre_sticky, rm);
+            let effective_sub = ab_sign != sign_c;
+            let (coef, exp) = if effective_sub && pre_sticky {
+                h2_borrow_and_extend(ab_coef, ab_exp)
+            } else {
+                (ab_coef, ab_exp)
+            };
+            return round_and_pack_into_u64(coef, exp, target_q, ab_sign, pre_sticky, rm);
         };
 
         let c_u128: u128 = if shift_c <= c_safe_shift {
             u128::from(coef_c) * POW10_U128[shift_c as usize]
         } else {
             pre_sticky |= ab_coef != 0;
-            return round_and_pack_into_u64(
-                u128::from(coef_c),
-                c_exp,
-                c_exp,
-                sign_c,
-                pre_sticky,
-                rm,
-            );
+            let effective_sub = ab_sign != sign_c;
+            let (coef, exp) = if effective_sub && pre_sticky {
+                h2_borrow_and_extend(u128::from(coef_c), c_exp)
+            } else {
+                (u128::from(coef_c), c_exp)
+            };
+            return round_and_pack_into_u64(coef, exp, target_q, sign_c, pre_sticky, rm);
         };
 
         let (combined_coef, combined_sign) = if ab_sign == sign_c {
@@ -334,6 +387,51 @@ mod tests {
     fn fma_zero_multiplicand() {
         let (r, _) = Decimal64::ZERO.fma(from_int(5, 0), from_int(7, 0), RoundingMode::NearestEven);
         assert_eq!(r.to_bits(), from_int(7, 0).to_bits());
+    }
+
+    #[test]
+    fn fma_h4_early_return_preferred_quantum_extends_cohort() {
+        // H4 regression (`ddFMA.decTest:113`, case `fma0306`):
+        // `fma(1e-398, 0.1, 1)` has product `1e-399` (sub-ULP under
+        // c = 1), so c dominates the early-return at the c-side
+        // alignment-overflow branch. Spec answer is
+        // `1.000000000000000` (16 digits at quantum -15) per §6.3
+        // preferred quantum `min(ab_exp, c_exp) = -399`. Without
+        // threading `target_q` as the funnel's `q_preferred`, the
+        // result returns as `1` at quantum 0 (the canonical short
+        // cohort), losing the trailing zeros §6.3 requires.
+        let a = Decimal64::try_new(1, -398).unwrap();
+        let b = Decimal64::try_new(1, -1).unwrap(); // 0.1
+        let c = Decimal64::try_new(1, 0).unwrap();
+        let (r, status) = a.fma(b, c, RoundingMode::NearestEven);
+        let expected = Decimal64::try_new(1_000_000_000_000_000, -15).unwrap();
+        assert_eq!(
+            r.to_bits(),
+            expected.to_bits(),
+            "fma(1e-398, 0.1, 1) should equal 1.000000000000000, got {r:?}"
+        );
+        assert!(status.inexact());
+    }
+
+    #[test]
+    fn fma_h2_mirror_effective_subtract_residue_borrows() {
+        // H2 mirror in FMA (`ddFMA.decTest:1321`, case `ddfma371100`):
+        // `fma(1, 1e+2, -1e-383)` under NearestEven should equal
+        // `99.99999999999999` per the residue-from-truncated-side
+        // subtractive direction. Without the borrow, the c-side
+        // sub-ULP residue is read as additive and the result rounds
+        // to `100` instead.
+        let a = Decimal64::try_new(1, 0).unwrap();
+        let b = Decimal64::try_new(1, 2).unwrap(); // 1e+2
+        let c = Decimal64::try_new(-1, -383).unwrap(); // -1e-383
+        let (r, status) = a.fma(b, c, RoundingMode::NearestEven);
+        let expected = Decimal64::try_new(9_999_999_999_999_999, -14).unwrap();
+        assert_eq!(
+            r.to_bits(),
+            expected.to_bits(),
+            "fma(1, 1e+2, -1e-383) should equal 99.99999999999999, got {r:?}"
+        );
+        assert!(status.inexact());
     }
 
     #[test]
