@@ -96,4 +96,46 @@ proptest! {
         let truth = ieee_rem_i128(x as i128, y as i128);
         prop_assert!(truth.unsigned_abs() * 2 <= y.unsigned_abs() as u128);
     }
+
+    /// `rem_trunc(x, y)` carries the sign of the dividend and has
+    /// magnitude strictly less than `|y|` — the truncated-remainder
+    /// invariants from IEEE 754-2019 §5.3.1 and the GDA spec.
+    ///
+    /// Slice F.4: the M-T1 op-without-proptest finding from the
+    /// 2026-05-10 review named `rem_trunc` as an op added in 1.10.0
+    /// but never sweep-tested. Pin sign + magnitude here; oracle
+    /// equality against `i128`'s truncating remainder is the next
+    /// step (deferred — the oracle bridge from i128 to Decimal128
+    /// at small magnitudes is already exercised by `rem_matches_i128_oracle`
+    /// for the IEEE variant).
+    #[test]
+    fn rem_trunc_sign_of_dividend(
+        x in -1_000_000i64..=1_000_000,
+        y in -1_000_000i64..=1_000_000,
+    ) {
+        prop_assume!(y != 0);
+        prop_assume!(x != 0);
+        let dx = decimal_from_i128(x as i128);
+        let dy = decimal_from_i128(y as i128);
+        let (got, status) = dx.rem_trunc(dy);
+        prop_assert!(!status.invalid());
+        prop_assume!(got.is_finite());
+        if !got.is_zero() {
+            prop_assert_eq!(
+                got.is_sign_negative(),
+                x < 0,
+                "rem_trunc({}, {}): result sign should match dividend",
+                x, y
+            );
+        }
+        // Magnitude bound: |rem_trunc| < |y|.
+        let abs_got = got.abs();
+        let abs_y = dy.abs();
+        let (cmp, _) = abs_got.partial_cmp(abs_y);
+        prop_assert!(
+            matches!(cmp, Some(core::cmp::Ordering::Less)),
+            "|rem_trunc({}, {})| = {:?} not strictly less than |{}| = {:?}",
+            x, y, abs_got, y, abs_y
+        );
+    }
 }
