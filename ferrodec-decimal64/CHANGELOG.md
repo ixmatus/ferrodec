@@ -7,6 +7,89 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-05-11
+
+The post-publish six-agent correctness review (2026-05-10) found
+two real IEEE 754-2019 violations in the 1.2.0 release plus three
+classes of latent correctness bugs in `Decimal64`'s finite-finite
+arithmetic that mirror the pre-1.13 `Decimal128` H-tier shapes. The
+two IEEE violations ship here in 1.3.0; the three latent
+correctness bugs are recorded in the new `KNOWN_ISSUES.md` and will
+be fixed in a dedicated decimal64 correctness slice post-cycle (see
+ADR-0017 in the workspace root for the discovery narrative). See
+the parent `ferrodec` crate's CHANGELOG for the full 1.15 cycle
+context.
+
+### Fixed
+
+- `Decimal64::fma`: the `0 × ∞ + NaN_c` branch now propagates `c`'s
+  payload per IEEE 754-2019 §6.2.3. Pre-1.3.0 the branch returned
+  canonical `Decimal64::NAN` regardless of `c`, silently discarding
+  the input NaN's signal. Sibling drift from the correctly-
+  implemented `Decimal128::fma`; same shape, same fix.
+
+- `Decimal64::min` and `Decimal64::max`: signaling NaN's payload is
+  now preserved (signal cleared) on the `INVALID` arm per
+  §6.2.3. Pre-1.3.0 the methods returned `Self::NAN` (canonical
+  zero payload) on any sNaN input.
+
+- `serde_bid::deserialize`'s `BitsVisitor` accepts the full
+  integer-width matrix (u8 / u16 / u32 / u64 unsigned, i8 / i16 /
+  i32 / i64 signed). MessagePack, CBOR, and bincode can hand
+  integers in any of those widths; the pre-1.3.0 visitor rejected
+  everything narrower than u32.
+
+### Verification
+
+- Decimal64's verify tree now follows the `_special_only_for_kani`
+  shim convention (ADR-0016 of the workspace root). Each
+  `src/ops/<op>.rs` exposes a `#[cfg(kani)]` shim that returns the
+  special-case dispatcher's `Option` directly. Every
+  `src/verify/<op>.rs` harness routes through these shims. Local
+  timing: full Decimal64 Kani run completes in 19 seconds (pre-
+  1.3.0 several harnesses timed out).
+
+- New harnesses match the Decimal32 set, with the addition of
+  `min_max_snan_preserves_payload` over a symbolic 4-bit payload
+  (Decimal64's `T_MASK` is 50 bits; the propagation path is
+  uniform on width, so a low-bits bug is a full-payload bug).
+
+- `total_cmp_no_panic_and_total` is renamed to
+  `total_cmp_reflexive` to match the actual claim. Same rationale
+  as Decimal32.
+
+### Known issues
+
+- New file `KNOWN_ISSUES.md` catalogues three open correctness bug
+  classes that 1.3.0 *does not* fix. Each entry names a decTest
+  reproducer ID:
+
+  * **Finite-finite addition magnitude loss** — `ddAdd.decTest:358`
+    (`ddadd360`). Result `0E+50` where `1.0000E+5` is expected; the
+    value is dropped entirely. Same bug class as Decimal128's
+    pre-1.13 H2 parse magnitude finding (which was fixed in 1.13.x
+    for Decimal128 but never propagated to the sibling).
+
+  * **Wrong rounding direction at the 16-digit precision boundary**
+    — `ddAdd.decTest:802..821` (`ddadd71100..71119`) plus negated
+    mirrors at `ddadd71200..71219`. Result `100.0…0` where
+    `99.999…9` is expected under `half_even`. ≥ 40 cases in
+    `ddAdd` alone; similar failures in `ddSubtract` and
+    `ddMultiply`. Same bug class as Decimal128's pre-1.13 H5 FMA
+    sub-ULP directional finding.
+
+  * **pack_finite biased_exp precondition panic in FMA** —
+    `src/bid.rs:216` debug-asserts on some `ddFMA.decTest` case
+    (not yet narrowed). Internal saturation overshoots
+    `BIASED_EXP_MAX`.
+
+- The conformance dispatcher in `tests/conformance.rs` remains
+  `Apply` / `tosci` only until those three bug classes close. 38
+  of the 43 `dd*.decTest` files report 0 passes by design; this
+  understates Decimal64's actual surface coverage but accurately
+  reflects the *spec-conforming* surface against the IBM decTest
+  corpus.
+
 ## [1.2.0] - 2026-05-10
 
 ### Changed (behaviour, not API)

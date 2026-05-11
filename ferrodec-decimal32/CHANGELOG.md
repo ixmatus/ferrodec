@@ -7,6 +7,84 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-05-11
+
+The post-publish six-agent correctness review (2026-05-10) found
+two real IEEE 754-2019 violations in the 1.2.0 release plus a
+spec-but-misimplemented integer-conversion path. The 1.15 cycle of
+the parent `ferrodec` crate fixed them across Slice A. See the
+parent crate's CHANGELOG for the full cycle context and ADR-0016
+for the Kani-harness convention this slice inherited.
+
+### Fixed
+
+- `Decimal32::fma`: the `0 × ∞ + NaN_c` branch now propagates `c`'s
+  payload per IEEE 754-2019 §6.2.3. Pre-1.3.0 the branch returned
+  canonical `Decimal32::NAN` regardless of `c`, silently discarding
+  the input NaN's signal. Sibling drift from the
+  correctly-implemented `Decimal128::fma`; same shape, same fix.
+
+- `Decimal32::min` and `Decimal32::max`: signaling NaN's payload is
+  now preserved (signal cleared) on the `INVALID` arm per
+  §6.2.3. Pre-1.3.0 the methods returned `Self::NAN` (canonical
+  zero payload) on any sNaN input.
+
+- `<Decimal32 as FromPrimitive>::from_i64` / `from_u64`: accept
+  integers above `2^53` with rounding instead of returning `None`.
+  The pre-1.3.0 gate refused any `|n| > 2^53` on the (mistaken)
+  grounds that the f64 round-trip would be lossy. Decimal32 holds
+  only 7 digits, so the actual rounding is bounded by Decimal32's
+  envelope, not f64's. The new path tries `Self::try_new(coef, 0)`
+  for exact fits and falls through to the f64 round-trip otherwise
+  — matching Decimal64's existing convention.
+
+- `serde_bid::deserialize`'s `BitsVisitor` accepts the full
+  integer-width matrix (u8 / u16 / u32 / u64 unsigned, i8 / i16 /
+  i32 / i64 signed). MessagePack, CBOR, and bincode can hand
+  integers in any of those widths; the pre-1.3.0 visitor rejected
+  everything narrower than u32.
+
+### Verification
+
+- Decimal32's verify tree now follows the `_special_only_for_kani`
+  shim convention introduced in the parent crate (ADR-0016). Each
+  `src/ops/<op>.rs` exposes a `#[cfg(kani)]` shim that returns the
+  special-case dispatcher's `Option` directly, bypassing the
+  finite-finite alignment / rounding pipeline that CBMC can't
+  tractably enumerate. Every `src/verify/<op>.rs` harness routes
+  through these shims. Local timing: every harness finishes in
+  under 1.3 seconds (pre-1.3.0 several timed out the 60-second
+  budget the runner used to enforce).
+
+- New harnesses: `add_special_resolves_on_nan_or_infinity`,
+  `sub_special_resolves_on_nan_or_infinity`,
+  `mul_special_resolves_on_nan_or_infinity`,
+  `div_special_resolves_on_nan_infinity_or_zero_divisor`,
+  `sqrt_special_resolves_on_non_positive_finite`,
+  `add_snan_raises_invalid`, `mul_snan_raises_invalid`,
+  `div_snan_raises_invalid`, `sqrt_snan_raises_invalid`,
+  `min_max_snan_preserves_payload` (pinning the Slice A fix above).
+
+- `total_cmp_no_panic_and_total` is renamed to
+  `total_cmp_reflexive` to match the actual claim — the harness
+  proves reflexivity, not totality (which is implicit in
+  `total_cmp` returning `Ordering` rather than `Option<Ordering>`).
+
+### Known issues
+
+- New file `KNOWN_ISSUES.md` catalogues two coverage gaps inherited
+  from before this release:
+  * `dsEncode`'s `#hex` BID-interchange dispatch (266 of 268 cases
+    skip pending a dedicated `#hex` decoder arm).
+  * Transcendentals route through f64 / libm rather than
+    Decimal128's `Extended` kernel; documented as a v1.0 baseline.
+    Routing through Extended needs an architectural decision and
+    is tracked for 1.16-era.
+
+- No correctness bugs in Decimal32 surfaced during the post-publish
+  investigation. The `KNOWN_ISSUES.md` entries are coverage / scope
+  gaps, not correctness defects.
+
 ## [1.2.0] - 2026-05-10
 
 ### Changed (behaviour, not API)

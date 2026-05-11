@@ -7,6 +7,174 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.15.0] - 2026-05-11
+
+The 2026-05-10 post-publish six-agent correctness review found a
+handful of correctness gaps in the just-shipped 1.14.5 / decimal32
+1.2.0 / decimal64 1.2.0 release and surfaced a long-standing Kani CI
+timeout. The 1.15 cycle closes all of them across seven slices.
+ADR-0015 (Kani scope policy), ADR-0016 (harness-shim routing rule),
+and ADR-0017 (decimal64 conformance gap) record the durable
+decisions.
+
+### Fixed
+
+- `Decimal128::min` and `Decimal128::max` now preserve the signaling
+  NaN's payload on the `INVALID` arm per IEEE 754-2019 §6.2.3.
+  Pre-1.15 the methods returned `Self::NAN` (canonical zero
+  payload) on any sNaN input, losing the signal the upstream test
+  deliberately encoded.
+
+- `Decimal128::pow` no longer accumulates ~5 ULP for cases like
+  `pow(3, 50)` via the integer fast path. The square-and-multiply
+  path at Decimal128 precision is now taken *only* when its
+  accumulated `Status` reports `inexact == false`; inputs whose
+  fast-path result rounded fall through to the existing Extended-
+  precision pipeline (≤ 1 ULP). The H1 finding of the May 2026
+  review documented the gap. A new proptest
+  `pow_integer_y_within_1_ulp` samples integer `y ∈ [-256, 256]`
+  directly (the prior sweep almost never landed on small integers).
+
+- `serde_bid::deserialize`'s `BitsVisitor` now accepts the full
+  integer-width matrix (u8 / u16 / u32 / u64 / u128 unsigned,
+  i8 / i16 / i32 / i64 / i128 signed). MessagePack, CBOR, and
+  bincode pack integers in the most compact form their encoding
+  supports; previously the visitor refused anything narrower than
+  u64. Round-trip semantics are preserved (small unsigned values
+  zero-extend; signed values cast through two's complement).
+
+### Changed
+
+- `Decimal128::to_f64`'s docstring now records the actual semantics
+  ("shortest-decimal that round-trips through f64") rather than the
+  earlier "correctly-rounded" wording. The two agree inside f64's
+  ~17-digit envelope; for wider Decimal128 values the path can
+  diverge from IEEE 754 §5.4.2 `convertFormat` by up to 1 ULP. The
+  implementation is unchanged.
+
+### Verification
+
+- Kani CI now gates releases for the first time since 1.2.0. The
+  pre-1.15 posture treated the Kani job's chronic timeout as
+  expected (the relevant author-memory note named two specific
+  wedges); Slices B and C of the 1.15 cycle closed both wedges:
+  - **Slice B**: extracted `pow`'s IEEE 754-2019 §9.2.1 rules 1–7
+    into a closed-form `pow_special_cases` helper and routed the
+    Kani harness through the new `pow_special_only_for_kani` shim
+    instead of production `pow`. The 11-constant operand pool no
+    longer drags the `ln_extended` / `Extended::mul` /
+    `exp_from_extended` pipeline through CBMC symbolically.
+  - **Slice C**: swept every verify harness in the decimal128 tree
+    that called production arithmetic ops directly (`nan_payload`)
+    and rerouted them through the `*_special_only_for_kani` shims.
+    Result: the full ferrodec Kani run went from a 25-minute
+    timeout to **2:37** wall-clock finish; 70/70 harnesses verify
+    cleanly. The standing rule ("harnesses call shims, never
+    production ops") lives in ADR-0016.
+
+- Slice C also fixed a latent harness bug in
+  `pack_finite_unpack_roundtrip` (the `Class::Zero` arm asserted
+  `coefficient == 0`, missing IEEE 754-2019 §3.5.2's
+  non-canonical-Form-A canonicalisation rule). The bug was masked
+  for the entire 1.x cycle because CBMC always timed out before
+  reaching it; with the timeout closed it surfaced on the first
+  Slice C run and was fixed in the same slice.
+
+- Closes the `pow_special_pool_total` chronic timeout (H1 of the
+  May 2026 review's verification leg).
+
+### Internal
+
+- ADR-0015 (Kani scope policy) and ADR-0016 (harness-shim routing
+  rule) now record the standing verification convention that was
+  previously oral tradition. ADR-0010's contradicted "2-minute Kani
+  budget" claim is corrected. ADR-0017 records the decimal64
+  conformance coverage gap (see the per-sibling CHANGELOGs).
+
+- The dead `kani = []` Cargo feature is removed from all three
+  workspace manifests. Kani gating remains on `cfg(kani)`.
+
+- `src/math/argred.rs::FRAC_DIGITS` (the windowed-product fractional
+  envelope at the heart of `argred`'s precision budget) keeps its
+  value of 76. Slice E investigated the May review's H2
+  recommendation to bump it to 90 and concluded the current budget
+  is empirically sufficient (the `property_sincos_large` suite
+  passes at 1 ULP through magnitudes of 1e500). Bumping past 77
+  requires a U256 → U384 refactor of the windowed-product machinery;
+  the doc comment records the trigger (a failing high-magnitude
+  case) and the refactor path.
+
+- New oracle test `extended_constants_match_astro_float_to_50_digits`
+  cross-checks the nine `*_EXT_STR` literals in `src/math/consts.rs`
+  against astro-float at 220-bit working precision. A single
+  transposed digit in any of `PI_EXT_STR`, `E_EXT_STR`,
+  `LN2_EXT_STR`, `LN10_EXT_STR`, `INV_LN10_EXT_STR`,
+  `INV_LN2_EXT_STR`, `PI_OVER_TWO_EXT_STR`, `PI_OVER_FOUR_EXT_STR`,
+  or `TAN_PI_OVER_EIGHT_EXT_STR` now trips the assertion.
+
+- `Extended::parse_str` gains a `debug_assert!(coef.decimal_digit_count()
+  <= EXT_PRECISION + 5)` guarding the documented 50-digit working
+  envelope.
+
+- New conformance regression-guard
+  `dectest_skip_taxonomy_non_ieee_rounding_directive_count` pins
+  the corpus-level count of cases routed through
+  `CaseRounding::Unsupported`. Any future drift in the non-IEEE
+  rounding directive presence surfaces as a count change rather
+  than a silent skip-bucket migration.
+
+- New op-without-proptest entries: `logb(scaleb(1, n)) == n`
+  identity, `rem_trunc` sign-of-dividend + magnitude bound,
+  `ieee_class` totality + self-consistency over the full u128 input
+  space.
+
+- `tests/property_sqrt.rs::sqrt_roundtrip_within_2_ulp` is now
+  wired through `common::within_ulps`. The prior body asserted
+  only `is_finite() && !is_zero() && !is_sign_negative()` despite
+  the docstring promising ≤ 2 ULP; a `sqrt` that returned `0.5 * x`
+  would have passed.
+
+- `fuzz/fuzz_targets/arith.rs` adds `fma` to the no-panic sweep and
+  to the identity-invariant block. The arithmetic fuzz target now
+  takes `Triple { a, b, c }` instead of `Pair { a, b }`.
+
+- `src/bid.rs::decimal_digit_count` is now a re-export of
+  `ferrodec_ieee::decimal_digit_count_u128`. The ADR-0012 shared-
+  crate refactor (0.1.2) had missed this call site; the
+  consolidation removes the duplicate definition with zero call-site
+  churn.
+
+- `docs/PLAN.md` now carries a "superseded by ADR-0011 / current
+  crate layout" status line at the top. The historical context is
+  preserved but readers are pointed at ADR-0011..ADR-0017 for
+  current architecture decisions.
+
+- `U256::isqrt`'s debug assertion message records the caller
+  contract (`bit_len ≤ 254`) explicitly.
+
+### Deferred
+
+- A dedicated **decimal64 correctness slice** spins out separately
+  from the 1.15 cycle. ADR-0017 records the discovery: decimal64
+  has three classes of unfixed correctness bugs that mirror
+  Decimal128's pre-1.13 H-tier shapes (parse magnitude loss in
+  finite-finite addition, wrong rounding direction at the precision
+  boundary, FMA's internal saturation overshooting `pack_finite`'s
+  precondition). The conformance dispatch buildout originally
+  planned for Slice D depends on those fixes and is deferred.
+
+- Routing decimal32 and decimal64 transcendentals through
+  Decimal128's `Extended` kernel (instead of the f64 / libm
+  round-trip) requires an architectural decision (the siblings
+  currently depend only on `ferrodec-ieee`, not the parent crate).
+  Tracked for a 1.16-era follow-up.
+
+- Decimal128's `fma` Kani harness remains absent: the
+  `fma_special_only_for_kani` shim's transitive call into
+  `U256::decimal_digit_count` triggers CBMC's loop-unrolling
+  budget. A future commit either narrows the shim or annotates the
+  harness with `#[kani::unwind]`.
+
 ## [1.14.5] - 2026-05-10
 
 ### Fixed
