@@ -44,23 +44,36 @@ fix slice has a one-line repro to start from.
 
 ## Open: pack_finite biased_exp precondition panic in FMA
 
-* **Status**: open. Reproducible on Decimal64 1.2.0 and current main.
-* **Reproducer**: not yet narrowed. Some `ddFMA.decTest` case panics
-  the test suite at `ferrodec-decimal64/src/bid.rs:216`:
-  `assertion failed: biased_exp <= BIASED_EXP_MAX`.
-* **Symptom**: the test process exits with a `debug_assert` panic
-  rather than a clean conformance failure. CI catches the panic but
-  doesn't report the offending case ID.
-* **Likely cause**: an internal saturation or exponent computation
-  inside `Decimal64::fma`'s finite-finite-finite path produces a
-  biased exponent that overshoots `BIASED_EXP_MAX` and feeds it into
-  `pack_finite`. `pack_finite`'s precondition (`debug_assert!`) is a
-  caller-maintained contract; whoever computes the biased exp must
-  clamp first.
-* **Fix landing**: dedicated decimal64 correctness slice. The first
-  step is narrowing the offending case via a bisect over `ddFMA`'s
-  ~1378 cases — likely an overflow edge similar to one of
-  decimal128's pre-1.13 saturation bugs.
+* **Status**: open. Reproducible on Decimal64 1.2.0, 1.3.0, and
+  current main. Pinned 2026-05-11 in Phase 0 of the decimal64
+  correctness slice.
+* **Reproducer**: `ddFMA.decTest:281` (case `ddfma2504`). Operands:
+  `fma 0E-260 1000E-260 0E+384`. Spec answer: `0E-398` with the IEEE
+  754 informational `Clamped` condition raised.
+* **Symptom**: debug builds panic at
+  `ferrodec-decimal64/src/bid.rs:216` with
+  `assertion failed: biased_exp <= BIASED_EXP_MAX`. Release builds
+  compile the `debug_assert!` out; `pack_finite` continues with the
+  out of range biased exp, packs garbage bits, and the conformance
+  run reports
+  `got "9.007199254740992E-249" want "0E-398"`.
+* **Mechanism**: the FMA path computes the ideal exponent for a zero
+  product result by summing the product operand exponents
+  `(-260) + (-260) = -520` and taking the minimum with the addend
+  exponent `+384`, leaving `-520`. The conversion to biased form
+  then computes `biased_exp = -520 + 398 = -122` and casts to `u32`,
+  which wraps to a value far above `BIASED_EXP_MAX = 767`. The spec
+  requires clamping the ideal exponent to the representable range
+  `[-398, +369]` for decimal64 *before* the biased conversion.
+* **Fix shape**: the slice plan's "H3 fix shape (constraint)"
+  subsection in
+  `docs/decisions/plans/2026-05-11-decimal64-correctness.md`
+  requires lifting the invariant out of debug runtime. Preferred is
+  a typed `BiasedExp` newtype whose constructor proves the range;
+  fallback is a release safe check (saturating clamp, or hard
+  `assert!`). No `debug_assert!` on input derived arithmetic
+  survives the slice.
+* **Fix landing**: dedicated decimal64 correctness slice, Phase 2 H3.
 
 ## Coverage gap: conformance dispatcher is `Apply` / `tosci` only
 
