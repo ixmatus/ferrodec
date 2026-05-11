@@ -196,7 +196,11 @@ impl Decimal64 {
         c: Self,
         _rm: RoundingMode,
     ) -> Option<(Self, Status)> {
-        handle_specials(classify_bits(self.0), classify_bits(b.0), classify_bits(c.0))
+        handle_specials(
+            classify_bits(self.0),
+            classify_bits(b.0),
+            classify_bits(c.0),
+        )
     }
 }
 

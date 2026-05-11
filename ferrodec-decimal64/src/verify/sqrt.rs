@@ -15,9 +15,7 @@ fn sqrt_special_resolves_on_non_positive_finite() {
     let ai: u8 = kani::any();
     kani::assume(ai < NUM_OPERANDS);
     let a = operand(ai);
-    kani::assume(
-        a.is_nan() || a.is_infinite() || a.is_zero() || a.is_sign_negative(),
-    );
+    kani::assume(a.is_nan() || a.is_infinite() || a.is_zero() || a.is_sign_negative());
     assert!(a.sqrt_special_only_for_kani().is_some());
 }
 

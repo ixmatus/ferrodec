@@ -19,9 +19,7 @@ fn div_special_resolves_on_nan_infinity_or_zero_divisor() {
 
     let a = operand(ai);
     let b = operand(bi);
-    kani::assume(
-        a.is_nan() || a.is_infinite() || b.is_nan() || b.is_infinite() || b.is_zero(),
-    );
+    kani::assume(a.is_nan() || a.is_infinite() || b.is_nan() || b.is_infinite() || b.is_zero());
 
     assert!(a.div_special_only_for_kani(b).is_some());
 }
