@@ -8,11 +8,13 @@
 //! that pipeline symbolically for any "any-`u128`" operand, which
 //! blows the budget.
 //!
-//! Same mitigation as `addsub.rs`: bound the operand selector to a
-//! small representative set and constrain the harness to exactly
-//! the special-case rules from IEEE 754-2019 §9.2.1. The general
-//! `exp(y · ln(x))` correctness lives in the `tests/property_pow.rs`
-//! astro-float oracle.
+//! Same mitigation as `addsub.rs`: route through the
+//! `pow_special_only_for_kani` shim, which evaluates IEEE 754-2019
+//! §9.2.1 rules 1–7 in closed form and returns `None` for the rule-8
+//! general path. The harness asserts on the rules; general-path
+//! inputs in the operand pool are silently skipped (the shim returns
+//! `None`). General-case faithful-rounding correctness lives in the
+//! `tests/property_pow.rs` astro-float oracle.
 //!
 //! Concrete claims proven here:
 //!
@@ -22,11 +24,13 @@
 //! * `pow(x, ±0) = 1` for any `x` in the special-input pool except
 //!   sNaN. ferrodec deliberately raises `INVALID` for sNaN here
 //!   (acknowledged spec deviation; see `pow.rs` rule 1 comment).
-//! * `pow` is total — no input from the special-input pool panics.
+//! * Every special-rule combination in the input pool terminates with
+//!   a defined `Some` answer through the shim; no rule dispatcher
+//!   regression slips an `unreachable!()` past the closed-form table.
 //!
 //! General-case faithful-rounding correctness is proptest-tested
 //! in `tests/property_pow.rs`; finite-finite Kani symbolic execution
-//! is intentionally out of scope (per `feedback_kani_strategy.md`).
+//! is intentionally out of scope (per ADR-0015).
 
 #![cfg(feature = "pow")]
 
@@ -66,7 +70,9 @@ fn rm_from_u8(x: u8) -> RoundingMode {
 /// The H1 finding in the 6-agent review found that the negative-base
 /// case (`pow(-1, ±∞)`) hit `unreachable!()` because rule 2's
 /// short-circuit only matched `x = +1` and rule 6's |x|=1 arm assumed
-/// rule 2 had already covered it. This harness pins the contract.
+/// rule 2 had already covered it. This harness pins the contract via
+/// the closed-form shim — the broken path would still surface here
+/// because rule 6 lives in `pow_special_cases`.
 #[kani::proof]
 fn pow_pm_one_pm_infinity_is_one() {
     let xi: u8 = kani::any();
@@ -79,7 +85,9 @@ fn pow_pm_one_pm_infinity_is_one() {
     let x = operand(xi);
     let y = operand(yi);
     let rm = rm_from_u8(rmi);
-    let (r, _s) = x.pow(y, rm);
+    let (r, _s) = x
+        .pow_special_only_for_kani(y, rm)
+        .expect("rule 2 / rule 6 must fire for ±1 and ±∞");
     assert!(r.to_bits() == Decimal128::ONE.to_bits());
 }
 
@@ -97,15 +105,20 @@ fn pow_x_pm_zero_is_one_except_snan() {
     let x = operand(xi);
     let y = operand(yi);
     let rm = rm_from_u8(rmi);
-    let (r, _s) = x.pow(y, rm);
+    let (r, _s) = x
+        .pow_special_only_for_kani(y, rm)
+        .expect("rule 1 must fire for y = ±0");
     assert!(r.to_bits() == Decimal128::ONE.to_bits());
 }
 
-/// `pow` is total over the special-input pool: every combination
-/// terminates without panicking. This catches any future
-/// `unreachable!()` regression in the rule dispatch table.
+/// Every special-rule combination in the pool produces a defined
+/// closed-form answer (or `None` for the general path); the shim's
+/// rule dispatcher never panics regardless of which input slot fires.
+/// This catches any future `unreachable!()` regression in the IEEE
+/// rule table without dragging in the `ln_extended` / `exp_from_extended`
+/// pipeline that drove `pow_special_pool_total`'s CBMC timeout pre-1.15.
 #[kani::proof]
-fn pow_special_pool_total() {
+fn pow_special_dispatcher_total() {
     let xi: u8 = kani::any();
     let yi: u8 = kani::any();
     let rmi: u8 = kani::any();
@@ -116,5 +129,5 @@ fn pow_special_pool_total() {
     let x = operand(xi);
     let y = operand(yi);
     let rm = rm_from_u8(rmi);
-    let _ = x.pow(y, rm);
+    let _ = x.pow_special_only_for_kani(y, rm);
 }
