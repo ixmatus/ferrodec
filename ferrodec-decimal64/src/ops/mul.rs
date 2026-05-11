@@ -50,6 +50,16 @@ impl Decimal64 {
 
         round_and_pack_into_u64(product, q_preferred, q_preferred, result_sign, false, rm)
     }
+
+    /// Kani-only entry point that returns the special-case branch only,
+    /// without invoking the u128 product / rounding pipeline. Mirrors
+    /// decimal128's `mul_special_only_for_kani` (ADR-0016).
+    #[cfg(kani)]
+    #[doc(hidden)]
+    #[must_use]
+    pub fn mul_special_only_for_kani(self, rhs: Self) -> Option<(Self, Status)> {
+        handle_specials(classify_bits(self.0), classify_bits(rhs.0))
+    }
 }
 
 fn handle_specials(a: Class, b: Class) -> Option<(Decimal64, Status)> {
