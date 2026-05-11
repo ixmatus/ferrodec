@@ -38,36 +38,59 @@ impl Decimal64 {
     #[must_use]
     pub fn sqrt(self, rm: RoundingMode) -> (Self, Status) {
         let class = classify_bits(self.0);
+        if let Some(out) = sqrt_special_cases(class) {
+            return out;
+        }
         match class {
-            Class::SignalingNaN { sign, payload } => (
-                Decimal64::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
-                Status::INVALID,
-            ),
-            Class::QuietNaN { sign, payload } => (
-                Decimal64::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
-                Status::OK,
-            ),
-            Class::Infinity { sign: false } => (Decimal64::INFINITY, Status::OK),
-            Class::Infinity { sign: true } => (Decimal64::NAN, Status::INVALID),
-            Class::Zero { sign, biased_exp } => {
-                let exp = biased_exp as i32 - BIAS as i32;
-                let q = exp.div_euclid(2);
-                (
-                    Decimal64::from_bits(crate::bid::pack_finite(
-                        sign,
-                        (q + BIAS as i32) as u32,
-                        0,
-                    )),
-                    Status::OK,
-                )
-            }
-            Class::Finite { sign: true, .. } => (Decimal64::NAN, Status::INVALID),
             Class::Finite {
                 sign: false,
                 biased_exp,
                 coefficient,
             } => sqrt_positive_finite(coefficient, biased_exp, rm),
+            _ => unreachable!("sqrt_special_cases handled every non-positive-finite class"),
         }
+    }
+
+    /// Kani-only entry point that returns the special-case branch only,
+    /// without invoking `sqrt_positive_finite`'s isqrt + rounding
+    /// pipeline. Mirrors decimal128's `sqrt_special_only_for_kani`
+    /// (ADR-0016).
+    #[cfg(kani)]
+    #[doc(hidden)]
+    #[must_use]
+    pub fn sqrt_special_only_for_kani(self) -> Option<(Self, Status)> {
+        sqrt_special_cases(classify_bits(self.0))
+    }
+}
+
+/// Resolve every input class that doesn't reach the positive-finite
+/// isqrt + rounding pipeline.
+fn sqrt_special_cases(class: Class) -> Option<(Decimal64, Status)> {
+    match class {
+        Class::SignalingNaN { sign, payload } => Some((
+            Decimal64::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
+            Status::INVALID,
+        )),
+        Class::QuietNaN { sign, payload } => Some((
+            Decimal64::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
+            Status::OK,
+        )),
+        Class::Infinity { sign: false } => Some((Decimal64::INFINITY, Status::OK)),
+        Class::Infinity { sign: true } => Some((Decimal64::NAN, Status::INVALID)),
+        Class::Zero { sign, biased_exp } => {
+            let exp = biased_exp as i32 - BIAS as i32;
+            let q = exp.div_euclid(2);
+            Some((
+                Decimal64::from_bits(crate::bid::pack_finite(
+                    sign,
+                    (q + BIAS as i32) as u32,
+                    0,
+                )),
+                Status::OK,
+            ))
+        }
+        Class::Finite { sign: true, .. } => Some((Decimal64::NAN, Status::INVALID)),
+        Class::Finite { sign: false, .. } => None,
     }
 }
 
