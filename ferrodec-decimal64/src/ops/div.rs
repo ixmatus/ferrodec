@@ -142,6 +142,14 @@ fn handle_specials(a: Class, b: Class) -> Option<(Decimal64, Status)> {
         ));
     }
     if let Infinity { sign: sa } = a {
+        // ∞ / finite (including ∞ / ±0) = ±∞ with no exception. GDA
+        // and IEEE 754-2019 §7.3 raise `divideByZero` only when a
+        // *finite, non-zero* dividend is divided by zero (the
+        // `Finite / Zero` arm above). An infinite dividend is
+        // already infinite, so ∞ / 0 is `∞ + OK`, deliberately NOT
+        // `DIV_BY_ZERO`. The `∞ / ∞` indeterminate form was already
+        // taken as `NaN + INVALID` further up, so `b` here is finite
+        // or zero.
         let sb = match b {
             Finite { sign, .. } | Zero { sign, .. } => sign,
             _ => unreachable!(),
@@ -153,9 +161,17 @@ fn handle_specials(a: Class, b: Class) -> Option<(Decimal64, Status)> {
     }
     if let (Finite { sign: sa, .. } | Zero { sign: sa, .. }, Infinity { sign: sb }) = (a, b) {
         let result_sign = sa ^ sb;
+        // x / Inf = ±0. The ideal exponent is unboundedly negative,
+        // so it is clamped up to Etiny (BiasedExp::MIN). IEEE
+        // 754-2019 §7.4 Clamped — informational; the zero is exact.
+        // Matches decTest dddiv788 (`-1000 / Inf -> -0E-398 Clamped`).
         return Some((
-            Decimal64::from_bits(crate::bid::pack_finite(result_sign, 0, 0)),
-            Status::OK,
+            Decimal64::from_bits(crate::bid::pack_finite(
+                result_sign,
+                crate::bid::BiasedExp::MIN,
+                crate::bid::Coefficient::ZERO,
+            )),
+            Status::CLAMPED,
         ));
     }
     None
@@ -164,7 +180,7 @@ fn handle_specials(a: Class, b: Class) -> Option<(Decimal64, Status)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bid::pack_finite;
+    use crate::bid::{pack_finite, BiasedExp, Coefficient};
 
     fn from_int(n: i64, exp: i32) -> Decimal64 {
         Decimal64::try_new(n, exp).unwrap()
@@ -177,7 +193,11 @@ mod tests {
         assert!(s.is_ok());
 
         let (r, _) = from_int(10, 0).div(from_int(4, 0), RoundingMode::NearestEven);
-        let expected = Decimal64::from_bits(pack_finite(false, BIAS - 1, 25));
+        let expected = Decimal64::from_bits(pack_finite(
+            false,
+            BiasedExp::try_from_biased(BIAS - 1).unwrap(),
+            Coefficient::try_new(25).unwrap(),
+        ));
         assert_eq!(r.to_bits(), expected.to_bits());
     }
 
@@ -185,7 +205,11 @@ mod tests {
     fn div_inexact() {
         // 1 / 3 = 0.3333... at 16 digits.
         let (r, s) = from_int(1, 0).div(from_int(3, 0), RoundingMode::NearestEven);
-        let expected = Decimal64::from_bits(pack_finite(false, BIAS - 16, 3_333_333_333_333_333));
+        let expected = Decimal64::from_bits(pack_finite(
+            false,
+            BiasedExp::try_from_biased(BIAS - 16).unwrap(),
+            Coefficient::try_new(3_333_333_333_333_333).unwrap(),
+        ));
         assert_eq!(r.to_bits(), expected.to_bits());
         assert!(s.inexact());
     }

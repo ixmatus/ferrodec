@@ -42,77 +42,114 @@ impl Decimal64 {
     /// IEEE 754-2019 §9.2 `exp(self)` rounded by `rm`.
     #[must_use]
     pub fn exp(self, rm: RoundingMode) -> (Self, Status) {
-        let class = classify_bits(self.0);
-        match class {
-            Class::SignalingNaN { sign, payload } => (
-                Decimal64::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
-                Status::INVALID,
-            ),
-            Class::QuietNaN { sign, payload } => (
-                Decimal64::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
-                Status::OK,
-            ),
-            Class::Infinity { sign: false } => (Decimal64::INFINITY, Status::OK),
-            Class::Infinity { sign: true } => (Decimal64::ZERO, Status::OK),
-            Class::Zero { .. } => (Decimal64::ONE, Status::OK),
-            Class::Finite { .. } => {
-                let x = self.to_f64();
-                let r = libm::exp(x);
-                if r.is_infinite() {
-                    return (Decimal64::INFINITY, Status::OVERFLOW | Status::INEXACT);
-                }
-                if r == 0.0 {
-                    return (Decimal64::ZERO, Status::UNDERFLOW | Status::INEXACT);
-                }
-                let (val, mut status) = Decimal64::from_f64(r, rm);
-                // exp of a non-zero finite is essentially never exact;
-                // emit INEXACT unconditionally to match IEEE 754
-                // §9.2 expectations even when the f64 round-trip
-                // happens to land on a representable value.
-                status |= Status::INEXACT;
-                (val, status)
-            }
+        if let Some(special) = exp_special_cases(classify_bits(self.0)) {
+            return special;
         }
+        // Finite non-zero: route through f64.
+        let x = self.to_f64(RoundingMode::NearestEven).0;
+        let r = libm::exp(x);
+        if r.is_infinite() {
+            return (Decimal64::INFINITY, Status::OVERFLOW | Status::INEXACT);
+        }
+        if r == 0.0 {
+            return (Decimal64::ZERO, Status::UNDERFLOW | Status::INEXACT);
+        }
+        let (val, mut status) = Decimal64::from_f64(r, rm);
+        // exp of a non-zero finite is essentially never exact; emit
+        // INEXACT unconditionally to match IEEE 754 §9.2 expectations
+        // even when the f64 round-trip happens to land on a
+        // representable value.
+        status |= Status::INEXACT;
+        (val, status)
     }
 
     /// IEEE 754-2019 §9.2 `ln(self)` rounded by `rm`.
     #[must_use]
     pub fn ln(self, rm: RoundingMode) -> (Self, Status) {
-        let class = classify_bits(self.0);
-        match class {
-            Class::SignalingNaN { sign, payload } => (
-                Decimal64::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
-                Status::INVALID,
-            ),
-            Class::QuietNaN { sign, payload } => (
-                Decimal64::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
-                Status::OK,
-            ),
-            Class::Infinity { sign: false } => (Decimal64::INFINITY, Status::OK),
-            Class::Infinity { sign: true } => (Decimal64::NAN, Status::INVALID),
-            Class::Zero { .. } => (Decimal64::NEG_INFINITY, Status::DIV_BY_ZERO),
-            Class::Finite { sign: true, .. } => (Decimal64::NAN, Status::INVALID),
-            Class::Finite { sign: false, .. } => {
-                let x = self.to_f64();
-                let r = libm::log(x);
-                let (val, mut status) = Decimal64::from_f64(r, rm);
-                // ln(positive finite) is exact only at x = 1 (handled
-                // by the f64 round-trip producing 0.0) or at integer
-                // powers of 10 where the result is also exactly
-                // representable. For most inputs, set INEXACT.
-                if !val.is_zero() {
-                    status |= Status::INEXACT;
-                }
-                (val, status)
-            }
+        if let Some(special) = ln_special_cases(classify_bits(self.0)) {
+            return special;
         }
+        // Positive finite non-zero: route through f64.
+        let x = self.to_f64(RoundingMode::NearestEven).0;
+        let r = libm::log(x);
+        let (val, mut status) = Decimal64::from_f64(r, rm);
+        // ln(positive finite) is exact only at x = 1 (the f64
+        // round-trip produces 0.0) or at integer powers of 10 where
+        // the result is also exactly representable. For most inputs,
+        // set INEXACT.
+        if !val.is_zero() {
+            status |= Status::INEXACT;
+        }
+        (val, status)
+    }
+
+    /// Kani-only entry returning the `exp` special-case branch
+    /// without invoking the `libm::exp` + `from_f64` pipeline. CBMC
+    /// never encodes the f64 path. ADR-0016.
+    #[cfg(kani)]
+    #[doc(hidden)]
+    #[must_use]
+    pub fn exp_special_only_for_kani(self) -> Option<(Self, Status)> {
+        exp_special_cases(classify_bits(self.0))
+    }
+
+    /// Kani-only entry returning the `ln` special-case branch without
+    /// invoking the `libm::log` + `from_f64` pipeline. ADR-0016.
+    #[cfg(kani)]
+    #[doc(hidden)]
+    #[must_use]
+    pub fn ln_special_only_for_kani(self) -> Option<(Self, Status)> {
+        ln_special_cases(classify_bits(self.0))
+    }
+}
+
+/// Resolve every `exp` input class that does not reach the
+/// `libm::exp` + `from_f64` pipeline. Returns `None` only for finite
+/// non-zero, the single class that needs the f64 path. Shared by
+/// production `exp` and the Kani shim so the two cannot drift.
+fn exp_special_cases(class: Class) -> Option<(Decimal64, Status)> {
+    match class {
+        Class::SignalingNaN { sign, payload } => Some((
+            Decimal64::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
+            Status::INVALID,
+        )),
+        Class::QuietNaN { sign, payload } => Some((
+            Decimal64::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
+            Status::OK,
+        )),
+        Class::Infinity { sign: false } => Some((Decimal64::INFINITY, Status::OK)),
+        Class::Infinity { sign: true } => Some((Decimal64::ZERO, Status::OK)),
+        Class::Zero { .. } => Some((Decimal64::ONE, Status::OK)),
+        Class::Finite { .. } => None,
+    }
+}
+
+/// Resolve every `ln` input class that does not reach the
+/// `libm::log` + `from_f64` pipeline. Returns `None` only for
+/// positive finite non-zero. Shared by production `ln` and the Kani
+/// shim so the two cannot drift.
+fn ln_special_cases(class: Class) -> Option<(Decimal64, Status)> {
+    match class {
+        Class::SignalingNaN { sign, payload } => Some((
+            Decimal64::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
+            Status::INVALID,
+        )),
+        Class::QuietNaN { sign, payload } => Some((
+            Decimal64::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
+            Status::OK,
+        )),
+        Class::Infinity { sign: false } => Some((Decimal64::INFINITY, Status::OK)),
+        Class::Infinity { sign: true } => Some((Decimal64::NAN, Status::INVALID)),
+        Class::Zero { .. } => Some((Decimal64::NEG_INFINITY, Status::DIV_BY_ZERO)),
+        Class::Finite { sign: true, .. } => Some((Decimal64::NAN, Status::INVALID)),
+        Class::Finite { sign: false, .. } => None,
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bid::{pack_finite, BIAS};
+    use crate::bid::{pack_finite, BiasedExp, Coefficient, BIAS};
 
     fn from_int(n: i64, exp: i32) -> Decimal64 {
         Decimal64::try_new(n, exp).unwrap()
@@ -123,8 +160,8 @@ mod tests {
         // to max_ulp. Decimal64 carries 16 digits but the f64 round-trip
         // through libm caps achievable precision at ~10⁻¹⁵ relative; we
         // pick 1e-14 to absorb the worst-case double-rounding noise.
-        let af = a.to_f64();
-        let bf = b.to_f64();
+        let af = a.to_f64(RoundingMode::NearestEven).0;
+        let bf = b.to_f64(RoundingMode::NearestEven).0;
         let tol = 1e-14 * f64::from(max_ulp);
         (af - bf).abs() <= tol * (1.0 + bf.abs())
     }
@@ -143,7 +180,11 @@ mod tests {
     fn exp_one_is_e() {
         let (r, _) = Decimal64::ONE.exp(RoundingMode::NearestEven);
         // e ≈ 2.718281828459045 at 16 digits.
-        let expected = Decimal64::from_bits(pack_finite(false, BIAS - 15, 2_718_281_828_459_045));
+        let expected = Decimal64::from_bits(pack_finite(
+            false,
+            BiasedExp::try_from_biased(BIAS - 15).unwrap(),
+            Coefficient::try_new(2_718_281_828_459_045).unwrap(),
+        ));
         assert!(approx_equal(r, expected, 1));
     }
 
@@ -151,7 +192,11 @@ mod tests {
     fn exp_negative_one_is_reciprocal_e() {
         let (r, _) = Decimal64::NEG_ONE.exp(RoundingMode::NearestEven);
         // 1/e ≈ 0.3678794411714423
-        let expected = Decimal64::from_bits(pack_finite(false, BIAS - 16, 3_678_794_411_714_423));
+        let expected = Decimal64::from_bits(pack_finite(
+            false,
+            BiasedExp::try_from_biased(BIAS - 16).unwrap(),
+            Coefficient::try_new(3_678_794_411_714_423).unwrap(),
+        ));
         assert!(approx_equal(r, expected, 1));
     }
 
@@ -168,6 +213,39 @@ mod tests {
         // exp(-1000) underflows to 0.
         let (r, _) = from_int(-1000, 0).exp(RoundingMode::NearestEven);
         assert!(r.is_zero());
+    }
+
+    #[test]
+    fn exp_underflow_contract_m7() {
+        // Finding T1 (work-order alias M7) claimed exp produces a
+        // Decimal64-subnormal result that misses UNDERFLOW. Verified
+        // non-reproducible: Decimal64's range reaches 1E-398, far
+        // below f64's smallest non-zero (~5E-324), so every non-zero
+        // libm::exp output maps to a *normal* Decimal64. The f64 path
+        // transitions directly from normal values to exactly 0.0
+        // (libm::exp saturates near x = -745, well before the
+        // Decimal64 subnormal window near x = -881), and that 0.0 is
+        // already covered by the r == 0.0 -> UNDERFLOW branch. This
+        // test pins both ends of the real contract and guards against
+        // an over-eager "fix" that would flag the normal mid-range
+        // result.
+        //
+        // exp(-720) ≈ 2E-313: a normal Decimal64, inexact, NOT a
+        // spurious underflow.
+        let (r, s) = from_int(-720, 0).exp(RoundingMode::NearestEven);
+        assert!(r.is_finite() && !r.is_zero());
+        assert!(!r.is_subnormal(), "exp(-720) is normal, not subnormal");
+        assert!(s.inexact());
+        assert!(
+            !s.underflow(),
+            "exp(-720) must not raise a spurious UNDERFLOW"
+        );
+
+        // exp(-2000): the genuine underflow the f64 pipeline reaches,
+        // saturating to zero with UNDERFLOW + INEXACT.
+        let (r, s) = from_int(-2000, 0).exp(RoundingMode::NearestEven);
+        assert!(r.is_zero());
+        assert!(s.underflow() && s.inexact());
     }
 
     #[test]
@@ -197,7 +275,11 @@ mod tests {
     fn ln_e_is_one() {
         // ln(2.718281828459045) ≈ 1 at 16 digits (slight rounding noise
         // from both the input truncation and the f64 round-trip).
-        let e_approx = Decimal64::from_bits(pack_finite(false, BIAS - 15, 2_718_281_828_459_045));
+        let e_approx = Decimal64::from_bits(pack_finite(
+            false,
+            BiasedExp::try_from_biased(BIAS - 15).unwrap(),
+            Coefficient::try_new(2_718_281_828_459_045).unwrap(),
+        ));
         let (r, _) = e_approx.ln(RoundingMode::NearestEven);
         assert!(approx_equal(r, Decimal64::ONE, 10));
     }
@@ -206,7 +288,11 @@ mod tests {
     fn ln_ten_is_ln10() {
         let (r, _) = Decimal64::TEN.ln(RoundingMode::NearestEven);
         // ln(10) ≈ 2.302585092994046 at 16 digits.
-        let expected = Decimal64::from_bits(pack_finite(false, BIAS - 15, 2_302_585_092_994_046));
+        let expected = Decimal64::from_bits(pack_finite(
+            false,
+            BiasedExp::try_from_biased(BIAS - 15).unwrap(),
+            Coefficient::try_new(2_302_585_092_994_046).unwrap(),
+        ));
         assert!(approx_equal(r, expected, 1));
     }
 

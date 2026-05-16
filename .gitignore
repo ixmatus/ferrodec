@@ -22,3 +22,6 @@ target
 
 # Claude Code per-user runtime state (settings, scheduled tasks, etc.)
 .claude/
+
+# Local copy of the IEEE 754-2019 spec PDF (copyrighted; never commit)
+docs/IEEE Standard 754-2019.pdf

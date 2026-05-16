@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- `ferrodec-decimal64` 1.4.0: the decimal64 H tier correctness
+  train. Closes the three H class bugs ADR-0017 surfaced plus the
+  full 9 H / 14 M / 17 L six agent finding set, wires the
+  arithmetic conformance dispatch (`add` / `subtract` / `multiply`
+  / `divide` / `fma`, full `dd*` corpus at zero failures), and
+  records the train in ADR-0018 (supersedes ADR-0017). Includes a
+  breaking `Decimal64::to_f64` signature change; see that crate's
+  CHANGELOG. The decimal64 release tags and publishes on its own
+  cadence, independent of the workspace `ferrodec` version.
+
 ## [1.15.0] - 2026-05-11
 
 The 2026-05-10 post-publish six-agent correctness review found a

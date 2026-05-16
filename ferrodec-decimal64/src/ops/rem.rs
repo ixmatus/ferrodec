@@ -6,17 +6,17 @@
 //! quotient would exceed `PRECISION` (= 16) digits or when an operand
 //! makes the operation undefined.
 
-use crate::bid::{classify_bits, Class, BIAS, COEFFICIENT_LIMIT};
+use crate::bid::{classify_bits, decimal_digit_count, Class, BIAS, COEFFICIENT_LIMIT};
 use crate::decimal::Decimal64;
 use ferrodec_ieee::{RoundingMode, Status};
 
-const POW10_U128: [u128; 24] = {
-    let mut t = [0u128; 24];
+const POW10_U128: [u128; 39] = {
+    let mut t = [0u128; 39];
     let mut i = 0;
     let mut v: u128 = 1;
-    while i < 24 {
+    while i < 39 {
         t[i] = v;
-        if i < 23 {
+        if i < 38 {
             v *= 10;
         }
         i += 1;
@@ -24,22 +24,33 @@ const POW10_U128: [u128; 24] = {
     t
 };
 
-// Compile-time invariant: every `POW10_U128[k]` access satisfies
-// `k <= MAX_SAFE_SHIFT`.
-const _: () = {
-    // Defined further down; reproduced here so the assert can sit
-    // next to the table.
-    const MAX_SAFE_SHIFT: u32 = 22;
-    assert!(POW10_U128.len() > MAX_SAFE_SHIFT as usize);
-};
+/// Per-side alignment cap: `coef × 10^shift` must fit in `u128`. The
+/// maximum decimal digit count of a `u128` is 38 (`10^38 < 2^128 <
+/// 10^39`), so a coefficient with `d` digits can shift up by at most
+/// `U128_DIGIT_CAP - d` decimal positions.
+const U128_DIGIT_CAP: u32 = 38;
 
-const MAX_SAFE_SHIFT: u32 = 22;
+// Compile-time invariant: the largest reachable index is
+// `U128_DIGIT_CAP = 38`. The table needs ≥ 39 entries.
+const _: () = assert!(POW10_U128.len() > U128_DIGIT_CAP as usize);
 
 impl Decimal64 {
-    /// Truncated remainder.
+    /// Truncated remainder: `rem(a, b) = a − trunc(a / b) × b`.
+    ///
+    /// This is the *truncated*-quotient remainder (GDA `remainder`,
+    /// IEEE 754-2019 §5.3.1). There is intentionally no separate
+    /// `rem_trunc` method: this is the only remainder the slice plan
+    /// once referred to under that name. The round-half-even
+    /// `remainder` (`remainder_near`, IEEE §5.3.1 nearest-quotient)
+    /// is a deliberate non-goal for 1.4.0, deferred to a follow-up
+    /// slice (Phase 1 Decision 2).
+    ///
+    /// `rm` is unused: a truncated remainder is exact (its magnitude
+    /// is strictly below `|b|` and it shares the dividend's quantum
+    /// floor), so no rounding ever occurs. The parameter is retained
+    /// only so the signature matches the other binary operations.
     #[must_use]
-    pub fn rem(self, other: Self, rm: RoundingMode) -> (Self, Status) {
-        let _ = rm;
+    pub fn rem(self, other: Self, _rm: RoundingMode) -> (Self, Status) {
         let ca = classify_bits(self.0);
         let cb = classify_bits(other.0);
 
@@ -71,11 +82,15 @@ impl Decimal64 {
         let target_q = exp_a.min(exp_b);
 
         if coef_a == 0 {
+            // target_q = min(exp_a, exp_b) is within the classify_bits
+            // range; biased conversion is in range.
+            let biased_exp = crate::bid::BiasedExp::try_from_unbiased(target_q)
+                .expect("target_q from classify_bits-derived exponents");
             return (
                 Decimal64::from_bits(crate::bid::pack_finite(
                     sign_a,
-                    (target_q + BIAS as i32) as u32,
-                    0,
+                    biased_exp,
+                    crate::bid::Coefficient::ZERO,
                 )),
                 Status::OK,
             );
@@ -84,16 +99,42 @@ impl Decimal64 {
         let shift_a = (exp_a - target_q) as u32;
         let shift_b = (exp_b - target_q) as u32;
 
-        if shift_a > MAX_SAFE_SHIFT || shift_b > MAX_SAFE_SHIFT {
-            if shift_a > MAX_SAFE_SHIFT {
-                return (Decimal64::NAN, Status::INVALID);
-            }
+        // H5 fix (Phase 1 Agent 2 M2): per-side alignment bound is
+        // dynamic, not the static `MAX_SAFE_SHIFT = 22` the pre-1.4.0
+        // code used. The static bound conflated "aligning into u128
+        // overflows" with "quotient digit count exceeds PRECISION";
+        // the spec test (IEEE 754-2019 §5.4.2 "Division_impossible")
+        // is the latter. With dynamic bounds, cases like
+        // `rem(1E+25, 9999999999999999)` — quotient ≈ 1E+9, well
+        // inside PRECISION digits, but `shift_a = 25` — now succeed.
+        //
+        // The alignment-overflow case `shift_a > ab_safe_shift`
+        // implies `D_a + shift_a > U128_DIGIT_CAP`, i.e.
+        // `D_a + shift_a > 38`. With `D_b ≤ 16`, this gives
+        // `D_a + shift_a − D_b ≥ 22 > PRECISION`, so the quotient
+        // digit count exceeds PRECISION and `INVALID` is spec-correct.
+        // The exact digit-count check for in-range alignments is
+        // already handled by the `quotient >= COEFFICIENT_LIMIT`
+        // test below.
+        let d_a = decimal_digit_count(coef_a);
+        let d_b = decimal_digit_count(coef_b);
+        let ab_safe_shift = U128_DIGIT_CAP - d_a;
+        let bb_safe_shift = U128_DIGIT_CAP - d_b;
+
+        if shift_a > ab_safe_shift {
+            return (Decimal64::NAN, Status::INVALID);
+        }
+
+        if shift_b > bb_safe_shift {
+            // |b| at target_q exceeds u128, which (by the same
+            // bound argument) means |b| >> |a| at target_q. The
+            // truncated quotient is 0 and rem(a, b) = a.
+            let biased_exp =
+                crate::bid::BiasedExp::try_from_unbiased(exp_a).expect("exp_a from classify_bits");
+            let coefficient = crate::bid::Coefficient::try_new(coef_a)
+                .expect("coef_a < COEFFICIENT_LIMIT from classify_bits");
             return (
-                Decimal64::from_bits(crate::bid::pack_finite(
-                    sign_a,
-                    (exp_a + BIAS as i32) as u32,
-                    coef_a,
-                )),
+                Decimal64::from_bits(crate::bid::pack_finite(sign_a, biased_exp, coefficient)),
                 Status::OK,
             );
         }
@@ -113,12 +154,14 @@ impl Decimal64 {
             return (Decimal64::NAN, Status::INVALID);
         }
 
+        // target_q is bounded by min of two classify_bits-derived exponents,
+        // residue < COEFFICIENT_LIMIT checked above.
+        let biased_exp = crate::bid::BiasedExp::try_from_unbiased(target_q)
+            .expect("target_q from classify_bits-derived exponents");
+        let coefficient = crate::bid::Coefficient::try_new(residue as u64)
+            .expect("residue < COEFFICIENT_LIMIT checked above");
         (
-            Decimal64::from_bits(crate::bid::pack_finite(
-                sign_a,
-                (target_q + BIAS as i32) as u32,
-                residue as u64,
-            )),
+            Decimal64::from_bits(crate::bid::pack_finite(sign_a, biased_exp, coefficient)),
             Status::OK,
         )
     }
@@ -174,14 +217,24 @@ fn handle_specials(a: Class, b: Class) -> Option<(Decimal64, Status)> {
             coefficient,
         } = a
         {
+            let biased_exp = crate::bid::BiasedExp::try_from_biased(biased_exp)
+                .expect("biased_exp from classify_bits");
+            let coefficient = crate::bid::Coefficient::try_new(coefficient)
+                .expect("coefficient from classify_bits");
             return Some((
                 Decimal64::from_bits(crate::bid::pack_finite(sign, biased_exp, coefficient)),
                 Status::OK,
             ));
         }
         if let Zero { sign, biased_exp } = a {
+            let biased_exp = crate::bid::BiasedExp::try_from_biased(biased_exp)
+                .expect("biased_exp from classify_bits");
             return Some((
-                Decimal64::from_bits(crate::bid::pack_finite(sign, biased_exp, 0)),
+                Decimal64::from_bits(crate::bid::pack_finite(
+                    sign,
+                    biased_exp,
+                    crate::bid::Coefficient::ZERO,
+                )),
                 Status::OK,
             ));
         }
@@ -213,6 +266,42 @@ mod tests {
     fn rem_zero_dividend() {
         let (r, _) = Decimal64::ZERO.rem(from_int(5, 0), RoundingMode::NearestEven);
         assert!(r.is_zero() && !r.is_sign_negative());
+    }
+
+    #[test]
+    fn rem_h5_large_exponent_gap_quotient_in_precision() {
+        // H5 regression (Phase 1 Agent 2 M2): `rem(1E+25, 10^16 - 1)`
+        // has `shift_a = 25 > old MAX_SAFE_SHIFT = 22`, but the
+        // truncated quotient (≈ 10^9, 10 digits) fits well inside
+        // PRECISION = 16. The pre-1.4.0 code returned `(NaN, INVALID)`;
+        // the spec answer is the truncated remainder `1E+9`.
+        //
+        // Quotient: floor(10^25 / (10^16 - 1)) = 10^9 (with tiny
+        // residue from the `(1 + 10^-16)` factor).
+        // Remainder: 10^25 − 10^9 × (10^16 − 1) = 10^9.
+        let a = Decimal64::try_new(1, 25).unwrap();
+        let b = Decimal64::try_new(9_999_999_999_999_999, 0).unwrap();
+        let (r, status) = a.rem(b, RoundingMode::NearestEven);
+        let expected = Decimal64::try_new(1_000_000_000, 0).unwrap();
+        assert_eq!(
+            r.to_bits(),
+            expected.to_bits(),
+            "rem(1E+25, 10^16 - 1) should equal 1E+9, got {r:?}"
+        );
+        assert!(
+            status.is_ok(),
+            "rem is exact, expected no flags, got {status:?}"
+        );
+
+        // Genuinely-impossible quotient (10^25 / 1 = 10^25, 26 digits)
+        // still raises INVALID as expected.
+        let one = Decimal64::try_new(1, 0).unwrap();
+        let (r, status) = a.rem(one, RoundingMode::NearestEven);
+        assert!(
+            r.is_quiet_nan(),
+            "rem(1E+25, 1) quotient has 26 digits, expected NaN"
+        );
+        assert!(status.invalid());
     }
 
     #[test]

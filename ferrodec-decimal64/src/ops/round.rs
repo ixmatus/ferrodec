@@ -16,7 +16,10 @@
 //! that compresses back to `u64` via sticky tracking before routing
 //! here.
 
-use crate::bid::{pack_finite, pack_infinity, BIAS, BIASED_EXP_MAX, COEFFICIENT_LIMIT, PRECISION};
+use crate::bid::{
+    pack_finite, pack_infinity, BiasedExp, Coefficient, BIAS, BIASED_EXP_MAX, COEFFICIENT_LIMIT,
+    E_MIN, PRECISION,
+};
 use crate::decimal::Decimal64;
 use ferrodec_ieee::{should_round_up, RoundingMode, Status};
 
@@ -69,8 +72,11 @@ pub(crate) fn round_and_pack_finite(
         let q = q_preferred.min(unbiased_exp);
         let bias = BIAS as i32;
         let q_clamped = q.clamp(-bias, BIASED_EXP_MAX as i32 - bias);
+        // q_clamped is in the representable unbiased range by construction.
+        let biased_exp = BiasedExp::try_from_unbiased(q_clamped)
+            .expect("q_clamped in [-BIAS, BIASED_EXP_MAX - BIAS]");
         return (
-            Decimal64::from_bits(pack_finite(sign, biased(q_clamped), 0)),
+            Decimal64::from_bits(pack_finite(sign, biased_exp, Coefficient::ZERO)),
             status,
         );
     }
@@ -95,6 +101,16 @@ pub(crate) fn round_and_pack_finite(
     let mut exp_after = kept_exp;
     if round_up {
         rounded += 1;
+        // Invariant maintained here: `kept_digits == digit count of
+        // `rounded``. A round-up carry changes the digit count in
+        // exactly two ways. (1) `rounded` reaches `COEFFICIENT_LIMIT`
+        // (10^PRECISION): the divide brings it back to PRECISION
+        // digits, and `kept_digits` was already `PRECISION` (it is
+        // `min(digits, PRECISION)` and only a PRECISION-digit `kept`
+        // can carry that far), so it stays correct without a
+        // decrement. (2) `rounded` crosses the next power of ten
+        // (e.g. 99 → 100): the digit count grows by one, matched by
+        // the `kept_digits += 1` below.
         if rounded >= COEFFICIENT_LIMIT {
             rounded /= 10;
             exp_after += 1;
@@ -115,6 +131,17 @@ pub(crate) fn round_and_pack_finite(
                 exp_after -= shift;
             }
         } else if exp_after < q_preferred && !status.inexact() {
+            // Cohort lowering: raise the exponent toward the
+            // preferred quantum by stripping trailing zeros. The loop
+            // exits on the first of two conditions. `want_shift == 0`
+            // means the preferred quantum has been reached, so no
+            // further raise is wanted. `rounded % 10 != 0` means the
+            // least significant digit is non-zero, so dividing by ten
+            // would discard a significant digit and change the value;
+            // only an exact trailing zero can be removed without
+            // altering the numeric result. The `!status.inexact()`
+            // guard above ensures this path runs only for exact
+            // results, where every removable digit is genuinely zero.
             let mut want_shift = q_preferred - exp_after;
             while want_shift > 0 && rounded % 10 == 0 {
                 rounded /= 10;
@@ -171,8 +198,19 @@ fn finalise_finite(
     // and round to ±∞ instead.
     if coef == 0 {
         let clamped = biased.clamp(0, biased_exp_max);
+        // clamped is in [0, BIASED_EXP_MAX] by clamp() above.
+        let biased_exp =
+            BiasedExp::try_from_biased(clamped as u32).expect("clamped in [0, BIASED_EXP_MAX]");
+        if clamped != biased {
+            // The zero's preferred exponent fell outside the format
+            // range and was clamped into it. IEEE 754-2019 §7.4
+            // Clamped — informational; a zero is exact at every
+            // exponent. Matches decTest cases like dddiv497
+            // (`0E+380 / 1000E-13 -> 0E+369 Clamped`).
+            status |= Status::CLAMPED;
+        }
         return (
-            Decimal64::from_bits(pack_finite(sign, clamped as u32, 0)),
+            Decimal64::from_bits(pack_finite(sign, biased_exp, Coefficient::ZERO)),
             status,
         );
     }
@@ -191,8 +229,15 @@ fn finalise_finite(
         {
             let shifted = coef * POW10_U64[shift_needed as usize];
             if shifted < COEFFICIENT_LIMIT {
+                let shifted_coef =
+                    Coefficient::try_new(shifted).expect("shifted < COEFFICIENT_LIMIT");
+                // IEEE 754-2019 §7.4: the preferred exponent exceeded
+                // the format range and was clamped down (the
+                // coefficient absorbed the shift as trailing zeros).
+                // The condition is informational; the value is exact.
+                status |= Status::CLAMPED;
                 return (
-                    Decimal64::from_bits(pack_finite(sign, BIASED_EXP_MAX, shifted)),
+                    Decimal64::from_bits(pack_finite(sign, BiasedExp::MAX, shifted_coef)),
                     status,
                 );
             }
@@ -207,7 +252,7 @@ fn finalise_finite(
         let bits = if to_inf {
             pack_infinity(sign)
         } else {
-            pack_finite(sign, BIASED_EXP_MAX, COEFFICIENT_LIMIT - 1)
+            pack_finite(sign, BiasedExp::MAX, Coefficient::MAX)
         };
         return (Decimal64::from_bits(bits), status);
     }
@@ -218,29 +263,67 @@ fn finalise_finite(
         let last_lsb = (kept % 10) as u32;
         let round_up = should_round_up(rm, sign, last_lsb, round_digit, sticky);
         let final_coef = if round_up { kept + 1 } else { kept };
+        // A `biased < 0` result is subnormal by construction (its
+        // exponent is below Etiny and it is denormalised up into the
+        // representable range). IEEE 754-2019 §7.5 signals UNDERFLOW
+        // when a subnormal result is inexact. Inexactness can arise
+        // either from this arm's own digit drop *or* from an earlier
+        // precision rounding the caller already recorded in `status`
+        // (decTest ddfma2901: the 19→16 digit rounding set INEXACT,
+        // then the final 1-digit shift here was exact, which the old
+        // `round_digit != 0 || sticky` test mistook for "no
+        // underflow"). Agent 3 finding F5 / M1.
         if round_digit != 0 || sticky {
-            status |= Status::INEXACT | Status::UNDERFLOW;
+            status |= Status::INEXACT;
+        }
+        if status.inexact() {
+            status |= Status::UNDERFLOW;
         }
         if final_coef >= COEFFICIENT_LIMIT {
             let bumped = final_coef / 10;
-            return (Decimal64::from_bits(pack_finite(sign, 1, bumped)), status);
+            // bumped < COEFFICIENT_LIMIT by construction (final_coef < 10 * COEFFICIENT_LIMIT).
+            let bumped_coef = Coefficient::try_new(bumped).expect("bumped < COEFFICIENT_LIMIT");
+            return (
+                Decimal64::from_bits(pack_finite(
+                    sign,
+                    BiasedExp::try_from_biased(1).unwrap(),
+                    bumped_coef,
+                )),
+                status,
+            );
         }
+        let final_coefficient =
+            Coefficient::try_new(final_coef).expect("final_coef < COEFFICIENT_LIMIT");
         return (
-            Decimal64::from_bits(pack_finite(sign, 0, final_coef)),
+            Decimal64::from_bits(pack_finite(sign, BiasedExp::MIN, final_coefficient)),
             status,
         );
     }
 
-    debug_assert!(coef < COEFFICIENT_LIMIT);
+    // biased ∈ [0, biased_exp_max] from the if-arms above, coef < COEFFICIENT_LIMIT.
+    //
+    // IEEE 754-2019 §7.5: a result that is representable (biased ≥ 0)
+    // but tiny is still subnormal when its adjusted exponent falls
+    // below E_MIN. The deeply-subnormal `biased < 0` arm above
+    // already raises UNDERFLOW; this catches the representable
+    // subnormal that the `biased < 0` test misses. Underflow is
+    // signalled only together with inexactness (an exact subnormal is
+    // `Subnormal` but not `Underflow`), so it gates on the INEXACT
+    // the rounding step already accumulated. Closes decTest
+    // ddfma2901 (`9.00000000600000E-384` is Underflow Inexact
+    // Subnormal, was Inexact only). Agent 3 finding F5 / M1.
+    let adjusted_exp = unbiased_exp + digit_count_u64(coef) as i32 - 1;
+    if adjusted_exp < E_MIN && status.inexact() {
+        status |= Status::UNDERFLOW;
+    }
+
+    let biased_exp =
+        BiasedExp::try_from_biased(biased as u32).expect("biased in [0, BIASED_EXP_MAX]");
+    let coefficient = Coefficient::try_new(coef).expect("coef < COEFFICIENT_LIMIT");
     (
-        Decimal64::from_bits(pack_finite(sign, biased as u32, coef)),
+        Decimal64::from_bits(pack_finite(sign, biased_exp, coefficient)),
         status,
     )
-}
-
-#[inline]
-fn biased(unbiased_exp: i32) -> u32 {
-    (unbiased_exp + BIAS as i32) as u32
 }
 
 #[cfg(test)]

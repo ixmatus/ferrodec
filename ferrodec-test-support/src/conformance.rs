@@ -250,6 +250,23 @@ pub fn decode_conditions(conditions: &[String]) -> Status {
     s
 }
 
+/// Compare an operation's emitted [`Status`] against the expected
+/// status decoded from a decTest case, ignoring informational flags.
+///
+/// [`decode_conditions`] deliberately never produces `CLAMPED` (it is
+/// supplementary information in decTest, not an IEEE 754 exception),
+/// so an implementation that *does* raise `CLAMPED` at a §7.4 clamp
+/// site would otherwise mismatch every clamped case. The conformance
+/// contract is the five IEEE 754 mandatory flags; `CLAMPED` is masked
+/// on the actual side to mirror its omission on the expected side.
+/// Per-file pass counts are therefore unaffected by `CLAMPED`
+/// emission.
+#[must_use]
+pub fn status_conformance_eq(actual: Status, expected: Status) -> bool {
+    let mask = !Status::CLAMPED.bits();
+    (actual.bits() & mask) == (expected.bits() & mask)
+}
+
 // ---------------------------------------------------------------------------
 // Driver
 

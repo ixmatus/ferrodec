@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.3] - 2026-05-11
+
+### Added
+
+- `Status::CLAMPED` — the IEEE 754-2019 §7.4 informational
+  `Clamped` condition, raised when the result's preferred quantum is
+  outside the format's representable range and gets clamped to the
+  nearest representable quantum. The conformance harness already
+  filters this token as informational (`decode_conditions` in
+  `ferrodec-test-support`), so this addition is purely additive on
+  the consumer side: callers may now emit `CLAMPED` where the spec
+  requires it without changing existing conformance expectations.
+  Accompanying `clamped()` predicate and updated `from_bits_truncate`
+  mask. Two new unit tests cover the flag (`clamped_flag_round_trips`
+  plus `clamped` line added to `ok_is_zero`); the
+  `each_flag_is_disjoint` table extends to six entries.
+
+Driven by the Phase 1 findings on the decimal64 correctness slice
+(`docs/decisions/plans/2026-05-11-decimal64-correctness-findings.md`),
+which named multiple H tier cases across addsub, mul, div, rem,
+fma where the spec marks the result `Clamped` and the current ops
+silently omit the flag. Closure of those findings ships in
+ferrodec-decimal64 1.4.0.
+
 ## [0.1.2] - 2026-05-10
 
 ### Added

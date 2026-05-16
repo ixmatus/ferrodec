@@ -17,19 +17,19 @@
 //! * `diff > 23`: the lower operand sits below the working window
 //!   entirely; only its non-zeroness contributes.
 
-use crate::bid::{classify_bits, Class, BIAS};
+use crate::bid::{classify_bits, Class, BIAS, PRECISION};
 use crate::decimal::Decimal64;
-use ferrodec_ieee::{RoundingMode, Status};
+use ferrodec_ieee::{decimal_digit_count_u128, RoundingMode, Status};
 
 use super::round::round_and_pack_finite;
 
-const POW10_U128: [u128; 24] = {
-    let mut t = [0u128; 24];
+const POW10_U128: [u128; 39] = {
+    let mut t = [0u128; 39];
     let mut i = 0;
     let mut v: u128 = 1;
-    while i < 24 {
+    while i < 39 {
         t[i] = v;
-        if i < 23 {
+        if i < 38 {
             v *= 10;
         }
         i += 1;
@@ -37,15 +37,22 @@ const POW10_U128: [u128; 24] = {
     t
 };
 
-const ALIGN_LIMIT: u32 = 22;
-const WORKING_PRECISION: u32 = 23;
+/// A `u128` holds at most 38 decimal digits (`10^38 < 2^128 <
+/// 10^39`). The higher-quantum operand is shifted left until
+/// `digits(coef_hi) + shift` reaches this cap; the lower operand is
+/// only truncated when the gap genuinely exceeds what `u128` can
+/// hold. This is the `rem.rs` H5 dynamic-shift bound applied to
+/// add / subtract: keying the alignment on the *actual* digit count
+/// of `coef_hi` rather than a static `22` keeps the full subtraction
+/// exact whenever it fits (e.g. `1E16 − 0.5`, where `coef_hi` is a
+/// single digit), so the boundary round-half-even tie is decided on
+/// the true residue instead of a lossily truncated one (fd-d47).
+const U128_DIGIT_CAP: u32 = 38;
 
-// Compile-time invariants: every `POW10_U128[k]` access in this
-// module must satisfy `k < POW10_U128.len()`. The largest index
-// reachable is `ALIGN_LIMIT = 22` (the cap on per-side alignment
-// shift), so we need at least 23 entries.
-const _: () = assert!(POW10_U128.len() > ALIGN_LIMIT as usize);
-const _: () = assert!(POW10_U128.len() > WORKING_PRECISION as usize - 1);
+// Compile-time invariant: the largest `POW10_U128` index reached is
+// a shift bounded by `U128_DIGIT_CAP`, so the table needs ≥ 39
+// entries (indices `0..=38`).
+const _: () = assert!(POW10_U128.len() > U128_DIGIT_CAP as usize);
 
 impl Decimal64 {
     /// IEEE 754-2019 `addition(self, other)` rounded by `rm`.
@@ -55,9 +62,22 @@ impl Decimal64 {
     }
 
     /// IEEE 754-2019 `subtraction(self, other)` rounded by `rm`.
+    ///
+    /// Implemented as `add(self, −other)`, but the negation is
+    /// applied only when `other` is *not* a NaN. GDA / IEEE 754-2019
+    /// require that subtraction does not affect the sign of a NaN:
+    /// `subtract x NaN` propagates `NaN` (and `subtract x -NaN`
+    /// propagates `-NaN`) with the operand's original sign. Negating
+    /// the NaN operand unconditionally, as an earlier revision did,
+    /// flipped that sign and disagreed with the `ddSubtract.decTest`
+    /// corpus (`ddsub830..` etc.). For non-NaN operands `neg()` only
+    /// toggles the sign bit, so the finite / infinite / zero cases
+    /// reduce to `add` on the negated operand exactly as before,
+    /// including the IEEE sign-of-zero rules.
     #[must_use]
     pub fn sub(self, other: Self, rm: RoundingMode) -> (Self, Status) {
-        add_inner(self, other.neg(), rm)
+        let rhs = if other.is_nan() { other } else { other.neg() };
+        add_inner(self, rhs, rm)
     }
 
     /// Kani-only entry point that returns the special-case branch only,
@@ -70,14 +90,15 @@ impl Decimal64 {
         handle_specials(classify_bits(self.0), classify_bits(rhs.0), rm)
     }
 
-    /// Kani-only entry point for `sub`'s special path. Negates `rhs`
-    /// before dispatching, so sNaN propagation matches
-    /// [`Decimal64::sub`].
+    /// Kani-only entry point for `sub`'s special path. Mirrors
+    /// [`Decimal64::sub`]: the operand is negated only when it is not
+    /// a NaN, so NaN-sign propagation and sNaN INVALID match the
+    /// production path and cannot drift.
     #[cfg(kani)]
     #[doc(hidden)]
     #[must_use]
     pub fn sub_special_only_for_kani(self, rhs: Self, rm: RoundingMode) -> Option<(Self, Status)> {
-        let negated = rhs.neg();
+        let negated = if rhs.is_nan() { rhs } else { rhs.neg() };
         handle_specials(classify_bits(self.0), classify_bits(negated.0), rm)
     }
 }
@@ -115,14 +136,41 @@ fn add_inner(a: Decimal64, b: Decimal64, rm: RoundingMode) -> (Decimal64, Status
     if coef_a == 0 && coef_b == 0 {
         let q_preferred = exp_a.min(exp_b);
         let result_sign = zero_sum_sign(sign_a, sign_b, rm);
+        // Both `exp_a` and `exp_b` came from `classify_bits`, so
+        // `q_preferred ∈ [-BIAS, BIASED_EXP_MAX - BIAS as i32]` and the
+        // unbiased-to-biased conversion is in range.
+        let biased_exp = crate::bid::BiasedExp::try_from_unbiased(q_preferred)
+            .expect("q_preferred from classify_bits-derived exponents");
         return (
             Decimal64::from_bits(crate::bid::pack_finite(
                 result_sign,
-                (q_preferred + BIAS as i32) as u32,
-                0,
+                biased_exp,
+                crate::bid::Coefficient::ZERO,
             )),
             Status::OK,
         );
+    }
+
+    // H1 fix (`ddadd360`): when exactly one operand is zero, the
+    // result is the other operand requantised to
+    // `q_preferred = min(exp_a, exp_b)` per IEEE 754-2019 §5.4.1 +
+    // §6.3 (preferred quantum for additive operations). Without this
+    // short-circuit, an exponent gap wide enough to truncate the
+    // lower operand entirely collapses both aligned magnitudes to
+    // zero, and the rounding funnel returns `0E+exp_hi` instead of
+    // the non-zero operand's value. The fix
+    // also subsumes Agent 1 F3's `aligned_hi == aligned_lo`
+    // degenerate case for opposite signs — that branch is reachable
+    // only when both aligned magnitudes are zero, which (with the
+    // both-zero early return above) requires at least one operand
+    // to carry `coef == 0`.
+    if coef_a == 0 {
+        let q_preferred = exp_a.min(exp_b);
+        return round_and_pack_finite(coef_b, exp_b, q_preferred, sign_b, false, rm, Status::OK);
+    }
+    if coef_b == 0 {
+        let q_preferred = exp_a.min(exp_b);
+        return round_and_pack_finite(coef_a, exp_a, q_preferred, sign_a, false, rm, Status::OK);
     }
 
     let (sign_hi, exp_hi, coef_hi, sign_lo, exp_lo, coef_lo) = if exp_a >= exp_b {
@@ -133,46 +181,109 @@ fn add_inner(a: Decimal64, b: Decimal64, rm: RoundingMode) -> (Decimal64, Status
 
     let diff = (exp_hi - exp_lo) as u32;
 
-    let (aligned_hi, aligned_lo, align_exp, pre_sticky): (u128, u128, i32, bool) =
-        if diff <= ALIGN_LIMIT {
-            let shifted = u128::from(coef_hi) * POW10_U128[diff as usize];
-            (shifted, u128::from(coef_lo), exp_lo, false)
-        } else if diff <= WORKING_PRECISION {
-            let trim = diff - ALIGN_LIMIT;
+    // Dynamic alignment (fd-d47, mirroring rem.rs H5). `coef_hi` and
+    // `coef_lo` are both non-zero here (the zero cases short-circuit
+    // above), so `hi_digits ∈ [1, 16]` and `max_shift ∈ [22, 37]`.
+    // Shift `coef_hi` left by `s = min(diff, max_shift)` so the
+    // common quantum is as low as `u128` allows; the lower operand
+    // is truncated only by the unavoidable remainder `diff − s`,
+    // never more. When `s == diff` the alignment is exact
+    // (`pre_sticky = false`), so the round-half-even decision at the
+    // precision boundary sees the true residue rather than a
+    // prematurely collapsed sticky bit.
+    let hi_digits = crate::bid::decimal_digit_count(coef_hi);
+    let max_shift = U128_DIGIT_CAP - hi_digits;
+    let s = diff.min(max_shift);
+    let aligned_hi = u128::from(coef_hi) * POW10_U128[s as usize];
+    let align_exp = exp_hi - s as i32;
+    let (aligned_lo, pre_sticky): (u128, bool) = if s == diff {
+        // Exact: both operands now share `align_exp == exp_lo`.
+        (u128::from(coef_lo), false)
+    } else {
+        let trim = diff - s;
+        if (trim as usize) < POW10_U128.len() {
             let factor = POW10_U128[trim as usize];
-            let trunc_lo = u128::from(coef_lo) / factor;
-            let pre_sticky = (u128::from(coef_lo) % factor) != 0;
-            let shifted_hi = u128::from(coef_hi) * POW10_U128[ALIGN_LIMIT as usize];
             (
-                shifted_hi,
-                trunc_lo,
-                exp_hi - ALIGN_LIMIT as i32,
-                pre_sticky,
+                u128::from(coef_lo) / factor,
+                (u128::from(coef_lo) % factor) != 0,
             )
         } else {
-            (u128::from(coef_hi), 0, exp_hi, coef_lo != 0)
-        };
+            // `coef_lo` sits entirely below the retained window; it
+            // contributes only its non-zeroness as sticky.
+            (0u128, coef_lo != 0)
+        }
+    };
 
-    let (combined_coef, combined_sign) = if sign_hi == sign_lo {
-        (aligned_hi + aligned_lo, sign_hi)
+    let (combined_coef, combined_sign, h2_borrow) = if sign_hi == sign_lo {
+        (aligned_hi + aligned_lo, sign_hi, false)
     } else if aligned_hi > aligned_lo {
-        (aligned_hi - aligned_lo, sign_hi)
+        // H2 fix candidate: lo's truncated residue subtracts from
+        // the result magnitude. See the H2 block below for the
+        // borrow-and-extend transformation.
+        (aligned_hi - aligned_lo, sign_hi, pre_sticky)
     } else if aligned_lo > aligned_hi {
-        (aligned_lo - aligned_hi, sign_lo)
+        // Symmetric case: lo dominates AND carries the residue, so
+        // the residue is additive (`combined_coef + ε_lo` is the
+        // true magnitude). The funnel's `pre_sticky = true` encoding
+        // is already correct here; no borrow.
+        (aligned_lo - aligned_hi, sign_lo, false)
     } else {
         let q_preferred = exp_a.min(exp_b);
         if pre_sticky {
             return round_and_pack_into_u64(1, exp_lo, q_preferred, sign_lo, false, rm);
         }
         let result_sign = zero_sum_sign(sign_a, sign_b, rm);
+        // As in the both-zero early return above, `q_preferred` is
+        // bounded by the classify_bits-derived exponent range.
+        let biased_exp = crate::bid::BiasedExp::try_from_unbiased(q_preferred)
+            .expect("q_preferred from classify_bits-derived exponents");
         return (
             Decimal64::from_bits(crate::bid::pack_finite(
                 result_sign,
-                (q_preferred + BIAS as i32) as u32,
-                0,
+                biased_exp,
+                crate::bid::Coefficient::ZERO,
             )),
             Status::OK,
         );
+    };
+
+    // H2 fix (`ddadd71100..71119` + 19 mirrors + 1 `ddMultiply` case +
+    // 20 `ddFMA` mirrors): when the hi-magnitude operand dominates an
+    // effective subtraction AND lo had a truncated sub-ULP residue,
+    // the result's true value sits BELOW `combined_coef × 10^align_exp`
+    // by some ε ∈ (0, 1) ULP at `align_exp`, not above. The funnel's
+    // `pre_sticky = true` convention encodes residue-above-LSB; under
+    // directional rounding modes (TowardZero, Ceiling, Floor) and at
+    // exact half-ULP ties under round-half-even, the wrong sign on
+    // the residue picks the wrong neighbour by one ULP. Borrow one
+    // ULP from `combined_coef` and extend the bottom digits to a
+    // `PRECISION`-digit cohort, turning the encoding into a
+    // correctly-signed positive sticky at a lower quantum.
+    //
+    // For `combined_coef ≥ PRECISION` digits the funnel will compress
+    // and round; a plain `-1` suffices. For fewer digits we choose
+    // `k` such that `combined_coef × 10^k - 1` has exactly
+    // `PRECISION` digits (one extra `k` is needed when `combined_coef`
+    // is itself a power of 10, where the borrow drops the leading
+    // digit).
+    let (combined_coef, align_exp) = if h2_borrow {
+        let combined_digits = decimal_digit_count_u128(combined_coef);
+        if combined_digits >= PRECISION {
+            (combined_coef - 1, align_exp)
+        } else {
+            let is_power_of_10 = combined_coef == POW10_U128[(combined_digits - 1) as usize];
+            let k = if is_power_of_10 {
+                PRECISION + 1 - combined_digits
+            } else {
+                PRECISION - combined_digits
+            };
+            (
+                combined_coef * POW10_U128[k as usize] - 1,
+                align_exp - k as i32,
+            )
+        }
+    } else {
+        (combined_coef, align_exp)
     };
 
     let q_preferred = exp_a.min(exp_b);
@@ -231,8 +342,15 @@ pub(crate) fn round_and_pack_into_u64(
         }
         shift += 1;
     }
-    debug_assert!(c < keep_threshold);
-    debug_assert!(c <= u128::from(u64::MAX));
+    // `c < keep_threshold` holds by the loop exit condition (it is the
+    // negation of the `while` guard), so no assertion is needed for
+    // it. The `c as u64` cast below is sound because `keep_threshold`
+    // is `10^KEEP = 10^19 ≤ u64::MAX`, so `c` (now below the
+    // threshold) fits in a `u64`.
+    debug_assert!(
+        c <= u128::from(u64::MAX),
+        "coefficient fits u64 for the cast"
+    );
 
     round_and_pack_finite(
         c as u64,
@@ -304,7 +422,7 @@ fn handle_specials(a: Class, b: Class, rm: RoundingMode) -> Option<(Decimal64, S
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bid::{pack_finite, BIAS};
+    use crate::bid::{pack_finite, BiasedExp, Coefficient, BIAS};
 
     fn from_int(n: i64, exp: i32) -> Decimal64 {
         Decimal64::try_new(n, exp).unwrap()
@@ -325,7 +443,11 @@ mod tests {
         // 9_999_999_999_999_999 + 1 = 10^16 → renormalises.
         let (r, _) =
             from_int(9_999_999_999_999_999, 0).add(from_int(1, 0), RoundingMode::NearestEven);
-        let expected = Decimal64::from_bits(pack_finite(false, BIAS + 1, 1_000_000_000_000_000));
+        let expected = Decimal64::from_bits(pack_finite(
+            false,
+            BiasedExp::try_from_biased(BIAS + 1).unwrap(),
+            Coefficient::try_new(1_000_000_000_000_000).unwrap(),
+        ));
         assert_eq!(r.to_bits(), expected.to_bits());
     }
 
@@ -351,12 +473,93 @@ mod tests {
     }
 
     #[test]
+    fn add_h2_effective_subtract_residue_borrows_correctly() {
+        // H2 regression (`ddAdd.decTest:802`, case `ddadd71100`):
+        // `add 1e+2 -1e-383` under TowardZero should return
+        // `99.99999999999999` (16 nines) per the residue-from-lo
+        // sub-ULP subtractive direction. Without the H2 borrow, the
+        // result was `100.0000000000000` — one ULP above the true
+        // value because the funnel read the residue as additive.
+        let a = Decimal64::try_new(1, 2).unwrap();
+        let b = Decimal64::try_new(-1, -383).unwrap();
+        let (r, status) = a.add(b, RoundingMode::TowardZero);
+        let expected = Decimal64::try_new(9_999_999_999_999_999, -14).unwrap();
+        assert_eq!(
+            r.to_bits(),
+            expected.to_bits(),
+            "1e+2 + (-1e-383) under TowardZero should equal 99.99999999999999, got {r:?}"
+        );
+        assert!(status.inexact());
+
+        // Negated mirror (the `ddadd71200..71219` family): negate
+        // both operands and the result should be the negation.
+        let neg_a = a.neg();
+        let neg_b = b.neg();
+        let (r, _) = neg_a.add(neg_b, RoundingMode::TowardPositive);
+        let expected = expected.neg();
+        assert_eq!(
+            r.to_bits(),
+            expected.to_bits(),
+            "(-1e+2) + (1e-383) under TowardPositive should equal -99.99999999999999, got {r:?}"
+        );
+    }
+
+    #[test]
+    fn add_h1_asymmetric_zero_at_far_exponent_keeps_magnitude() {
+        // H1 regression (`ddAdd.decTest:358`, case `ddadd360`).
+        // `add 0E+50 10000E+1` under any rounding mode should return
+        // `1.0000E+5` per IEEE 754-2019 §5.4.1 (`x + 0 = x` with
+        // preferred quantum `min(quantum(x), quantum(0))`). Before the
+        // fix, the diff-too-wide alignment branch collapsed both
+        // aligned magnitudes to zero and the rounding funnel returned
+        // `0E+50`.
+        let a = Decimal64::try_new(0, 50).unwrap();
+        let b = Decimal64::try_new(10000, 1).unwrap();
+        let (r, status) = a.add(b, RoundingMode::NearestEven);
+        let expected = Decimal64::try_new(10000, 1).unwrap();
+        assert_eq!(
+            r.to_bits(),
+            expected.to_bits(),
+            "0E+50 + 10000E+1 should equal 1.0000E+5, got {r:?}"
+        );
+        assert!(
+            status.is_ok(),
+            "0E+50 + 10000E+1 is exact, expected no flags raised, got {status:?}"
+        );
+
+        // Symmetric: zero on the right operand.
+        let (r, status) = b.add(a, RoundingMode::NearestEven);
+        assert_eq!(r.to_bits(), expected.to_bits());
+        assert!(status.is_ok());
+
+        // Negative zero preserves the non-zero operand's sign per §6.3.
+        let neg_zero = Decimal64::try_new(0, 50).unwrap().neg();
+        let (r, _) = neg_zero.add(b, RoundingMode::NearestEven);
+        assert!(
+            !r.is_sign_negative(),
+            "(-0E+50) + (+10000E+1) should be positive"
+        );
+
+        // Negative non-zero operand: the non-zero operand's sign wins.
+        let neg_b = b.neg();
+        let (r, _) = a.add(neg_b, RoundingMode::NearestEven);
+        assert!(
+            r.is_sign_negative(),
+            "(+0E+50) + (-10000E+1) should be negative"
+        );
+    }
+
+    #[test]
     fn add_with_alignment() {
         // 1 + 0.5 = 1.5
         let a = from_int(1, 0);
         let b = from_int(5, -1);
         let (r, _) = a.add(b, RoundingMode::NearestEven);
-        let expected = Decimal64::from_bits(pack_finite(false, BIAS - 1, 15));
+        let expected = Decimal64::from_bits(pack_finite(
+            false,
+            BiasedExp::try_from_biased(BIAS - 1).unwrap(),
+            Coefficient::try_new(15).unwrap(),
+        ));
         assert_eq!(r.to_bits(), expected.to_bits());
     }
 
@@ -377,6 +580,28 @@ mod tests {
 
         let (r, _) = from_int(1, 0).sub(from_int(1, 0), RoundingMode::NearestEven);
         assert!(r.is_zero() && !r.is_sign_negative());
+    }
+
+    #[test]
+    fn sub_does_not_flip_nan_sign() {
+        // Regression (ddSubtract.decTest ddsub830.., F1): subtraction
+        // must not negate the sign of a NaN operand. `subtract x NaN`
+        // propagates `NaN`; `subtract x -NaN` propagates `-NaN`.
+        let (r, s) = from_int(1000, 0).sub(Decimal64::NAN, RoundingMode::NearestEven);
+        assert!(r.is_quiet_nan() && !r.is_sign_negative());
+        assert!(s.is_ok());
+
+        let neg_nan = Decimal64::NAN.neg();
+        let (r, _) = from_int(1000, 0).sub(neg_nan, RoundingMode::NearestEven);
+        assert!(r.is_quiet_nan() && r.is_sign_negative());
+
+        let (r, _) = Decimal64::NEG_INFINITY.sub(Decimal64::NAN, RoundingMode::NearestEven);
+        assert!(r.is_quiet_nan() && !r.is_sign_negative());
+
+        // sNaN still raises INVALID and is quieted; sign unflipped.
+        let (r, s) = from_int(-1, 0).sub(Decimal64::SIGNALING_NAN, RoundingMode::NearestEven);
+        assert!(r.is_quiet_nan() && !r.is_sign_negative());
+        assert!(s.invalid());
     }
 
     #[test]
@@ -415,7 +640,11 @@ mod tests {
     #[test]
     fn add_finite_zero_returns_finite() {
         let (r, _) = from_int(123, -2).add(Decimal64::ZERO, RoundingMode::NearestEven);
-        let expected = Decimal64::from_bits(pack_finite(false, BIAS - 2, 123));
+        let expected = Decimal64::from_bits(pack_finite(
+            false,
+            BiasedExp::try_from_biased(BIAS - 2).unwrap(),
+            Coefficient::try_new(123).unwrap(),
+        ));
         assert_eq!(r.to_bits(), expected.to_bits());
     }
 }
