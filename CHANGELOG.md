@@ -27,6 +27,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Tags and publishes on its own cadence, independent of the
   workspace `ferrodec` version.
 
+## [1.15.1] - 2026-05-16
+
+A `cargo test --workspace` run during the decimal32 correctness
+slice surfaced a latent `Decimal128::fma` defect in shipped 1.15.0.
+It was triaged on its own (fd-oaa), the parent crate was otherwise
+untouched, and the slice scope was held to the FMA kernel after an
+empirical scope gate showed `add` and `mul` sound. ADR-0020 records
+the decision; it is the Decimal128 analogue of the
+static-alignment-window correction in ADR-0018 (decimal64) and
+ADR-0019 (decimal32) and supersedes neither.
+
+### Fixed
+
+- `Decimal128::fma` no longer drops a representable addend or raises
+  a spurious `INEXACT` when the result is exactly representable but
+  the smaller summand sits at a deep quantum. `fma(1e33, 1, 3.0)`
+  with the `3.0` cohort `coefficient 3000000000000000, exponent -15`
+  returned `1000000000000000000000000000000000` with `INEXACT`; it
+  now returns the exact `1000000000000000000000000000000003` with
+  status `OK`. The sub-ULP path was triggered by a static raw-shift
+  threshold (`shift_ab > 47`); a narrow product coefficient (`1e33 ×
+  1` is a single digit) shifted far still leaves the exact aligned
+  sum well within the `U384` buffer. The trigger now keys on the
+  dynamic aligned digit count alone (`> BUFFER_DIGIT_LIMIT`, 110),
+  the buffer bound that path actually guards. Cases that no longer
+  divert flow through the exact accumulate plus single round.
+  Conformance per-file counts are unchanged; 67 Kani harnesses and
+  the FMA property oracle stay green. Reproducer, scope gate, and
+  boundary breadth in `tests/regression_fd_oaa.rs`.
+
 ## [1.15.0] - 2026-05-11
 
 The 2026-05-10 post-publish six-agent correctness review found a

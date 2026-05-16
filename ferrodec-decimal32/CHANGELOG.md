@@ -67,7 +67,11 @@ deliberate decimal64 1.4.0 decision (ADR-0018).
   `(self, RoundingMode) -> (T, Status)` per IEEE 754-2019 §5.4.1,
   replacing the previous f64 plus `libm_round` detour in the
   `num-traits` delegates (no double rounding, correct None iff
-  `INVALID`). The decimal64 M5 shape.
+  `INVALID`). The decimal64 M5 shape. Followup (fd-fq6): with the
+  `libm_round` detour gone the `num-traits` feature no longer needs
+  `dep:libm`, so it is dropped from that feature's enable list;
+  `libm` still resolves for users through the transcendental gates
+  (`exp-log`, `trig`, ...). The decimal64 fd-17 analogue.
 
 ### Fixed
 
