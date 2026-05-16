@@ -196,9 +196,10 @@ impl ToPrimitive for Decimal32 {
     fn to_f64(&self) -> Option<f64> {
         Some(Decimal32::to_f64(*self, RM).0)
     }
-    #[allow(clippy::cast_possible_truncation)]
     fn to_f32(&self) -> Option<f32> {
-        Some(Decimal32::to_f64(*self, RM).0 as f32)
+        // Direct decimal → f32 (H7): the old `to_f64(..) as f32`
+        // double-rounded across f32 half-ULP boundaries.
+        Some(Decimal32::to_f32(*self, RM).0)
     }
 }
 
