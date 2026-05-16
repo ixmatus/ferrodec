@@ -162,6 +162,15 @@ fn format_finite(
 /// Write the digit string for `coef` (leading zeros padded out to
 /// `digits` total) into a 8-byte stack buffer, returning a `&[u8]`
 /// with the digits as ASCII.
+///
+/// L3: every written byte is `b'0' + (n % 10)`, so `b'0'..=b'9'`.
+/// Each caller slices `&buf[..digits]` and reads only written bytes,
+/// so the `core::str::from_utf8(...).unwrap()` on those slices is
+/// total. `digits` is `decimal_digit_count` of a decoded coefficient
+/// (at most 7 for canonical Decimal32; non canonical Form B
+/// canonicalises to zero at decode), so the `total <= buf.len()`
+/// invariant holds and the debug assertion never fires on a decoded
+/// value.
 fn digit_string(coef: u32, digits: u32) -> [u8; 8] {
     // 7 digits max for canonical Decimal32; allocate 8 to give room for
     // a transient overflow during rendering of pre-rounded coefficients.

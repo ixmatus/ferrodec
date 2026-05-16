@@ -216,6 +216,15 @@ impl Decimal32 {
     /// Kani-only entry point that returns the special-case branch only,
     /// without invoking the finite-finite quotient pipeline. Mirrors
     /// decimal128's `rem_special_only_for_kani` (ADR-0016).
+    ///
+    /// L4: there is deliberately no `verify/rem.rs` consuming this
+    /// shim, matching the Decimal64 and Decimal128 state (both carry
+    /// the shim without a `rem` proof). `rem`'s special cases (NaN,
+    /// infinity, zero divisor) are exercised by the unit tests and
+    /// the Decimal64 cross-check oracle; a `rem` Kani proof is parity
+    /// neutral follow up work, not a gap unique to Decimal32. The
+    /// shim is kept so the proof can be added in lockstep across the
+    /// three crates if that follow up is taken.
     #[cfg(kani)]
     #[doc(hidden)]
     #[must_use]

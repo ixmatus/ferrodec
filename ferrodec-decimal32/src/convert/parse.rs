@@ -185,6 +185,11 @@ fn parse_str_inner(
                             return Err(ParseDecimalError::ExponentOutOfRange);
                         }
                     } else {
+                        // L3: this `* 10 + d` cannot overflow. The
+                        // branch is gated by `digits_total <
+                        // MAX_PARSED_DIGITS` (16), so `coef` holds at
+                        // most 16 decimal digits, under 10^16, well
+                        // inside `u64`.
                         coef = coef * 10 + u64::from(d);
                         digits_total += 1;
                         if decimal_seen {
