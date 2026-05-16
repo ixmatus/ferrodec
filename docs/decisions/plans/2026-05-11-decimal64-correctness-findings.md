@@ -482,6 +482,7 @@ Threat model plus 11 findings. Per agent budget 2400 words.
 * Mechanism: the f64 routing caps at `|x| ≈ 710`. Decimal64's `E_MAX = 384` admits up to `x ≈ 885`. Inputs in `[710, 885]` lose finite results.
 * Fix shape: documented limitation surface today; the v1.1+ transcendentals rewrite (1.16 era per ferrodec 1.15.0 CHANGELOG `Deferred`) replaces this. For 1.4.0, narrow the documented envelope.
 * Provenance: `exp.rs:18..27`; `hyper.rs:11..21`; `decimal.rs` `E_MAX`.
+* **Resolution (2026-05-15, D6): already documented, accepted limitation, no change.** The saturation asymmetry is already stated in `exp.rs`'s "Out of range" module section and `hyper.rs`'s "f64-pipeline range limits" section, both naming the f64 cap, the wider Decimal64 range, and the deferred pure-decimal kernel that closes the gap. The 1.4.0 envelope is therefore already narrow and honest; no doc change was needed. Stays M tier as a documented limitation; ADR-0018 records it.
 
 ### T3: trig argument reduction inherits f64 precision loss above `2^53`
 * Tier: **M** (with documented limitation note)
@@ -489,6 +490,7 @@ Threat model plus 11 findings. Per agent budget 2400 words.
 * Mechanism: `f64_unary` at `f64_bridge.rs:29..31` calls `to_f64` then libm; libm's argument reduction is correct only to f64 precision. Decimal128 retains a margined `argred` module (ADR-0010 M8); decimal64 has no analogue.
 * Fix shape: for 1.4.0, narrow the documented ULP envelope to `|x| < 2^53`. Decimal aware reduction lands in the transcendentals rewrite.
 * Provenance: ADR-0010 M8; `trig.rs:50, 68, 93, 182`.
+* **Resolution (2026-05-15, D6): documented, accepted limitation, no behavior change.** Added an "Argument reduction precision (documented limitation)" section to the `trig.rs` module doc stating accuracy is specified only for `|x| < 2^53`, why (f64 cannot round-trip a Decimal64 integer above `2^53` before reduction), that the inverse functions take bounded arguments and are unaffected, and that the margined decimal aware reduction lands with the deferred transcendentals rewrite. Stays M tier as a documented limitation; ADR-0018 records it.
 
 ### T4: `equals_one` cohort walk magic literal
 * Tier: **L**

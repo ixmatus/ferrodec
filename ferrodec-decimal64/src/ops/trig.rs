@@ -18,6 +18,24 @@
 //! * `atan(±0) = ±0`. `atan(±∞) = ±π/2`.
 //! * `atan2(y, x)` follows the f64 conventions; NaN inputs produce
 //!   NaN.
+//!
+//! # Argument reduction precision (documented limitation)
+//!
+//! `sin`, `cos`, and `tan` reduce their argument modulo a multiple of
+//! `π/2` inside `libm`, at f64 precision. f64 represents an integer
+//! exactly only up to `2^53 ≈ 9.007 × 10^15`. Above that the
+//! Decimal64 argument cannot round-trip through f64 without losing its
+//! low digits before reduction even begins, so the reduced angle, and
+//! therefore the result, carries error that grows with the argument.
+//! Accuracy is specified only for `|x| < 2^53`; a Decimal64 such as
+//! `9_999_999_999_999_999` fed to `sin` returns a value whose low
+//! digits are not meaningful. This is an accepted limitation for
+//! 1.4.0, not a correctness bug against the documented envelope: the
+//! inverse functions (`asin`, `acos`, `atan`, `atan2`) take bounded
+//! arguments and are unaffected. A margined, decimal aware reduction
+//! (the analogue of the Decimal128 `argred` module) lands with the
+//! pure-decimal transcendentals rewrite deferred in the ferrodec
+//! 1.15.0 CHANGELOG; the public surface stays drop-in compatible.
 
 use crate::bid::{classify_bits, Class};
 use crate::decimal::Decimal64;
