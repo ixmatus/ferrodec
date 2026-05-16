@@ -171,8 +171,21 @@ impl Decimal32 {
     #[must_use]
     pub fn from_f64(x: f64, rm: RoundingMode) -> (Self, Status) {
         if x.is_nan() {
-            // f64 only carries quiet NaN at the language level.
-            return (Decimal32::NAN, Status::OK);
+            // IEEE 754-2019 §5.4.2: a signaling NaN operand raises
+            // INVALID. Rust language level NaNs are quiet, but a bit
+            // pattern reaching here through `f64::from_bits` or FFI
+            // can be signaling: among binary64 NaNs, signaling is
+            // exactly the quiet bit (mantissa MSB, bit 51) clear.
+            // M3, the Decimal64 M3 shape.
+            let signaling = x.to_bits() & 0x0008_0000_0000_0000 == 0;
+            return (
+                Decimal32::NAN,
+                if signaling {
+                    Status::INVALID
+                } else {
+                    Status::OK
+                },
+            );
         }
         if x.is_infinite() {
             return (
@@ -485,6 +498,22 @@ mod tests {
         let (d, s) = Decimal32::from_f64(1e200, RoundingMode::NearestEven);
         assert!(d.is_infinite());
         assert!(s.overflow() && s.inexact());
+    }
+
+    #[test]
+    fn from_f64_signaling_nan_raises_invalid() {
+        // M3: a binary64 signaling NaN (quiet bit, bit 51, clear)
+        // raises INVALID per IEEE 754-2019 §5.4.2.
+        let snan = f64::from_bits(0x7FF4_0000_0000_0000);
+        assert!(snan.is_nan());
+        let (d, s) = Decimal32::from_f64(snan, RoundingMode::NearestEven);
+        assert!(d.is_nan() && s.invalid());
+        // A quiet NaN (quiet bit set) passes through with OK.
+        let (d, s) = Decimal32::from_f64(f64::NAN, RoundingMode::NearestEven);
+        assert!(d.is_nan() && s.is_ok());
+        let qnan = f64::from_bits(0x7FF8_0000_0000_0001);
+        let (d, s) = Decimal32::from_f64(qnan, RoundingMode::NearestEven);
+        assert!(d.is_nan() && s.is_ok());
     }
 
     #[test]
