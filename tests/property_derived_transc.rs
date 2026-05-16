@@ -1,82 +1,64 @@
-//! Faithful-rounding cross-check for the derived transcendentals
-//! (`log2`, `exp2`, `cbrt`, `tan`) vs astro-float.
+//! Faithful-rounding contract for the derived transcendentals
+//! (`log2`, `exp2`, `cbrt`, `tan`) vs astro-float, asserted for every
+//! IEEE 754 rounding direction (ADR-0021, IEEE 754-2019 §9.2). See
+//! `tests/common/mod.rs`; this is not a `± ULP` tolerance envelope.
 
 #![cfg(feature = "transcendentals")]
 
 use astro_float::{BigFloat, Consts, Radix, RoundingMode as AfRm};
-use ferrodec::{Decimal128, RoundingMode};
+use ferrodec::{Decimal128, RoundingMode, Status};
 
 mod common;
-use common::{bigfloat_to_decimal_string, parse, within_ulps};
+use common::{assert_faithful, parse, MODES};
 
-fn oracle_apply<F>(x_str: &str, f: F) -> String
-where
-    F: FnOnce(&BigFloat, usize, AfRm, &mut Consts) -> BigFloat,
-{
-    let p = 220;
-    let rm = AfRm::None;
-    let mut cc = Consts::new().expect("init consts");
-    let x = BigFloat::parse(x_str, Radix::Dec, p, rm, &mut cc);
-    let r = f(&x, p, rm, &mut cc);
-    bigfloat_to_decimal_string(&r, &mut cc, 50)
-}
+/// Working precision for the astro-float oracle: 256 bits ≈ 77 decimal
+/// digits.
+const P: usize = 256;
 
-fn check_unary<F, G>(name: &str, x_str: &str, ferrodec_op: F, oracle_op: G, ulps: u32)
+fn check_unary<F, G>(name: &str, x_str: &str, ferrodec_op: F, oracle_op: G)
 where
-    F: FnOnce(Decimal128) -> (Decimal128, ferrodec::Status),
+    F: Fn(Decimal128, RoundingMode) -> (Decimal128, Status),
     G: FnOnce(&BigFloat, usize, AfRm, &mut Consts) -> BigFloat,
 {
     let x = parse(x_str);
-    let exact = format!("{x}");
-    let (got, _) = ferrodec_op(x);
-    let want_str = oracle_apply(&exact, oracle_op);
-    let want = parse(&want_str);
-    assert!(
-        within_ulps(got, want, ulps),
-        "{name}({exact}): got {got:?}, want {want:?} (oracle {want_str})"
-    );
+    let exact = format!("{x:e}");
+    let mut cc = Consts::new().expect("init consts");
+    let xv = BigFloat::parse(&exact, Radix::Dec, P, AfRm::None, &mut cc);
+    let oracle = oracle_op(&xv, P, AfRm::None, &mut cc);
+    for &rm in MODES {
+        let (got, status) = ferrodec_op(x, rm);
+        assert_faithful(
+            got,
+            status,
+            &oracle,
+            &mut cc,
+            rm,
+            &format!("{name}({exact})"),
+        );
+    }
 }
 
 // log2 -------------------------------------------------------------------
 
 #[test]
 fn log2_two() {
-    check_unary(
-        "log2",
-        "2",
-        |x| x.log2(RoundingMode::NearestEven),
-        astro_float::BigFloat::log2,
-        1,
-    );
+    check_unary("log2", "2", Decimal128::log2, astro_float::BigFloat::log2);
 }
 #[test]
 fn log2_eight() {
-    check_unary(
-        "log2",
-        "8",
-        |x| x.log2(RoundingMode::NearestEven),
-        astro_float::BigFloat::log2,
-        1,
-    );
+    check_unary("log2", "8", Decimal128::log2, astro_float::BigFloat::log2);
 }
 #[test]
 fn log2_half() {
-    check_unary(
-        "log2",
-        "0.5",
-        |x| x.log2(RoundingMode::NearestEven),
-        astro_float::BigFloat::log2,
-        1,
-    );
+    check_unary("log2", "0.5", Decimal128::log2, astro_float::BigFloat::log2);
 }
 #[test]
 fn log2_pi() {
     check_unary(
         "log2",
         "3.14159265358979323846264338327950288",
-        |x| x.log2(RoundingMode::NearestEven),
+        Decimal128::log2,
         astro_float::BigFloat::log2,
-        1,
     );
 }
 #[test]
@@ -84,9 +66,8 @@ fn log2_huge() {
     check_unary(
         "log2",
         "1e1000",
-        |x| x.log2(RoundingMode::NearestEven),
+        Decimal128::log2,
         astro_float::BigFloat::log2,
-        1,
     );
 }
 
@@ -94,127 +75,106 @@ fn log2_huge() {
 //
 // astro-float has no `exp2`; compute the oracle via `pow(2, x)`.
 
-fn check_exp2(x_str: &str, ulps: u32) {
+fn check_exp2(x_str: &str) {
     let x = parse(x_str);
-    let exact = format!("{x}");
-    let (got, _) = x.exp2(RoundingMode::NearestEven);
-    let p = 220;
-    let rm = AfRm::None;
+    let exact = format!("{x:e}");
     let mut cc = Consts::new().expect("init consts");
-    let two = BigFloat::from_word(2, p);
-    let xv = BigFloat::parse(&exact, Radix::Dec, p, rm, &mut cc);
-    let want_bf = two.pow(&xv, p, rm, &mut cc);
-    let want_str = bigfloat_to_decimal_string(&want_bf, &mut cc, 50);
-    let want = parse(&want_str);
-    assert!(
-        within_ulps(got, want, ulps),
-        "exp2({exact}): got {got:?}, want {want:?} (oracle {want_str})"
-    );
+    let two = BigFloat::from_word(2, P);
+    let xv = BigFloat::parse(&exact, Radix::Dec, P, AfRm::None, &mut cc);
+    let oracle = two.pow(&xv, P, AfRm::None, &mut cc);
+    for &rm in MODES {
+        let (got, status) = x.exp2(rm);
+        assert_faithful(got, status, &oracle, &mut cc, rm, &format!("exp2({exact})"));
+    }
 }
 
 #[test]
 fn exp2_zero() {
-    check_exp2("0", 1);
+    check_exp2("0");
 }
 #[test]
 fn exp2_one() {
-    check_exp2("1", 1);
+    check_exp2("1");
 }
 #[test]
 fn exp2_ten() {
-    check_exp2("10", 1);
+    check_exp2("10");
 }
 #[test]
 fn exp2_neg_one() {
-    check_exp2("-1", 1);
+    check_exp2("-1");
 }
 #[test]
 fn exp2_pi() {
-    check_exp2("3.14159265358979323846264338327950288", 1);
+    check_exp2("3.14159265358979323846264338327950288");
 }
 
 // cbrt -------------------------------------------------------------------
 
-fn check_cbrt(x_str: &str, ulps: u32) {
+fn check_cbrt(x_str: &str) {
     let x = parse(x_str);
-    let exact = format!("{x}");
-    let (got, _) = x.cbrt(RoundingMode::NearestEven);
-    let p = 220;
-    let rm = AfRm::None;
+    let exact = format!("{x:e}");
     let mut cc = Consts::new().expect("init consts");
-    let xv = BigFloat::parse(&exact, Radix::Dec, p, rm, &mut cc);
-    let want_bf = xv.cbrt(p, rm);
-    let want_str = bigfloat_to_decimal_string(&want_bf, &mut cc, 50);
-    let want = parse(&want_str);
-    assert!(
-        within_ulps(got, want, ulps),
-        "cbrt({exact}): got {got:?}, want {want:?} (oracle {want_str})"
-    );
+    let xv = BigFloat::parse(&exact, Radix::Dec, P, AfRm::None, &mut cc);
+    let oracle = xv.cbrt(P, AfRm::None);
+    for &rm in MODES {
+        let (got, status) = x.cbrt(rm);
+        assert_faithful(got, status, &oracle, &mut cc, rm, &format!("cbrt({exact})"));
+    }
 }
 
 #[test]
 fn cbrt_two() {
-    check_cbrt("2", 1);
+    check_cbrt("2");
 }
 #[test]
 fn cbrt_minus_two() {
-    check_cbrt("-2", 1);
+    check_cbrt("-2");
 }
 #[test]
 fn cbrt_huge() {
-    check_cbrt("1e90", 1);
+    check_cbrt("1e90");
 }
 #[test]
 fn cbrt_tiny() {
-    check_cbrt("1e-90", 1);
+    check_cbrt("1e-90");
 }
 
 // tan --------------------------------------------------------------------
 
 #[test]
 fn tan_zero() {
-    let (r, _) = parse("0").tan(RoundingMode::NearestEven);
-    assert!(r.is_zero());
+    // tan(0) = 0 exactly, for every rounding direction.
+    for &rm in MODES {
+        let (r, status) = parse("0").tan(rm);
+        assert!(r.is_zero(), "tan(0) rm={rm:?}: got {r:?}");
+        assert!(!status.invalid(), "tan(0) rm={rm:?}: raised INVALID");
+    }
 }
 #[test]
 fn tan_pi_over_four() {
     check_unary(
         "tan",
         "0.7853981633974483096156608458198757",
-        |x| x.tan(RoundingMode::NearestEven),
+        Decimal128::tan,
         astro_float::BigFloat::tan,
-        1,
     );
 }
 #[test]
 fn tan_one() {
-    check_unary(
-        "tan",
-        "1",
-        |x| x.tan(RoundingMode::NearestEven),
-        astro_float::BigFloat::tan,
-        1,
-    );
+    check_unary("tan", "1", Decimal128::tan, astro_float::BigFloat::tan);
 }
 #[test]
 fn tan_minus_one() {
-    check_unary(
-        "tan",
-        "-1",
-        |x| x.tan(RoundingMode::NearestEven),
-        astro_float::BigFloat::tan,
-        1,
-    );
+    check_unary("tan", "-1", Decimal128::tan, astro_float::BigFloat::tan);
 }
 #[test]
 fn tan_pi() {
-    // tan(π) ≈ 0 — but the rounded π input gives a tiny non-zero
-    // residual. Check that we're within ULPs of astro-float's view.
+    // tan(π) ≈ 0; the rounded π input gives a tiny non-zero residual.
     check_unary(
         "tan",
         "3.141592653589793238462643383279503",
-        |x| x.tan(RoundingMode::NearestEven),
+        Decimal128::tan,
         astro_float::BigFloat::tan,
-        1,
     );
 }

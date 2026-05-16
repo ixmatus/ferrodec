@@ -1,71 +1,58 @@
-//! Faithful-rounding cross-check for sinh/cosh/tanh and inverses.
-//!
-//! sinh / cosh / tanh evaluate `(e^x ± e^{-x}) / 2` end to end at
-//! `Extended` (50-digit) precision and round once at the Decimal128
-//! boundary; the |x| < 0.5 branches use direct Taylor series (no
-//! cancellation). Inverse hyperbolics keep the `ln(x + sqrt(...))`
-//! argument at `Extended` precision through the `ln` call. Both
-//! deliver ≤ 1 ULP at 34 digits across the supported domain.
+//! Faithful-rounding contract for sinh/cosh/tanh and inverses vs
+//! astro-float, asserted for every IEEE 754 rounding direction
+//! (ADR-0021, IEEE 754-2019 §9.2). See `tests/common/mod.rs`; this is
+//! not a `± ULP` tolerance envelope.
 
 #![cfg(feature = "hyperbolic")]
 
 use astro_float::{BigFloat, Consts, Radix, RoundingMode as AfRm};
-use ferrodec::{Decimal128, RoundingMode};
+use ferrodec::{Decimal128, RoundingMode, Status};
 
 mod common;
-use common::{bigfloat_to_decimal_string, parse, within_ulps};
+use common::{assert_faithful, parse, MODES};
 
-fn check_unary<F, G>(name: &str, x_str: &str, ferrodec_op: F, oracle_op: G, ulps: u32)
+/// Working precision for the astro-float oracle: 256 bits ≈ 77 decimal
+/// digits.
+const P: usize = 256;
+
+fn check_unary<F, G>(name: &str, x_str: &str, ferrodec_op: F, oracle_op: G)
 where
-    F: FnOnce(Decimal128) -> (Decimal128, ferrodec::Status),
+    F: Fn(Decimal128, RoundingMode) -> (Decimal128, Status),
     G: FnOnce(&BigFloat, usize, AfRm, &mut Consts) -> BigFloat,
 {
     let x = parse(x_str);
-    let exact = format!("{x}");
-    let (got, _) = ferrodec_op(x);
-    let p = 220;
-    let rm = AfRm::None;
+    let exact = format!("{x:e}");
     let mut cc = Consts::new().expect("init consts");
-    let xv = BigFloat::parse(&exact, Radix::Dec, p, rm, &mut cc);
-    let want_bf = oracle_op(&xv, p, rm, &mut cc);
-    let want_str = bigfloat_to_decimal_string(&want_bf, &mut cc, 50);
-    let want = parse(&want_str);
-    assert!(
-        within_ulps(got, want, ulps),
-        "{name}({exact}): got {got:?}, want {want:?} (oracle {want_str})"
-    );
+    let xv = BigFloat::parse(&exact, Radix::Dec, P, AfRm::None, &mut cc);
+    let oracle = oracle_op(&xv, P, AfRm::None, &mut cc);
+    for &rm in MODES {
+        let (got, status) = ferrodec_op(x, rm);
+        assert_faithful(
+            got,
+            status,
+            &oracle,
+            &mut cc,
+            rm,
+            &format!("{name}({exact})"),
+        );
+    }
 }
-
-const ULPS: u32 = 1;
 
 #[test]
 fn sinh_one() {
-    check_unary(
-        "sinh",
-        "1",
-        |x| x.sinh(RoundingMode::NearestEven),
-        astro_float::BigFloat::sinh,
-        ULPS,
-    );
+    check_unary("sinh", "1", Decimal128::sinh, astro_float::BigFloat::sinh);
 }
 #[test]
 fn sinh_two() {
-    check_unary(
-        "sinh",
-        "2",
-        |x| x.sinh(RoundingMode::NearestEven),
-        astro_float::BigFloat::sinh,
-        ULPS,
-    );
+    check_unary("sinh", "2", Decimal128::sinh, astro_float::BigFloat::sinh);
 }
 #[test]
 fn sinh_tiny() {
     check_unary(
         "sinh",
         "0.001",
-        |x| x.sinh(RoundingMode::NearestEven),
+        Decimal128::sinh,
         astro_float::BigFloat::sinh,
-        ULPS,
     );
 }
 #[test]
@@ -73,72 +60,40 @@ fn sinh_neg() {
     check_unary(
         "sinh",
         "-1.5",
-        |x| x.sinh(RoundingMode::NearestEven),
+        Decimal128::sinh,
         astro_float::BigFloat::sinh,
-        ULPS,
     );
 }
 
 #[test]
 fn cosh_one() {
-    check_unary(
-        "cosh",
-        "1",
-        |x| x.cosh(RoundingMode::NearestEven),
-        astro_float::BigFloat::cosh,
-        ULPS,
-    );
+    check_unary("cosh", "1", Decimal128::cosh, astro_float::BigFloat::cosh);
 }
 #[test]
 fn cosh_two() {
-    check_unary(
-        "cosh",
-        "2",
-        |x| x.cosh(RoundingMode::NearestEven),
-        astro_float::BigFloat::cosh,
-        ULPS,
-    );
+    check_unary("cosh", "2", Decimal128::cosh, astro_float::BigFloat::cosh);
 }
 #[test]
 fn cosh_tiny() {
     check_unary(
         "cosh",
         "0.001",
-        |x| x.cosh(RoundingMode::NearestEven),
+        Decimal128::cosh,
         astro_float::BigFloat::cosh,
-        ULPS,
     );
 }
 
 #[test]
 fn tanh_half() {
-    check_unary(
-        "tanh",
-        "0.5",
-        |x| x.tanh(RoundingMode::NearestEven),
-        astro_float::BigFloat::tanh,
-        ULPS,
-    );
+    check_unary("tanh", "0.5", Decimal128::tanh, astro_float::BigFloat::tanh);
 }
 #[test]
 fn tanh_one() {
-    check_unary(
-        "tanh",
-        "1",
-        |x| x.tanh(RoundingMode::NearestEven),
-        astro_float::BigFloat::tanh,
-        ULPS,
-    );
+    check_unary("tanh", "1", Decimal128::tanh, astro_float::BigFloat::tanh);
 }
 #[test]
 fn tanh_three() {
-    check_unary(
-        "tanh",
-        "3",
-        |x| x.tanh(RoundingMode::NearestEven),
-        astro_float::BigFloat::tanh,
-        ULPS,
-    );
+    check_unary("tanh", "3", Decimal128::tanh, astro_float::BigFloat::tanh);
 }
 
 #[test]
@@ -146,9 +101,8 @@ fn asinh_one() {
     check_unary(
         "asinh",
         "1",
-        |x| x.asinh(RoundingMode::NearestEven),
+        Decimal128::asinh,
         astro_float::BigFloat::asinh,
-        ULPS,
     );
 }
 #[test]
@@ -156,9 +110,8 @@ fn asinh_huge() {
     check_unary(
         "asinh",
         "1e30",
-        |x| x.asinh(RoundingMode::NearestEven),
+        Decimal128::asinh,
         astro_float::BigFloat::asinh,
-        ULPS,
     );
 }
 #[test]
@@ -166,9 +119,8 @@ fn asinh_tiny() {
     check_unary(
         "asinh",
         "1e-15",
-        |x| x.asinh(RoundingMode::NearestEven),
+        Decimal128::asinh,
         astro_float::BigFloat::asinh,
-        ULPS,
     );
 }
 
@@ -177,9 +129,8 @@ fn acosh_two() {
     check_unary(
         "acosh",
         "2",
-        |x| x.acosh(RoundingMode::NearestEven),
+        Decimal128::acosh,
         astro_float::BigFloat::acosh,
-        ULPS,
     );
 }
 #[test]
@@ -187,9 +138,8 @@ fn acosh_huge() {
     check_unary(
         "acosh",
         "1e30",
-        |x| x.acosh(RoundingMode::NearestEven),
+        Decimal128::acosh,
         astro_float::BigFloat::acosh,
-        ULPS,
     );
 }
 
@@ -198,9 +148,8 @@ fn atanh_half() {
     check_unary(
         "atanh",
         "0.5",
-        |x| x.atanh(RoundingMode::NearestEven),
+        Decimal128::atanh,
         astro_float::BigFloat::atanh,
-        ULPS,
     );
 }
 #[test]
@@ -208,9 +157,8 @@ fn atanh_quarter() {
     check_unary(
         "atanh",
         "0.25",
-        |x| x.atanh(RoundingMode::NearestEven),
+        Decimal128::atanh,
         astro_float::BigFloat::atanh,
-        ULPS,
     );
 }
 #[test]
@@ -218,8 +166,7 @@ fn atanh_neg_three_quarter() {
     check_unary(
         "atanh",
         "-0.75",
-        |x| x.atanh(RoundingMode::NearestEven),
+        Decimal128::atanh,
         astro_float::BigFloat::atanh,
-        ULPS,
     );
 }
