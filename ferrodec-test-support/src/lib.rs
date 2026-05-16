@@ -14,3 +14,4 @@
 //! methods, then call [`conformance::run_suite`] from a `#[test]`.
 
 pub mod conformance;
+pub mod oracle;

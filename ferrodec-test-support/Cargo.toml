@@ -10,6 +10,11 @@ publish = false
 
 [dependencies]
 ferrodec-ieee = { path = "../ferrodec-ieee", version = "0.1.2" }
+# Pure-Rust arbitrary-precision integers for the exact correctly-rounded
+# oracle. std/RustCrypto-orbit, dev-only (this crate is `publish = false`
+# and is consumed solely as a dev-dependency of the decimal crates), so
+# it never reaches a shipped artifact. See ADR-0021.
+num-bigint = "0.4"
 
 [lints]
 workspace = true
