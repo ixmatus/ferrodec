@@ -240,10 +240,12 @@ dependencies = [
 name = "ferrodec-decimal32"
 version = "1.3.0"
 dependencies = [
+ "ferrodec-decimal64",
  "ferrodec-ieee",
  "ferrodec-test-support",
  "libm",
  "num-traits",
+ "proptest",
  "serde",
  "serde_json",
  "serde_test",

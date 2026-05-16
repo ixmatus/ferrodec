@@ -61,6 +61,14 @@ serde = { version = "1", default-features = false, optional = true }
 
 [dev-dependencies]
 ferrodec-test-support = { path = "../ferrodec-test-support" }
+# Exact cross-check oracle for the arithmetic correctness slice. Every
+# finite Decimal32 is exactly representable in Decimal64, so a Decimal32
+# op can be checked against the now conformance-validated Decimal64 op
+# rounded back to 7 digits. Dev-only: never linked into the no_std
+# library build. The workspace graph stays acyclic because Decimal64
+# does not depend on Decimal32.
+ferrodec-decimal64 = { path = "../ferrodec-decimal64" }
+proptest = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_test = "1"
