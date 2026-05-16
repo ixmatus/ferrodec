@@ -64,8 +64,16 @@ const fn expected_per_file() -> &'static [(&'static str, usize)] {
         // / feedback_regression_guard_exact_match.
         ("ddAdd.decTest", 973),
         ("ddBase.decTest", 708),
+        // F2: `multiply` / `divide` wired. No correctness bug
+        // surfaced (the H3 typed-BiasedExp work already made them
+        // conformant): `ddMultiply.decTest` 444 of 446 (2 `#`-hex
+        // skips), `ddDivide.decTest` 702 of 717 (15 skips, extreme
+        // exponents / `#`-hex). `ddDivideInt.decTest` is a distinct
+        // operation, not wired here.
+        ("ddDivide.decTest", 702),
         ("ddEncode.decTest", 0),
         ("ddFMA.decTest", 2),
+        ("ddMultiply.decTest", 444),
         ("ddSubtract.decTest", 514),
     ]
 }
@@ -73,7 +81,7 @@ const fn expected_per_file() -> &'static [(&'static str, usize)] {
 fn run_case(case: &TestCase, ctx: &Context) -> Outcome {
     match case.op.as_str() {
         "tosci" | "apply" => run_tosci(case, ctx),
-        "add" | "subtract" => run_binary(case, ctx),
+        "add" | "subtract" | "multiply" | "divide" => run_binary(case, ctx),
         _ => Outcome::Skip,
     }
 }
@@ -117,7 +125,9 @@ fn run_binary(case: &TestCase, ctx: &Context) -> Outcome {
     let (result, status) = match case.op.as_str() {
         "add" => a.add(b, rm),
         "subtract" => a.sub(b, rm),
-        _ => unreachable!("run_binary only dispatches add / subtract"),
+        "multiply" => a.mul(b, rm),
+        "divide" => a.div(b, rm),
+        _ => unreachable!("run_binary only dispatches add / subtract / multiply / divide"),
     };
     let formatted = format_value(result);
     if formatted != case.expected {
