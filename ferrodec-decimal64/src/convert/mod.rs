@@ -9,6 +9,10 @@
 #[cfg(feature = "binary-float")]
 mod binary;
 
+// Integer conversions need neither `fmt` nor `binary-float`: they
+// scale the decimal coefficient directly. Always available.
+mod int;
+
 #[cfg(feature = "fmt")]
 mod format;
 

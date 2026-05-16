@@ -7,11 +7,12 @@
 //! [`RoundingMode::NearestEven`] when a rounding decision is needed
 //! and drop the per-operation [`Status`](ferrodec_ieee::Status).
 //!
-//! Decimal64's 16-digit precision is narrower than `i64` / `u64`, so
-//! the integer-conversion paths through `to_*` may lose precision.
-//! `to_i64` / `to_u64` route via `f64` (cheap and exact for
-//! Decimal64-representable integers up to 2⁵³); the `to_*` paths
-//! return `None` for NaN / Infinity / out-of-range.
+//! The integer `to_*` paths delegate to the exact decimal
+//! conversions in [`crate::convert`] (scaling the coefficient in
+//! `u128`, no `f64` intermediate), so every Decimal64-representable
+//! integer converts without precision loss. They return `None` for
+//! NaN / Infinity / out-of-range (anything the spec flags `INVALID`);
+//! an in-range value that merely rounds returns `Some`.
 
 use num_traits::{Bounded, FromPrimitive, Num, One, Signed, ToPrimitive, Zero};
 
@@ -161,34 +162,23 @@ impl FromPrimitive for Decimal64 {
 
 impl ToPrimitive for Decimal64 {
     fn to_i64(&self) -> Option<i64> {
-        if self.is_nan() || self.is_infinite() {
-            return None;
-        }
-        let f = Decimal64::to_f64(*self, RoundingMode::NearestEven).0;
-        #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
-        let rounded = libm_round(f);
-        if !(i64::MIN as f64..=i64::MAX as f64).contains(&rounded) {
-            return None;
-        }
-        #[allow(clippy::cast_possible_truncation)]
-        Some(rounded as i64)
+        // Exact decimal path (M5). `INVALID` covers NaN, Infinity,
+        // and out-of-range; INEXACT (a mere rounding) still yields a
+        // value.
+        let (n, s) = Decimal64::to_i64(*self, RM);
+        (!s.invalid()).then_some(n)
     }
     fn to_u64(&self) -> Option<u64> {
-        if self.is_nan() || self.is_infinite() {
-            return None;
-        }
-        let f = Decimal64::to_f64(*self, RoundingMode::NearestEven).0;
-        let rounded = libm_round(f);
-        if rounded < 0.0 {
-            return None;
-        }
-        #[allow(clippy::cast_precision_loss)]
-        let max = u64::MAX as f64;
-        if rounded > max {
-            return None;
-        }
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        Some(rounded as u64)
+        let (n, s) = Decimal64::to_u64(*self, RM);
+        (!s.invalid()).then_some(n)
+    }
+    fn to_i128(&self) -> Option<i128> {
+        let (n, s) = Decimal64::to_i128(*self, RM);
+        (!s.invalid()).then_some(n)
+    }
+    fn to_u128(&self) -> Option<u128> {
+        let (n, s) = Decimal64::to_u128(*self, RM);
+        (!s.invalid()).then_some(n)
     }
     fn to_f64(&self) -> Option<f64> {
         Some(Decimal64::to_f64(*self, RoundingMode::NearestEven).0)
@@ -197,32 +187,6 @@ impl ToPrimitive for Decimal64 {
         // Direct decimal → f32 (M4): the old `to_f64(..) as f32`
         // double-rounded across f32 half-ULP boundaries.
         Some(Decimal64::to_f32(*self, RoundingMode::NearestEven).0)
-    }
-}
-
-/// Round `f` to the nearest integer (toward even on ties), without
-/// requiring `std::f64::round`. Uses `libm` when available; otherwise
-/// a pure-Rust implementation via `floor` + half compare.
-fn libm_round(f: f64) -> f64 {
-    if !f.is_finite() {
-        return f;
-    }
-    // libm doesn't expose `roundeven` everywhere; use floor + 0.5
-    // adjustment with banker's-rounding tie-break.
-    let floor = libm::floor(f);
-    let frac = f - floor;
-    if frac > 0.5 {
-        floor + 1.0
-    } else if frac < 0.5 {
-        floor
-    } else {
-        // Halfway: round to even.
-        #[allow(clippy::float_cmp)]
-        if libm::floor(floor / 2.0) * 2.0 == floor {
-            floor
-        } else {
-            floor + 1.0
-        }
     }
 }
 
