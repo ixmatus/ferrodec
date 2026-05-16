@@ -4,7 +4,7 @@
 //! `cbrt(x)` is the real cube root, defined for all real x including
 //! negatives.
 
-use crate::bid::{classify_bits, Class, BIAS};
+use crate::bid::{classify_bits, Class, BIAS, PRECISION};
 use crate::decimal::Decimal64;
 use ferrodec_ieee::{RoundingMode, Status};
 
@@ -25,9 +25,12 @@ fn equals_one(d: Decimal64) -> bool {
             return false;
         }
         let k = (-exp) as u32;
-        // Coefficient must equal 10^k. k is bounded by PRECISION-1 = 15
-        // for the largest power-of-10 cohort that fits.
-        if k > 15 {
+        // Coefficient must equal 10^k. The largest power-of-ten
+        // cohort of the value 1 that fits in `PRECISION` digits is
+        // `10^(PRECISION-1) × 10^-(PRECISION-1)`, so `k` cannot
+        // exceed `PRECISION - 1` (L17: derive from `PRECISION`, not
+        // a hardcoded 15).
+        if k > PRECISION - 1 {
             return false;
         }
         return coefficient == 10u64.pow(k);

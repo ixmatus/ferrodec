@@ -54,9 +54,12 @@ serde = ["fmt", "dep:serde"]
 # `Signed`, `Num`, and the `From|To|Primitive` traits on Decimal64.
 # `Num` requires `Add + Sub + Mul + Div + Rem`, so this feature
 # auto-enables `ops`. Pulls `fmt` because `Num::from_str_radix`
-# routes through `parse_str`. Pulls `binary-float` because
-# integer-conversion paths route through `f64`.
-num-traits = ["fmt", "ops", "binary-float", "dep:num-traits", "dep:libm"]
+# routes through `parse_str`. Pulls `binary-float` for the
+# `ToPrimitive` f32 / f64 conversions. It no longer pulls `dep:libm`:
+# after M5 (`eca13ef`) the integer conversions are exact and
+# `num_traits_impls.rs` has no `libm` use; `libm` is still pulled
+# independently by `exp-log` / `trig` (fd-17, discovered from M5).
+num-traits = ["fmt", "ops", "binary-float", "dep:num-traits"]
 
 [dependencies]
 ferrodec-ieee = { path = "../ferrodec-ieee", version = "0.1.2" }
