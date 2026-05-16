@@ -142,6 +142,14 @@ fn handle_specials(a: Class, b: Class) -> Option<(Decimal64, Status)> {
         ));
     }
     if let Infinity { sign: sa } = a {
+        // ∞ / finite (including ∞ / ±0) = ±∞ with no exception. GDA
+        // and IEEE 754-2019 §7.3 raise `divideByZero` only when a
+        // *finite, non-zero* dividend is divided by zero (the
+        // `Finite / Zero` arm above). An infinite dividend is
+        // already infinite, so ∞ / 0 is `∞ + OK`, deliberately NOT
+        // `DIV_BY_ZERO`. The `∞ / ∞` indeterminate form was already
+        // taken as `NaN + INVALID` further up, so `b` here is finite
+        // or zero.
         let sb = match b {
             Finite { sign, .. } | Zero { sign, .. } => sign,
             _ => unreachable!(),
