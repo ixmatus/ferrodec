@@ -12,12 +12,23 @@
 //!   navigation operations to the next representable value.
 
 use crate::bid::{
-    classify_bits, decimal_digit_count, Class, BIAS, BIASED_EXP_MAX, COEFFICIENT_LIMIT, PRECISION,
+    classify_bits, decimal_digit_count, Class, BIAS, BIASED_EXP_MAX, COEFFICIENT_LIMIT, E_MAX,
+    PRECISION,
 };
 use crate::decimal::Decimal64;
 use ferrodec_ieee::{should_round_up, RoundingMode, Status};
 
 use super::round::round_and_pack_finite;
+
+/// GDA `scaleb` constrains the shift: `|n| ≤ 2 × (Emax + precision)`.
+/// For decimal64 that is `2 × (384 + 16) = 800`; `|n|` beyond it is
+/// `Invalid_operation` (decTest ddscb120..127: `n = ±800` overflows
+/// or underflows to a finite extreme, `n = ±801` is NaN INVALID).
+/// Bounding `n` first also keeps the later `biased_exp - BIAS + n`
+/// arithmetic inside `i32` (without it, `n` near `i32::MAX`
+/// overflowed: panic in debug, silent wrap in release). Agent 4
+/// finding Q2 / M2.
+const SCALEB_N_LIMIT: u32 = 2 * (E_MAX as u32 + PRECISION);
 
 const POW10_U64: [u64; 10] = [
     1,
@@ -269,9 +280,12 @@ impl Decimal64 {
     /// IEEE 754-2019 §5.3.3 `scaleB(self, n)`: returns `self * 10^n`.
     ///
     /// Equivalent to shifting the unbiased exponent by `n`. NaN
-    /// propagates per the §6.2.3 rule; `±∞` and `±0` pass through
-    /// unchanged. Out-of-range exponents trigger overflow / underflow
-    /// via the standard `round_and_pack_finite` path.
+    /// propagates per the §6.2.3 rule; `±∞` passes through unchanged.
+    /// GDA constrains the shift to `|n| ≤ 2 × (Emax + precision)`
+    /// (800 for decimal64); a larger magnitude is `Invalid_operation`
+    /// and returns a quiet NaN. Within range, an out-of-format result
+    /// exponent triggers overflow / underflow via the standard
+    /// `round_and_pack_finite` path (`±0` and finite values alike).
     #[must_use]
     pub fn scaleb(self, n: i32, rm: RoundingMode) -> (Self, Status) {
         let class = classify_bits(self.0);
@@ -289,6 +303,9 @@ impl Decimal64 {
                 Status::OK,
             ),
             Class::Zero { sign, biased_exp } => {
+                if n.unsigned_abs() > SCALEB_N_LIMIT {
+                    return (Decimal64::NAN, Status::INVALID);
+                }
                 let q = biased_exp as i32 - BIAS as i32 + n;
                 round_and_pack_finite(0, q, q, sign, false, rm, Status::OK)
             }
@@ -297,6 +314,9 @@ impl Decimal64 {
                 biased_exp,
                 coefficient,
             } => {
+                if n.unsigned_abs() > SCALEB_N_LIMIT {
+                    return (Decimal64::NAN, Status::INVALID);
+                }
                 let q = biased_exp as i32 - BIAS as i32 + n;
                 round_and_pack_finite(coefficient, q, q, sign, false, rm, Status::OK)
             }
@@ -598,6 +618,33 @@ mod tests {
         let (r, s) = Decimal64::MIN_POSITIVE.scaleb(-100, RoundingMode::NearestEven);
         assert!(r.is_zero());
         assert!(s.inexact() && s.underflow());
+    }
+
+    #[test]
+    fn scaleb_n_envelope_and_no_i32_overflow() {
+        // M2 / Agent 4 Q2. GDA envelope for decimal64 is |n| ≤ 800
+        // (decTest ddscb120..127). n = ±800 still resolves to a
+        // finite extreme; |n| ≥ 801 is Invalid_operation; the
+        // i32::MIN / i32::MAX extremes must not panic or wrap.
+        let (r, s) = from_int(123, -2).scaleb(800, RoundingMode::NearestEven);
+        assert!(r.is_infinite() && s.overflow());
+
+        let (r, s) = from_int(123, -2).scaleb(-800, RoundingMode::NearestEven);
+        assert!(r.is_zero() && s.underflow());
+
+        for n in [801, 802, -801, -802, i32::MAX, i32::MIN] {
+            let (r, s) = from_int(123, -2).scaleb(n, RoundingMode::NearestEven);
+            assert!(r.is_quiet_nan(), "scaleb n={n} is Invalid_operation");
+            assert!(s.invalid(), "scaleb n={n} raises INVALID");
+        }
+
+        // Zero operand takes the same envelope.
+        let (r, s) = Decimal64::ZERO.scaleb(i32::MAX, RoundingMode::NearestEven);
+        assert!(r.is_quiet_nan() && s.invalid());
+
+        // sNaN still raises INVALID regardless of n.
+        let (r, s) = Decimal64::SIGNALING_NAN.scaleb(5, RoundingMode::NearestEven);
+        assert!(r.is_quiet_nan() && s.invalid());
     }
 
     #[test]
