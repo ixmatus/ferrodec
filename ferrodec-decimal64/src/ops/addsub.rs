@@ -23,13 +23,13 @@ use ferrodec_ieee::{decimal_digit_count_u128, RoundingMode, Status};
 
 use super::round::round_and_pack_finite;
 
-const POW10_U128: [u128; 24] = {
-    let mut t = [0u128; 24];
+const POW10_U128: [u128; 39] = {
+    let mut t = [0u128; 39];
     let mut i = 0;
     let mut v: u128 = 1;
-    while i < 24 {
+    while i < 39 {
         t[i] = v;
-        if i < 23 {
+        if i < 38 {
             v *= 10;
         }
         i += 1;
@@ -37,15 +37,22 @@ const POW10_U128: [u128; 24] = {
     t
 };
 
-const ALIGN_LIMIT: u32 = 22;
-const WORKING_PRECISION: u32 = 23;
+/// A `u128` holds at most 38 decimal digits (`10^38 < 2^128 <
+/// 10^39`). The higher-quantum operand is shifted left until
+/// `digits(coef_hi) + shift` reaches this cap; the lower operand is
+/// only truncated when the gap genuinely exceeds what `u128` can
+/// hold. This is the `rem.rs` H5 dynamic-shift bound applied to
+/// add / subtract: keying the alignment on the *actual* digit count
+/// of `coef_hi` rather than a static `22` keeps the full subtraction
+/// exact whenever it fits (e.g. `1E16 − 0.5`, where `coef_hi` is a
+/// single digit), so the boundary round-half-even tie is decided on
+/// the true residue instead of a lossily truncated one (fd-d47).
+const U128_DIGIT_CAP: u32 = 38;
 
-// Compile-time invariants: every `POW10_U128[k]` access in this
-// module must satisfy `k < POW10_U128.len()`. The largest index
-// reachable is `ALIGN_LIMIT = 22` (the cap on per-side alignment
-// shift), so we need at least 23 entries.
-const _: () = assert!(POW10_U128.len() > ALIGN_LIMIT as usize);
-const _: () = assert!(POW10_U128.len() > WORKING_PRECISION as usize - 1);
+// Compile-time invariant: the largest `POW10_U128` index reached is
+// a shift bounded by `U128_DIGIT_CAP`, so the table needs ≥ 39
+// entries (indices `0..=38`).
+const _: () = assert!(POW10_U128.len() > U128_DIGIT_CAP as usize);
 
 impl Decimal64 {
     /// IEEE 754-2019 `addition(self, other)` rounded by `rm`.
@@ -148,10 +155,10 @@ fn add_inner(a: Decimal64, b: Decimal64, rm: RoundingMode) -> (Decimal64, Status
     // result is the other operand requantised to
     // `q_preferred = min(exp_a, exp_b)` per IEEE 754-2019 §5.4.1 +
     // §6.3 (preferred quantum for additive operations). Without this
-    // short-circuit, an exponent gap exceeding `WORKING_PRECISION`
-    // collapses both aligned magnitudes to zero in the diff-too-wide
-    // branch below (line ~158), and the rounding funnel returns
-    // `0E+exp_hi` instead of the non-zero operand's value. The fix
+    // short-circuit, an exponent gap wide enough to truncate the
+    // lower operand entirely collapses both aligned magnitudes to
+    // zero, and the rounding funnel returns `0E+exp_hi` instead of
+    // the non-zero operand's value. The fix
     // also subsumes Agent 1 F3's `aligned_hi == aligned_lo`
     // degenerate case for opposite signs — that branch is reachable
     // only when both aligned magnitudes are zero, which (with the
@@ -174,25 +181,38 @@ fn add_inner(a: Decimal64, b: Decimal64, rm: RoundingMode) -> (Decimal64, Status
 
     let diff = (exp_hi - exp_lo) as u32;
 
-    let (aligned_hi, aligned_lo, align_exp, pre_sticky): (u128, u128, i32, bool) =
-        if diff <= ALIGN_LIMIT {
-            let shifted = u128::from(coef_hi) * POW10_U128[diff as usize];
-            (shifted, u128::from(coef_lo), exp_lo, false)
-        } else if diff <= WORKING_PRECISION {
-            let trim = diff - ALIGN_LIMIT;
+    // Dynamic alignment (fd-d47, mirroring rem.rs H5). `coef_hi` and
+    // `coef_lo` are both non-zero here (the zero cases short-circuit
+    // above), so `hi_digits ∈ [1, 16]` and `max_shift ∈ [22, 37]`.
+    // Shift `coef_hi` left by `s = min(diff, max_shift)` so the
+    // common quantum is as low as `u128` allows; the lower operand
+    // is truncated only by the unavoidable remainder `diff − s`,
+    // never more. When `s == diff` the alignment is exact
+    // (`pre_sticky = false`), so the round-half-even decision at the
+    // precision boundary sees the true residue rather than a
+    // prematurely collapsed sticky bit.
+    let hi_digits = crate::bid::decimal_digit_count(coef_hi);
+    let max_shift = U128_DIGIT_CAP - hi_digits;
+    let s = diff.min(max_shift);
+    let aligned_hi = u128::from(coef_hi) * POW10_U128[s as usize];
+    let align_exp = exp_hi - s as i32;
+    let (aligned_lo, pre_sticky): (u128, bool) = if s == diff {
+        // Exact: both operands now share `align_exp == exp_lo`.
+        (u128::from(coef_lo), false)
+    } else {
+        let trim = diff - s;
+        if (trim as usize) < POW10_U128.len() {
             let factor = POW10_U128[trim as usize];
-            let trunc_lo = u128::from(coef_lo) / factor;
-            let pre_sticky = (u128::from(coef_lo) % factor) != 0;
-            let shifted_hi = u128::from(coef_hi) * POW10_U128[ALIGN_LIMIT as usize];
             (
-                shifted_hi,
-                trunc_lo,
-                exp_hi - ALIGN_LIMIT as i32,
-                pre_sticky,
+                u128::from(coef_lo) / factor,
+                (u128::from(coef_lo) % factor) != 0,
             )
         } else {
-            (u128::from(coef_hi), 0, exp_hi, coef_lo != 0)
-        };
+            // `coef_lo` sits entirely below the retained window; it
+            // contributes only its non-zeroness as sticky.
+            (0u128, coef_lo != 0)
+        }
+    };
 
     let (combined_coef, combined_sign, h2_borrow) = if sign_hi == sign_lo {
         (aligned_hi + aligned_lo, sign_hi, false)
@@ -325,8 +345,8 @@ pub(crate) fn round_and_pack_into_u64(
     // `c < keep_threshold` holds by the loop exit condition (it is the
     // negation of the `while` guard), so no assertion is needed for
     // it. The `c as u64` cast below is sound because `keep_threshold`
-    // is bounded by `10^WORKING_PRECISION ≤ u64::MAX`, so `c` (now
-    // below the threshold) fits in a `u64`.
+    // is `10^KEEP = 10^19 ≤ u64::MAX`, so `c` (now below the
+    // threshold) fits in a `u64`.
     debug_assert!(
         c <= u128::from(u64::MAX),
         "coefficient fits u64 for the cast"

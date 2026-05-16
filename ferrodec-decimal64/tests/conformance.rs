@@ -53,18 +53,19 @@ fn dectest_conformance() {
 /// All other files are 0 pending their dispatch arms in C9+.
 const fn expected_per_file() -> &'static [(&'static str, usize)] {
     &[
-        ("ddAdd.decTest", 2),
+        // F1: `add` + `subtract` dispatch wired. `add` rises from 2
+        // (toSci-only edges) to 973 of 1091 after the fd-d47
+        // dynamic-alignment correctness fix in ops/addsub.rs cleared
+        // the `ddadd64xx` / `ddadd713xx` boundary round-half-even
+        // family; the remaining ~118 skips are unrepresentable
+        // operands (extreme exponents past the parser cap, `#`-hex
+        // BID interchange), never failures. `subtract` is 514 of 516
+        // (2 `#`-hex skips). Exact-match per-file counts per ADR-0010
+        // / feedback_regression_guard_exact_match.
+        ("ddAdd.decTest", 973),
         ("ddBase.decTest", 708),
         ("ddEncode.decTest", 0),
         ("ddFMA.decTest", 2),
-        // F1: `subtract` dispatch wired + the `sub` NaN-sign fix.
-        // 514 of 516 cases pass; the 2 skips are `#`-hex interchange
-        // operands. `add` is intentionally not wired yet: 20
-        // `ddAdd.decTest` cases (the `ddadd64xx` / `ddadd713xx`
-        // boundary-rounding family) still fail and would breach the
-        // zero failure ceiling. They are filed as a discovered
-        // finding for the add round-up-carry fix that must precede
-        // wiring the `add` arm.
         ("ddSubtract.decTest", 514),
     ]
 }
@@ -72,7 +73,7 @@ const fn expected_per_file() -> &'static [(&'static str, usize)] {
 fn run_case(case: &TestCase, ctx: &Context) -> Outcome {
     match case.op.as_str() {
         "tosci" | "apply" => run_tosci(case, ctx),
-        "subtract" => run_binary(case, ctx),
+        "add" | "subtract" => run_binary(case, ctx),
         _ => Outcome::Skip,
     }
 }
