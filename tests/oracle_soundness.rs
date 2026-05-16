@@ -5,26 +5,62 @@
 //! gives false confidence, so it is pinned here directly against the
 //! IBM decTest vectors — Mike Cowlishaw's reference suite, authored by
 //! the IEEE 754-2019 decimal arithmetic spec author. This cross-checks
-//! the oracle against the *specification's own* reference, not against
-//! `ferrodec` (whose conformance the suite already establishes
-//! separately), so the validation is genuinely independent.
+//! the oracle against the *specification's own* reference, with no
+//! `ferrodec` arithmetic in the loop at all (the oracle's predicted
+//! cohort and status are compared directly against decTest's expected
+//! string and conditions), so the validation is genuinely independent
+//! — and immune to the `parse_str` extreme-exponent round-trip
+//! fragility.
 //!
-//! For every `add` / `subtract` / `multiply` case at `precision: 34`
-//! with finite operands under an IEEE 754 rounding directive, the
-//! oracle's predicted value (re-parsed to bits) and status must equal
+//! For every `add` / `subtract` / `multiply` / `fma` / `divide` /
+//! `remaindernear` case at `precision: 34` with finite operands under
+//! an IEEE 754 rounding directive, the oracle's predicted value
+//! (cohort: sign, coefficient, exponent) and status must equal
 //! decTest's expected value and conditions exactly. Non-IEEE rounding
-//! (`half_down` / `05up`, ADR-0005), special operands, and the few
-//! cases under a non-34 precision directive are out of this oracle's
-//! modelled scope and are skipped, not failed.
+//! (`half_down` / `05up`, ADR-0005), special operands / results
+//! (NaN, Infinity, division by zero), and the few cases under a
+//! non-34 precision directive are out of this oracle's modelled scope
+//! and are skipped, not failed.
 
 #![cfg(feature = "fmt")]
 
-use ferrodec::Decimal128;
 use ferrodec_test_support::conformance::{
     decode_conditions, map_rounding, parse_directive, parse_test_case, status_conformance_eq,
     strip_comment,
 };
-use ferrodec_test_support::oracle::{self, parse_decimal, Format};
+use ferrodec_test_support::oracle::{self, parse_decimal, Expect, Format};
+
+/// Does the oracle's predicted value equal decTest's expected token?
+/// `None` ⇒ the expected token is special (NaN / Infinity / `?` /
+/// `#…`) and out of the finite-arithmetic oracle's scope.
+fn value_agrees(value: &Expect, expected: &str) -> Option<bool> {
+    let lower = expected.to_ascii_lowercase();
+    if let Expect::Nan = value {
+        // The oracle predicts GDA Division_impossible / undefined;
+        // decTest must agree by expecting a NaN.
+        return Some(lower.contains("nan"));
+    }
+    if expected == "?" || expected.starts_with('#') || lower.contains("nan") {
+        return None;
+    }
+    let is_inf = lower.contains("inf");
+    Some(match value {
+        Expect::Nan => unreachable!("handled above"),
+        Expect::Infinity { neg } => is_inf && (*neg == expected.starts_with('-')),
+        Expect::Finite { neg, coeff, exp } => {
+            if is_inf {
+                return Some(false);
+            }
+            // decTest expected strings are cohort-faithful; parse to
+            // (sign, coefficient, exponent) and compare exactly. This
+            // pins the §6.3 preferred exponent against the reference.
+            match parse_decimal(expected) {
+                Some(d) => d.neg == *neg && d.coeff == *coeff && d.exp == *exp,
+                None => return None,
+            }
+        }
+    })
+}
 
 fn replay(file: &str) -> (usize, usize) {
     let path = format!("{}/tests/vectors/{file}", env!("CARGO_MANIFEST_DIR"));
@@ -33,6 +69,7 @@ fn replay(file: &str) -> (usize, usize) {
     let mut rounding = String::from("half_even");
     let mut checked = 0usize;
     let mut skipped = 0usize;
+    let f = Format::DECIMAL128;
 
     for raw in content.lines() {
         let line = strip_comment(raw).trim();
@@ -50,10 +87,11 @@ fn replay(file: &str) -> (usize, usize) {
         let Some(case) = parse_test_case(line) else {
             continue;
         };
-        if !matches!(case.op.as_str(), "add" | "subtract" | "multiply" | "fma") {
-            continue;
-        }
-        let arity = if case.op == "fma" { 3 } else { 2 };
+        let arity = match case.op.as_str() {
+            "add" | "subtract" | "multiply" | "divide" | "remaindernear" => 2,
+            "fma" => 3,
+            _ => continue,
+        };
         // Out of this oracle's modelled scope -> skip, never fail.
         if precision != 34 || case.operands.len() != arity {
             skipped += 1;
@@ -72,50 +110,43 @@ fn replay(file: &str) -> (usize, usize) {
             skipped += 1;
             continue;
         };
-        // decTest marks an undefined / special result with these
-        // tokens; the oracle only models finite arithmetic here.
-        if case.expected == "?" || case.expected == "#" || case.expected.starts_with('#') {
+        // Division / remainder by zero is a special-value case the
+        // finite-arithmetic oracle does not model.
+        if matches!(case.op.as_str(), "divide" | "remaindernear") && operands[1].is_zero() {
             skipped += 1;
             continue;
         }
-        let Ok((expected, _)) = Decimal128::parse_str(&case.expected, rm) else {
-            skipped += 1;
-            continue;
-        };
 
-        let f = Format::DECIMAL128;
         let r = match case.op.as_str() {
             "add" => oracle::add(&operands[0], &operands[1], f, rm),
             "subtract" => oracle::sub(&operands[0], &operands[1], f, rm),
             "multiply" => oracle::mul(&operands[0], &operands[1], f, rm),
+            "divide" => oracle::div(&operands[0], &operands[1], f, rm),
+            "remaindernear" => oracle::rem(&operands[0], &operands[1], f, rm),
             _ => oracle::fma(&operands[0], &operands[1], &operands[2], f, rm),
         };
-        let (got, _) =
-            Decimal128::parse_str(&r.decimal_string(), rm).expect("oracle string re-parses");
-        let want_status = decode_conditions(&case.conditions);
 
-        assert_eq!(
-            got.to_bits(),
-            expected.to_bits(),
-            "[{}] {} {} {} {} rm={:?}: oracle {} ({:#034x}) != decTest {} ({:#034x})",
+        let Some(value_ok) = value_agrees(&r.value, &case.expected) else {
+            skipped += 1;
+            continue;
+        };
+        assert!(
+            value_ok,
+            "[{}] {} {:?} -> {} rm={:?}: oracle {} disagrees with decTest",
             case.id,
             case.op,
-            case.operands[0],
-            case.operands[1],
+            case.operands,
             case.expected,
             rm,
-            got,
-            got.to_bits(),
-            expected,
-            expected.to_bits(),
+            r.decimal_string(),
         );
+        let want_status = decode_conditions(&case.conditions);
         assert!(
             status_conformance_eq(r.status, want_status),
-            "[{}] {} {} {} -> {} rm={:?}: oracle status {:?} != decTest {:?}",
+            "[{}] {} {:?} -> {} rm={:?}: oracle status {:?} != decTest {:?}",
             case.id,
             case.op,
-            case.operands[0],
-            case.operands[1],
+            case.operands,
             case.expected,
             rm,
             r.status,
@@ -127,9 +158,16 @@ fn replay(file: &str) -> (usize, usize) {
 }
 
 #[test]
-fn oracle_matches_dectest_add_sub_mul() {
+fn oracle_matches_dectest_reference() {
     let mut total = 0;
-    for f in ["dqAdd.decTest", "dqSubtract.decTest", "dqMultiply.decTest"] {
+    for f in [
+        "dqAdd.decTest",
+        "dqSubtract.decTest",
+        "dqMultiply.decTest",
+        "dqFMA.decTest",
+        "dqDivide.decTest",
+        "dqRemainderNear.decTest",
+    ] {
         let (checked, skipped) = replay(f);
         eprintln!("{f}: {checked} oracle-checked, {skipped} out-of-scope skipped");
         total += checked;
@@ -138,7 +176,7 @@ fn oracle_matches_dectest_add_sub_mul() {
     // everything (a regression that broke parsing would otherwise pass
     // silently).
     assert!(
-        total > 1000,
-        "expected the oracle to be exercised on >1000 decTest cases, got {total}"
+        total > 2000,
+        "expected the oracle to be exercised on >2000 decTest cases, got {total}"
     );
 }

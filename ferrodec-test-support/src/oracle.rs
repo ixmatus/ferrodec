@@ -177,6 +177,31 @@ pub fn parse_decimal(s: &str) -> Option<Dec> {
     Some(Dec { neg, coeff, exp })
 }
 
+/// Decode a canonical BID-128 finite (incl. zero) bit pattern into
+/// `(sign, coefficient, quantum exponent)`.
+///
+/// The exact inverse of the `pack_finite` layout the ferrodec family
+/// uses for finite values. This is the cohort-faithful way to read a
+/// result back: `Display`/`{:e}` does *not* preserve a zero's quantum
+/// (every zero renders as `0e+0`), so comparing a migrated property
+/// test's result through a formatted string gives false cohort
+/// mismatches on zero (and Etiny-underflow) results. The caller must
+/// ensure the value is finite (check `is_finite()`); NaN/Infinity have
+/// no coefficient/quantum.
+#[must_use]
+pub fn decode_decimal128(bits: u128) -> (bool, BigUint, i32) {
+    const D128_BIAS: i32 = 6176;
+    let sign = (bits >> 127) & 1 == 1;
+    let type_bits = (bits >> 122) & 0b1_1111;
+    let exp_high2 = (type_bits >> 3) & 0b11;
+    let coef_high3 = type_bits & 0b111;
+    let ec = (bits >> 110) & 0xFFF;
+    let t = bits & ((1u128 << 110) - 1);
+    let biased = ((exp_high2 << 12) | ec) as i32;
+    let coef = (coef_high3 << 110) | t;
+    (sign, BigUint::from(coef), biased - D128_BIAS)
+}
+
 // ---------------------------------------------------------------------------
 // Expected result
 
@@ -189,6 +214,15 @@ pub enum Expect {
     /// A signed infinity (overflow under a to-nearest mode, or the
     /// directional mode that rounds away from zero past `MAX`).
     Infinity { neg: bool },
+    /// A quiet NaN with `INVALID` raised. The General Decimal
+    /// Arithmetic spec defines a few finite-operand cases as undefined
+    /// — notably `remainder`/`remainder-near` when the integer
+    /// quotient would exceed `precision` digits (`Division_impossible`,
+    /// speleotrove.com/decimal/daops.html#refrema). decTest and
+    /// `ferrodec` both yield `NaN + Invalid_operation` there, so the
+    /// oracle must predict it rather than the bare mathematical
+    /// remainder.
+    Nan,
 }
 
 impl Expect {
@@ -211,6 +245,7 @@ impl Expect {
                     "Infinity".to_string()
                 }
             }
+            Self::Nan => "NaN".to_string(),
         }
     }
 }
@@ -618,6 +653,60 @@ pub fn sqrt(x: &Dec, fmt: Format, rm: RoundingMode) -> Rounded {
     round_exact(false, root, work_exp, !exact_sq, ideal, fmt, rm)
 }
 
+/// IEEE 754-2019 remainder `x REM y` (the round-to-nearest-even
+/// variant, decTest `remainder`). `r = x − n·y` where `n` is `x/y`
+/// rounded to the nearest integer, ties to even. The result is
+/// *always exact* (a difference of scaled integers), with
+/// `|r| ≤ |y|/2`; the GDA ideal exponent is `min(exp x, exp y)`.
+/// Caller guarantees `y` is finite and non-zero.
+#[must_use]
+pub fn rem(x: &Dec, y: &Dec, fmt: Format, rm: RoundingMode) -> Rounded {
+    let e = x.exp.min(y.exp);
+    // Magnitudes scaled to the common exponent `e`.
+    let mx = &x.coeff * pow10(u32::try_from(x.exp - e).expect("fits"));
+    let my = &y.coeff * pow10(u32::try_from(y.exp - e).expect("fits"));
+    if x.is_zero() {
+        // 0 REM y = 0 with x's sign, ideal exponent min(ex, ey).
+        return round_exact(x.neg, BigUint::ZERO, 0, false, e, fmt, rm);
+    }
+    // GDA `remainder` Division_impossible: if the truncated integer
+    // quotient has more than `precision` digits, the operation is
+    // undefined and yields NaN + Invalid_operation
+    // (speleotrove.com/decimal/daops.html#refrema). decTest and
+    // `ferrodec` both do this; the oracle must too rather than
+    // returning the bare mathematical remainder.
+    let q = &mx / &my;
+    if digit_count(&q) > fmt.precision {
+        return Rounded {
+            value: Expect::Nan,
+            status: Status::INVALID,
+        };
+    }
+    let r0 = &mx % &my;
+    let two_r = &r0 * 2u32;
+    let n = match two_r.cmp(&my) {
+        Ordering::Less => q,
+        Ordering::Greater => q + 1u32,
+        Ordering::Equal => {
+            if (&q % 2u32) == BigUint::ZERO {
+                q
+            } else {
+                q + 1u32
+            }
+        }
+    };
+    // n·y has the same sign as x (sign(n)=sx^sy, sign(y)=sy ⇒ sx), so
+    // r = x − n·y is a same-sign subtraction of magnitudes at exp `e`.
+    let n_y = &n * &my;
+    let (neg, mag) = if mx >= n_y {
+        (x.neg, &mx - &n_y)
+    } else {
+        (!x.neg, &n_y - &mx)
+    };
+    let neg = if mag == BigUint::ZERO { x.neg } else { neg };
+    round_exact(neg, mag, e, false, e, fmt, rm)
+}
+
 // ---------------------------------------------------------------------------
 // Hand-verified unit vectors
 //
@@ -749,6 +838,7 @@ mod tests {
                 assert_eq!(exp, D128.qmax());
             }
             Expect::Infinity { .. } => panic!("toward-zero clamps to MAX"),
+            Expect::Nan => panic!("overflow is never NaN"),
         }
         assert!(truncate.status.overflow());
     }
@@ -794,6 +884,21 @@ mod tests {
         let nine = sqrt(&d("9"), D128, ne());
         assert_eq!(nine.decimal_string(), "3E0");
         assert!(nine.status.is_ok());
+    }
+
+    #[test]
+    fn rem_is_exact_ieee_remainder() {
+        // 10 REM 3 = 1 (n=3); 7 REM 2 = -1 (n=4, ties-to-even up);
+        // 5.5 REM 2 = -0.5 (n=3? 5.5/2=2.75 -> 3; 5.5-6=-0.5).
+        let r = rem(&d("10"), &d("3"), D128, ne());
+        assert_eq!(r.decimal_string(), "1E0");
+        assert!(r.status.is_ok());
+        let r = rem(&d("7"), &d("2"), D128, ne());
+        // 7/2 = 3.5 ties to even -> 4; 7 - 8 = -1.
+        assert_eq!(r.decimal_string(), "-1E0");
+        let r = rem(&d("5.5"), &d("2"), D128, ne());
+        // ideal exponent min(-1, 0) = -1; 5.5 - 3*2 = -0.5.
+        assert_eq!(r.decimal_string(), "-5E-1");
     }
 
     #[test]

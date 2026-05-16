@@ -36,13 +36,14 @@ use proptest::test_runner::TestCaseError;
 /// `got` is decoded via forced scientific, which is cohort-faithful.
 fn result_matches(got: Decimal128, want: &Expect) -> bool {
     match want {
+        Expect::Nan => got.is_nan(),
         Expect::Infinity { neg } => got.is_infinite() && got.is_sign_negative() == *neg,
         Expect::Finite { neg, coeff, exp } => {
             if !got.is_finite() {
                 return false;
             }
-            let g = parse_decimal(&format!("{got:e}")).expect("finite decode");
-            g.neg == *neg && g.coeff == *coeff && g.exp == *exp
+            let (n, c, e) = oracle::decode_decimal128(got.to_bits());
+            n == *neg && c == *coeff && e == *exp
         }
     }
 }
