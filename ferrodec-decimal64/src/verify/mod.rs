@@ -25,6 +25,10 @@ mod exp;
 mod fma;
 mod mul;
 mod sqrt;
+// `trig` lives behind the `trig` feature (ops/trig.rs); the harness
+// references its Kani shims, so it is gated identically.
+#[cfg(feature = "trig")]
+mod trig;
 
 use crate::decimal::Decimal64;
 use ferrodec_ieee::RoundingMode;
