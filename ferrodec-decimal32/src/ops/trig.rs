@@ -28,140 +28,74 @@ impl Decimal32 {
     /// IEEE 754-2019 §9.2 `sin(self)` rounded by `rm`.
     #[must_use]
     pub fn sin(self, rm: RoundingMode) -> (Self, Status) {
-        match classify_bits(self.0) {
-            Class::SignalingNaN { sign, payload } => (
-                Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
-                Status::INVALID,
-            ),
-            Class::QuietNaN { sign, payload } => (
-                Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
-                Status::OK,
-            ),
-            Class::Infinity { .. } => (Decimal32::NAN, Status::INVALID),
-            Class::Zero { sign, .. } => (
-                if sign {
-                    Decimal32::NEG_ZERO
-                } else {
-                    Decimal32::ZERO
-                },
-                Status::OK,
-            ),
-            Class::Finite { .. } => f64_unary(self, libm::sin, rm),
+        if let Some(special) = sin_special_cases(classify_bits(self.0)) {
+            return special;
         }
+        f64_unary(self, libm::sin, rm)
     }
 
     /// IEEE 754-2019 §9.2 `cos(self)` rounded by `rm`.
     #[must_use]
     pub fn cos(self, rm: RoundingMode) -> (Self, Status) {
-        match classify_bits(self.0) {
-            Class::SignalingNaN { sign, payload } => (
-                Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
-                Status::INVALID,
-            ),
-            Class::QuietNaN { sign, payload } => (
-                Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
-                Status::OK,
-            ),
-            Class::Infinity { .. } => (Decimal32::NAN, Status::INVALID),
-            Class::Zero { .. } => (Decimal32::ONE, Status::OK),
-            Class::Finite { .. } => f64_unary(self, libm::cos, rm),
+        if let Some(special) = cos_special_cases(classify_bits(self.0)) {
+            return special;
         }
+        f64_unary(self, libm::cos, rm)
     }
 
     /// IEEE 754-2019 §9.2 `tan(self)` rounded by `rm`.
     #[must_use]
     pub fn tan(self, rm: RoundingMode) -> (Self, Status) {
-        match classify_bits(self.0) {
-            Class::SignalingNaN { sign, payload } => (
-                Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
-                Status::INVALID,
-            ),
-            Class::QuietNaN { sign, payload } => (
-                Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
-                Status::OK,
-            ),
-            Class::Infinity { .. } => (Decimal32::NAN, Status::INVALID),
-            Class::Zero { sign, .. } => (
-                if sign {
-                    Decimal32::NEG_ZERO
-                } else {
-                    Decimal32::ZERO
-                },
-                Status::OK,
-            ),
-            Class::Finite { .. } => f64_unary(self, libm::tan, rm),
+        if let Some(special) = tan_special_cases(classify_bits(self.0)) {
+            return special;
         }
+        f64_unary(self, libm::tan, rm)
     }
 
     /// IEEE 754-2019 §9.2 `asin(self)` rounded by `rm`.
     /// Domain: `[-1, +1]`. Outside the domain raises INVALID.
     #[must_use]
     pub fn asin(self, rm: RoundingMode) -> (Self, Status) {
-        match classify_bits(self.0) {
-            Class::SignalingNaN { sign, payload } => (
-                Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
-                Status::INVALID,
-            ),
-            Class::QuietNaN { sign, payload } => (
-                Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
-                Status::OK,
-            ),
-            Class::Infinity { .. } => (Decimal32::NAN, Status::INVALID),
-            Class::Zero { sign, .. } => (
-                if sign {
-                    Decimal32::NEG_ZERO
-                } else {
-                    Decimal32::ZERO
-                },
-                Status::OK,
-            ),
-            Class::Finite { .. } => {
-                let x = self.to_f64();
-                if x.abs() > 1.0 {
-                    return (Decimal32::NAN, Status::INVALID);
-                }
-                f64_unary_via_value(x, libm::asin, rm)
-            }
+        if let Some(special) = asin_special_cases(classify_bits(self.0)) {
+            return special;
         }
+        // Finite non-zero: the `|x| > 1` domain INVALID depends on the
+        // rounded f64 value, so it is part of the f64 path the shared
+        // `_special_cases` returns `None` for.
+        let x = self.to_f64(RoundingMode::NearestEven).0;
+        if x.abs() > 1.0 {
+            return (Decimal32::NAN, Status::INVALID);
+        }
+        f64_unary_via_value(x, libm::asin, rm)
     }
 
     /// IEEE 754-2019 §9.2 `acos(self)` rounded by `rm`.
     /// Domain: `[-1, +1]`. Outside the domain raises INVALID.
     #[must_use]
     pub fn acos(self, rm: RoundingMode) -> (Self, Status) {
-        match classify_bits(self.0) {
-            Class::SignalingNaN { sign, payload } => (
-                Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
-                Status::INVALID,
-            ),
-            Class::QuietNaN { sign, payload } => (
-                Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
-                Status::OK,
-            ),
-            Class::Infinity { .. } => (Decimal32::NAN, Status::INVALID),
-            Class::Zero { .. } | Class::Finite { .. } => {
-                let x = self.to_f64();
-                if x.abs() > 1.0 {
-                    return (Decimal32::NAN, Status::INVALID);
-                }
-                f64_unary_via_value(x, libm::acos, rm)
-            }
+        if let Some(special) = acos_special_cases(classify_bits(self.0)) {
+            return special;
         }
+        // Zero and finite non-zero both reach the f64 path: `acos` has
+        // no exact zero-result special, and the `|x| > 1` domain check
+        // depends on the rounded f64 value.
+        let x = self.to_f64(RoundingMode::NearestEven).0;
+        if x.abs() > 1.0 {
+            return (Decimal32::NAN, Status::INVALID);
+        }
+        f64_unary_via_value(x, libm::acos, rm)
     }
 
     /// IEEE 754-2019 §9.2 `atan(self)` rounded by `rm`.
     #[must_use]
     pub fn atan(self, rm: RoundingMode) -> (Self, Status) {
-        match classify_bits(self.0) {
-            Class::SignalingNaN { sign, payload } => (
-                Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
-                Status::INVALID,
-            ),
-            Class::QuietNaN { sign, payload } => (
-                Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
-                Status::OK,
-            ),
-            // atan(±∞) = ±π/2.
+        let class = classify_bits(self.0);
+        if let Some(special) = atan_special_cases(class) {
+            return special;
+        }
+        // ±∞ and finite non-zero reach the libm path: `atan(±∞) = ±π/2`
+        // is computed by `libm::atan(±inf)`, not a pure special.
+        match class {
             Class::Infinity { sign } => {
                 let x = if sign {
                     f64::NEG_INFINITY
@@ -170,15 +104,7 @@ impl Decimal32 {
                 };
                 f64_unary_via_value(x, libm::atan, rm)
             }
-            Class::Zero { sign, .. } => (
-                if sign {
-                    Decimal32::NEG_ZERO
-                } else {
-                    Decimal32::ZERO
-                },
-                Status::OK,
-            ),
-            Class::Finite { .. } => f64_unary(self, libm::atan, rm),
+            _ => f64_unary(self, libm::atan, rm),
         }
     }
 
@@ -186,29 +112,16 @@ impl Decimal32 {
     /// resolved into the correct quadrant by the signs of both
     /// arguments. Returns radians in `(-π, π]`. Special cases follow
     /// the f64 atan2 convention (NaN propagates, axis cases are
-    /// exact).
+    /// exact). When either operand is NaN the operands are inspected
+    /// in the fixed order `[self, x]`; the first NaN encountered
+    /// determines the result, pinning IEEE 754-2019 §6.2.3 ordering.
     #[must_use]
     pub fn atan2(self, x: Self, rm: RoundingMode) -> (Self, Status) {
-        // NaN propagation.
-        for arg in [self, x] {
-            match classify_bits(arg.0) {
-                Class::SignalingNaN { sign, payload } => {
-                    return (
-                        Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
-                        Status::INVALID,
-                    );
-                }
-                Class::QuietNaN { sign, payload } => {
-                    return (
-                        Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
-                        Status::OK,
-                    );
-                }
-                _ => {}
-            }
+        if let Some(special) = atan2_special_cases(self, x) {
+            return special;
         }
-        let y_f = self.to_f64();
-        let x_f = x.to_f64();
+        let y_f = self.to_f64(RoundingMode::NearestEven).0;
+        let x_f = x.to_f64(RoundingMode::NearestEven).0;
         let r = libm::atan2(y_f, x_f);
         let (val, mut status) = Decimal32::from_f64(r, rm);
         if !val.is_zero() {
@@ -216,6 +129,236 @@ impl Decimal32 {
         }
         (val, status)
     }
+
+    /// Kani-only entry returning the `sin` special-case branch without
+    /// invoking the `libm::sin` + `from_f64` pipeline. CBMC never
+    /// encodes the f64 path. ADR-0016.
+    #[cfg(kani)]
+    #[doc(hidden)]
+    #[must_use]
+    pub fn sin_special_only_for_kani(self) -> Option<(Self, Status)> {
+        sin_special_cases(classify_bits(self.0))
+    }
+
+    /// Kani-only entry for the `cos` special-case branch. ADR-0016.
+    #[cfg(kani)]
+    #[doc(hidden)]
+    #[must_use]
+    pub fn cos_special_only_for_kani(self) -> Option<(Self, Status)> {
+        cos_special_cases(classify_bits(self.0))
+    }
+
+    /// Kani-only entry for the `tan` special-case branch. ADR-0016.
+    #[cfg(kani)]
+    #[doc(hidden)]
+    #[must_use]
+    pub fn tan_special_only_for_kani(self) -> Option<(Self, Status)> {
+        tan_special_cases(classify_bits(self.0))
+    }
+
+    /// Kani-only entry for the `asin` special-case branch. ADR-0016.
+    #[cfg(kani)]
+    #[doc(hidden)]
+    #[must_use]
+    pub fn asin_special_only_for_kani(self) -> Option<(Self, Status)> {
+        asin_special_cases(classify_bits(self.0))
+    }
+
+    /// Kani-only entry for the `acos` special-case branch. ADR-0016.
+    #[cfg(kani)]
+    #[doc(hidden)]
+    #[must_use]
+    pub fn acos_special_only_for_kani(self) -> Option<(Self, Status)> {
+        acos_special_cases(classify_bits(self.0))
+    }
+
+    /// Kani-only entry for the `atan` special-case branch. ADR-0016.
+    #[cfg(kani)]
+    #[doc(hidden)]
+    #[must_use]
+    pub fn atan_special_only_for_kani(self) -> Option<(Self, Status)> {
+        atan_special_cases(classify_bits(self.0))
+    }
+
+    /// Kani-only entry for the binary `atan2` NaN-propagation branch.
+    /// ADR-0016.
+    #[cfg(kani)]
+    #[doc(hidden)]
+    #[must_use]
+    pub fn atan2_special_only_for_kani(self, x: Self) -> Option<(Self, Status)> {
+        atan2_special_cases(self, x)
+    }
+}
+
+/// Resolve every `sin` input class that does not reach the
+/// `libm::sin` + `from_f64` pipeline. `None` only for finite
+/// non-zero. Shared by production `sin` and the Kani shim so the two
+/// cannot drift.
+fn sin_special_cases(class: Class) -> Option<(Decimal32, Status)> {
+    match class {
+        Class::SignalingNaN { sign, payload } => Some((
+            Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
+            Status::INVALID,
+        )),
+        Class::QuietNaN { sign, payload } => Some((
+            Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
+            Status::OK,
+        )),
+        Class::Infinity { .. } => Some((Decimal32::NAN, Status::INVALID)),
+        Class::Zero { sign, .. } => Some((
+            if sign {
+                Decimal32::NEG_ZERO
+            } else {
+                Decimal32::ZERO
+            },
+            Status::OK,
+        )),
+        Class::Finite { .. } => None,
+    }
+}
+
+/// Resolve every `cos` input class that does not reach the
+/// `libm::cos` + `from_f64` pipeline. `None` only for finite
+/// non-zero. `cos(±0) = +1` (sign not preserved, unlike `sin`).
+fn cos_special_cases(class: Class) -> Option<(Decimal32, Status)> {
+    match class {
+        Class::SignalingNaN { sign, payload } => Some((
+            Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
+            Status::INVALID,
+        )),
+        Class::QuietNaN { sign, payload } => Some((
+            Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
+            Status::OK,
+        )),
+        Class::Infinity { .. } => Some((Decimal32::NAN, Status::INVALID)),
+        Class::Zero { .. } => Some((Decimal32::ONE, Status::OK)),
+        Class::Finite { .. } => None,
+    }
+}
+
+/// Resolve every `tan` input class that does not reach the
+/// `libm::tan` + `from_f64` pipeline. `None` only for finite
+/// non-zero. Same special-case shape as `sin`.
+fn tan_special_cases(class: Class) -> Option<(Decimal32, Status)> {
+    match class {
+        Class::SignalingNaN { sign, payload } => Some((
+            Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
+            Status::INVALID,
+        )),
+        Class::QuietNaN { sign, payload } => Some((
+            Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
+            Status::OK,
+        )),
+        Class::Infinity { .. } => Some((Decimal32::NAN, Status::INVALID)),
+        Class::Zero { sign, .. } => Some((
+            if sign {
+                Decimal32::NEG_ZERO
+            } else {
+                Decimal32::ZERO
+            },
+            Status::OK,
+        )),
+        Class::Finite { .. } => None,
+    }
+}
+
+/// Resolve every `asin` input class that does not reach the
+/// `libm::asin` + `from_f64` pipeline. `None` only for finite
+/// non-zero; the `|x| > 1` domain INVALID is part of that f64 path
+/// (it depends on the rounded f64 value), not a pure special.
+fn asin_special_cases(class: Class) -> Option<(Decimal32, Status)> {
+    match class {
+        Class::SignalingNaN { sign, payload } => Some((
+            Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
+            Status::INVALID,
+        )),
+        Class::QuietNaN { sign, payload } => Some((
+            Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
+            Status::OK,
+        )),
+        Class::Infinity { .. } => Some((Decimal32::NAN, Status::INVALID)),
+        Class::Zero { sign, .. } => Some((
+            if sign {
+                Decimal32::NEG_ZERO
+            } else {
+                Decimal32::ZERO
+            },
+            Status::OK,
+        )),
+        Class::Finite { .. } => None,
+    }
+}
+
+/// Resolve every `acos` input class that does not reach the
+/// `libm::acos` + `from_f64` pipeline. `None` for both `Zero` and
+/// finite non-zero: `acos` has no exact zero-result special, and the
+/// `|x| > 1` domain check depends on the rounded f64 value.
+fn acos_special_cases(class: Class) -> Option<(Decimal32, Status)> {
+    match class {
+        Class::SignalingNaN { sign, payload } => Some((
+            Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
+            Status::INVALID,
+        )),
+        Class::QuietNaN { sign, payload } => Some((
+            Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
+            Status::OK,
+        )),
+        Class::Infinity { .. } => Some((Decimal32::NAN, Status::INVALID)),
+        Class::Zero { .. } | Class::Finite { .. } => None,
+    }
+}
+
+/// Resolve every `atan` input class that does not reach `libm::atan`.
+/// `None` for both `Infinity` and finite non-zero: `atan(±∞) = ±π/2`
+/// is computed by `libm::atan(±inf)`, not a pure special.
+fn atan_special_cases(class: Class) -> Option<(Decimal32, Status)> {
+    match class {
+        Class::SignalingNaN { sign, payload } => Some((
+            Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
+            Status::INVALID,
+        )),
+        Class::QuietNaN { sign, payload } => Some((
+            Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
+            Status::OK,
+        )),
+        Class::Zero { sign, .. } => Some((
+            if sign {
+                Decimal32::NEG_ZERO
+            } else {
+                Decimal32::ZERO
+            },
+            Status::OK,
+        )),
+        Class::Infinity { .. } | Class::Finite { .. } => None,
+    }
+}
+
+/// Resolve the binary `atan2` NaN-propagation branch. The operands
+/// are inspected in the fixed order `[y, x]`; the first NaN
+/// encountered determines the result (signaling → INVALID, quiet →
+/// OK), pinning the IEEE 754-2019 §6.2.3 ordering. `None` when
+/// neither operand is NaN, the single case that reaches the
+/// `libm::atan2` + `from_f64` pipeline. Shared by production `atan2`
+/// and the Kani shim so the two cannot drift.
+fn atan2_special_cases(y: Decimal32, x: Decimal32) -> Option<(Decimal32, Status)> {
+    for arg in [y, x] {
+        match classify_bits(arg.0) {
+            Class::SignalingNaN { sign, payload } => {
+                return Some((
+                    Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
+                    Status::INVALID,
+                ));
+            }
+            Class::QuietNaN { sign, payload } => {
+                return Some((
+                    Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
+                    Status::OK,
+                ));
+            }
+            _ => {}
+        }
+    }
+    None
 }
 
 #[cfg(test)]
@@ -227,8 +370,8 @@ mod tests {
     }
 
     fn approx_equal(a: Decimal32, b: Decimal32) -> bool {
-        let af = a.to_f64();
-        let bf = b.to_f64();
+        let af = a.to_f64(RoundingMode::NearestEven).0;
+        let bf = b.to_f64(RoundingMode::NearestEven).0;
         let tol = 1e-6;
         (af - bf).abs() <= tol * (1.0 + bf.abs())
     }

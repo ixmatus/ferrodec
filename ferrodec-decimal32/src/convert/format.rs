@@ -162,6 +162,15 @@ fn format_finite(
 /// Write the digit string for `coef` (leading zeros padded out to
 /// `digits` total) into a 8-byte stack buffer, returning a `&[u8]`
 /// with the digits as ASCII.
+///
+/// L3: every written byte is `b'0' + (n % 10)`, so `b'0'..=b'9'`.
+/// Each caller slices `&buf[..digits]` and reads only written bytes,
+/// so the `core::str::from_utf8(...).unwrap()` on those slices is
+/// total. `digits` is `decimal_digit_count` of a decoded coefficient
+/// (at most 7 for canonical Decimal32; non canonical Form B
+/// canonicalises to zero at decode), so the `total <= buf.len()`
+/// invariant holds and the debug assertion never fires on a decoded
+/// value.
 fn digit_string(coef: u32, digits: u32) -> [u8; 8] {
     // 7 digits max for canonical Decimal32; allocate 8 to give room for
     // a transient overflow during rendering of pre-rounded coefficients.
@@ -246,6 +255,26 @@ fn write_engineering(
     adjusted_exp: i32,
     letter: char,
 ) -> fmt::Result {
+    // L1 (Phase 1 finding A5-F7): a zero coefficient has no
+    // significant digit to rebase, so the engineering mantissa shift
+    // below would pad the single `0` with extra integer zeros
+    // (`00E…`, `000E…`), which is never a valid rendering. Zero takes
+    // the same shape as `write_scientific`'s zero path: a lone `0`
+    // with the non rebased adjusted exponent, so zero is consistent
+    // between scientific and engineering. The GDA `to-engineering`
+    // fractional zero form (`0.00E+k`) is a documented
+    // simplification, not exercised by the vendored conformance
+    // corpus. This mirrors the Decimal64 L13 fix.
+    if coef == 0 {
+        f.write_str("0")?;
+        write!(f, "{letter}")?;
+        return if adjusted_exp >= 0 {
+            write!(f, "+{adjusted_exp}")
+        } else {
+            write!(f, "{adjusted_exp}")
+        };
+    }
+
     // Engineering: rebase the adjusted exponent down to the nearest
     // multiple of 3 (toward -∞), shifting the mantissa right by the
     // remainder.
@@ -374,6 +403,23 @@ mod tests {
         // not exceeding -4): shift=2, target_adjusted=-6. Mantissa = 123.4.
         let d = Decimal32::try_new(1234, -7).unwrap();
         assert_eq!(format!("{}", d.engineering()), "123.4E-6");
+    }
+
+    #[test]
+    fn engineering_zero_is_a_lone_digit() {
+        // L1 (A5-F7): a zero coefficient had its single `0` padded
+        // with positional zeros (`0E+5` rendered `000E+3`). It now
+        // takes the scientific zero shape: a lone `0` at the non
+        // rebased adjusted exponent.
+        assert_eq!(format!("{}", parse("0E+5").engineering()), "0E+5");
+        assert_eq!(format!("{}", parse("-0E+5").engineering()), "-0E+5");
+        assert_eq!(format!("{}", parse("0E-7").engineering()), "0E-7");
+        assert_eq!(format!("{}", parse("0").engineering()), "0E+0");
+        // The non zero engineering path is unaffected.
+        assert_eq!(
+            format!("{}", Decimal32::try_new(12345, 0).unwrap().engineering()),
+            "12.345E+3"
+        );
     }
 
     #[test]

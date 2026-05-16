@@ -102,7 +102,12 @@ fn sqrt_special_cases(class: Class) -> Option<(Decimal32, Status)> {
             let exp = biased_exp as i32 - BIAS as i32;
             let q = exp.div_euclid(2);
             Some((
-                Decimal32::from_bits(crate::bid::pack_finite(sign, (q + BIAS as i32) as u32, 0)),
+                Decimal32::from_bits(crate::bid::pack_finite(
+                    sign,
+                    crate::bid::BiasedExp::try_from_unbiased(q)
+                        .expect("sqrt zero quantum in representable range"),
+                    crate::bid::Coefficient::ZERO,
+                )),
                 Status::OK,
             ))
         }
@@ -163,7 +168,7 @@ fn sqrt_positive_finite(coef: u64, biased_exp: u32, rm: RoundingMode) -> (Decima
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bid::pack_finite;
+    use crate::bid::{pack_finite, BiasedExp, Coefficient};
 
     fn from_int(n: i32, exp: i32) -> Decimal32 {
         Decimal32::try_new(n, exp).unwrap()
@@ -193,7 +198,11 @@ mod tests {
     fn sqrt_inexact_two() {
         // sqrt(2) ≈ 1.4142136 (NearestEven, 7 digits).
         let (r, s) = from_int(2, 0).sqrt(RoundingMode::NearestEven);
-        let expected = Decimal32::from_bits(pack_finite(false, BIAS - 6, 1_414_214));
+        let expected = Decimal32::from_bits(pack_finite(
+            false,
+            BiasedExp::try_from_biased(BIAS - 6).unwrap(),
+            Coefficient::try_new(1_414_214).unwrap(),
+        ));
         // sqrt(2) = 1.4142135623... → 7-digit nearest-even = 1.414214.
         assert_eq!(r.to_bits(), expected.to_bits());
         assert!(s.inexact());
@@ -251,7 +260,11 @@ mod tests {
         // sqrt(0.04) = 0.2
         let x = from_int(4, -2);
         let (r, _) = x.sqrt(RoundingMode::NearestEven);
-        let expected = Decimal32::from_bits(pack_finite(false, BIAS - 1, 2));
+        let expected = Decimal32::from_bits(pack_finite(
+            false,
+            BiasedExp::try_from_biased(BIAS - 1).unwrap(),
+            Coefficient::try_new(2).unwrap(),
+        ));
         assert_eq!(r.to_bits(), expected.to_bits());
     }
 

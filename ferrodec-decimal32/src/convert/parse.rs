@@ -65,12 +65,48 @@ impl core::error::Error for ParseDecimalError {}
 const MAX_PARSED_DIGITS: u32 = 16;
 const MAX_EXPONENT_MAGNITUDE: u32 = 1_000_000;
 
+// A5-F4 (Agent 5; the Decimal64 H8 shape): the `extra_int_digits as
+// i32` / `digits_after_point as i32` casts in `parse_str` are sound
+// only because both counters are capped at `MAX_EXPONENT_MAGNITUDE`
+// before the cast. Encode "the cap fits in `i32`" as a compile-time
+// invariant so the cast safety is type-checked, not just asserted in
+// prose.
+const _: () = assert!(MAX_EXPONENT_MAGNITUDE <= i32::MAX as u32);
+
 impl Decimal32 {
     /// Parse a `&str` into a `Decimal32`, rounding per `rm`.
     ///
     /// On success returns `(value, status)`. `status.inexact()` is set
     /// iff the input had more significant digits than the format can
     /// represent at the chosen precision.
+    ///
+    /// # Threat model
+    ///
+    /// `parse_str`, and its [`FromStr`](core::str::FromStr) delegate,
+    /// is the only attacker controlled surface in this crate. Anything
+    /// downstream of `str::parse::<Decimal32>()` may hand it bytes from
+    /// any source: file content, user keystrokes, JSON or SMIL feeding
+    /// the calculator core. The caller owns deciding whether the source
+    /// is trusted; the parser itself assumes it is not.
+    ///
+    /// The three outcomes worth defending against are a panic on a
+    /// malformed or oversized literal (a denial of service on debug
+    /// builds), a silent miscompute where an overflowing counter wraps
+    /// the unbiased exponent and yields a numerically wrong value with
+    /// no `INVALID` flag, and unbounded work on a long input. All three
+    /// are closed: the digit and implicit exponent counters saturate
+    /// rather than wrapping, an exponent out of range returns
+    /// [`ParseDecimalError::ExponentOutOfRange`] instead of producing a
+    /// wrong `Decimal32`, and the scan is a single linear pass with no
+    /// quadratic blowup. The saturation caps are the private
+    /// `MAX_PARSED_DIGITS` and `MAX_EXPONENT_MAGNITUDE` constants.
+    ///
+    /// Every accumulator is fixed width: a `u64` coefficient, `u32`
+    /// digit counters, an `i32` exponent. Parsing allocates nothing and
+    /// reads only `core::str`, so the residual risk is integer overflow
+    /// inside those counters, addressed by the saturation above, not
+    /// memory exhaustion. The cost is bounded by input length, not by
+    /// input value.
     pub fn parse_str(s: &str, rm: RoundingMode) -> Result<(Self, Status), ParseDecimalError> {
         parse_str_inner(s.as_bytes(), rm)
     }
@@ -135,13 +171,32 @@ fn parse_str_inner(
                         // BEFORE the first non-zero digit. Shifts the
                         // quantum down by one but does not "spend" a
                         // digit-budget slot — the value's significant
-                        // figures haven't started yet.
-                        digits_after_point += 1;
+                        // figures haven't started yet. This branch is
+                        // not bounded by `digits_total` (which stays
+                        // zero until the first significant digit), so
+                        // an adversarial run of leading fractional
+                        // zeros would overflow the `u32` counter (a
+                        // debug-mode panic / DoS). Saturate, then
+                        // reject past `MAX_EXPONENT_MAGNITUDE` — the
+                        // identical guard the explicit-exponent path
+                        // applies at `1e-1000001`.
+                        digits_after_point = digits_after_point.saturating_add(1);
+                        if digits_after_point > MAX_EXPONENT_MAGNITUDE {
+                            return Err(ParseDecimalError::ExponentOutOfRange);
+                        }
                     } else {
+                        // L3: this `* 10 + d` cannot overflow. The
+                        // branch is gated by `digits_total <
+                        // MAX_PARSED_DIGITS` (16), so `coef` holds at
+                        // most 16 decimal digits, under 10^16, well
+                        // inside `u64`.
                         coef = coef * 10 + u64::from(d);
                         digits_total += 1;
                         if decimal_seen {
-                            digits_after_point += 1;
+                            // Bounded by `digits_total <
+                            // MAX_PARSED_DIGITS`; saturating for
+                            // uniformity with the unbounded branches.
+                            digits_after_point = digits_after_point.saturating_add(1);
                         }
                     }
                 } else {
@@ -154,7 +209,17 @@ fn parse_str_inner(
                         // such digit pushes the implicit decimal point
                         // one place further right). Track them so the
                         // final `unbiased_exp` absorbs the shift.
+                        // Saturate, then reject past
+                        // `MAX_EXPONENT_MAGNITUDE`: without the cap an
+                        // adversarial run (`"1" + "0"*3e9`) saturates
+                        // to `u32::MAX`, which reinterprets as `-1`
+                        // under the later `as i32` cast and silently
+                        // miscomputes the exponent. Mirrors the
+                        // explicit-exponent guard.
                         extra_int_digits = extra_int_digits.saturating_add(1);
+                        if extra_int_digits > MAX_EXPONENT_MAGNITUDE {
+                            return Err(ParseDecimalError::ExponentOutOfRange);
+                        }
                     }
                     // Sticky-only fractional digits sit *below* the
                     // coefficient's representation precision and feed
@@ -229,6 +294,11 @@ fn parse_str_inner(
         return Err(ParseDecimalError::InvalidCharacter(idx));
     }
 
+    // `extra_int_digits` and `digits_after_point` are each capped at
+    // MAX_EXPONENT_MAGNITUDE (1_000_000) at their increment sites, so
+    // both casts are well below `i32::MAX` and cannot wrap. The
+    // saturating add / sub then guards only `exp_explicit`'s
+    // contribution.
     let unbiased_exp = exp_explicit
         .saturating_add(extra_int_digits as i32)
         .saturating_sub(digits_after_point as i32);
@@ -338,7 +408,7 @@ fn eq_ignore_ascii_case(a: &[u8], b: &[u8]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bid::{pack_finite, BIAS};
+    use crate::bid::{pack_finite, BiasedExp, Coefficient, BIAS};
 
     fn parse(s: &str) -> Decimal32 {
         Decimal32::parse_str(s, RoundingMode::default())
@@ -368,12 +438,20 @@ mod tests {
     fn parse_fixed_with_decimal() {
         // "0.5" = 5 × 10^-1
         let d = parse("0.5");
-        let expected = Decimal32::from_bits(pack_finite(false, BIAS - 1, 5));
+        let expected = Decimal32::from_bits(pack_finite(
+            false,
+            BiasedExp::try_from_biased(BIAS - 1).unwrap(),
+            Coefficient::try_new(5).unwrap(),
+        ));
         assert_eq!(d.to_bits(), expected.to_bits());
 
         // "-1.25" = -125 × 10^-2
         let d = parse("-1.25");
-        let expected = Decimal32::from_bits(pack_finite(true, BIAS - 2, 125));
+        let expected = Decimal32::from_bits(pack_finite(
+            true,
+            BiasedExp::try_from_biased(BIAS - 2).unwrap(),
+            Coefficient::try_new(125).unwrap(),
+        ));
         assert_eq!(d.to_bits(), expected.to_bits());
     }
 
@@ -381,12 +459,20 @@ mod tests {
     fn parse_scientific() {
         // "1e3" = 1 × 10^3
         let d = parse("1e3");
-        let expected = Decimal32::from_bits(pack_finite(false, BIAS + 3, 1));
+        let expected = Decimal32::from_bits(pack_finite(
+            false,
+            BiasedExp::try_from_biased(BIAS + 3).unwrap(),
+            Coefficient::try_new(1).unwrap(),
+        ));
         assert_eq!(d.to_bits(), expected.to_bits());
 
         // "1.5E-2" = 15 × 10^-3
         let d = parse("1.5E-2");
-        let expected = Decimal32::from_bits(pack_finite(false, BIAS - 3, 15));
+        let expected = Decimal32::from_bits(pack_finite(
+            false,
+            BiasedExp::try_from_biased(BIAS - 3).unwrap(),
+            Coefficient::try_new(15).unwrap(),
+        ));
         assert_eq!(d.to_bits(), expected.to_bits());
     }
 
@@ -436,7 +522,11 @@ mod tests {
     #[test]
     fn parse_leading_zeros() {
         let d = parse("0007");
-        let expected = Decimal32::from_bits(pack_finite(false, BIAS, 7));
+        let expected = Decimal32::from_bits(pack_finite(
+            false,
+            BiasedExp::try_from_biased(BIAS).unwrap(),
+            Coefficient::try_new(7).unwrap(),
+        ));
         assert_eq!(d.to_bits(), expected.to_bits());
     }
 
@@ -445,7 +535,11 @@ mod tests {
         // 8 digits → must round to 7. NearestEven with last digit 8 →
         // round up. 12345678 → 1234568 × 10^1.
         let (d, status) = Decimal32::parse_str("12345678", RoundingMode::NearestEven).unwrap();
-        let expected = Decimal32::from_bits(pack_finite(false, BIAS + 1, 1_234_568));
+        let expected = Decimal32::from_bits(pack_finite(
+            false,
+            BiasedExp::try_from_biased(BIAS + 1).unwrap(),
+            Coefficient::try_new(1_234_568).unwrap(),
+        ));
         assert_eq!(d.to_bits(), expected.to_bits());
         assert!(status.inexact());
     }
@@ -477,7 +571,11 @@ mod tests {
     #[test]
     fn from_str_default_rounding() {
         let d: Decimal32 = "1.23".parse().unwrap();
-        let expected = Decimal32::from_bits(pack_finite(false, BIAS - 2, 123));
+        let expected = Decimal32::from_bits(pack_finite(
+            false,
+            BiasedExp::try_from_biased(BIAS - 2).unwrap(),
+            Coefficient::try_new(123).unwrap(),
+        ));
         assert_eq!(d.to_bits(), expected.to_bits());
     }
 }

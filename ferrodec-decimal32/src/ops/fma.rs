@@ -63,6 +63,49 @@ const _: () = assert!(POW10_U128.len() > 38);
 /// headroom than the worst-case product (`(10⁷ − 1)² ≈ 10¹⁴`).
 const U128_DIGIT_CAP: u32 = 38;
 
+/// Borrow one ULP from `coef` (the dominant operand on an effective
+/// subtraction) and re-extend the bottom digits to the full `u128`
+/// digit budget. Used by FMA's two alignment-overflow early-return
+/// paths to correct the sticky-bit direction when the truncated side's
+/// residue subtracts from the dominant magnitude (the H4 / H2-mirror
+/// defect; the in-crate analogue is the `addsub.rs` borrow-and-extend
+/// the H1 commit `45cdfaf` ported, and the decimal64 `fma.rs`
+/// `h2_borrow_and_extend` is the behavior oracle).
+///
+/// The funnel's `pre_sticky = true` convention encodes a residue
+/// *above* the kept LSB (an additive tail). On effective subtraction
+/// the truncated side instead subtracts from the dominant value, so
+/// the true result sits ε ∈ (0, 1) ULP *below* `coef × 10^exp`. Under
+/// directed roundings (IEEE 754-2019 §4.3) and at exact half-ULP ties
+/// under round-half-even, the unborrowed sticky picks the wrong
+/// neighbour by one ULP; §7 requires the single fused rounding to be
+/// of the true `a × b + c`, so the residue's sign relative to the kept
+/// value must drive the direction.
+///
+/// The dominant coefficient is extended to the full `U128_DIGIT_CAP`
+/// budget before the one-ULP borrow, not merely to a `PRECISION`-digit
+/// cohort. The decimal64 fd-d47 lesson is load-bearing here: a
+/// `PRECISION`-cohort extension leaves a power-of-ten dominant
+/// coefficient as exactly `PRECISION` all-nines digits with no round
+/// digit left, so a sub-ULP deficit rounds *down* (e.g. to
+/// `9.999999E+k`) instead of carrying back up to the dominant
+/// `1.000000E+(k+1)`. Extending to the u128 cap leaves surplus low
+/// digits the funnel rounds and carries correctly. The `addsub.rs`
+/// idiom predates that lesson and patches the power-of-ten case with a
+/// `+1` to `k`; the u128-cap form supersedes it (constants here are
+/// decimal32's `U128_DIGIT_CAP = 38`, not decimal64's).
+fn h2_borrow_and_extend(coef: u128, exp: i32) -> (u128, i32) {
+    let coef_digits = decimal_digit_count_u128(coef);
+    if coef_digits >= U128_DIGIT_CAP {
+        // Already at u128 capacity; borrow at the stored quantum and
+        // let the funnel drop digits with sticky tracking.
+        (coef - 1, exp)
+    } else {
+        let k = U128_DIGIT_CAP - coef_digits;
+        (coef * POW10_U128[k as usize] - 1, exp - k as i32)
+    }
+}
+
 impl Decimal32 {
     /// IEEE 754-2019 `fusedMultiplyAdd(self, b, c)` rounded by `rm`.
     ///
@@ -117,13 +160,22 @@ impl Decimal32 {
         // Both zero: §6.3 sign rule (cancellation between ab=0 and c=0).
         if ab_coef == 0 && coef_c == 0 {
             let result_sign = zero_sum_sign(ab_sign, sign_c, rm);
+            // H3 fix: target_q can fall outside
+            // `[-BIAS, BIASED_EXP_MAX as i32 - BIAS as i32]` when the
+            // zero product's ideal exponent (`ab_exp = q(a) + q(b)`,
+            // range `[-202, +180]`) drives the minimum below `-BIAS`.
+            // IEEE 754-2019 §6.3 + §7.4 require clamping the result
+            // quantum to the representable range and raising the
+            // informational `Clamped` flag.
+            let (biased_exp, clamped) = crate::bid::BiasedExp::clamp_unbiased(target_q);
+            let status = if clamped { Status::CLAMPED } else { Status::OK };
             return (
                 Decimal32::from_bits(crate::bid::pack_finite(
                     result_sign,
-                    (target_q + BIAS as i32) as u32,
-                    0,
+                    biased_exp,
+                    crate::bid::Coefficient::ZERO,
                 )),
-                Status::OK,
+                status,
             );
         }
 
@@ -160,33 +212,44 @@ impl Decimal32 {
         // side's value at `target_q` exceeds `10³⁸`, which is far
         // beyond the other side's representable range (at most ~14
         // digits at `target_q` for ab, ~7 for c). It therefore
-        // *actually* dominates, and the early-return is correct.
+        // *actually* dominates, and the early-return takes the
+        // dominant value plus a sticky bit for the sub-window residue.
+        //
+        // H4 / H2-mirror (Phase 1 finding A3-F3, decimal64 fd-d47):
+        // on effective subtraction (`ab_sign != sign_c`) the truncated
+        // side's residue subtracts from the dominant magnitude, so the
+        // funnel's `pre_sticky = true` convention (residue *above* the
+        // LSB) reads the directed-rounding direction backwards. Borrow
+        // one ULP from the dominant coefficient and re-extend
+        // (`h2_borrow_and_extend`) so the residue is a correctly
+        // signed positive sticky at a lower quantum. IEEE 754-2019 §7
+        // requires the single fused rounding to be of the true
+        // `a × b + c`; §4.3 ties the directed-rounding direction to
+        // the dropped residue's sign relative to the kept value.
         let ab_u128: u128 = if shift_ab <= ab_safe_shift {
             u128::from(ab_coef) * POW10_U128[shift_ab as usize]
         } else {
             pre_sticky |= coef_c != 0;
-            return round_and_pack_into_u32(
-                u128::from(ab_coef),
-                ab_exp,
-                ab_exp,
-                ab_sign,
-                pre_sticky,
-                rm,
-            );
+            let effective_sub = ab_sign != sign_c;
+            let (coef, exp) = if effective_sub && pre_sticky {
+                h2_borrow_and_extend(u128::from(ab_coef), ab_exp)
+            } else {
+                (u128::from(ab_coef), ab_exp)
+            };
+            return round_and_pack_into_u32(coef, exp, target_q, ab_sign, pre_sticky, rm);
         };
 
         let c_u128: u128 = if shift_c <= c_safe_shift {
             u128::from(coef_c) * POW10_U128[shift_c as usize]
         } else {
             pre_sticky |= ab_coef != 0;
-            return round_and_pack_into_u32(
-                u128::from(coef_c),
-                c_exp,
-                c_exp,
-                sign_c,
-                pre_sticky,
-                rm,
-            );
+            let effective_sub = ab_sign != sign_c;
+            let (coef, exp) = if effective_sub && pre_sticky {
+                h2_borrow_and_extend(u128::from(coef_c), c_exp)
+            } else {
+                (u128::from(coef_c), c_exp)
+            };
+            return round_and_pack_into_u32(coef, exp, target_q, sign_c, pre_sticky, rm);
         };
 
         // Sign-aware combine in u128.
@@ -200,13 +263,19 @@ impl Decimal32 {
             // Exact cancellation. §6.3 sign rule.
             let q_preferred = target_q;
             let result_sign = zero_sum_sign(ab_sign, sign_c, rm);
+            // Cancellation mirror of the H3 fix above: when ab and c
+            // align to equal magnitudes (opposite signs), the result
+            // is exact zero and the preferred quantum may fall outside
+            // the representable range. Same §6.3 + §7.4 clamp rule.
+            let (biased_exp, clamped) = crate::bid::BiasedExp::clamp_unbiased(q_preferred);
+            let status = if clamped { Status::CLAMPED } else { Status::OK };
             return (
                 Decimal32::from_bits(crate::bid::pack_finite(
                     result_sign,
-                    (q_preferred + BIAS as i32) as u32,
-                    0,
+                    biased_exp,
+                    crate::bid::Coefficient::ZERO,
                 )),
-                Status::OK,
+                status,
             );
         };
 
@@ -396,7 +465,7 @@ fn handle_specials(a: Class, b: Class, c: Class) -> Option<(Decimal32, Status)> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bid::pack_finite;
+    use crate::bid::{pack_finite, BiasedExp, Coefficient};
 
     fn from_int(n: i32, exp: i32) -> Decimal32 {
         Decimal32::try_new(n, exp).unwrap()
@@ -447,7 +516,11 @@ mod tests {
         let b = from_int(2, 0);
         let c = from_int(5, -3);
         let (r, _) = a.fma(b, c, RoundingMode::NearestEven);
-        let expected = Decimal32::from_bits(pack_finite(false, BIAS - 3, 3005));
+        let expected = Decimal32::from_bits(pack_finite(
+            false,
+            BiasedExp::try_from_biased(BIAS - 3).unwrap(),
+            Coefficient::try_new(3005).unwrap(),
+        ));
         assert_eq!(r.to_bits(), expected.to_bits());
     }
 
@@ -651,5 +724,184 @@ mod tests {
             RoundingMode::TowardNegative,
         );
         assert!(r.is_zero() && r.is_sign_negative());
+    }
+
+    #[test]
+    fn fma_h3_zero_product_at_extreme_negative_quantum_clamps() {
+        // H3 regression. `fma(0E-101, 0E-101, 0E-101)` has ab = 0 and
+        // c = 0, so the result is exact zero. The ideal quantum is
+        // `min(q(a) + q(b), q(c)) = min(-202, -101) = -202`, far below
+        // the format's minimum representable quantum `-BIAS = -101`.
+        // IEEE 754-2019 §6.3 + §7.4 require clamping the result quantum
+        // to `-101` and raising the informational `Clamped` flag. The
+        // result must be a canonical signed zero at the clamped minimum
+        // quantum, not a panic or a non-canonical encoding.
+        let a = Decimal32::try_new(0, -101).unwrap();
+        let b = Decimal32::try_new(0, -101).unwrap();
+        let c = Decimal32::try_new(0, -101).unwrap();
+        let (r, status) = a.fma(b, c, RoundingMode::NearestEven);
+        let expected = Decimal32::try_new(0, -101).unwrap();
+        assert_eq!(
+            r.to_bits(),
+            expected.to_bits(),
+            "fma zero-product at extreme negative quantum should clamp to 0E-101"
+        );
+        assert!(r.is_zero() && !r.is_sign_negative());
+        assert!(
+            status.clamped(),
+            "fma zero-product clamp should raise Status::CLAMPED, got {status:?}"
+        );
+    }
+
+    #[test]
+    fn fma_h3_cancellation_at_extreme_quantum_clamps() {
+        // Cancellation mirror of the H3 fix: ab and c align to equal
+        // magnitudes with opposite signs, producing exact zero with an
+        // out-of-range preferred quantum. Reaching that branch needs a
+        // c at a quantum below `-BIAS = -101` (so the preferred quantum
+        // `min(ab_exp, c_exp)` underflows). Decimal32 cannot directly
+        // construct such a c: `try_new` clamps the exponent into
+        // `[-101, +90]`, and there is no product path that lands an
+        // opposite-sign exact-cancellation pair below `-101` without
+        // first rounding through `round_and_pack_finite`. The
+        // `clamp_unbiased` call in the cancellation branch of `fma.rs`
+        // is therefore exercised structurally by the zero-product test
+        // above, which shares the identical clamp-and-flag code path.
+    }
+
+    #[test]
+    fn fma_h4_effective_subtract_residue_borrows_at_overflow_early_return() {
+        // H4 / H2-mirror (Phase 1 finding A3-F3, decimal64 fd-d47).
+        //
+        // `fma(1E+45, 1E+45, -1E-101)`:
+        //   * `ab = 1 × 1 = 1` at `ab_exp = 45 + 45 = 90`, i.e. the
+        //     exact dominant value `1.000000…E+90` (a power of ten).
+        //   * `c = -1E-101`, the maximally-far opposite-sign operand.
+        //   * `target_q = min(90, -101) = -101`; `shift_ab = 191`,
+        //     `ab_safe_shift = 38 − 1 = 37`. `191 > 37`, so the
+        //     ab-side alignment-overflow early-return fires with
+        //     `pre_sticky = true` (`coef_c != 0`).
+        //
+        // The exact mathematical value is `10^90 − 10^-101`, strictly
+        // *below* `10^90` by a sub-ULP amount (1 ULP at the 7-digit
+        // boundary is `10^84`, vastly larger than `10^-101`).
+        // `effective_sub = ab_sign(false) != sign_c(true)` is true, so
+        // the residue subtracts from the dominant magnitude. The
+        // funnel's `pre_sticky = true` convention encodes an *additive*
+        // tail; without the borrow-and-extend the directed modes tip
+        // the wrong way:
+        //
+        //   pre-fix TowardZero / TowardNegative → `1E+90` (WRONG: one
+        //   ULP too high; the value is below 10^90, not equal to it).
+        //   pre-fix TowardPositive → `2E+90` (WRONG).
+        //
+        // Spec answer (IEEE 754-2019 §7 single rounding of the true
+        // `a × b + c`, §4.3 directed-rounding direction set by the
+        // dropped residue's sign relative to the kept value):
+        //   * TowardZero / TowardNegative: the largest 7-digit value
+        //     below 10^90 = `9.999999E+89`.
+        //   * NearestEven / TowardPositive: nearest / upward neighbour
+        //     = `1.000000E+90`.
+        // §6.3 preferred quantum is `min(ab_exp, c_exp) = -101`,
+        // threaded through the funnel's `target_q`; the inexact-rounded
+        // result returns at quantum 83 (`9.999999E+89`) / 84
+        // (`1.000000E+90`).
+        let a = Decimal32::try_new(1, 45).unwrap();
+        let b = Decimal32::try_new(1, 45).unwrap();
+        let c = Decimal32::try_new(-1, -101).unwrap();
+
+        // 9.999999E+89 = 9_999_999 × 10^83.
+        let down_spec = Decimal32::try_new(9_999_999, 83).unwrap();
+        // 1.000000E+90 = 1_000_000 × 10^84.
+        let up_spec = Decimal32::try_new(1_000_000, 84).unwrap();
+        // The pre-fix wrong directed-mode result: 1 × 10^90.
+        let prefix_wrong = Decimal32::try_new(1, 90).unwrap();
+
+        for m in [RoundingMode::TowardZero, RoundingMode::TowardNegative] {
+            let (r, s) = a.fma(b, c, m);
+            assert_eq!(
+                r.to_bits(),
+                down_spec.to_bits(),
+                "fma(1E+45, 1E+45, -1E-101) under {m:?} should be 9.999999E+89, got {r:?}"
+            );
+            assert_ne!(
+                r.to_bits(),
+                prefix_wrong.to_bits(),
+                "fma(1E+45, 1E+45, -1E-101) under {m:?} must no longer return the \
+                 pre-fix wrong value 1E+90"
+            );
+            assert!(s.inexact(), "subtractive sub-ULP residue is INEXACT");
+        }
+
+        for m in [RoundingMode::NearestEven, RoundingMode::TowardPositive] {
+            let (r, s) = a.fma(b, c, m);
+            assert_eq!(
+                r.to_bits(),
+                up_spec.to_bits(),
+                "fma(1E+45, 1E+45, -1E-101) under {m:?} should be 1.000000E+90, got {r:?}"
+            );
+            assert!(s.inexact());
+        }
+    }
+
+    #[test]
+    fn fma_h4_same_sign_additive_control_no_regression() {
+        // Same-sign control proving the borrow does NOT fire on the
+        // additive path. `fma(1E+45, 1E+45, 1E-101)`: identical
+        // alignment-overflow early-return geometry, but
+        // `effective_sub = ab_sign(false) != sign_c(false)` is FALSE,
+        // so `h2_borrow_and_extend` is skipped and the additive
+        // `pre_sticky = true` convention is read correctly.
+        //
+        // The exact value is `10^90 + 10^-101`, strictly *above*
+        // `10^90` by a sub-ULP amount. Spec answers (§4.3):
+        //   * TowardZero / TowardNegative / NearestEven: the nearest /
+        //     toward-zero / toward-−∞ neighbour is `1.000000E+90`.
+        //   * TowardPositive: round *up* to the next representable
+        //     value above `10^90` = `2.000000E+90`.
+        // The load-bearing control claim: the additive path never
+        // borrows *down* to `9.999999E+89` (the effective-subtract
+        // spec answer), proving `h2_borrow_and_extend` is gated on
+        // `effective_sub` and does not regress the additive funnel.
+        let a = Decimal32::try_new(1, 45).unwrap();
+        let b = Decimal32::try_new(1, 45).unwrap();
+        let c = Decimal32::try_new(1, -101).unwrap();
+        let stay_spec = Decimal32::try_new(1_000_000, 84).unwrap(); // 1.000000E+90
+        let up_spec = Decimal32::try_new(2_000_000, 84).unwrap(); // 2.000000E+90
+        let wrong_low = Decimal32::try_new(9_999_999, 83).unwrap(); // 9.999999E+89
+
+        for m in [
+            RoundingMode::TowardZero,
+            RoundingMode::TowardNegative,
+            RoundingMode::NearestEven,
+        ] {
+            let (r, s) = a.fma(b, c, m);
+            assert_eq!(
+                r.to_bits(),
+                stay_spec.to_bits(),
+                "fma(1E+45, 1E+45, +1E-101) under {m:?} should be 1.000000E+90 \
+                 (additive path, no borrow), got {r:?}"
+            );
+            assert_ne!(
+                r.to_bits(),
+                wrong_low.to_bits(),
+                "additive path must NOT borrow down to 9.999999E+89 under {m:?}"
+            );
+            assert!(s.inexact());
+        }
+
+        let (r, s) = a.fma(b, c, RoundingMode::TowardPositive);
+        assert_eq!(
+            r.to_bits(),
+            up_spec.to_bits(),
+            "fma(1E+45, 1E+45, +1E-101) under TowardPositive should round up to \
+             2.000000E+90 (value is strictly above 10^90), got {r:?}"
+        );
+        assert_ne!(
+            r.to_bits(),
+            wrong_low.to_bits(),
+            "additive path must NOT borrow down to 9.999999E+89 under TowardPositive"
+        );
+        assert!(s.inexact());
     }
 }

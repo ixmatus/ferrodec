@@ -99,6 +99,119 @@ pub(crate) const FORM_B_THRESHOLD: u32 = 1u32 << 23;
 #[allow(dead_code)]
 pub(crate) const COEFFICIENT_FIELD_LIMIT: u32 = (1u32 << 23) + 2 * (1u32 << T_BITS);
 
+// Type-level invariants on encoded fields -----------------------------------
+
+/// A biased exponent in the canonical range `[0, BIASED_EXP_MAX]` for
+/// decimal32. Constructed via the fallible or saturating constructors below;
+/// `pack_finite` accepts only this typed value, so the encoded field is
+/// guaranteed by the type system to fit in the BID-32 8-bit slot.
+///
+/// Replaces a pre-slice `debug_assert!` precondition that admitted release
+/// mode garbage bits on input derived arithmetic (see `KNOWN_ISSUES.md` H3
+/// and the decimal32 correctness slice plan). The invariant now holds at the
+/// type level rather than only in debug builds.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(transparent)]
+pub(crate) struct BiasedExp(u32);
+
+impl BiasedExp {
+    /// The minimum biased exponent: `0`, corresponding to quantum `-BIAS = -101`.
+    pub(crate) const MIN: Self = Self(0);
+    /// The maximum biased exponent: `BIASED_EXP_MAX = 191`, corresponding to
+    /// quantum `+90`.
+    pub(crate) const MAX: Self = Self(BIASED_EXP_MAX);
+    /// The biased exponent for the canonical quantum `0`, which equals `BIAS`.
+    pub(crate) const ZERO_QUANTUM: Self = Self(BIAS);
+
+    /// Construct from a raw biased value. Returns `None` when `biased`
+    /// exceeds `BIASED_EXP_MAX`.
+    #[inline]
+    #[must_use]
+    pub(crate) const fn try_from_biased(biased: u32) -> Option<Self> {
+        if biased <= BIASED_EXP_MAX {
+            Some(Self(biased))
+        } else {
+            None
+        }
+    }
+
+    /// Construct from an unbiased exponent by adding `BIAS`. Returns `None`
+    /// when the unbiased value falls outside the representable range
+    /// `[-BIAS, BIASED_EXP_MAX as i32 - BIAS as i32] = [-101, +90]` for
+    /// decimal32.
+    #[inline]
+    #[must_use]
+    pub(crate) const fn try_from_unbiased(unbiased: i32) -> Option<Self> {
+        let biased = unbiased + BIAS as i32;
+        if biased >= 0 && biased <= BIASED_EXP_MAX as i32 {
+            Some(Self(biased as u32))
+        } else {
+            None
+        }
+    }
+
+    /// Construct from an unbiased exponent, clamping to the representable
+    /// range. Returns the typed value plus a flag indicating whether
+    /// clamping occurred; callers should raise `Status::CLAMPED` when the
+    /// flag is true. Per IEEE 754-2019 §6.3 (preferred exponent clamping
+    /// on additive operations).
+    #[inline]
+    #[must_use]
+    pub(crate) const fn clamp_unbiased(unbiased: i32) -> (Self, bool) {
+        let biased = unbiased + BIAS as i32;
+        if biased < 0 {
+            (Self::MIN, true)
+        } else if biased > BIASED_EXP_MAX as i32 {
+            (Self::MAX, true)
+        } else {
+            (Self(biased as u32), false)
+        }
+    }
+
+    /// The underlying biased exponent value.
+    #[inline]
+    #[must_use]
+    pub(crate) const fn get(self) -> u32 {
+        self.0
+    }
+}
+
+/// A finite coefficient in the canonical range `[0, COEFFICIENT_LIMIT)` for
+/// decimal32. Like `BiasedExp`, replaces a pre-slice `debug_assert!`
+/// precondition on `pack_finite` so the invariant holds at the type level
+/// rather than only in debug builds.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(transparent)]
+pub(crate) struct Coefficient(u32);
+
+impl Coefficient {
+    /// The zero coefficient.
+    pub(crate) const ZERO: Self = Self(0);
+    /// The unit coefficient `1`.
+    pub(crate) const ONE: Self = Self(1);
+    /// The maximum canonical coefficient: `COEFFICIENT_LIMIT - 1`.
+    pub(crate) const MAX: Self = Self(COEFFICIENT_LIMIT - 1);
+
+    /// Construct from a raw `u32`. Returns `None` when the value reaches or
+    /// exceeds `COEFFICIENT_LIMIT = 10^7`.
+    #[inline]
+    #[must_use]
+    pub(crate) const fn try_new(coefficient: u32) -> Option<Self> {
+        if coefficient < COEFFICIENT_LIMIT {
+            Some(Self(coefficient))
+        } else {
+            None
+        }
+    }
+
+    /// The underlying coefficient value.
+    #[inline]
+    #[must_use]
+    pub(crate) const fn get(self) -> u32 {
+        self.0
+    }
+}
+
 // Decoded form of an encoding ------------------------------------------------
 
 /// Result of decoding the bit pattern of a [`Decimal32`].
@@ -209,27 +322,32 @@ pub(crate) const fn classify_bits(bits: u32) -> Class {
 /// Pack a finite (or zero) value, choosing Form A or Form B based on the
 /// coefficient magnitude.
 ///
-/// Caller guarantees `coefficient < COEFFICIENT_LIMIT` (i.e. < 10⁷) and
-/// `biased_exp <= BIASED_EXP_MAX`.
+/// The `BiasedExp` and `Coefficient` types statically guarantee the
+/// invariants `biased_exp.get() <= BIASED_EXP_MAX` and
+/// `coefficient.get() < COEFFICIENT_LIMIT`; no runtime check is needed.
 #[inline]
-pub(crate) const fn pack_finite(sign: bool, biased_exp: u32, coefficient: u32) -> u32 {
-    debug_assert!(coefficient < COEFFICIENT_LIMIT);
-    debug_assert!(biased_exp <= BIASED_EXP_MAX);
+pub(crate) const fn pack_finite(
+    sign: bool,
+    biased_exp: BiasedExp,
+    coefficient: Coefficient,
+) -> u32 {
     let s = (sign as u32) << SIGN_SHIFT;
-    let exp_high2 = (biased_exp >> EC_BITS) & 0b11; // 2 bits → top 2 of biased_exp
-    let ec = biased_exp & ((1 << EC_BITS) - 1);
-    let t = coefficient & T_MASK;
+    let bexp = biased_exp.get();
+    let exp_high2 = (bexp >> EC_BITS) & 0b11; // 2 bits → top 2 of biased_exp
+    let ec = bexp & ((1 << EC_BITS) - 1);
+    let coef = coefficient.get();
+    let t = coef & T_MASK;
 
-    if coefficient < FORM_B_THRESHOLD {
+    if coef < FORM_B_THRESHOLD {
         // Form A: coefficient fits in 23 bits, top 3 bits go in T[2..0].
-        let coef_high3 = (coefficient >> T_BITS) & 0b111;
+        let coef_high3 = (coef >> T_BITS) & 0b111;
         let type_bits = (exp_high2 << 3) | coef_high3;
         s | (type_bits << TYPE_SHIFT) | (ec << EC_SHIFT) | t
     } else {
         // Form B: coefficient is in [2^23, 10^7), encoded as 100_d_xxxx
         // where d is bit 20 of the coefficient. T[4..3] = 11 marks Form B,
         // T[2..1] = exp_high2, T[0] = d.
-        let d = (coefficient >> T_BITS) & 0b1;
+        let d = (coef >> T_BITS) & 0b1;
         let type_bits = (FORM_B_MARKER << 3) | (exp_high2 << 1) | d;
         s | (type_bits << TYPE_SHIFT) | (ec << EC_SHIFT) | t
     }
@@ -303,7 +421,7 @@ mod tests {
 
     #[test]
     fn pack_unpack_roundtrip_zero() {
-        let bits = pack_finite(false, BIAS, 0);
+        let bits = pack_finite(false, BiasedExp::ZERO_QUANTUM, Coefficient::ZERO);
         match classify_bits(bits) {
             Class::Zero { sign, biased_exp } => {
                 assert!(!sign);
@@ -315,7 +433,7 @@ mod tests {
 
     #[test]
     fn pack_unpack_roundtrip_one() {
-        let bits = pack_finite(false, BIAS, 1);
+        let bits = pack_finite(false, BiasedExp::ZERO_QUANTUM, Coefficient::ONE);
         match classify_bits(bits) {
             Class::Finite {
                 sign,
@@ -334,7 +452,11 @@ mod tests {
     fn pack_unpack_roundtrip_form_a_max() {
         // Largest coefficient that still fits in Form A: 2^23 - 1.
         let coef = FORM_B_THRESHOLD - 1;
-        let bits = pack_finite(false, BIAS, coef);
+        let bits = pack_finite(
+            false,
+            BiasedExp::ZERO_QUANTUM,
+            Coefficient::try_new(coef).unwrap(),
+        );
         match classify_bits(bits) {
             Class::Finite {
                 sign,
@@ -353,7 +475,11 @@ mod tests {
     fn pack_unpack_roundtrip_form_b_min() {
         // Smallest Form B coefficient: 2^23.
         let coef = FORM_B_THRESHOLD;
-        let bits = pack_finite(false, BIAS, coef);
+        let bits = pack_finite(
+            false,
+            BiasedExp::ZERO_QUANTUM,
+            Coefficient::try_new(coef).unwrap(),
+        );
         match classify_bits(bits) {
             Class::Finite {
                 sign,
@@ -372,8 +498,7 @@ mod tests {
     fn pack_unpack_roundtrip_max_canonical_coefficient() {
         // Largest canonical coefficient: 10^7 - 1 = 9_999_999. This sits in
         // Form B (since 10^7 - 1 > 2^23).
-        let coef = COEFFICIENT_LIMIT - 1;
-        let bits = pack_finite(true, BIASED_EXP_MAX, coef);
+        let bits = pack_finite(true, BiasedExp::MAX, Coefficient::MAX);
         match classify_bits(bits) {
             Class::Finite {
                 sign,
@@ -382,7 +507,7 @@ mod tests {
             } => {
                 assert!(sign);
                 assert_eq!(biased_exp, BIASED_EXP_MAX);
-                assert_eq!(coefficient, coef);
+                assert_eq!(coefficient, COEFFICIENT_LIMIT - 1);
             }
             other => panic!("expected Finite, got {other:?}"),
         }
@@ -500,7 +625,11 @@ mod tests {
                     9_000_000,
                     COEFFICIENT_LIMIT - 1,
                 ] {
-                    let bits = pack_finite(sign_bit, biased_exp, coef);
+                    let bits = pack_finite(
+                        sign_bit,
+                        BiasedExp::try_from_biased(biased_exp).unwrap(),
+                        Coefficient::try_new(coef).unwrap(),
+                    );
                     let class = classify_bits(bits);
                     if coef == 0 {
                         assert_eq!(

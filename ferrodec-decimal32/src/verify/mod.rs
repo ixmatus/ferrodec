@@ -18,9 +18,29 @@
 mod addsub;
 mod cmp;
 mod div;
+// `exp` / `ln` live behind the `exp-log` feature (ops/exp.rs); the
+// harness references their Kani shims, so it is gated identically.
+#[cfg(feature = "exp-log")]
+mod exp;
 mod fma;
+// `sinh` … `atanh` live behind the `hyperbolic` feature
+// (ops/hyper.rs); the harness references their Kani shims, so it is
+// gated identically.
+#[cfg(feature = "hyperbolic")]
+mod hyper;
 mod mul;
+// `pow` / `cbrt` live behind the `pow` feature (ops/pow.rs); the
+// harness references their Kani shims, so it is gated identically.
+#[cfg(feature = "pow")]
+mod pow;
+// `quantize` … `next_down` are pure decimal (always compiled,
+// `ops/quantum.rs` has no feature gate), so the harness is too.
+mod quantum;
 mod sqrt;
+// `trig` lives behind the `trig` feature (ops/trig.rs); the harness
+// references its Kani shims, so it is gated identically.
+#[cfg(feature = "trig")]
+mod trig;
 
 use crate::decimal::Decimal32;
 use ferrodec_ieee::RoundingMode;

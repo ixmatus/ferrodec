@@ -207,7 +207,11 @@ fn handle_specials(a: Class, b: Class) -> Option<(Decimal32, Status)> {
     if let (Finite { sign: sa, .. } | Zero { sign: sa, .. }, Infinity { sign: sb }) = (a, b) {
         let result_sign = sa ^ sb;
         return Some((
-            Decimal32::from_bits(crate::bid::pack_finite(result_sign, 0, 0)),
+            Decimal32::from_bits(crate::bid::pack_finite(
+                result_sign,
+                crate::bid::BiasedExp::MIN,
+                crate::bid::Coefficient::ZERO,
+            )),
             Status::OK,
         ));
     }
@@ -218,7 +222,7 @@ fn handle_specials(a: Class, b: Class) -> Option<(Decimal32, Status)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bid::pack_finite;
+    use crate::bid::{pack_finite, BiasedExp, Coefficient};
 
     fn from_int(n: i32, exp: i32) -> Decimal32 {
         Decimal32::try_new(n, exp).unwrap()
@@ -234,7 +238,11 @@ mod tests {
 
         // 10 / 4 = 2.5
         let (r, s) = from_int(10, 0).div(from_int(4, 0), RoundingMode::NearestEven);
-        let expected = Decimal32::from_bits(pack_finite(false, BIAS - 1, 25));
+        let expected = Decimal32::from_bits(pack_finite(
+            false,
+            BiasedExp::try_from_biased(BIAS - 1).unwrap(),
+            Coefficient::try_new(25).unwrap(),
+        ));
         assert_eq!(r.to_bits(), expected.to_bits());
         assert!(s.is_ok());
     }
@@ -243,7 +251,11 @@ mod tests {
     fn div_inexact() {
         // 1 / 3 = 0.3333333 (7 digits, INEXACT).
         let (r, s) = from_int(1, 0).div(from_int(3, 0), RoundingMode::NearestEven);
-        let expected = Decimal32::from_bits(pack_finite(false, BIAS - 7, 3_333_333));
+        let expected = Decimal32::from_bits(pack_finite(
+            false,
+            BiasedExp::try_from_biased(BIAS - 7).unwrap(),
+            Coefficient::try_new(3_333_333).unwrap(),
+        ));
         assert_eq!(r.to_bits(), expected.to_bits());
         assert!(s.inexact());
     }

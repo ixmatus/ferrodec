@@ -40,3 +40,8 @@ The ADRs in number order:
 - [0012 — Extract `ferrodec-ieee` after three concrete consumers](0012-extract-ferrodec-ieee.md)
 - [0013 — Conformance harness consolidation across the ferrodec family](0013-conformance-harness-consolidation.md)
 - [0014 — `Display` notation divergence between Decimal128 and the siblings](0014-display-notation-divergence.md)
+- [0015 — Kani scope policy (1.15.0)](0015-kani-scope-policy.md)
+- [0016 — Kani harness shim-routing rule (1.15.0)](0016-kani-harness-shim-routing.md)
+- [0017 — Decimal64 conformance coverage gap (1.15.0)](0017-decimal64-conformance-coverage-gap.md) *(superseded by 0018)*
+- [0018 — Decimal64 H-tier correctness train closing (1.4.0)](0018-decimal64-correctness-train-closing.md) *(supersedes 0017)*
+- [0019 — Decimal32 correctness train closing (1.4.0)](0019-decimal32-correctness-train-closing.md)

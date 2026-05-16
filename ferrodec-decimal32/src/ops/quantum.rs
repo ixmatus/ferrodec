@@ -12,7 +12,8 @@
 //!   navigation operations to the next representable value.
 
 use crate::bid::{
-    classify_bits, decimal_digit_count, Class, BIAS, BIASED_EXP_MAX, COEFFICIENT_LIMIT, PRECISION,
+    classify_bits, decimal_digit_count, Class, BIAS, BIASED_EXP_MAX, COEFFICIENT_LIMIT, E_MAX,
+    PRECISION,
 };
 use crate::decimal::Decimal32;
 use ferrodec_ieee::{should_round_up, RoundingMode, Status};
@@ -47,45 +48,8 @@ impl Decimal32 {
         let ca = classify_bits(self.0);
         let cb = classify_bits(target.0);
 
-        if let Class::SignalingNaN { sign, payload } = ca {
-            return (
-                Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
-                Status::INVALID,
-            );
-        }
-        if let Class::SignalingNaN { sign, payload } = cb {
-            return (
-                Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
-                Status::INVALID,
-            );
-        }
-        if let Class::QuietNaN { sign, payload } = ca {
-            return (
-                Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
-                Status::OK,
-            );
-        }
-        if let Class::QuietNaN { sign, payload } = cb {
-            return (
-                Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
-                Status::OK,
-            );
-        }
-
-        // Infinity: only well-defined when both are infinities (with
-        // the result preserving the sign of self).
-        if let Class::Infinity { sign } = ca {
-            if matches!(cb, Class::Infinity { .. }) {
-                return (
-                    Decimal32::from_bits(crate::bid::pack_infinity(sign)),
-                    Status::OK,
-                );
-            }
-            return (Decimal32::NAN, Status::INVALID);
-        }
-        if matches!(cb, Class::Infinity { .. }) {
-            // self finite, target infinity → INVALID.
-            return (Decimal32::NAN, Status::INVALID);
+        if let Some(special) = quantize_special_cases(ca, cb) {
+            return special;
         }
 
         // Both finite (or self zero).
@@ -118,11 +82,44 @@ impl Decimal32 {
         // fires up to PRECISION digits; for cases that need shifting
         // outside that envelope we have to handle directly.
 
+        // target_biased came from classify_bits (8-bit field decode).
+        let target_biased_typed = crate::bid::BiasedExp::try_from_biased(target_biased)
+            .expect("target_biased from classify_bits");
+
+        // H5: a zero coefficient is representable at every encodable
+        // quantum, so quantize(0, target) is a correctly signed zero
+        // at target's quantum with no exception, whatever the quantum
+        // gap. IEEE 754-2019 §5.3.3 and the GDA quantize operation
+        // raise Invalid_operation only when a non zero coefficient
+        // would need more than PRECISION digits at the target
+        // quantum; zero has no significant digits to overflow. The
+        // pad and drop branches below derive a digit count from the
+        // quantum gap that wrongly trips that gate for zero (the
+        // Decimal64 H6 defect, case ddqua537). Short circuit before
+        // the dispatch so all three rescale branches are covered.
+        if coef == 0 {
+            return (
+                Decimal32::from_bits(crate::bid::pack_finite(
+                    sign,
+                    target_biased_typed,
+                    crate::bid::Coefficient::ZERO,
+                )),
+                Status::OK,
+            );
+        }
+
         // Step 1: rescale to target_q.
         if target_q == self_q {
-            // Already at the right quantum; pack as-is.
+            // Already at the right quantum; pack as-is. coef came from
+            // classify_bits which bounds it below COEFFICIENT_LIMIT.
+            let coef_typed =
+                crate::bid::Coefficient::try_new(coef as u32).expect("coef from classify_bits");
             return (
-                Decimal32::from_bits(crate::bid::pack_finite(sign, target_biased, coef as u32)),
+                Decimal32::from_bits(crate::bid::pack_finite(
+                    sign,
+                    target_biased_typed,
+                    coef_typed,
+                )),
                 Status::OK,
             );
         }
@@ -192,11 +189,14 @@ impl Decimal32 {
                 return (Decimal32::NAN, Status::INVALID);
             }
 
+            // The COEFFICIENT_LIMIT check above guarantees final_coef < limit.
+            let final_coefficient = crate::bid::Coefficient::try_new(final_coef as u32)
+                .expect("final_coef < COEFFICIENT_LIMIT");
             return (
                 Decimal32::from_bits(crate::bid::pack_finite(
                     sign,
-                    target_biased,
-                    final_coef as u32,
+                    target_biased_typed,
+                    final_coefficient,
                 )),
                 status,
             );
@@ -219,12 +219,14 @@ impl Decimal32 {
             return (Decimal32::NAN, Status::INVALID);
         }
         let new_coef = coef * POW10_U64[pad as usize];
-        debug_assert!(new_coef < u64::from(COEFFICIENT_LIMIT));
+        // new_digits <= PRECISION (checked above), so new_coef < 10^PRECISION = COEFFICIENT_LIMIT.
+        let new_coefficient = crate::bid::Coefficient::try_new(new_coef as u32)
+            .expect("new_coef < COEFFICIENT_LIMIT");
         (
             Decimal32::from_bits(crate::bid::pack_finite(
                 sign,
-                target_biased,
-                new_coef as u32,
+                target_biased_typed,
+                new_coefficient,
             )),
             Status::OK,
         )
@@ -238,21 +240,28 @@ impl Decimal32 {
     /// via the standard `round_and_pack_finite` path.
     #[must_use]
     pub fn scaleb(self, n: i32, rm: RoundingMode) -> (Self, Status) {
+        // GDA `scaleb` constrains the integer argument to
+        // `|n| <= 2 * (Emax + precision)`; beyond that the operation
+        // is `Invalid_operation` and returns a quiet NaN. The bound
+        // also keeps `biased_exp - BIAS + n` inside `i32`, so the
+        // exponent arithmetic below cannot overflow (which on `main`
+        // panicked in debug and wrapped silently in release on an
+        // `n` near `i32::MAX`). Decimal64 M2 shape.
+        const SCALEB_N_LIMIT: u32 = 2 * (E_MAX as u32 + PRECISION);
+
         let class = classify_bits(self.0);
+        if let Some(special) = scaleb_special_cases(class) {
+            return special;
+        }
+        // Zero or finite: apply the 10^n shift through the standard
+        // round-and-pack path. The `|n|` envelope INVALID depends on
+        // the runtime `n`, so it lives here, not in the special
+        // cases.
         match class {
-            Class::SignalingNaN { sign, payload } => (
-                Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
-                Status::INVALID,
-            ),
-            Class::QuietNaN { sign, payload } => (
-                Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
-                Status::OK,
-            ),
-            Class::Infinity { sign } => (
-                Decimal32::from_bits(crate::bid::pack_infinity(sign)),
-                Status::OK,
-            ),
             Class::Zero { sign, biased_exp } => {
+                if n.unsigned_abs() > SCALEB_N_LIMIT {
+                    return (Decimal32::NAN, Status::INVALID);
+                }
                 let q = biased_exp as i32 - BIAS as i32 + n;
                 round_and_pack_finite(0, q, q, sign, false, rm, Status::OK)
             }
@@ -261,9 +270,13 @@ impl Decimal32 {
                 biased_exp,
                 coefficient,
             } => {
+                if n.unsigned_abs() > SCALEB_N_LIMIT {
+                    return (Decimal32::NAN, Status::INVALID);
+                }
                 let q = biased_exp as i32 - BIAS as i32 + n;
                 round_and_pack_finite(u64::from(coefficient), q, q, sign, false, rm, Status::OK)
             }
+            _ => unreachable!("special cases handled by scaleb_special_cases"),
         }
     }
 
@@ -278,17 +291,11 @@ impl Decimal32 {
     #[must_use]
     pub fn logb(self) -> (Self, Status) {
         let class = classify_bits(self.0);
+        if let Some(special) = logb_special_cases(class) {
+            return special;
+        }
+        // Finite: logb = adjusted exponent = Q + digits(coef) − 1.
         match class {
-            Class::SignalingNaN { sign, payload } => (
-                Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
-                Status::INVALID,
-            ),
-            Class::QuietNaN { sign, payload } => (
-                Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
-                Status::OK,
-            ),
-            Class::Infinity { .. } => (Decimal32::INFINITY, Status::OK),
-            Class::Zero { .. } => (Decimal32::NEG_INFINITY, Status::DIV_BY_ZERO),
             Class::Finite {
                 biased_exp,
                 coefficient,
@@ -308,6 +315,7 @@ impl Decimal32 {
                     )
                 }
             }
+            _ => unreachable!("special cases handled by logb_special_cases"),
         }
     }
 
@@ -322,32 +330,10 @@ impl Decimal32 {
     /// not raise OVERFLOW.
     #[must_use]
     pub fn next_up(self) -> (Self, Status) {
-        if self.is_signaling_nan() {
-            // Quiet the sNaN, raise INVALID. Preserve the sign and
-            // payload via classify_bits.
-            if let Class::SignalingNaN { sign, payload } = classify_bits(self.0) {
-                return (
-                    Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
-                    Status::INVALID,
-                );
-            }
+        if let Some(special) = next_up_special_cases(self) {
+            return special;
         }
-        if self.is_nan() {
-            return (self, Status::OK);
-        }
-        if self.is_zero() {
-            return (Decimal32::MIN_POSITIVE, Status::OK);
-        }
-        if self.is_infinite() {
-            return (
-                if self.is_sign_negative() {
-                    Decimal32::MIN
-                } else {
-                    Decimal32::INFINITY
-                },
-                Status::OK,
-            );
-        }
+        // Finite: step one ULP along the Decimal32 number line.
         let (sign, bexp, coef) = match classify_bits(self.0) {
             Class::Finite {
                 sign,
@@ -366,23 +352,33 @@ impl Decimal32 {
         let expand = (PRECISION - digits).min(bexp);
         let new_coef = coef * crate::bid::pow10(expand);
         let new_bexp = bexp - expand;
+        // new_bexp ≤ bexp ≤ BIASED_EXP_MAX (bexp from classify_bits).
+        let new_bexp_typed = crate::bid::BiasedExp::try_from_biased(new_bexp)
+            .expect("new_bexp <= bexp from classify_bits");
         if !sign {
             // Positive: ULP up. Spills into the next decade at 10^PRECISION.
             if new_coef + 1 < COEFFICIENT_LIMIT {
+                let coef_typed = crate::bid::Coefficient::try_new(new_coef + 1)
+                    .expect("checked < COEFFICIENT_LIMIT");
                 return (
-                    Decimal32::from_bits(crate::bid::pack_finite(false, new_bexp, new_coef + 1)),
+                    Decimal32::from_bits(crate::bid::pack_finite(
+                        false,
+                        new_bexp_typed,
+                        coef_typed,
+                    )),
                     Status::OK,
                 );
             }
             if new_bexp == BIASED_EXP_MAX {
                 return (Decimal32::INFINITY, Status::OK);
             }
+            // new_bexp < BIASED_EXP_MAX checked above, so new_bexp + 1 fits.
+            let bumped_bexp = crate::bid::BiasedExp::try_from_biased(new_bexp + 1)
+                .expect("new_bexp + 1 <= BIASED_EXP_MAX");
+            let pow_coef = crate::bid::Coefficient::try_new(COEFFICIENT_LIMIT / 10)
+                .expect("COEFFICIENT_LIMIT / 10 < COEFFICIENT_LIMIT");
             return (
-                Decimal32::from_bits(crate::bid::pack_finite(
-                    false,
-                    new_bexp + 1,
-                    COEFFICIENT_LIMIT / 10,
-                )),
+                Decimal32::from_bits(crate::bid::pack_finite(false, bumped_bexp, pow_coef)),
                 Status::OK,
             );
         }
@@ -394,18 +390,22 @@ impl Decimal32 {
         // - 1). Without this, ULP at e.g. −1 would skip the actual
         // adjacent value by a factor of 10.
         if new_coef == COEFFICIENT_LIMIT / 10 && new_bexp > 0 {
+            let dec_bexp =
+                crate::bid::BiasedExp::try_from_biased(new_bexp - 1).expect("new_bexp > 0 checked");
             return (
                 Decimal32::from_bits(crate::bid::pack_finite(
                     true,
-                    new_bexp - 1,
-                    COEFFICIENT_LIMIT - 1,
+                    dec_bexp,
+                    crate::bid::Coefficient::MAX,
                 )),
                 Status::OK,
             );
         }
         if new_coef > 1 {
+            let coef_typed = crate::bid::Coefficient::try_new(new_coef - 1)
+                .expect("new_coef - 1 < new_coef < COEFFICIENT_LIMIT");
             return (
-                Decimal32::from_bits(crate::bid::pack_finite(true, new_bexp, new_coef - 1)),
+                Decimal32::from_bits(crate::bid::pack_finite(true, new_bexp_typed, coef_typed)),
                 Status::OK,
             );
         }
@@ -413,7 +413,11 @@ impl Decimal32 {
         // the same quantum (biased_exp = 0), not the canonical -0
         // (biased_exp = BIAS).
         (
-            Decimal32::from_bits(crate::bid::pack_finite(true, 0, 0)),
+            Decimal32::from_bits(crate::bid::pack_finite(
+                true,
+                crate::bid::BiasedExp::MIN,
+                crate::bid::Coefficient::ZERO,
+            )),
             Status::OK,
         )
     }
@@ -424,23 +428,209 @@ impl Decimal32 {
     /// and raises `INVALID`; all other inputs return `Status::OK`.
     #[must_use]
     pub fn next_down(self) -> (Self, Status) {
-        if self.is_signaling_nan() {
-            if let Class::SignalingNaN { sign, payload } = classify_bits(self.0) {
-                return (
-                    Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
-                    Status::INVALID,
-                );
-            }
+        if let Some(special) = next_down_special_cases(self) {
+            return special;
         }
         let (r, s) = self.neg().next_up();
         (r.neg(), s)
     }
+
+    /// Kani-only entry for the binary `quantize` special-case branch
+    /// (NaN propagation and infinity handling) without the
+    /// finite-finite rescale arithmetic. ADR-0016.
+    #[cfg(kani)]
+    #[doc(hidden)]
+    #[must_use]
+    pub fn quantize_special_only_for_kani(self, target: Self) -> Option<(Self, Status)> {
+        quantize_special_cases(classify_bits(self.0), classify_bits(target.0))
+    }
+
+    /// Kani-only entry for the `scaleb` special-case branch (NaN /
+    /// ±∞; the result is independent of `n`). ADR-0016.
+    #[cfg(kani)]
+    #[doc(hidden)]
+    #[must_use]
+    pub fn scaleb_special_only_for_kani(self) -> Option<(Self, Status)> {
+        scaleb_special_cases(classify_bits(self.0))
+    }
+
+    /// Kani-only entry for the `logb` special-case branch. ADR-0016.
+    #[cfg(kani)]
+    #[doc(hidden)]
+    #[must_use]
+    pub fn logb_special_only_for_kani(self) -> Option<(Self, Status)> {
+        logb_special_cases(classify_bits(self.0))
+    }
+
+    /// Kani-only entry for the `next_up` special-case branch (NaN /
+    /// ±0 / ±∞) without the finite ULP arithmetic. ADR-0016.
+    #[cfg(kani)]
+    #[doc(hidden)]
+    #[must_use]
+    pub fn next_up_special_only_for_kani(self) -> Option<(Self, Status)> {
+        next_up_special_cases(self)
+    }
+
+    /// Kani-only entry for the `next_down` special-case branch.
+    /// ADR-0016.
+    #[cfg(kani)]
+    #[doc(hidden)]
+    #[must_use]
+    pub fn next_down_special_only_for_kani(self) -> Option<(Self, Status)> {
+        next_down_special_cases(self)
+    }
+}
+
+/// Resolve every `quantize` operand combination that does not reach
+/// the finite-finite rescale arithmetic. NaN is inspected in the
+/// fixed order `[self, target]` (signaling → quiet + INVALID, quiet
+/// → quiet + OK), then infinity: `quantize(±∞, ±∞)` preserves the
+/// sign of `self`, any other infinity pairing is `NaN + INVALID`.
+/// Returns `None` only when both operands are finite or zero, the
+/// single case that needs the rescale (including the H5
+/// `coef == 0` short-circuit, which stays in production after this
+/// `None`). Shared by production `quantize` and the Kani shim so the
+/// two cannot drift.
+fn quantize_special_cases(ca: Class, cb: Class) -> Option<(Decimal32, Status)> {
+    if let Class::SignalingNaN { sign, payload } = ca {
+        return Some((
+            Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
+            Status::INVALID,
+        ));
+    }
+    if let Class::SignalingNaN { sign, payload } = cb {
+        return Some((
+            Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
+            Status::INVALID,
+        ));
+    }
+    if let Class::QuietNaN { sign, payload } = ca {
+        return Some((
+            Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
+            Status::OK,
+        ));
+    }
+    if let Class::QuietNaN { sign, payload } = cb {
+        return Some((
+            Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
+            Status::OK,
+        ));
+    }
+    // Infinity: only well-defined when both are infinities (the
+    // result preserving the sign of self).
+    if let Class::Infinity { sign } = ca {
+        if matches!(cb, Class::Infinity { .. }) {
+            return Some((
+                Decimal32::from_bits(crate::bid::pack_infinity(sign)),
+                Status::OK,
+            ));
+        }
+        return Some((Decimal32::NAN, Status::INVALID));
+    }
+    if matches!(cb, Class::Infinity { .. }) {
+        // self finite, target infinity → INVALID.
+        return Some((Decimal32::NAN, Status::INVALID));
+    }
+    None
+}
+
+/// Resolve every `scaleb` input class that does not reach the
+/// round-and-pack shift. `±∞` passes through unchanged, NaN
+/// propagates per §6.2.3. Returns `None` for `Zero` / finite, where
+/// the `|n|` envelope and the `10^n` shift apply (both depend on the
+/// runtime `n`, so neither lives in the special set). Shared by
+/// production `scaleb` and the Kani shim.
+fn scaleb_special_cases(class: Class) -> Option<(Decimal32, Status)> {
+    match class {
+        Class::SignalingNaN { sign, payload } => Some((
+            Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
+            Status::INVALID,
+        )),
+        Class::QuietNaN { sign, payload } => Some((
+            Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
+            Status::OK,
+        )),
+        Class::Infinity { sign } => Some((
+            Decimal32::from_bits(crate::bid::pack_infinity(sign)),
+            Status::OK,
+        )),
+        Class::Zero { .. } | Class::Finite { .. } => None,
+    }
+}
+
+/// Resolve every `logb` input class that does not reach the
+/// adjusted-exponent computation. `±0 → −∞ + DIV_BY_ZERO`,
+/// `±∞ → +∞`, NaN propagates. Returns `None` only for finite
+/// non-zero. Shared by production `logb` and the Kani shim.
+fn logb_special_cases(class: Class) -> Option<(Decimal32, Status)> {
+    match class {
+        Class::SignalingNaN { sign, payload } => Some((
+            Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
+            Status::INVALID,
+        )),
+        Class::QuietNaN { sign, payload } => Some((
+            Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
+            Status::OK,
+        )),
+        Class::Infinity { .. } => Some((Decimal32::INFINITY, Status::OK)),
+        Class::Zero { .. } => Some((Decimal32::NEG_INFINITY, Status::DIV_BY_ZERO)),
+        Class::Finite { .. } => None,
+    }
+}
+
+/// Resolve every `next_up` input that does not reach the finite ULP
+/// arithmetic: signaling NaN is quieted and raises INVALID, quiet
+/// NaN passes through with OK, `±0 → MIN_POSITIVE`, `+∞ → +∞`,
+/// `−∞ → MIN`. Returns `None` only for a finite non-zero, where the
+/// adjacent-value step is computed. Shared by production `next_up`
+/// and the Kani shim so the two cannot drift.
+fn next_up_special_cases(d: Decimal32) -> Option<(Decimal32, Status)> {
+    // Decode the bit pattern exactly once instead of chaining
+    // `is_signaling_nan()` / `is_nan()` / `is_zero()` /
+    // `is_infinite()`, each of which re-ran `classify_bits`.
+    match classify_bits(d.0) {
+        Class::SignalingNaN { sign, payload } => Some((
+            Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
+            Status::INVALID,
+        )),
+        // Quiet NaN passes through unchanged to preserve its payload.
+        Class::QuietNaN { .. } => Some((d, Status::OK)),
+        Class::Zero { .. } => Some((Decimal32::MIN_POSITIVE, Status::OK)),
+        Class::Infinity { sign } => Some((
+            if sign {
+                Decimal32::MIN
+            } else {
+                Decimal32::INFINITY
+            },
+            Status::OK,
+        )),
+        Class::Finite { .. } => None,
+    }
+}
+
+/// Resolve every `next_down` input that does not reach the finite
+/// arithmetic. `next_down(d) = −next_up(−d)`, so the special cases
+/// are the negated `next_up` specials of `−d`, with the signaling
+/// NaN of `d` itself handled first (quieted + INVALID, like
+/// `next_up`). Returns `None` only for a finite non-zero. Shared by
+/// production `next_down` and the Kani shim.
+fn next_down_special_cases(d: Decimal32) -> Option<(Decimal32, Status)> {
+    // One decode of `d` for the signaling-NaN check; the
+    // `−next_up(−d)` identity then drives the remaining specials
+    // (with `next_up`'s own single decode of `−d`).
+    if let Class::SignalingNaN { sign, payload } = classify_bits(d.0) {
+        return Some((
+            Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
+            Status::INVALID,
+        ));
+    }
+    next_up_special_cases(d.neg()).map(|(r, s)| (r.neg(), s))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bid::pack_finite;
+    use crate::bid::{pack_finite, BiasedExp, Coefficient};
 
     fn from_int(n: i32, exp: i32) -> Decimal32 {
         Decimal32::try_new(n, exp).unwrap()
@@ -450,7 +640,11 @@ mod tests {
     fn quantize_pad_with_zeros() {
         // quantize(1, 1E-2) = 1.00 (= 100 × 10^-2)
         let (r, s) = from_int(1, 0).quantize(from_int(1, -2), RoundingMode::NearestEven);
-        let expected = Decimal32::from_bits(pack_finite(false, BIAS - 2, 100));
+        let expected = Decimal32::from_bits(pack_finite(
+            false,
+            BiasedExp::try_from_biased(BIAS - 2).unwrap(),
+            Coefficient::try_new(100).unwrap(),
+        ));
         assert_eq!(r.to_bits(), expected.to_bits());
         assert!(s.is_ok());
     }
@@ -459,7 +653,11 @@ mod tests {
     fn quantize_round_to_target_quantum() {
         // quantize(1.234, 1E-1) = 1.2 (rounded)
         let (r, s) = from_int(1234, -3).quantize(from_int(1, -1), RoundingMode::NearestEven);
-        let expected = Decimal32::from_bits(pack_finite(false, BIAS - 1, 12));
+        let expected = Decimal32::from_bits(pack_finite(
+            false,
+            BiasedExp::try_from_biased(BIAS - 1).unwrap(),
+            Coefficient::try_new(12).unwrap(),
+        ));
         assert_eq!(r.to_bits(), expected.to_bits());
         assert!(s.inexact());
     }
@@ -488,12 +686,20 @@ mod tests {
     fn scaleb_basic() {
         // 1.5 × 10^2 = 150
         let (r, _) = from_int(15, -1).scaleb(2, RoundingMode::NearestEven);
-        let expected = Decimal32::from_bits(pack_finite(false, BIAS + 1, 15));
+        let expected = Decimal32::from_bits(pack_finite(
+            false,
+            BiasedExp::try_from_biased(BIAS + 1).unwrap(),
+            Coefficient::try_new(15).unwrap(),
+        ));
         assert_eq!(r.to_bits(), expected.to_bits());
 
         // 5 × 10^-3 = 0.005
         let (r, _) = from_int(5, 0).scaleb(-3, RoundingMode::NearestEven);
-        let expected = Decimal32::from_bits(pack_finite(false, BIAS - 3, 5));
+        let expected = Decimal32::from_bits(pack_finite(
+            false,
+            BiasedExp::try_from_biased(BIAS - 3).unwrap(),
+            Coefficient::try_new(5).unwrap(),
+        ));
         assert_eq!(r.to_bits(), expected.to_bits());
     }
 
@@ -560,7 +766,12 @@ mod tests {
         // coefficient = 5_000_001.
         assert_eq!(
             r.to_bits(),
-            Decimal32::from_bits(pack_finite(false, BIAS - 6, 5_000_001)).to_bits()
+            Decimal32::from_bits(pack_finite(
+                false,
+                BiasedExp::try_from_biased(BIAS - 6).unwrap(),
+                Coefficient::try_new(5_000_001).unwrap()
+            ))
+            .to_bits()
         );
         assert!(s.is_ok());
     }
@@ -614,5 +825,82 @@ mod tests {
         assert!(r.is_quiet_nan());
         assert!(!r.is_signaling_nan());
         assert!(s.invalid());
+    }
+
+    #[test]
+    fn quantize_zero_at_deep_quantum_is_zero_not_invalid() {
+        // H5 (Decimal64 H6, case ddqua537): a zero coefficient is
+        // representable at every encodable quantum. Before the fix
+        // the pad branch derived a digit count from the quantum gap
+        // and wrongly raised INVALID. Expectations are built through
+        // `parse_str` (the crate is no_std, no `to_string`) and
+        // compared bit exactly, which pins the cohort quantum too.
+        let parse = |s: &str| {
+            Decimal32::parse_str(s, RoundingMode::NearestEven)
+                .unwrap()
+                .0
+        };
+
+        let (r, s) = Decimal32::ZERO.quantize(parse("1E-95"), RoundingMode::NearestEven);
+        assert!(!r.is_nan() && r.is_zero() && !r.is_sign_negative());
+        assert_eq!(r.to_bits(), parse("0E-95").to_bits());
+        assert!(s.is_ok(), "status {s:?}");
+
+        // Format floor: quantum -101 (E_MIN - (PRECISION - 1)).
+        let (r, s) = Decimal32::ZERO.quantize(parse("1E-101"), RoundingMode::NearestEven);
+        assert!(r.is_zero() && s.is_ok());
+        assert_eq!(r.to_bits(), parse("0E-101").to_bits());
+
+        // Sign of self is preserved; a deep positive quantum likewise
+        // no longer trips the gate, across rounding modes.
+        for rm in [
+            RoundingMode::NearestEven,
+            RoundingMode::TowardZero,
+            RoundingMode::TowardNegative,
+        ] {
+            let (r, s) = Decimal32::NEG_ZERO.quantize(parse("1E+50"), rm);
+            assert!(r.is_zero() && r.is_sign_negative() && s.is_ok());
+            assert_eq!(r.to_bits(), parse("-0E+50").to_bits());
+        }
+    }
+
+    #[test]
+    fn scaleb_n_envelope_rejects_out_of_range_argument() {
+        // M2 (Decimal64 M2): |n| > 2*(E_MAX + PRECISION) = 206 is
+        // Invalid_operation. Before the fix an `n` near i32::MAX
+        // overflowed `biased_exp - BIAS + n` (debug panic, release
+        // wrap) instead of returning a quiet NaN.
+        let one = Decimal32::parse_str("1", RoundingMode::NearestEven)
+            .unwrap()
+            .0;
+        for n in [207, -207, i32::MAX, i32::MIN] {
+            let (r, s) = one.scaleb(n, RoundingMode::NearestEven);
+            assert!(r.is_nan() && s.invalid(), "scaleb({n}) -> {r} {s:?}");
+        }
+        // The boundary value 206 is a valid argument: it is processed
+        // (here it overflows the format to infinity with OVERFLOW),
+        // not rejected as INVALID.
+        let (r, s) = one.scaleb(206, RoundingMode::NearestEven);
+        assert!(r.is_infinite() && !s.invalid() && s.overflow());
+        // NaN and infinity ignore n entirely, even out of envelope.
+        let (r, s) = Decimal32::INFINITY.scaleb(i32::MAX, RoundingMode::NearestEven);
+        assert!(r.is_infinite() && !r.is_sign_negative() && s.is_ok());
+        let (r, s) = Decimal32::SIGNALING_NAN.scaleb(i32::MAX, RoundingMode::NearestEven);
+        assert!(r.is_quiet_nan() && s.invalid());
+        // A modest in-range scaleb still works.
+        let v = Decimal32::parse_str("1.5", RoundingMode::NearestEven)
+            .unwrap()
+            .0;
+        let (r, s) = v.scaleb(2, RoundingMode::NearestEven);
+        assert!(s.is_ok());
+        // scaleb preserves the coefficient and shifts the quantum, so
+        // 1.5 scaleb 2 is 15E1 (the cohort of "1.5E2"), not 150E0.
+        assert_eq!(
+            r.to_bits(),
+            Decimal32::parse_str("1.5E2", RoundingMode::NearestEven)
+                .unwrap()
+                .0
+                .to_bits()
+        );
     }
 }

@@ -68,56 +68,84 @@ impl Decimal32 {
         magnitude: u32,
         exponent: i32,
     ) -> Result<Self, Decimal32BuildError> {
-        if magnitude >= bid::COEFFICIENT_LIMIT {
-            return Err(Decimal32BuildError::CoefficientOutOfRange);
-        }
-        let biased = i64::from(exponent) + i64::from(bid::BIAS);
-        if biased < 0 || biased > i64::from(bid::BIASED_EXP_MAX) {
-            return Err(Decimal32BuildError::ExponentOutOfRange);
-        }
-        Ok(Self(bid::pack_finite(sign, biased as u32, magnitude)))
+        let coefficient = match bid::Coefficient::try_new(magnitude) {
+            Some(c) => c,
+            None => return Err(Decimal32BuildError::CoefficientOutOfRange),
+        };
+        let biased_exp = match bid::BiasedExp::try_from_unbiased(exponent) {
+            Some(b) => b,
+            None => return Err(Decimal32BuildError::ExponentOutOfRange),
+        };
+        Ok(Self(bid::pack_finite(sign, biased_exp, coefficient)))
     }
 
     // -- IEEE 754 distinguished values --------------------------------------
 
     /// `+0` with quantum exponent 0 (encoded as `0E+0`).
-    pub const ZERO: Self = Self(bid::pack_finite(false, bid::BIAS, 0));
+    pub const ZERO: Self = Self(bid::pack_finite(
+        false,
+        bid::BiasedExp::ZERO_QUANTUM,
+        bid::Coefficient::ZERO,
+    ));
 
     /// `−0` with quantum exponent 0.
-    pub const NEG_ZERO: Self = Self(bid::pack_finite(true, bid::BIAS, 0));
+    pub const NEG_ZERO: Self = Self(bid::pack_finite(
+        true,
+        bid::BiasedExp::ZERO_QUANTUM,
+        bid::Coefficient::ZERO,
+    ));
 
     /// `1` with quantum exponent 0.
-    pub const ONE: Self = Self(bid::pack_finite(false, bid::BIAS, 1));
+    pub const ONE: Self = Self(bid::pack_finite(
+        false,
+        bid::BiasedExp::ZERO_QUANTUM,
+        bid::Coefficient::ONE,
+    ));
 
     /// `−1` with quantum exponent 0.
-    pub const NEG_ONE: Self = Self(bid::pack_finite(true, bid::BIAS, 1));
+    pub const NEG_ONE: Self = Self(bid::pack_finite(
+        true,
+        bid::BiasedExp::ZERO_QUANTUM,
+        bid::Coefficient::ONE,
+    ));
 
     /// `+10` with quantum exponent 0.
-    pub const TEN: Self = Self(bid::pack_finite(false, bid::BIAS, 10));
+    pub const TEN: Self = Self(bid::pack_finite(
+        false,
+        bid::BiasedExp::ZERO_QUANTUM,
+        bid::Coefficient::try_new(10).unwrap(),
+    ));
 
     /// Largest representable finite value: `9.999999 × 10⁹⁶`.
     pub const MAX: Self = Self(bid::pack_finite(
         false,
-        bid::BIASED_EXP_MAX,
-        bid::COEFFICIENT_LIMIT - 1,
+        bid::BiasedExp::MAX,
+        bid::Coefficient::MAX,
     ));
 
     /// Smallest (most negative) finite value: `−Decimal32::MAX`.
     pub const MIN: Self = Self(bid::pack_finite(
         true,
-        bid::BIASED_EXP_MAX,
-        bid::COEFFICIENT_LIMIT - 1,
+        bid::BiasedExp::MAX,
+        bid::Coefficient::MAX,
     ));
 
     /// Smallest positive value: `1 × 10⁻¹⁰¹` (subnormal).
-    pub const MIN_POSITIVE: Self = Self(bid::pack_finite(false, 0, 1));
+    pub const MIN_POSITIVE: Self = Self(bid::pack_finite(
+        false,
+        bid::BiasedExp::MIN,
+        bid::Coefficient::ONE,
+    ));
 
     /// Smallest positive normal value: `1 × 10⁻⁹⁵`.
     ///
     /// Numbers below this magnitude (but above zero) are subnormal —
     /// representable but with reduced precision.
-    pub const MIN_POSITIVE_NORMAL: Self =
-        Self(bid::pack_finite(false, bid::BIAS - bid::PRECISION + 1, 1));
+    pub const MIN_POSITIVE_NORMAL: Self = Self(bid::pack_finite(
+        false,
+        bid::BiasedExp::try_from_biased(bid::BIAS - bid::PRECISION + 1).unwrap(),
+        bid::Coefficient::ONE,
+    ));
 
     /// Canonical quiet NaN with sign bit clear and a zero payload.
     pub const NAN: Self = Self(bid::pack_quiet_nan(false, 0));
@@ -223,7 +251,14 @@ mod tests {
     #[test]
     fn try_new_basic() {
         let x = Decimal32::try_new(123, -2).unwrap();
-        assert_eq!(x.to_bits(), bid::pack_finite(false, bid::BIAS - 2, 123));
+        assert_eq!(
+            x.to_bits(),
+            bid::pack_finite(
+                false,
+                bid::BiasedExp::try_from_biased(bid::BIAS - 2).unwrap(),
+                bid::Coefficient::try_new(123).unwrap(),
+            )
+        );
 
         let neg = Decimal32::try_new(-1, 0).unwrap();
         assert_eq!(neg.to_bits(), Decimal32::NEG_ONE.to_bits());
