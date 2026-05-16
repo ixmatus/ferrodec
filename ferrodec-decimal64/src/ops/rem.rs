@@ -35,10 +35,22 @@ const U128_DIGIT_CAP: u32 = 38;
 const _: () = assert!(POW10_U128.len() > U128_DIGIT_CAP as usize);
 
 impl Decimal64 {
-    /// Truncated remainder.
+    /// Truncated remainder: `rem(a, b) = a − trunc(a / b) × b`.
+    ///
+    /// This is the *truncated*-quotient remainder (GDA `remainder`,
+    /// IEEE 754-2019 §5.3.1). There is intentionally no separate
+    /// `rem_trunc` method: this is the only remainder the slice plan
+    /// once referred to under that name. The round-half-even
+    /// `remainder` (`remainder_near`, IEEE §5.3.1 nearest-quotient)
+    /// is a deliberate non-goal for 1.4.0, deferred to a follow-up
+    /// slice (Phase 1 Decision 2).
+    ///
+    /// `rm` is unused: a truncated remainder is exact (its magnitude
+    /// is strictly below `|b|` and it shares the dividend's quantum
+    /// floor), so no rounding ever occurs. The parameter is retained
+    /// only so the signature matches the other binary operations.
     #[must_use]
-    pub fn rem(self, other: Self, rm: RoundingMode) -> (Self, Status) {
-        let _ = rm;
+    pub fn rem(self, other: Self, _rm: RoundingMode) -> (Self, Status) {
         let ca = classify_bits(self.0);
         let cb = classify_bits(other.0);
 
