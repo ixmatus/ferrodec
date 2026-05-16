@@ -51,7 +51,7 @@ serde = ["fmt", "dep:serde"]
 # auto-enables `ops`. Pulls `fmt` because `Num::from_str_radix`
 # routes through `parse_str`. Pulls `binary-float` because
 # integer-conversion paths route through `f64`.
-num-traits = ["fmt", "ops", "binary-float", "dep:num-traits", "dep:libm"]
+num-traits = ["fmt", "ops", "binary-float", "dep:num-traits"]
 # DPD (Densely Packed Decimal) byte-pattern interchange:
 # `Decimal32::to_dpd_bytes` / `from_dpd_bytes`. ferrodec stores the
 # BID encoding internally for arithmetic; DPD is the interchange
