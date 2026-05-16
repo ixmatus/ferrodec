@@ -38,6 +38,12 @@
 //!   suspected static-alignment-window defect would live, so a
 //!   mismatch here is a signal to investigate (Phase 0b, beads
 //!   fd-pab), not noise to suppress.
+//! - `div`: a quotient can be non terminating, so the Decimal64
+//!   step rounds to 16 digits before the round back to 7. The same
+//!   double rounding caveat as `add` / `sub` applies; it is a
+//!   strong screen, not an exact oracle, and the divide by zero and
+//!   zero over zero cases resolve through the infinity and NaN arms
+//!   of `same_result`.
 //!
 //! Status is intentionally not cross-checked. Decimal32 and Decimal64
 //! have different exponent ranges, so OVERFLOW, UNDERFLOW, and
@@ -146,6 +152,7 @@ oracle -> {expected} (a_bits={:#010x} b_bits={:#010x})",
 crosscheck_active!(mul_matches_decimal64, mul);
 crosscheck_active!(add_matches_decimal64, add);
 crosscheck_active!(sub_matches_decimal64, sub);
+crosscheck_active!(div_matches_decimal64, div);
 
 // `rem` cannot use the generic Decimal64 oracle directly. The
 // Decimal64 `rem` keys its `Division_impossible` predicate on its own
