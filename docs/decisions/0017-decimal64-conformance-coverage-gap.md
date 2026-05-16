@@ -1,6 +1,6 @@
 # ADR-0017: decimal64 conformance coverage gap surfaced during Slice D
 
-- **Status**: accepted
+- **Status**: superseded by ADR-0018
 - **Date**: 2026-05-11
 
 ## Context

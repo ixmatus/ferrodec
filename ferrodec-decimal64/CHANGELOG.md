@@ -7,6 +7,133 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-05-15
+
+The decimal64 correctness train. ADR-0017 carved this slice out of
+the 1.15 cycle after Slice D's conformance dispatcher found three
+H-class correctness bugs in `Decimal64` that mirror `Decimal128`'s
+pre-1.13 H-tier shapes; the dispatcher gap had masked their absence
+during the 1.13.x decimal128 fixes. A six-agent correctness review
+(ADR-0010 methodology) then swept the whole decimal64 op surface and
+produced 9 H, 14 M, 17 L findings. This release closes the H and M
+tiers, the L-tier drift, wires the full arithmetic conformance
+dispatch, and records the train in ADR-0018 (which supersedes
+ADR-0017). See the parent `ferrodec` crate's CHANGELOG for cycle
+context.
+
+This is a minor bump rather than a patch: the H1 and H2 fixes change
+observable outputs on inputs that were previously wrong against the
+spec, and `to_f64` gains a breaking signature change (below). A
+downstream consumer that implicitly relied on the old behaviour
+should read the Changed section.
+
+### Changed
+
+- **BREAKING**: `Decimal64::to_f64` signature changes from
+  `fn to_f64(self) -> f64` to
+  `fn to_f64(self, rm: RoundingMode) -> (f64, Status)`. A signaling
+  NaN input now raises `Status::INVALID` per IEEE 754-2019 §5.4.1
+  instead of being silently quieted (H7). Mirrors the `Decimal128`
+  `67bd45c` change. Migration: pass a rounding mode and take `.0`
+  for the value, `.1` for the status.
+
+- `Decimal64::to_f32` takes the direct decimal path instead of a
+  `to_f64` detour, removing a double-rounding error on values near
+  the f32 boundary; raises `INVALID` on signaling NaN and
+  `OVERFLOW` / `UNDERFLOW` / `INEXACT` consistently (M4).
+
+- Integer conversions (`to_i32` / `to_i64` / `to_i128` / `to_u32` /
+  `to_u64` / `to_u128`) are now exact per IEEE 754-2019 §5.4.1 with
+  no `f64` detour, rounding `NearestEven`; the `num-traits` feature
+  no longer pulls `dep:libm` (M5).
+
+### Fixed
+
+- **H1**: finite-finite addition no longer loses the result
+  magnitude when exactly one operand is zero with a wide exponent
+  gap (`ddadd360`: `add(...)` returned `0E+50` where `1.0000E+5`
+  was expected). The other operand is now requantised to the §6.3
+  preferred quantum.
+
+- **H2**: effective-subtract residue attribution at the 16-digit
+  precision boundary now borrows correctly
+  (`ddadd71100..71119` plus the negated mirror, one `ddMultiply`
+  case, and 20 `ddFMA` mirrors).
+
+- **fd-d47** (residual H2, surfaced by the conformance dispatch):
+  the add and FMA alignment used a static 22-digit window that
+  truncated the lower operand prematurely when the dominant
+  coefficient was small (`1E16` is stored as `coef 1, exp 16`),
+  misrounding the boundary tie. Replaced with a dynamic per-side
+  shift bound keyed on the actual digit count (the `rem.rs` H5
+  approach), so the subtraction stays exact whenever it fits in
+  `u128`. Cleared 20 `ddAdd` and 8 `ddFMA` boundary cases.
+
+- **H3**: `Decimal64::fma` no longer feeds an out-of-range biased
+  exponent into `pack_finite` (`ddfma2504`). Introduced typed
+  `BiasedExp` and `Coefficient` newtypes in `bid.rs` whose
+  constructors prove the range, removing the `debug_assert!` that
+  release builds compiled out; the §6.3 + §7.4 clamp now raises
+  `Status::CLAMPED`.
+
+- **H4**: `Decimal64::fma`'s early-return paths thread the §6.3
+  preferred quantum into the funnel, so a zero or cancelled product
+  result returns in the canonical cohort (`fma0306`).
+
+- **H5**: `Decimal64::rem`'s `Division_impossible` predicate now
+  bounds the per-side alignment shift dynamically by quotient digit
+  count rather than a static gap, so `rem(1E+25, 10^16-1)` resolves.
+
+- **H6**: `Decimal64::quantize` returns a zero coefficient at any
+  target quantum in the format's exponent range, instead of
+  `(NaN, INVALID)` (`ddqua537`).
+
+- **H7**: `Decimal64::to_f64` raises `INVALID` on signaling NaN
+  (see the breaking signature note above).
+
+- **H8**: `Decimal64::parse_str` no longer debug-panics on
+  adversarial leading fractional zeros; the digit counters saturate
+  and clamp at the exponent magnitude cap.
+
+- **H9**: the IEEE 754-2019 §7.4 informational `Status::CLAMPED`
+  flag is now raised at the in-operation clamp sites (`round.rs`
+  §6.3 pad and zero-exponent clamp, `div.rs` finite-or-zero over
+  Infinity Etiny path).
+
+- **M tier**: subnormal-inexact `UNDERFLOW` (M1); `scaleb`
+  GDA n-envelope, removing an `i32` overflow (M2); `from_f64`
+  signaling bit-pattern `INVALID` (M3); plus the M4 / M5 conversion
+  changes listed under Changed.
+
+- **subtract** NaN-sign: `subtract x NaN` propagates `NaN` (and
+  `subtract x -NaN` propagates `-NaN`) with the operand's original
+  sign; the prior unconditional `neg()` flipped it. Surfaced by
+  wiring the `subtract` conformance arm.
+
+### Added
+
+- The arithmetic conformance dispatch now covers `add`, `subtract`,
+  `multiply`, `divide`, and `fma` against the vendored Cowlishaw
+  `dd*.decTest` corpus, with exact per-file pass counts
+  (`ddAdd` 973, `ddSubtract` 514, `ddMultiply` 444, `ddDivide` 702,
+  `ddFMA` 1318, `ddBase` 708) guarded per ADR-0010. The full corpus
+  runs with zero failures.
+
+- Kani harnesses and ADR-0016 special-case-only shims for the
+  transcendental cluster: `exp` / `ln` (M10), the trigonometric
+  family (M11), the hyperbolic family (M12), `pow` / `cbrt` (M13),
+  and the quantum-manipulating family (M14).
+
+- `tests/property_transcendentals.rs`: an `astro-float` oracle
+  cross-check of the transcendentals at the documented f64-pipeline
+  envelope (M15).
+
+- Documentation: a parser threat model (M6), the transcendental
+  saturation and argument-reduction precision envelopes (M7 / M8 /
+  M9), and the L-tier invariant and diagnostics cleanup (L1..L13,
+  L15..L17). L14 (a richer parse error surface) is deferred to v2.0
+  as a breaking change.
+
 ## [1.3.0] - 2026-05-11
 
 The post-publish six-agent correctness review (2026-05-10) found
