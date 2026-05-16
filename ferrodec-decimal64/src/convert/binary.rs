@@ -78,8 +78,20 @@ impl Decimal64 {
     #[must_use]
     pub fn from_f64(x: f64, rm: RoundingMode) -> (Self, Status) {
         if x.is_nan() {
-            // f64 only carries quiet NaN at the language level.
-            return (Decimal64::NAN, Status::OK);
+            // IEEE 754-2019 §5.4.2: a signaling NaN operand raises
+            // INVALID. Rust language-level NaNs are quiet, but a bit
+            // pattern reaching here via `f64::from_bits` or FFI can be
+            // signaling: among binary64 NaNs, signaling is exactly the
+            // quiet bit (mantissa MSB, bit 51) clear. M3 / Agent 5 B6.
+            let signaling = x.to_bits() & 0x0008_0000_0000_0000 == 0;
+            return (
+                Decimal64::NAN,
+                if signaling {
+                    Status::INVALID
+                } else {
+                    Status::OK
+                },
+            );
         }
         if x.is_infinite() {
             return (
@@ -261,6 +273,27 @@ mod tests {
 
         let (d, _) = Decimal64::from_f64(0.0, RoundingMode::NearestEven);
         assert_eq!(d.to_bits(), Decimal64::ZERO.to_bits());
+    }
+
+    #[test]
+    fn from_f64_signaling_bit_pattern_raises_invalid() {
+        // M3 / Agent 5 B6. A quiet f64 NaN is OK; a signaling bit
+        // pattern (quiet bit clear, mantissa non-zero) raises INVALID
+        // per IEEE 754-2019 §5.4.2.
+        let (d, s) = Decimal64::from_f64(f64::NAN, RoundingMode::NearestEven);
+        assert!(d.is_quiet_nan());
+        assert_eq!(s, Status::OK);
+
+        let snan = f64::from_bits(0x7FF0_0000_0000_0001);
+        assert!(snan.is_nan());
+        let (d, s) = Decimal64::from_f64(snan, RoundingMode::NearestEven);
+        assert!(d.is_quiet_nan());
+        assert_eq!(s, Status::INVALID);
+
+        // Negative signaling pattern too.
+        let neg_snan = f64::from_bits(0xFFF0_0000_0000_0002);
+        let (_, s) = Decimal64::from_f64(neg_snan, RoundingMode::NearestEven);
+        assert_eq!(s, Status::INVALID);
     }
 
     #[test]
