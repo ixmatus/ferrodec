@@ -18,6 +18,10 @@
 mod addsub;
 mod cmp;
 mod div;
+// `exp` / `ln` live behind the `exp-log` feature (ops/exp.rs); the
+// harness references their Kani shims, so it is gated identically.
+#[cfg(feature = "exp-log")]
+mod exp;
 mod fma;
 mod mul;
 mod sqrt;
