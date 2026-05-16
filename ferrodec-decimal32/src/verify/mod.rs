@@ -23,6 +23,11 @@ mod div;
 #[cfg(feature = "exp-log")]
 mod exp;
 mod fma;
+// `sinh` … `atanh` live behind the `hyperbolic` feature
+// (ops/hyper.rs); the harness references their Kani shims, so it is
+// gated identically.
+#[cfg(feature = "hyperbolic")]
+mod hyper;
 mod mul;
 mod sqrt;
 // `trig` lives behind the `trig` feature (ops/trig.rs); the harness

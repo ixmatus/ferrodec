@@ -15,146 +15,58 @@ impl Decimal32 {
     /// IEEE 754-2019 §9.2 `sinh(self)` rounded by `rm`.
     #[must_use]
     pub fn sinh(self, rm: RoundingMode) -> (Self, Status) {
-        match classify_bits(self.0) {
-            Class::SignalingNaN { sign, payload } => (
-                Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
-                Status::INVALID,
-            ),
-            Class::QuietNaN { sign, payload } => (
-                Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
-                Status::OK,
-            ),
-            Class::Infinity { sign } => (
-                if sign {
-                    Decimal32::NEG_INFINITY
-                } else {
-                    Decimal32::INFINITY
-                },
-                Status::OK,
-            ),
-            Class::Zero { sign, .. } => (
-                if sign {
-                    Decimal32::NEG_ZERO
-                } else {
-                    Decimal32::ZERO
-                },
-                Status::OK,
-            ),
-            Class::Finite { .. } => f64_unary(self, libm::sinh, rm),
+        if let Some(special) = sinh_special_cases(classify_bits(self.0)) {
+            return special;
         }
+        // Finite non-zero: route through f64.
+        f64_unary(self, libm::sinh, rm)
     }
 
     /// IEEE 754-2019 §9.2 `cosh(self)` rounded by `rm`.
     #[must_use]
     pub fn cosh(self, rm: RoundingMode) -> (Self, Status) {
-        match classify_bits(self.0) {
-            Class::SignalingNaN { sign, payload } => (
-                Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
-                Status::INVALID,
-            ),
-            Class::QuietNaN { sign, payload } => (
-                Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
-                Status::OK,
-            ),
-            Class::Infinity { .. } => (Decimal32::INFINITY, Status::OK),
-            Class::Zero { .. } => (Decimal32::ONE, Status::OK),
-            Class::Finite { .. } => f64_unary(self, libm::cosh, rm),
+        if let Some(special) = cosh_special_cases(classify_bits(self.0)) {
+            return special;
         }
+        // Finite non-zero: route through f64.
+        f64_unary(self, libm::cosh, rm)
     }
 
     /// IEEE 754-2019 §9.2 `tanh(self)` rounded by `rm`.
     #[must_use]
     pub fn tanh(self, rm: RoundingMode) -> (Self, Status) {
-        match classify_bits(self.0) {
-            Class::SignalingNaN { sign, payload } => (
-                Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
-                Status::INVALID,
-            ),
-            Class::QuietNaN { sign, payload } => (
-                Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
-                Status::OK,
-            ),
-            // tanh(±∞) = ±1.
-            Class::Infinity { sign } => (
-                if sign {
-                    Decimal32::NEG_ONE
-                } else {
-                    Decimal32::ONE
-                },
-                Status::OK,
-            ),
-            Class::Zero { sign, .. } => (
-                if sign {
-                    Decimal32::NEG_ZERO
-                } else {
-                    Decimal32::ZERO
-                },
-                Status::OK,
-            ),
-            Class::Finite { .. } => f64_unary(self, libm::tanh, rm),
+        if let Some(special) = tanh_special_cases(classify_bits(self.0)) {
+            return special;
         }
+        // Finite non-zero: route through f64.
+        f64_unary(self, libm::tanh, rm)
     }
 
     /// IEEE 754-2019 §9.2 `asinh(self)` rounded by `rm`.
     #[must_use]
     pub fn asinh(self, rm: RoundingMode) -> (Self, Status) {
-        match classify_bits(self.0) {
-            Class::SignalingNaN { sign, payload } => (
-                Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
-                Status::INVALID,
-            ),
-            Class::QuietNaN { sign, payload } => (
-                Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
-                Status::OK,
-            ),
-            // asinh(±∞) = ±∞.
-            Class::Infinity { sign } => (
-                if sign {
-                    Decimal32::NEG_INFINITY
-                } else {
-                    Decimal32::INFINITY
-                },
-                Status::OK,
-            ),
-            Class::Zero { sign, .. } => (
-                if sign {
-                    Decimal32::NEG_ZERO
-                } else {
-                    Decimal32::ZERO
-                },
-                Status::OK,
-            ),
-            Class::Finite { .. } => f64_unary(self, libm::asinh, rm),
+        if let Some(special) = asinh_special_cases(classify_bits(self.0)) {
+            return special;
         }
+        // Finite non-zero: route through f64.
+        f64_unary(self, libm::asinh, rm)
     }
 
     /// IEEE 754-2019 §9.2 `acosh(self)` rounded by `rm`. Domain:
     /// `[1, +∞)`. Inputs below 1 raise INVALID.
     #[must_use]
     pub fn acosh(self, rm: RoundingMode) -> (Self, Status) {
-        match classify_bits(self.0) {
-            Class::SignalingNaN { sign, payload } => (
-                Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
-                Status::INVALID,
-            ),
-            Class::QuietNaN { sign, payload } => (
-                Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
-                Status::OK,
-            ),
-            // acosh(+∞) = +∞; acosh(-∞) = NaN.
-            Class::Infinity { sign: false } => (Decimal32::INFINITY, Status::OK),
-            Class::Infinity { sign: true } => (Decimal32::NAN, Status::INVALID),
-            Class::Zero { .. } | Class::Finite { sign: true, .. } => {
-                (Decimal32::NAN, Status::INVALID)
-            }
-            Class::Finite { sign: false, .. } => {
-                let x = self.to_f64(RoundingMode::NearestEven).0;
-                if x < 1.0 {
-                    return (Decimal32::NAN, Status::INVALID);
-                }
-                f64_unary_via_value(x, libm::acosh, rm)
-            }
+        if let Some(special) = acosh_special_cases(classify_bits(self.0)) {
+            return special;
         }
+        // Positive finite non-zero: the `x < 1` domain check depends
+        // on the rounded f64 value, so it is part of the f64
+        // pipeline `_special_cases` returns `None` for.
+        let x = self.to_f64(RoundingMode::NearestEven).0;
+        if x < 1.0 {
+            return (Decimal32::NAN, Status::INVALID);
+        }
+        f64_unary_via_value(x, libm::acosh, rm)
     }
 
     /// IEEE 754-2019 §9.2 `atanh(self)` rounded by `rm`. Domain:
@@ -162,42 +74,250 @@ impl Decimal32 {
     /// interval raises INVALID.
     #[must_use]
     pub fn atanh(self, rm: RoundingMode) -> (Self, Status) {
-        match classify_bits(self.0) {
-            Class::SignalingNaN { sign, payload } => (
-                Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
-                Status::INVALID,
-            ),
-            Class::QuietNaN { sign, payload } => (
-                Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
-                Status::OK,
-            ),
-            Class::Infinity { .. } => (Decimal32::NAN, Status::INVALID),
-            Class::Zero { sign, .. } => (
-                if sign {
-                    Decimal32::NEG_ZERO
-                } else {
-                    Decimal32::ZERO
-                },
-                Status::OK,
-            ),
-            Class::Finite { .. } => {
-                let x = self.to_f64(RoundingMode::NearestEven).0;
-                if x.abs() == 1.0 {
-                    return (
-                        if x > 0.0 {
-                            Decimal32::INFINITY
-                        } else {
-                            Decimal32::NEG_INFINITY
-                        },
-                        Status::DIV_BY_ZERO,
-                    );
-                }
-                if x.abs() > 1.0 {
-                    return (Decimal32::NAN, Status::INVALID);
-                }
-                f64_unary_via_value(x, libm::atanh, rm)
-            }
+        if let Some(special) = atanh_special_cases(classify_bits(self.0)) {
+            return special;
         }
+        // Finite non-zero: the `|x| == 1` pole and `|x| > 1` domain
+        // checks depend on the rounded f64 value, so they are part of
+        // the f64 pipeline.
+        let x = self.to_f64(RoundingMode::NearestEven).0;
+        if x.abs() == 1.0 {
+            return (
+                if x > 0.0 {
+                    Decimal32::INFINITY
+                } else {
+                    Decimal32::NEG_INFINITY
+                },
+                Status::DIV_BY_ZERO,
+            );
+        }
+        if x.abs() > 1.0 {
+            return (Decimal32::NAN, Status::INVALID);
+        }
+        f64_unary_via_value(x, libm::atanh, rm)
+    }
+
+    /// Kani-only entry for the `sinh` special-case branch without the
+    /// `libm` + `from_f64` pipeline. CBMC never encodes the f64 path.
+    /// ADR-0016.
+    #[cfg(kani)]
+    #[doc(hidden)]
+    #[must_use]
+    pub fn sinh_special_only_for_kani(self) -> Option<(Self, Status)> {
+        sinh_special_cases(classify_bits(self.0))
+    }
+
+    /// Kani-only entry for the `cosh` special-case branch. ADR-0016.
+    #[cfg(kani)]
+    #[doc(hidden)]
+    #[must_use]
+    pub fn cosh_special_only_for_kani(self) -> Option<(Self, Status)> {
+        cosh_special_cases(classify_bits(self.0))
+    }
+
+    /// Kani-only entry for the `tanh` special-case branch. ADR-0016.
+    #[cfg(kani)]
+    #[doc(hidden)]
+    #[must_use]
+    pub fn tanh_special_only_for_kani(self) -> Option<(Self, Status)> {
+        tanh_special_cases(classify_bits(self.0))
+    }
+
+    /// Kani-only entry for the `asinh` special-case branch. ADR-0016.
+    #[cfg(kani)]
+    #[doc(hidden)]
+    #[must_use]
+    pub fn asinh_special_only_for_kani(self) -> Option<(Self, Status)> {
+        asinh_special_cases(classify_bits(self.0))
+    }
+
+    /// Kani-only entry for the `acosh` special-case branch. ADR-0016.
+    #[cfg(kani)]
+    #[doc(hidden)]
+    #[must_use]
+    pub fn acosh_special_only_for_kani(self) -> Option<(Self, Status)> {
+        acosh_special_cases(classify_bits(self.0))
+    }
+
+    /// Kani-only entry for the `atanh` special-case branch. ADR-0016.
+    #[cfg(kani)]
+    #[doc(hidden)]
+    #[must_use]
+    pub fn atanh_special_only_for_kani(self) -> Option<(Self, Status)> {
+        atanh_special_cases(classify_bits(self.0))
+    }
+}
+
+/// Resolve every `sinh` input class that does not reach the
+/// `libm::sinh` + `from_f64` pipeline. `None` only for finite
+/// non-zero. `sinh(±∞) = ±∞`, `sinh(±0) = ±0` (sign preserved).
+/// Shared by production `sinh` and the Kani shim so the two cannot
+/// drift.
+fn sinh_special_cases(class: Class) -> Option<(Decimal32, Status)> {
+    match class {
+        Class::SignalingNaN { sign, payload } => Some((
+            Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
+            Status::INVALID,
+        )),
+        Class::QuietNaN { sign, payload } => Some((
+            Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
+            Status::OK,
+        )),
+        Class::Infinity { sign } => Some((
+            if sign {
+                Decimal32::NEG_INFINITY
+            } else {
+                Decimal32::INFINITY
+            },
+            Status::OK,
+        )),
+        Class::Zero { sign, .. } => Some((
+            if sign {
+                Decimal32::NEG_ZERO
+            } else {
+                Decimal32::ZERO
+            },
+            Status::OK,
+        )),
+        Class::Finite { .. } => None,
+    }
+}
+
+/// Resolve every `cosh` input class that does not reach the
+/// `libm::cosh` + `from_f64` pipeline. `None` only for finite
+/// non-zero. `cosh(±∞) = +∞`, `cosh(±0) = +1` (even function).
+fn cosh_special_cases(class: Class) -> Option<(Decimal32, Status)> {
+    match class {
+        Class::SignalingNaN { sign, payload } => Some((
+            Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
+            Status::INVALID,
+        )),
+        Class::QuietNaN { sign, payload } => Some((
+            Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
+            Status::OK,
+        )),
+        Class::Infinity { .. } => Some((Decimal32::INFINITY, Status::OK)),
+        Class::Zero { .. } => Some((Decimal32::ONE, Status::OK)),
+        Class::Finite { .. } => None,
+    }
+}
+
+/// Resolve every `tanh` input class that does not reach the
+/// `libm::tanh` + `from_f64` pipeline. `None` only for finite
+/// non-zero. `tanh(±∞) = ±1`, `tanh(±0) = ±0` (sign preserved).
+fn tanh_special_cases(class: Class) -> Option<(Decimal32, Status)> {
+    match class {
+        Class::SignalingNaN { sign, payload } => Some((
+            Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
+            Status::INVALID,
+        )),
+        Class::QuietNaN { sign, payload } => Some((
+            Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
+            Status::OK,
+        )),
+        Class::Infinity { sign } => Some((
+            if sign {
+                Decimal32::NEG_ONE
+            } else {
+                Decimal32::ONE
+            },
+            Status::OK,
+        )),
+        Class::Zero { sign, .. } => Some((
+            if sign {
+                Decimal32::NEG_ZERO
+            } else {
+                Decimal32::ZERO
+            },
+            Status::OK,
+        )),
+        Class::Finite { .. } => None,
+    }
+}
+
+/// Resolve every `asinh` input class that does not reach the
+/// `libm::asinh` + `from_f64` pipeline. `None` only for finite
+/// non-zero. `asinh(±∞) = ±∞`, `asinh(±0) = ±0` (sign preserved).
+fn asinh_special_cases(class: Class) -> Option<(Decimal32, Status)> {
+    match class {
+        Class::SignalingNaN { sign, payload } => Some((
+            Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
+            Status::INVALID,
+        )),
+        Class::QuietNaN { sign, payload } => Some((
+            Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
+            Status::OK,
+        )),
+        Class::Infinity { sign } => Some((
+            if sign {
+                Decimal32::NEG_INFINITY
+            } else {
+                Decimal32::INFINITY
+            },
+            Status::OK,
+        )),
+        Class::Zero { sign, .. } => Some((
+            if sign {
+                Decimal32::NEG_ZERO
+            } else {
+                Decimal32::ZERO
+            },
+            Status::OK,
+        )),
+        Class::Finite { .. } => None,
+    }
+}
+
+/// Resolve every `acosh` input class that does not reach the
+/// `libm::acosh` + `from_f64` pipeline. `None` only for positive
+/// finite non-zero; `acosh` is defined on `[1, +∞)`, so `Zero` and
+/// any negative finite are pure `NaN + INVALID` specials and only
+/// the positive-finite `x < 1` boundary needs the rounded f64 value.
+/// `acosh(+∞) = +∞`, `acosh(−∞) = NaN + INVALID`.
+fn acosh_special_cases(class: Class) -> Option<(Decimal32, Status)> {
+    match class {
+        Class::SignalingNaN { sign, payload } => Some((
+            Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
+            Status::INVALID,
+        )),
+        Class::QuietNaN { sign, payload } => Some((
+            Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
+            Status::OK,
+        )),
+        Class::Infinity { sign: false } => Some((Decimal32::INFINITY, Status::OK)),
+        Class::Infinity { sign: true } => Some((Decimal32::NAN, Status::INVALID)),
+        Class::Zero { .. } | Class::Finite { sign: true, .. } => {
+            Some((Decimal32::NAN, Status::INVALID))
+        }
+        Class::Finite { sign: false, .. } => None,
+    }
+}
+
+/// Resolve every `atanh` input class that does not reach the
+/// `libm::atanh` + `from_f64` pipeline. `None` only for finite
+/// non-zero; the `|x| == 1` pole (`±∞ + DIV_BY_ZERO`) and `|x| > 1`
+/// domain INVALID depend on the rounded f64 value and live on that
+/// path. `atanh(±∞) = NaN + INVALID`, `atanh(±0) = ±0`.
+fn atanh_special_cases(class: Class) -> Option<(Decimal32, Status)> {
+    match class {
+        Class::SignalingNaN { sign, payload } => Some((
+            Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
+            Status::INVALID,
+        )),
+        Class::QuietNaN { sign, payload } => Some((
+            Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
+            Status::OK,
+        )),
+        Class::Infinity { .. } => Some((Decimal32::NAN, Status::INVALID)),
+        Class::Zero { sign, .. } => Some((
+            if sign {
+                Decimal32::NEG_ZERO
+            } else {
+                Decimal32::ZERO
+            },
+            Status::OK,
+        )),
+        Class::Finite { .. } => None,
     }
 }
 
