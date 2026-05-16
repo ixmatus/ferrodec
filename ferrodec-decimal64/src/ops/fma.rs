@@ -7,7 +7,7 @@
 //! plenty of headroom for alignment even when the static bound
 //! `MAX_SHIFT = 6` would not.
 
-use crate::bid::{classify_bits, Class, BIAS, PRECISION};
+use crate::bid::{classify_bits, Class, BIAS};
 use crate::decimal::Decimal64;
 use ferrodec_ieee::{decimal_digit_count_u128, RoundingMode, Status};
 
@@ -53,23 +53,29 @@ const U128_DIGIT_CAP: u32 = 38;
 /// from the dominant magnitude (H2 mirror in FMA; see Phase 1 Agent
 /// 3 F4 and the analogous fix in `addsub.rs`).
 ///
-/// `coef >= PRECISION` digits keeps the original quantum and just
-/// subtracts 1 (the funnel handles digit drop). For fewer digits we
-/// extend the bottom to all nines so the borrow produces a canonical
-/// `PRECISION`-digit cohort. The power-of-10 case (`coef = 10^n`)
-/// needs one extra digit of extension because the borrow drops the
-/// leading digit.
+/// The dominant coefficient is extended to the full `u128` digit
+/// budget (`U128_DIGIT_CAP`) before the one-ULP borrow, so the borrow
+/// lands at the finest representable quantum and the funnel keeps a
+/// genuine round digit plus sticky to decide the precision boundary.
+///
+/// fd-d47: the previous form extended only to a `PRECISION`-digit
+/// cohort (with a special `+1` for powers of ten). For a
+/// power-of-ten dominant coefficient that produced exactly
+/// `PRECISION` all-nines digits with no round digit left, so a
+/// sub-ULP deficit (`fma 1 1 -77e-99` and the `ddfma364xx` family)
+/// rounded *down* to `0.9999999999999999` instead of carrying back
+/// up to the dominant `1.000000000000000`. Extending to the u128 cap
+/// instead leaves surplus low digits the funnel rounds and carries
+/// correctly, the FMA analogue of the `addsub.rs` dynamic-alignment
+/// fix.
 fn h2_borrow_and_extend(coef: u128, exp: i32) -> (u128, i32) {
     let coef_digits = decimal_digit_count_u128(coef);
-    if coef_digits >= PRECISION {
+    if coef_digits >= U128_DIGIT_CAP {
+        // Already at u128 capacity; borrow at the stored quantum and
+        // let the funnel drop digits.
         (coef - 1, exp)
     } else {
-        let is_power_of_10 = coef == POW10_U128[(coef_digits - 1) as usize];
-        let k = if is_power_of_10 {
-            PRECISION + 1 - coef_digits
-        } else {
-            PRECISION - coef_digits
-        };
+        let k = U128_DIGIT_CAP - coef_digits;
         (coef * POW10_U128[k as usize] - 1, exp - k as i32)
     }
 }
@@ -415,23 +421,41 @@ mod tests {
 
     #[test]
     fn fma_h2_mirror_effective_subtract_residue_borrows() {
-        // H2 mirror in FMA (`ddFMA.decTest:1321`, case `ddfma371100`):
-        // `fma(1, 1e+2, -1e-383)` under NearestEven should equal
-        // `99.99999999999999` per the residue-from-truncated-side
-        // subtractive direction. Without the borrow, the c-side
-        // sub-ULP residue is read as additive and the result rounds
-        // to `100` instead.
+        // H2 mirror in FMA (`ddFMA.decTest:1321`, case `ddfma371100`).
+        // The decTest corpus runs this case under `rounding: down`
+        // (the directive at ddFMA.decTest:1320), where
+        // `fma(1, 1e+2, -1e-383) = 100 − 1e-383` truncates *down* to
+        // the largest representable value below 100,
+        // `99.99999999999999`. The c-side sub-ULP residue must read
+        // as subtractive (the H2-mirror borrow); read as additive it
+        // would round to `100`. The exercise uses round-down to match
+        // the cited case: under NearestEven the same inputs round to
+        // `100` (the true value is within 1e-383 of 100), so an
+        // earlier NearestEven assertion of `99.99999999999999` was a
+        // test bug masking the borrow direction.
         let a = Decimal64::try_new(1, 0).unwrap();
         let b = Decimal64::try_new(1, 2).unwrap(); // 1e+2
         let c = Decimal64::try_new(-1, -383).unwrap(); // -1e-383
-        let (r, status) = a.fma(b, c, RoundingMode::NearestEven);
+        let (r, status) = a.fma(b, c, RoundingMode::TowardZero);
         let expected = Decimal64::try_new(9_999_999_999_999_999, -14).unwrap();
         assert_eq!(
             r.to_bits(),
             expected.to_bits(),
-            "fma(1, 1e+2, -1e-383) should equal 99.99999999999999, got {r:?}"
+            "fma(1, 1e+2, -1e-383) under round-down should equal 99.99999999999999, got {r:?}"
         );
         assert!(status.inexact());
+
+        // Companion: under NearestEven the same inputs round to 100,
+        // because 100 − 1e-383 is within 1e-383 of 100. Pins the
+        // round-to-nearest direction the fd-d47 fix corrected.
+        let (rn, sn) = a.fma(b, c, RoundingMode::NearestEven);
+        let hundred = Decimal64::try_new(1_000_000_000_000_000, -13).unwrap();
+        assert_eq!(
+            rn.to_bits(),
+            hundred.to_bits(),
+            "fma(1, 1e+2, -1e-383) under NearestEven should equal 100.0000000000000, got {rn:?}"
+        );
+        assert!(sn.inexact());
     }
 
     #[test]

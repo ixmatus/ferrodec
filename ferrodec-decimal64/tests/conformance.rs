@@ -72,7 +72,13 @@ const fn expected_per_file() -> &'static [(&'static str, usize)] {
         // operation, not wired here.
         ("ddDivide.decTest", 702),
         ("ddEncode.decTest", 0),
-        ("ddFMA.decTest", 2),
+        // F3: `fma` wired. Rises 2 → 1318 of 1378 after the fd-d47
+        // FMA-side fix in `h2_borrow_and_extend` (the
+        // `ddfma364xx` power-of-ten borrow-extend collapse, the FMA
+        // analogue of the addsub boundary family). The H3 case
+        // `ddfma2504` is among the passers. 60 skips are
+        // unrepresentable operands / `#`-hex.
+        ("ddFMA.decTest", 1318),
         ("ddMultiply.decTest", 444),
         ("ddSubtract.decTest", 514),
     ]
@@ -82,8 +88,43 @@ fn run_case(case: &TestCase, ctx: &Context) -> Outcome {
     match case.op.as_str() {
         "tosci" | "apply" => run_tosci(case, ctx),
         "add" | "subtract" | "multiply" | "divide" => run_binary(case, ctx),
+        "fma" => run_ternary(case, ctx),
         _ => Outcome::Skip,
     }
+}
+
+/// `fma`: parse all three operands, run `a.fma(b, c)`, compare the
+/// formatted result and conformance-masked status. Same
+/// skip-not-fail policy as `run_binary`.
+fn run_ternary(case: &TestCase, ctx: &Context) -> Outcome {
+    if case.operands.len() != 3 || case.expected.starts_with('#') {
+        return Outcome::Skip;
+    }
+    let rm = match map_rounding(&ctx.rounding) {
+        Some(r) => r,
+        None => return Outcome::Skip,
+    };
+    let (a, b, c) = match (
+        parse_operand(&case.operands[0], rm),
+        parse_operand(&case.operands[1], rm),
+        parse_operand(&case.operands[2], rm),
+    ) {
+        (Some(a), Some(b), Some(c)) => (a, b, c),
+        _ => return Outcome::Skip,
+    };
+    let (result, status) = a.fma(b, c, rm);
+    let formatted = format_value(result);
+    if formatted != case.expected {
+        return Outcome::Fail(format!("got {formatted:?} want {:?}", case.expected));
+    }
+    let expected_status = decode_conditions(&case.conditions);
+    if !status_conformance_eq(status, expected_status) {
+        return Outcome::Fail(format!(
+            "status mismatch: got {status:?} want {expected_status:?} (conditions {:?})",
+            case.conditions
+        ));
+    }
+    Outcome::Pass
 }
 
 /// Parse one decTest operand at the active rounding mode. Returns
