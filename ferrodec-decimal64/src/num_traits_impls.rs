@@ -193,9 +193,10 @@ impl ToPrimitive for Decimal64 {
     fn to_f64(&self) -> Option<f64> {
         Some(Decimal64::to_f64(*self, RoundingMode::NearestEven).0)
     }
-    #[allow(clippy::cast_possible_truncation)]
     fn to_f32(&self) -> Option<f32> {
-        Some(Decimal64::to_f64(*self, RoundingMode::NearestEven).0 as f32)
+        // Direct decimal → f32 (M4): the old `to_f64(..) as f32`
+        // double-rounded across f32 half-ULP boundaries.
+        Some(Decimal64::to_f32(*self, RoundingMode::NearestEven).0)
     }
 }
 

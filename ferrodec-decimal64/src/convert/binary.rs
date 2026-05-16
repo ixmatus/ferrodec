@@ -71,6 +71,84 @@ impl Decimal64 {
         }
     }
 
+    /// Lossy convert to `f32`, returning `(value, Status)`.
+    ///
+    /// This takes the direct decimal-string path: format `self` with
+    /// [`core::fmt::Display`] into a stack buffer, then parse that
+    /// with `str::parse::<f32>` (correctly rounded). Routing through
+    /// `to_f64(...).0 as f32` instead rounds twice; the f64 step can
+    /// nudge a value across an f32 half-ULP boundary, the `as f32`
+    /// step then rounds the wrong way, and the result misses the
+    /// correctly rounded f32 by one ULP. One rounding step keeps the
+    /// result inside the f32 envelope. This is the M4 fix; the
+    /// previous `ToPrimitive::to_f32` delegated through f64.
+    ///
+    /// Specials map straight through: `qNaN → f32::NAN`, `±∞ →
+    /// f32::±INFINITY`, `±0 → ±0.0`. Signaling NaN inputs raise
+    /// `Status::INVALID` and return a quiet `f32::NAN` per IEEE
+    /// 754-2019 §5.4.2. A finite value that overflows f32 returns
+    /// `±∞` with `OVERFLOW | INEXACT`; one that underflows to zero
+    /// returns `±0.0` with `UNDERFLOW | INEXACT`; otherwise the
+    /// result carries `INEXACT` (exactness is not separately
+    /// detected, matching [`Decimal64::to_f64`]).
+    ///
+    /// The `_rm` parameter is accepted for API parity with the spec
+    /// convertFormat operation; f32's native round-to-nearest-even
+    /// governs the parse step.
+    #[must_use]
+    pub fn to_f32(self, _rm: RoundingMode) -> (f32, Status) {
+        match classify_bits(self.0) {
+            Class::SignalingNaN { .. } => (f32::NAN, Status::INVALID),
+            Class::QuietNaN { .. } => (f32::NAN, Status::OK),
+            Class::Infinity { sign: false } => (f32::INFINITY, Status::OK),
+            Class::Infinity { sign: true } => (f32::NEG_INFINITY, Status::OK),
+            Class::Zero { sign, .. } => (if sign { -0.0 } else { 0.0 }, Status::OK),
+            Class::Finite { .. } => {
+                // A finite Decimal64 in Display (to-scientific-string)
+                // notation is at most ~25 chars (sign, `0.`, up to
+                // six leading zeros, 16 significant digits). 48 bytes
+                // matches the `from_f64` path's buffer with ~2×
+                // headroom.
+                let mut buf = [0u8; 48];
+                let mut writer = BufWriter {
+                    buf: &mut buf,
+                    len: 0,
+                };
+                if write!(writer, "{self}").is_err() {
+                    // Unreachable for any finite Decimal64 at 48
+                    // bytes; defensive rather than return a wrong
+                    // value if a future Display widens.
+                    return (f32::NAN, Status::INVALID);
+                }
+                let len = writer.len;
+                let s = match core::str::from_utf8(&buf[..len]) {
+                    Ok(s) => s,
+                    // Decimal64 Display always emits ASCII.
+                    Err(_) => return (f32::NAN, Status::INVALID),
+                };
+                match s.parse::<f32>() {
+                    Ok(v) => {
+                        let mut status = Status::OK;
+                        if v.is_infinite() {
+                            status |= Status::OVERFLOW | Status::INEXACT;
+                        } else if v == 0.0 {
+                            // The Finite arm excludes ±0 input, so a
+                            // zero result means the magnitude rounded
+                            // away: underflow.
+                            status |= Status::UNDERFLOW | Status::INEXACT;
+                        } else {
+                            status |= Status::INEXACT;
+                        }
+                        (v, status)
+                    }
+                    // A finite Decimal64 Display always parses; treat
+                    // any error as a defensive NaN + INVALID.
+                    Err(_) => (f32::NAN, Status::INVALID),
+                }
+            }
+        }
+    }
+
     /// Construct a `Decimal64` from an `f64`, rounding by `rm`.
     ///
     /// Returns `(value, Status)`. `Status::INEXACT` is set when the
@@ -238,6 +316,85 @@ mod tests {
         let (v, status) = Decimal64::NAN.to_f64(RoundingMode::NearestEven);
         assert!(v.is_nan());
         assert_eq!(status, Status::OK);
+    }
+
+    #[test]
+    fn to_f32_specials() {
+        // Mirror to_f64_specials / to_f64_signaling_nan_raises_invalid
+        // on the new (f32, Status) signature.
+        let (v, s) = Decimal64::SIGNALING_NAN.to_f32(RoundingMode::NearestEven);
+        assert!(v.is_nan());
+        assert_eq!(s, Status::INVALID);
+
+        let (v, s) = Decimal64::NAN.to_f32(RoundingMode::NearestEven);
+        assert!(v.is_nan());
+        assert_eq!(s, Status::OK);
+
+        let (v, _) = Decimal64::INFINITY.to_f32(RoundingMode::NearestEven);
+        assert_eq!(v, f32::INFINITY);
+        let (v, _) = Decimal64::NEG_INFINITY.to_f32(RoundingMode::NearestEven);
+        assert_eq!(v, f32::NEG_INFINITY);
+
+        let (v, _) = Decimal64::ZERO.to_f32(RoundingMode::NearestEven);
+        assert_eq!(v.to_bits(), 0u32);
+        let (v, _) = Decimal64::NEG_ZERO.to_f32(RoundingMode::NearestEven);
+        assert_eq!(v.to_bits(), (-0.0_f32).to_bits());
+    }
+
+    #[test]
+    fn to_f32_is_correctly_rounded_not_double_rounded() {
+        // The correctly rounded f32 of an exact decimal equals
+        // parsing that decimal straight into f32 (str → f32 is
+        // correctly rounded). Going through f64 first rounds twice
+        // and misses by one ULP on half-ULP boundary cases. 8589973000
+        // is the classic pet case: the first half-ULP in [2^33, 2^34),
+        // where the f64 intermediate nudges the result across the f32
+        // boundary. The bit-exact comparison would fail on the old
+        // `to_f64(..) as f32` path.
+        for s in [
+            "1",
+            "-1",
+            "3.5",
+            "0.1",
+            "-0.1",
+            "1.234567890123456",
+            "1E-30",
+            "1E+30",
+            "8589973000",
+        ] {
+            let d = Decimal64::parse_str(s, RoundingMode::NearestEven)
+                .unwrap()
+                .0;
+            let (got, status) = d.to_f32(RoundingMode::NearestEven);
+            let want: f32 = s.parse().expect("decimal literal parses as f32");
+            assert_eq!(
+                got.to_bits(),
+                want.to_bits(),
+                "to_f32({s}): got {got:?}, want correctly-rounded {want:?}"
+            );
+            assert!(status.inexact(), "finite to_f32 carries INEXACT");
+        }
+    }
+
+    #[test]
+    fn to_f32_overflow_and_underflow() {
+        // 1E+100 is inside Decimal64's range (E_MAX 384) but far
+        // above f32::MAX, so it overflows to ±∞ with OVERFLOW.
+        let big = Decimal64::parse_str("1E+100", RoundingMode::NearestEven)
+            .unwrap()
+            .0;
+        let (v, s) = big.to_f32(RoundingMode::NearestEven);
+        assert!(v.is_infinite() && !v.is_sign_negative());
+        assert!(s.overflow() && s.inexact());
+
+        // 1E-100 is representable in Decimal64 but rounds to zero in
+        // f32 (below the f32 subnormal floor), raising UNDERFLOW.
+        let small = Decimal64::parse_str("1E-100", RoundingMode::NearestEven)
+            .unwrap()
+            .0;
+        let (v, s) = small.to_f32(RoundingMode::NearestEven);
+        assert_eq!(v, 0.0_f32);
+        assert!(s.underflow() && s.inexact());
     }
 
     #[test]
