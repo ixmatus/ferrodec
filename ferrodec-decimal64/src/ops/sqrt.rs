@@ -112,7 +112,13 @@ fn sqrt_positive_finite(coef: u64, biased_exp: u32, rm: RoundingMode) -> (Decima
     // (with the same odd/even parity adjustment).
     let d = decimal_digit_count_u128(working_coef);
     let target_d: u32 = if d % 2 == 0 { 34 } else { 33 };
-    let scale: u32 = target_d.saturating_sub(d);
+    // `working_coef` is a Decimal64 coefficient (≤ 16 digits), so
+    // `d ≤ 16 < 33 ≤ target_d` and the subtraction never underflows.
+    // A plain subtraction states that invariant; the previous
+    // `saturating_sub` would have silently clamped to 0 and skipped
+    // scaling if the invariant were ever broken, masking the bug.
+    debug_assert!(target_d >= d, "working_coef fits the scaling window");
+    let scale: u32 = target_d - d;
     debug_assert!(scale % 2 == 0);
     debug_assert!((scale as usize) < POW10_U128.len());
 

@@ -305,17 +305,17 @@ impl Decimal64 {
             } => {
                 let q = biased_exp as i32 - BIAS as i32;
                 let adj = q + decimal_digit_count(coefficient) as i32 - 1;
-                if adj >= 0 {
-                    (
-                        Decimal64::try_new(i64::from(adj), 0).unwrap_or(Decimal64::ZERO),
-                        Status::OK,
-                    )
-                } else {
-                    (
-                        Decimal64::try_new(i64::from(adj), 0).unwrap_or(Decimal64::NEG_ZERO),
-                        Status::OK,
-                    )
-                }
+                // `q ∈ [−398, 369]` and `digits(coef) ∈ [1, 16]`, so
+                // `adj ∈ [−398, 384]`: a three-digit integer that is
+                // always representable as a `Decimal64` at quantum 0.
+                // `try_new` therefore cannot fail here, so the old
+                // sign-split `unwrap_or(ZERO / NEG_ZERO)` fallbacks
+                // were dead arms; collapse to one `expect`.
+                (
+                    Decimal64::try_new(i64::from(adj), 0)
+                        .expect("logb adjusted exponent is a small integer, representable at q=0"),
+                    Status::OK,
+                )
             }
             _ => unreachable!("special cases handled by logb_special_cases"),
         }
@@ -573,31 +573,27 @@ fn logb_special_cases(class: Class) -> Option<(Decimal64, Status)> {
 /// adjacent-value step is computed. Shared by production `next_up`
 /// and the Kani shim so the two cannot drift.
 fn next_up_special_cases(d: Decimal64) -> Option<(Decimal64, Status)> {
-    if d.is_signaling_nan() {
-        if let Class::SignalingNaN { sign, payload } = classify_bits(d.0) {
-            return Some((
-                Decimal64::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
-                Status::INVALID,
-            ));
-        }
-    }
-    if d.is_nan() {
-        return Some((d, Status::OK));
-    }
-    if d.is_zero() {
-        return Some((Decimal64::MIN_POSITIVE, Status::OK));
-    }
-    if d.is_infinite() {
-        return Some((
-            if d.is_sign_negative() {
+    // L11: decode the bit pattern exactly once. The previous shape
+    // chained `is_signaling_nan()` / `is_nan()` / `is_zero()` /
+    // `is_infinite()`, each of which re-ran `classify_bits`.
+    match classify_bits(d.0) {
+        Class::SignalingNaN { sign, payload } => Some((
+            Decimal64::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
+            Status::INVALID,
+        )),
+        // Quiet NaN passes through unchanged to preserve its payload.
+        Class::QuietNaN { .. } => Some((d, Status::OK)),
+        Class::Zero { .. } => Some((Decimal64::MIN_POSITIVE, Status::OK)),
+        Class::Infinity { sign } => Some((
+            if sign {
                 Decimal64::MIN
             } else {
                 Decimal64::INFINITY
             },
             Status::OK,
-        ));
+        )),
+        Class::Finite { .. } => None,
     }
-    None
 }
 
 /// Resolve every `next_down` input that does not reach the finite
@@ -607,13 +603,14 @@ fn next_up_special_cases(d: Decimal64) -> Option<(Decimal64, Status)> {
 /// `next_up`). Returns `None` only for a finite non-zero. Shared by
 /// production `next_down` and the Kani shim.
 fn next_down_special_cases(d: Decimal64) -> Option<(Decimal64, Status)> {
-    if d.is_signaling_nan() {
-        if let Class::SignalingNaN { sign, payload } = classify_bits(d.0) {
-            return Some((
-                Decimal64::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
-                Status::INVALID,
-            ));
-        }
+    // L11: one decode of `d` for the signaling-NaN check; the
+    // `−next_up(−d)` identity then drives the remaining specials
+    // (with `next_up`'s own single decode of `−d`).
+    if let Class::SignalingNaN { sign, payload } = classify_bits(d.0) {
+        return Some((
+            Decimal64::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
+            Status::INVALID,
+        ));
     }
     next_up_special_cases(d.neg()).map(|(r, s)| (r.neg(), s))
 }
