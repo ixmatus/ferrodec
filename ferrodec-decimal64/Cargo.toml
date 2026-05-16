@@ -69,6 +69,12 @@ ferrodec-test-support = { path = "../ferrodec-test-support" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_test = "1"
+# Transcendental property-test oracle. Pure Rust arbitrary-precision
+# float (no MPFR / C FFI), consistent with the embedded ethos
+# (feedback_oracle_choice). Dev-only: never linked into the no_std
+# library build.
+proptest = "1"
+astro-float = "0.9"
 
 [[example]]
 name = "money"

@@ -253,10 +253,12 @@ dependencies = [
 name = "ferrodec-decimal64"
 version = "1.3.0"
 dependencies = [
+ "astro-float",
  "ferrodec-ieee",
  "ferrodec-test-support",
  "libm",
  "num-traits",
+ "proptest",
  "serde",
  "serde_json",
  "serde_test",
