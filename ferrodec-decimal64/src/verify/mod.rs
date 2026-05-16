@@ -33,6 +33,9 @@ mod mul;
 // harness references their Kani shims, so it is gated identically.
 #[cfg(feature = "pow")]
 mod pow;
+// `quantize` … `next_down` are pure decimal (always compiled,
+// `ops/quantum.rs` has no feature gate), so the harness is too.
+mod quantum;
 mod sqrt;
 // `trig` lives behind the `trig` feature (ops/trig.rs); the harness
 // references its Kani shims, so it is gated identically.

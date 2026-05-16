@@ -58,45 +58,8 @@ impl Decimal64 {
         let ca = classify_bits(self.0);
         let cb = classify_bits(target.0);
 
-        if let Class::SignalingNaN { sign, payload } = ca {
-            return (
-                Decimal64::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
-                Status::INVALID,
-            );
-        }
-        if let Class::SignalingNaN { sign, payload } = cb {
-            return (
-                Decimal64::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
-                Status::INVALID,
-            );
-        }
-        if let Class::QuietNaN { sign, payload } = ca {
-            return (
-                Decimal64::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
-                Status::OK,
-            );
-        }
-        if let Class::QuietNaN { sign, payload } = cb {
-            return (
-                Decimal64::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
-                Status::OK,
-            );
-        }
-
-        // Infinity: only well-defined when both are infinities (with
-        // the result preserving the sign of self).
-        if let Class::Infinity { sign } = ca {
-            if matches!(cb, Class::Infinity { .. }) {
-                return (
-                    Decimal64::from_bits(crate::bid::pack_infinity(sign)),
-                    Status::OK,
-                );
-            }
-            return (Decimal64::NAN, Status::INVALID);
-        }
-        if matches!(cb, Class::Infinity { .. }) {
-            // self finite, target infinity → INVALID.
-            return (Decimal64::NAN, Status::INVALID);
+        if let Some(special) = quantize_special_cases(ca, cb) {
+            return special;
         }
 
         // Both finite (or self zero).
@@ -289,19 +252,14 @@ impl Decimal64 {
     #[must_use]
     pub fn scaleb(self, n: i32, rm: RoundingMode) -> (Self, Status) {
         let class = classify_bits(self.0);
+        if let Some(special) = scaleb_special_cases(class) {
+            return special;
+        }
+        // Zero or finite: apply the 10^n shift through the standard
+        // round-and-pack path. The `|n|` envelope INVALID depends on
+        // the runtime `n`, so it lives here, not in the special
+        // cases.
         match class {
-            Class::SignalingNaN { sign, payload } => (
-                Decimal64::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
-                Status::INVALID,
-            ),
-            Class::QuietNaN { sign, payload } => (
-                Decimal64::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
-                Status::OK,
-            ),
-            Class::Infinity { sign } => (
-                Decimal64::from_bits(crate::bid::pack_infinity(sign)),
-                Status::OK,
-            ),
             Class::Zero { sign, biased_exp } => {
                 if n.unsigned_abs() > SCALEB_N_LIMIT {
                     return (Decimal64::NAN, Status::INVALID);
@@ -320,6 +278,7 @@ impl Decimal64 {
                 let q = biased_exp as i32 - BIAS as i32 + n;
                 round_and_pack_finite(coefficient, q, q, sign, false, rm, Status::OK)
             }
+            _ => unreachable!("special cases handled by scaleb_special_cases"),
         }
     }
 
@@ -334,17 +293,11 @@ impl Decimal64 {
     #[must_use]
     pub fn logb(self) -> (Self, Status) {
         let class = classify_bits(self.0);
+        if let Some(special) = logb_special_cases(class) {
+            return special;
+        }
+        // Finite: logb = adjusted exponent = Q + digits(coef) − 1.
         match class {
-            Class::SignalingNaN { sign, payload } => (
-                Decimal64::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
-                Status::INVALID,
-            ),
-            Class::QuietNaN { sign, payload } => (
-                Decimal64::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
-                Status::OK,
-            ),
-            Class::Infinity { .. } => (Decimal64::INFINITY, Status::OK),
-            Class::Zero { .. } => (Decimal64::NEG_INFINITY, Status::DIV_BY_ZERO),
             Class::Finite {
                 biased_exp,
                 coefficient,
@@ -364,6 +317,7 @@ impl Decimal64 {
                     )
                 }
             }
+            _ => unreachable!("special cases handled by logb_special_cases"),
         }
     }
 
@@ -378,30 +332,10 @@ impl Decimal64 {
     /// not raise OVERFLOW.
     #[must_use]
     pub fn next_up(self) -> (Self, Status) {
-        if self.is_signaling_nan() {
-            if let Class::SignalingNaN { sign, payload } = classify_bits(self.0) {
-                return (
-                    Decimal64::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
-                    Status::INVALID,
-                );
-            }
+        if let Some(special) = next_up_special_cases(self) {
+            return special;
         }
-        if self.is_nan() {
-            return (self, Status::OK);
-        }
-        if self.is_zero() {
-            return (Decimal64::MIN_POSITIVE, Status::OK);
-        }
-        if self.is_infinite() {
-            return (
-                if self.is_sign_negative() {
-                    Decimal64::MIN
-                } else {
-                    Decimal64::INFINITY
-                },
-                Status::OK,
-            );
-        }
+        // Finite: step one ULP along the Decimal64 number line.
         let (sign, bexp, coef) = match classify_bits(self.0) {
             Class::Finite {
                 sign,
@@ -485,17 +419,203 @@ impl Decimal64 {
     /// and raises `INVALID`; all other inputs return `Status::OK`.
     #[must_use]
     pub fn next_down(self) -> (Self, Status) {
-        if self.is_signaling_nan() {
-            if let Class::SignalingNaN { sign, payload } = classify_bits(self.0) {
-                return (
-                    Decimal64::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
-                    Status::INVALID,
-                );
-            }
+        if let Some(special) = next_down_special_cases(self) {
+            return special;
         }
         let (r, s) = self.neg().next_up();
         (r.neg(), s)
     }
+
+    /// Kani-only entry for the binary `quantize` special-case branch
+    /// (NaN propagation and infinity handling) without the
+    /// finite-finite rescale arithmetic. ADR-0016.
+    #[cfg(kani)]
+    #[doc(hidden)]
+    #[must_use]
+    pub fn quantize_special_only_for_kani(self, target: Self) -> Option<(Self, Status)> {
+        quantize_special_cases(classify_bits(self.0), classify_bits(target.0))
+    }
+
+    /// Kani-only entry for the `scaleb` special-case branch (NaN /
+    /// ±∞; the result is independent of `n`). ADR-0016.
+    #[cfg(kani)]
+    #[doc(hidden)]
+    #[must_use]
+    pub fn scaleb_special_only_for_kani(self) -> Option<(Self, Status)> {
+        scaleb_special_cases(classify_bits(self.0))
+    }
+
+    /// Kani-only entry for the `logb` special-case branch. ADR-0016.
+    #[cfg(kani)]
+    #[doc(hidden)]
+    #[must_use]
+    pub fn logb_special_only_for_kani(self) -> Option<(Self, Status)> {
+        logb_special_cases(classify_bits(self.0))
+    }
+
+    /// Kani-only entry for the `next_up` special-case branch (NaN /
+    /// ±0 / ±∞) without the finite ULP arithmetic. ADR-0016.
+    #[cfg(kani)]
+    #[doc(hidden)]
+    #[must_use]
+    pub fn next_up_special_only_for_kani(self) -> Option<(Self, Status)> {
+        next_up_special_cases(self)
+    }
+
+    /// Kani-only entry for the `next_down` special-case branch.
+    /// ADR-0016.
+    #[cfg(kani)]
+    #[doc(hidden)]
+    #[must_use]
+    pub fn next_down_special_only_for_kani(self) -> Option<(Self, Status)> {
+        next_down_special_cases(self)
+    }
+}
+
+/// Resolve every `quantize` operand combination that does not reach
+/// the finite-finite rescale arithmetic. NaN is inspected in the
+/// fixed order `[self, target]` (signaling → quiet + INVALID, quiet
+/// → quiet + OK), then infinity: `quantize(±∞, ±∞)` preserves the
+/// sign of `self`, any other infinity pairing is `NaN + INVALID`.
+/// Returns `None` only when both operands are finite or zero, the
+/// single case that needs the rescale. Shared by production
+/// `quantize` and the Kani shim so the two cannot drift.
+fn quantize_special_cases(ca: Class, cb: Class) -> Option<(Decimal64, Status)> {
+    if let Class::SignalingNaN { sign, payload } = ca {
+        return Some((
+            Decimal64::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
+            Status::INVALID,
+        ));
+    }
+    if let Class::SignalingNaN { sign, payload } = cb {
+        return Some((
+            Decimal64::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
+            Status::INVALID,
+        ));
+    }
+    if let Class::QuietNaN { sign, payload } = ca {
+        return Some((
+            Decimal64::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
+            Status::OK,
+        ));
+    }
+    if let Class::QuietNaN { sign, payload } = cb {
+        return Some((
+            Decimal64::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
+            Status::OK,
+        ));
+    }
+    // Infinity: only well-defined when both are infinities (the
+    // result preserving the sign of self).
+    if let Class::Infinity { sign } = ca {
+        if matches!(cb, Class::Infinity { .. }) {
+            return Some((
+                Decimal64::from_bits(crate::bid::pack_infinity(sign)),
+                Status::OK,
+            ));
+        }
+        return Some((Decimal64::NAN, Status::INVALID));
+    }
+    if matches!(cb, Class::Infinity { .. }) {
+        // self finite, target infinity → INVALID.
+        return Some((Decimal64::NAN, Status::INVALID));
+    }
+    None
+}
+
+/// Resolve every `scaleb` input class that does not reach the
+/// round-and-pack shift. `±∞` passes through unchanged, NaN
+/// propagates per §6.2.3. Returns `None` for `Zero` / finite, where
+/// the `|n|` envelope and the `10^n` shift apply (both depend on the
+/// runtime `n`). Shared by production `scaleb` and the Kani shim.
+fn scaleb_special_cases(class: Class) -> Option<(Decimal64, Status)> {
+    match class {
+        Class::SignalingNaN { sign, payload } => Some((
+            Decimal64::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
+            Status::INVALID,
+        )),
+        Class::QuietNaN { sign, payload } => Some((
+            Decimal64::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
+            Status::OK,
+        )),
+        Class::Infinity { sign } => Some((
+            Decimal64::from_bits(crate::bid::pack_infinity(sign)),
+            Status::OK,
+        )),
+        Class::Zero { .. } | Class::Finite { .. } => None,
+    }
+}
+
+/// Resolve every `logb` input class that does not reach the
+/// adjusted-exponent computation. `±0 → −∞ + DIV_BY_ZERO`,
+/// `±∞ → +∞`, NaN propagates. Returns `None` only for finite
+/// non-zero. Shared by production `logb` and the Kani shim.
+fn logb_special_cases(class: Class) -> Option<(Decimal64, Status)> {
+    match class {
+        Class::SignalingNaN { sign, payload } => Some((
+            Decimal64::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
+            Status::INVALID,
+        )),
+        Class::QuietNaN { sign, payload } => Some((
+            Decimal64::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
+            Status::OK,
+        )),
+        Class::Infinity { .. } => Some((Decimal64::INFINITY, Status::OK)),
+        Class::Zero { .. } => Some((Decimal64::NEG_INFINITY, Status::DIV_BY_ZERO)),
+        Class::Finite { .. } => None,
+    }
+}
+
+/// Resolve every `next_up` input that does not reach the finite ULP
+/// arithmetic: signaling NaN is quieted and raises INVALID, quiet
+/// NaN passes through with OK, `±0 → MIN_POSITIVE`, `+∞ → +∞`,
+/// `−∞ → MIN`. Returns `None` only for a finite non-zero, where the
+/// adjacent-value step is computed. Shared by production `next_up`
+/// and the Kani shim so the two cannot drift.
+fn next_up_special_cases(d: Decimal64) -> Option<(Decimal64, Status)> {
+    if d.is_signaling_nan() {
+        if let Class::SignalingNaN { sign, payload } = classify_bits(d.0) {
+            return Some((
+                Decimal64::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
+                Status::INVALID,
+            ));
+        }
+    }
+    if d.is_nan() {
+        return Some((d, Status::OK));
+    }
+    if d.is_zero() {
+        return Some((Decimal64::MIN_POSITIVE, Status::OK));
+    }
+    if d.is_infinite() {
+        return Some((
+            if d.is_sign_negative() {
+                Decimal64::MIN
+            } else {
+                Decimal64::INFINITY
+            },
+            Status::OK,
+        ));
+    }
+    None
+}
+
+/// Resolve every `next_down` input that does not reach the finite
+/// arithmetic. `next_down(d) = −next_up(−d)`, so the special cases
+/// are the negated `next_up` specials of `−d`, with the signaling
+/// NaN of `d` itself handled first (quieted + INVALID, like
+/// `next_up`). Returns `None` only for a finite non-zero. Shared by
+/// production `next_down` and the Kani shim.
+fn next_down_special_cases(d: Decimal64) -> Option<(Decimal64, Status)> {
+    if d.is_signaling_nan() {
+        if let Class::SignalingNaN { sign, payload } = classify_bits(d.0) {
+            return Some((
+                Decimal64::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
+                Status::INVALID,
+            ));
+        }
+    }
+    next_up_special_cases(d.neg()).map(|(r, s)| (r.neg(), s))
 }
 
 #[cfg(test)]
