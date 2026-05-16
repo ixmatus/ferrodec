@@ -12,7 +12,8 @@
 //!   navigation operations to the next representable value.
 
 use crate::bid::{
-    classify_bits, decimal_digit_count, Class, BIAS, BIASED_EXP_MAX, COEFFICIENT_LIMIT, PRECISION,
+    classify_bits, decimal_digit_count, Class, BIAS, BIASED_EXP_MAX, COEFFICIENT_LIMIT, E_MAX,
+    PRECISION,
 };
 use crate::decimal::Decimal32;
 use ferrodec_ieee::{should_round_up, RoundingMode, Status};
@@ -276,6 +277,15 @@ impl Decimal32 {
     /// via the standard `round_and_pack_finite` path.
     #[must_use]
     pub fn scaleb(self, n: i32, rm: RoundingMode) -> (Self, Status) {
+        // GDA `scaleb` constrains the integer argument to
+        // `|n| <= 2 * (Emax + precision)`; beyond that the operation
+        // is `Invalid_operation` and returns a quiet NaN. The bound
+        // also keeps `biased_exp - BIAS + n` inside `i32`, so the
+        // exponent arithmetic below cannot overflow (which on `main`
+        // panicked in debug and wrapped silently in release on an
+        // `n` near `i32::MAX`). Decimal64 M2 shape.
+        const SCALEB_N_LIMIT: u32 = 2 * (E_MAX as u32 + PRECISION);
+
         let class = classify_bits(self.0);
         match class {
             Class::SignalingNaN { sign, payload } => (
@@ -291,6 +301,9 @@ impl Decimal32 {
                 Status::OK,
             ),
             Class::Zero { sign, biased_exp } => {
+                if n.unsigned_abs() > SCALEB_N_LIMIT {
+                    return (Decimal32::NAN, Status::INVALID);
+                }
                 let q = biased_exp as i32 - BIAS as i32 + n;
                 round_and_pack_finite(0, q, q, sign, false, rm, Status::OK)
             }
@@ -299,6 +312,9 @@ impl Decimal32 {
                 biased_exp,
                 coefficient,
             } => {
+                if n.unsigned_abs() > SCALEB_N_LIMIT {
+                    return (Decimal32::NAN, Status::INVALID);
+                }
                 let q = biased_exp as i32 - BIAS as i32 + n;
                 round_and_pack_finite(u64::from(coefficient), q, q, sign, false, rm, Status::OK)
             }
@@ -728,5 +744,45 @@ mod tests {
             assert!(r.is_zero() && r.is_sign_negative() && s.is_ok());
             assert_eq!(r.to_bits(), parse("-0E+50").to_bits());
         }
+    }
+
+    #[test]
+    fn scaleb_n_envelope_rejects_out_of_range_argument() {
+        // M2 (Decimal64 M2): |n| > 2*(E_MAX + PRECISION) = 206 is
+        // Invalid_operation. Before the fix an `n` near i32::MAX
+        // overflowed `biased_exp - BIAS + n` (debug panic, release
+        // wrap) instead of returning a quiet NaN.
+        let one = Decimal32::parse_str("1", RoundingMode::NearestEven)
+            .unwrap()
+            .0;
+        for n in [207, -207, i32::MAX, i32::MIN] {
+            let (r, s) = one.scaleb(n, RoundingMode::NearestEven);
+            assert!(r.is_nan() && s.invalid(), "scaleb({n}) -> {r} {s:?}");
+        }
+        // The boundary value 206 is a valid argument: it is processed
+        // (here it overflows the format to infinity with OVERFLOW),
+        // not rejected as INVALID.
+        let (r, s) = one.scaleb(206, RoundingMode::NearestEven);
+        assert!(r.is_infinite() && !s.invalid() && s.overflow());
+        // NaN and infinity ignore n entirely, even out of envelope.
+        let (r, s) = Decimal32::INFINITY.scaleb(i32::MAX, RoundingMode::NearestEven);
+        assert!(r.is_infinite() && !r.is_sign_negative() && s.is_ok());
+        let (r, s) = Decimal32::SIGNALING_NAN.scaleb(i32::MAX, RoundingMode::NearestEven);
+        assert!(r.is_quiet_nan() && s.invalid());
+        // A modest in-range scaleb still works.
+        let v = Decimal32::parse_str("1.5", RoundingMode::NearestEven)
+            .unwrap()
+            .0;
+        let (r, s) = v.scaleb(2, RoundingMode::NearestEven);
+        assert!(s.is_ok());
+        // scaleb preserves the coefficient and shifts the quantum, so
+        // 1.5 scaleb 2 is 15E1 (the cohort of "1.5E2"), not 150E0.
+        assert_eq!(
+            r.to_bits(),
+            Decimal32::parse_str("1.5E2", RoundingMode::NearestEven)
+                .unwrap()
+                .0
+                .to_bits()
+        );
     }
 }
