@@ -35,70 +35,107 @@ impl Decimal32 {
     /// IEEE 754-2019 §9.2 `exp(self)` rounded by `rm`.
     #[must_use]
     pub fn exp(self, rm: RoundingMode) -> (Self, Status) {
-        let class = classify_bits(self.0);
-        match class {
-            Class::SignalingNaN { sign, payload } => (
-                Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
-                Status::INVALID,
-            ),
-            Class::QuietNaN { sign, payload } => (
-                Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
-                Status::OK,
-            ),
-            Class::Infinity { sign: false } => (Decimal32::INFINITY, Status::OK),
-            Class::Infinity { sign: true } => (Decimal32::ZERO, Status::OK),
-            Class::Zero { .. } => (Decimal32::ONE, Status::OK),
-            Class::Finite { .. } => {
-                let x = self.to_f64(RoundingMode::NearestEven).0;
-                let r = libm::exp(x);
-                if r.is_infinite() {
-                    return (Decimal32::INFINITY, Status::OVERFLOW | Status::INEXACT);
-                }
-                if r == 0.0 {
-                    return (Decimal32::ZERO, Status::UNDERFLOW | Status::INEXACT);
-                }
-                let (val, mut status) = Decimal32::from_f64(r, rm);
-                // exp of a non-zero finite is essentially never exact;
-                // emit INEXACT unconditionally to match IEEE 754
-                // §9.2 expectations even when the f64 round-trip
-                // happens to land on a representable value.
-                status |= Status::INEXACT;
-                (val, status)
-            }
+        if let Some(special) = exp_special_cases(classify_bits(self.0)) {
+            return special;
         }
+        // Finite non-zero: route through f64.
+        let x = self.to_f64(RoundingMode::NearestEven).0;
+        let r = libm::exp(x);
+        if r.is_infinite() {
+            return (Decimal32::INFINITY, Status::OVERFLOW | Status::INEXACT);
+        }
+        if r == 0.0 {
+            return (Decimal32::ZERO, Status::UNDERFLOW | Status::INEXACT);
+        }
+        let (val, mut status) = Decimal32::from_f64(r, rm);
+        // exp of a non-zero finite is essentially never exact; emit
+        // INEXACT unconditionally to match IEEE 754 §9.2 expectations
+        // even when the f64 round-trip happens to land on a
+        // representable value.
+        status |= Status::INEXACT;
+        (val, status)
     }
 
     /// IEEE 754-2019 §9.2 `ln(self)` rounded by `rm`.
     #[must_use]
     pub fn ln(self, rm: RoundingMode) -> (Self, Status) {
-        let class = classify_bits(self.0);
-        match class {
-            Class::SignalingNaN { sign, payload } => (
-                Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
-                Status::INVALID,
-            ),
-            Class::QuietNaN { sign, payload } => (
-                Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
-                Status::OK,
-            ),
-            Class::Infinity { sign: false } => (Decimal32::INFINITY, Status::OK),
-            Class::Infinity { sign: true } => (Decimal32::NAN, Status::INVALID),
-            Class::Zero { .. } => (Decimal32::NEG_INFINITY, Status::DIV_BY_ZERO),
-            Class::Finite { sign: true, .. } => (Decimal32::NAN, Status::INVALID),
-            Class::Finite { sign: false, .. } => {
-                let x = self.to_f64(RoundingMode::NearestEven).0;
-                let r = libm::log(x);
-                let (val, mut status) = Decimal32::from_f64(r, rm);
-                // ln(positive finite) is exact only at x = 1 (handled
-                // by the f64 round-trip producing 0.0) or at integer
-                // powers of 10 where the result is also exactly
-                // representable. For most inputs, set INEXACT.
-                if !val.is_zero() {
-                    status |= Status::INEXACT;
-                }
-                (val, status)
-            }
+        if let Some(special) = ln_special_cases(classify_bits(self.0)) {
+            return special;
         }
+        // Positive finite non-zero: route through f64.
+        let x = self.to_f64(RoundingMode::NearestEven).0;
+        let r = libm::log(x);
+        let (val, mut status) = Decimal32::from_f64(r, rm);
+        // ln(positive finite) is exact only at x = 1 (the f64
+        // round-trip produces 0.0) or at integer powers of 10 where
+        // the result is also exactly representable. For most inputs,
+        // set INEXACT.
+        if !val.is_zero() {
+            status |= Status::INEXACT;
+        }
+        (val, status)
+    }
+
+    /// Kani-only entry returning the `exp` special-case branch without
+    /// invoking the `libm::exp` + `from_f64` pipeline. CBMC never
+    /// encodes the f64 path. ADR-0016.
+    #[cfg(kani)]
+    #[doc(hidden)]
+    #[must_use]
+    pub fn exp_special_only_for_kani(self) -> Option<(Self, Status)> {
+        exp_special_cases(classify_bits(self.0))
+    }
+
+    /// Kani-only entry returning the `ln` special-case branch without
+    /// invoking the `libm::log` + `from_f64` pipeline. ADR-0016.
+    #[cfg(kani)]
+    #[doc(hidden)]
+    #[must_use]
+    pub fn ln_special_only_for_kani(self) -> Option<(Self, Status)> {
+        ln_special_cases(classify_bits(self.0))
+    }
+}
+
+/// Resolve every `exp` input class that does not reach the
+/// `libm::exp` + `from_f64` pipeline. Returns `None` only for finite
+/// non-zero, the single class that needs the f64 path. Shared by
+/// production `exp` and the Kani shim so the two cannot drift.
+fn exp_special_cases(class: Class) -> Option<(Decimal32, Status)> {
+    match class {
+        Class::SignalingNaN { sign, payload } => Some((
+            Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
+            Status::INVALID,
+        )),
+        Class::QuietNaN { sign, payload } => Some((
+            Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
+            Status::OK,
+        )),
+        Class::Infinity { sign: false } => Some((Decimal32::INFINITY, Status::OK)),
+        Class::Infinity { sign: true } => Some((Decimal32::ZERO, Status::OK)),
+        Class::Zero { .. } => Some((Decimal32::ONE, Status::OK)),
+        Class::Finite { .. } => None,
+    }
+}
+
+/// Resolve every `ln` input class that does not reach the
+/// `libm::log` + `from_f64` pipeline. Returns `None` only for
+/// positive finite non-zero. Shared by production `ln` and the Kani
+/// shim so the two cannot drift.
+fn ln_special_cases(class: Class) -> Option<(Decimal32, Status)> {
+    match class {
+        Class::SignalingNaN { sign, payload } => Some((
+            Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
+            Status::INVALID,
+        )),
+        Class::QuietNaN { sign, payload } => Some((
+            Decimal32::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
+            Status::OK,
+        )),
+        Class::Infinity { sign: false } => Some((Decimal32::INFINITY, Status::OK)),
+        Class::Infinity { sign: true } => Some((Decimal32::NAN, Status::INVALID)),
+        Class::Zero { .. } => Some((Decimal32::NEG_INFINITY, Status::DIV_BY_ZERO)),
+        Class::Finite { sign: true, .. } => Some((Decimal32::NAN, Status::INVALID)),
+        Class::Finite { sign: false, .. } => None,
     }
 }
 
