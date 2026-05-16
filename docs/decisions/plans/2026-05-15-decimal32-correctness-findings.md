@@ -23,6 +23,11 @@ nuanced for rem (see H2 and the oracle soundness note).
 
 ## Oracle soundness note (read before touching rem)
 
+> Resolved 2026-05-15 by H2: the rem arm of the oracle now keys on
+> the true integer quotient digit count (`rem_oracle_check`), so it
+> no longer false positives when that count is 8 to 16. The note
+> below is retained as the rationale.
+
 The Decimal64 cross-check oracle is exact for `mul` (the product of
 two 7 digit coefficients fits Decimal64's 16) and for the in range
 value of `add` / `sub` away from the double rounding boundary. It is
@@ -79,31 +84,61 @@ before H3/H4 because it is their structural mechanism.
   `sub_matches_decimal64`, `addsub_small_coef_large_gap_neighborhood`
   in `tests/d64_crosscheck.rs`.
 
-### H2 — rem static `MAX_SAFE_SHIFT` raises spurious `INVALID`
+### H2 — rem static `MAX_SAFE_SHIFT` raises spurious `INVALID` — CLOSED (defect confirmed with a sound witness; pinned case was an unsound oracle false positive)
 
 * **Agents**: A2-F1, A2-F2.
-* **Tier**: H, gated on the oracle soundness note above.
-* **Site**: `ferrodec-decimal32/src/ops/rem.rs:47`
-  (`MAX_SAFE_SHIFT = 12`), decision at `:132-149`.
-* **Reproducer**: the pinned KNOWN_ISSUES H3 case is likely spec
-  correct (quotient near 16 digits). A sound witness needs
-  `shift_a > 12` while the integer quotient is at most 7 digits and
-  the remainder representable.
-* **Cause**: the static bound is the u64 alignment overflow guard for
-  the chosen working width; using it as the `Division_impossible`
-  predicate rejects pairs whose actual integer quotient is small.
-  IEEE 754-2019 keeps the §5.3.1 remainder definition separate from
-  the §7.2 invalid case (quotient exceeds the format digit budget).
-  Decimal64 H5 shape.
-* **Fix shape**: one commit. First correct the rem arm of
-  `tests/d64_crosscheck.rs` (accept Decimal32 `INVALID` when the true
-  integer quotient exceeds 7 digits, or constrain the generator).
-  Then replace `MAX_SAFE_SHIFT` with the dynamic per side
-  digit count keyed bound over u128, mirroring `fma.rs` and decimal64
-  `rem.rs`; keep `quotient >= COEFFICIENT_LIMIT` as the sole
-  `INVALID` predicate. Folds A2-F2.
-* **Guard**: un-ignore `rem_matches_decimal64`,
-  `rem_large_shift_neighborhood` after the oracle correction.
+* **Outcome (2026-05-15, evidence first)**: defect **confirmed** with
+  a sound witness; the Phase 0 pinned reproducer was a false
+  positive of the unsound `rem` oracle, now corrected.
+* **Site**: `ferrodec-decimal32/src/ops/rem.rs` (former
+  `MAX_SAFE_SHIFT = 12` over a `u64` register).
+* **Pinned case refuted as a defect**: `rem(4.194304E+33,
+  -3.145728E+18)`. The true truncated integer quotient
+  `trunc(4194304E+15 / 3145728) ≈ 1.33 × 10^15` has about 16 digits,
+  far beyond Decimal32's `PRECISION = 7`. The General Decimal
+  Arithmetic `remainder` operation plus IEEE 754-2019 §7.2 mandate
+  `Invalid_operation`, so Decimal32's `NaN`/`INVALID` is
+  spec-correct. The Phase 0 cross-check oracle expected Decimal64's
+  finite remainder, which exists only because Decimal64's own
+  `Division_impossible` budget is 10^16 digits, not 10^7. The oracle
+  was unsound for `rem` and is now corrected.
+* **Sound witness (genuine defect)**: `rem(1E+13, 9999999)` under any
+  rounding mode. The alignment shift is `13 > 12` (the old static
+  bound), yet the true integer quotient is
+  `10^13 / 9_999_999 = 1_000_000` (7 digits, inside `PRECISION`) and
+  the exact remainder is `1_000_000`, representable. Pre-fix result:
+  `(NaN, INVALID)`. Spec answer: `1.000000E+6`, `OK`. Companion
+  zero-remainder witness: `rem(1E+13, 5000000)`, quotient
+  `2_000_000`, remainder `0`.
+* **Cause**: the static `MAX_SAFE_SHIFT` was the `u64` alignment
+  overflow guard for the chosen register width; using it as the
+  `Division_impossible` predicate rejected pairs whose true integer
+  quotient was small. IEEE 754-2019 keeps the §5.3.1 remainder
+  definition separate from the §7.2 invalid case (quotient exceeds
+  the format digit budget). Decimal64 H5 shape.
+* **Sufficiency note for the dynamic bound**: with a `u128` register
+  (`U128_DIGIT_CAP = 38`) and Decimal32's at-most-7-digit
+  coefficients, a residual register-overflow case requires
+  `shift > 38 − digit_count(coef) ≥ 31`. With the dividend dominant
+  and the divisor at most 7 digits, the integer quotient then has at
+  least `38 − 7 − 1 = 30` digits, far beyond `PRECISION = 7`. So
+  every case that still trips the dynamic overflow branch is
+  genuinely `Division_impossible`; the dynamic bound never produces a
+  spurious `INVALID`, while the static `u64` bound at 12 did.
+* **Fix landed**: one slice. Corrected the rem arm of
+  `tests/d64_crosscheck.rs` (`rem_oracle_check`: compute the integer
+  quotient digit count from the widened operands, expect
+  `NaN`/`INVALID` when it exceeds 7 digits, the narrowed Decimal64
+  remainder otherwise). Replaced `MAX_SAFE_SHIFT` and the `u64`
+  `POW10_U64` table with the dynamic per-side digit-count bound over
+  `u128`, mirroring `fma.rs` and decimal64 `rem.rs`;
+  `quotient >= COEFFICIENT_LIMIT` is the sole `INVALID` predicate.
+  Folds A2-F2.
+* **Guard**: `rem_matches_decimal64` (now the dedicated GDA oracle
+  block) and `rem_large_shift_neighborhood` are un-ignored and
+  active, plus the in-crate unit regressions
+  `rem_h2_wide_gap_small_quotient_is_finite` and
+  `rem_pinned_known_issue_h3_is_spec_invalid`.
 
 ### H3 — FMA early returns pack an out of range biased exponent through a release no-op `debug_assert!`
 

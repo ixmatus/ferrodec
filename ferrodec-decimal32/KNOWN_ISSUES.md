@@ -99,18 +99,50 @@ tier.
   and yields a near zero instead of the operand. This is the
   decimal64 H1 shape (asymmetric zero addsub magnitude loss).
 
-### H3: rem static `MAX_SAFE_SHIFT` raises spurious `INVALID`
+### H3: rem static `MAX_SAFE_SHIFT` raises spurious `INVALID` — CLOSED (defect confirmed, oracle was unsound)
 
-* **Reproducer**: `rem(4.194304E+33, -3.145728E+18)` under
-  `NearestEven` (`a` bits `0x50000000`, `b` bits `0xAF100000`).
-* **Wrong answer**: `NaN` with `INVALID`. **Spec answer**:
-  `1.048576E+18`.
-* **Mechanism (hypothesis)**: the fixed `MAX_SAFE_SHIFT = 12` in
-  `src/ops/rem.rs` conflates a u64 overflow guard with the quotient
-  digit count, so an alignment shift past the static bound returns
-  `Division_impossible` even though the quotient is small and the
-  remainder is representable. This is the decimal64 H5 shape; the fix
-  is the same dynamic per side bound.
+* **Status**: closed 2026-05-15 by the H2 rem slice. The pinned
+  reproducer was an unsound oracle false positive; a *different*
+  sound witness confirmed the underlying static-window defect, and
+  the dynamic bound landed.
+* **Pinned reproducer was spec-correct**: `rem(4.194304E+33,
+  -3.145728E+18)` (`a` bits `0x50000000`, `b` bits `0xAF100000`).
+  Decimal32 returns `NaN` with `INVALID`, and that is the
+  spec-correct General Decimal Arithmetic answer. The true truncated
+  integer quotient `trunc(4194304E+15 / 3145728)` is about
+  `1.33 × 10^15`, roughly 16 digits, far beyond Decimal32's
+  `PRECISION = 7`, so GDA `remainder` plus IEEE 754-2019 §7.2 mandate
+  `Invalid_operation`. The Phase 0 cross-check oracle keyed on
+  Decimal64's *finite* remainder, which exists only because
+  Decimal64's own `Division_impossible` budget is 10^16 digits, not
+  10^7. The oracle was unsound for `rem`; it has been corrected (see
+  `tests/d64_crosscheck.rs`, `rem_oracle_check`) to assert the GDA
+  result, and the pinned case is now a regression test asserting
+  `NaN`/`INVALID` (`rem_pinned_known_issue_h3_is_spec_invalid`).
+* **Genuine defect, sound witness**: `rem(1E+13, 9999999)` under any
+  rounding mode. The alignment shift is `13 − 0 = 13`, past the old
+  static `MAX_SAFE_SHIFT = 12`, but the true integer quotient is
+  `10^13 / 9_999_999 = 1_000_000` (7 digits, inside `PRECISION`) and
+  the exact remainder is `1_000_000`, representable. Pre-fix the code
+  returned `(NaN, INVALID)`; the spec answer is `1.000000E+6`, `OK`.
+  Companion zero-remainder witness: `rem(1E+13, 5000000)`, quotient
+  `2_000_000`, remainder `0`.
+* **Mechanism (confirmed)**: the fixed `MAX_SAFE_SHIFT = 12` over a
+  `u64` alignment register conflated "aligning the operand overflows
+  the register" with the GDA `Division_impossible` digit-budget test.
+  Those are distinct: IEEE 754-2019 §5.3.1 defines the remainder and
+  §7.2 owns the digit-count overflow. The static window rejected
+  pairs whose integer quotient was small. This is the decimal64 H5
+  shape.
+* **Fix**: `MAX_SAFE_SHIFT` (and the `u64` `POW10_U64` table) replaced
+  by a dynamic per-side bound over a `u128` register keyed on
+  `decimal_digit_count_u128`, mirroring the in-crate `src/ops/fma.rs`
+  and the decimal64 `src/ops/rem.rs` H5 fix. The sole
+  `Invalid_operation` predicate is now `quotient >=
+  COEFFICIENT_LIMIT`. For Decimal32's 7-digit coefficients and a
+  `u128` register, every residual register-overflow case
+  (`shift > 38 − digit_count`) provably has an integer quotient
+  exceeding 7 digits, so its `INVALID` is spec-correct.
 
 When each defect closes, this section's entry moves to a closed audit
 trail in the same commit as the fix.

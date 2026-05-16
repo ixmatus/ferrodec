@@ -16,9 +16,18 @@
 //!   14 digits, representable in Decimal64's 16 exactly, so the
 //!   Decimal64 product is exact and the round back to Decimal32 is
 //!   the correctly rounded answer. No double rounding.
-//! - `rem`: the remainder is exact and no larger in magnitude than
-//!   the operands, representable in Decimal64 exactly. No double
-//!   rounding.
+//! - `rem`: the remainder itself is exact and no larger in magnitude
+//!   than the operands, representable in Decimal64 exactly. But the
+//!   raw Decimal64 remainder is *not* the Decimal32 oracle: Decimal64
+//!   keys its `Division_impossible` predicate on its own 10^16
+//!   coefficient budget, while Decimal32 must raise
+//!   `Invalid_operation` once the truncated integer quotient
+//!   `trunc(|a / b|)` exceeds 7 digits (GDA `remainder`, IEEE
+//!   754-2019 §5.3.1 + §7.2). The `rem_oracle_check` helper therefore
+//!   computes the quotient digit count from the widened operands and
+//!   asserts the spec-correct Decimal32 result: `NaN`/`INVALID` when
+//!   that quotient exceeds 7 digits, the narrowed Decimal64 remainder
+//!   otherwise.
 //! - `add` / `sub`: the exact result can exceed 16 significand
 //!   digits (a tiny addend many orders below the dominant operand).
 //!   The Decimal64 step rounds first, so a double rounding divergence
@@ -128,49 +137,161 @@ oracle -> {expected} (a_bits={:#010x} b_bits={:#010x})",
     };
 }
 
-/// `add` / `sub` / `rem` are red on `main`. Phase 0a (beads fd-ac6)
-/// lands this harness as clean green infrastructure; Phase 0b
-/// (fd-pab) pins the reproducers in `KNOWN_ISSUES`; each H tier fix in
-/// Phase 2..N (fd-6tl) removes the matching `#[ignore]` and the block
-/// becomes the permanent regression guard for that fix. Do not delete
-/// an `#[ignore]` reason without a landed fix.
-macro_rules! crosscheck_ignored {
-    ($name:ident, $op:ident, $reason:literal) => {
-        proptest! {
-            #![proptest_config(ProptestConfig::with_cases(4096))]
-            #[test]
-            #[ignore = $reason]
-            fn $name(
-                a in finite_d32(),
-                b in finite_d32(),
-                rmi in 0usize..ROUNDING_MODES.len(),
-            ) {
-                let rm = ROUNDING_MODES[rmi];
-                let (actual, _) = a.$op(b, rm);
-                let oracle = narrow(widen(a).$op(widen(b), rm).0, rm);
-                prop_assume!(oracle.is_some());
-                let expected = oracle.unwrap();
-                prop_assert!(
-                    same_result(actual, expected),
-                    "{}({a}, {b}, {rm:?}): Decimal32 -> {actual}, Decimal64 \
-oracle -> {expected} (a_bits={:#010x} b_bits={:#010x})",
-                    stringify!($op), a.to_bits(), b.to_bits()
-                );
-            }
-        }
-    };
-}
+// `add` / `sub` were red on `main` and are now fixed (H1) and held
+// here as the permanent regression guard; `rem` (H2) uses the
+// dedicated GDA-correct oracle below rather than the generic macro,
+// because the Decimal64 remainder is only the Decimal32 oracle when
+// the integer quotient stays within 7 digits.
 
 crosscheck_active!(mul_matches_decimal64, mul);
 crosscheck_active!(add_matches_decimal64, add);
 crosscheck_active!(sub_matches_decimal64, sub);
-crosscheck_ignored!(
-    rem_matches_decimal64,
-    rem,
-    "red on main: rem static MAX_SAFE_SHIFT raises spurious INVALID \
-     (e.g. rem(4.194304E+33, -3.145728E+18) -> NaN, want \
-     1.048576E+18). Un-ignore with the H tier rem fix (fd-6tl)."
-);
+
+// `rem` cannot use the generic Decimal64 oracle directly. The
+// Decimal64 `rem` keys its `Division_impossible` predicate on its own
+// 10^16 coefficient budget, while Decimal32 must, per the General
+// Decimal Arithmetic `remainder` operation and IEEE 754-2019 §5.3.1
+// plus §7.2, raise `Invalid_operation` once the *truncated integer
+// quotient* `trunc(|a / b|)` exceeds `PRECISION = 7` digits. So a
+// Decimal64 finite remainder is the exact Decimal32 oracle only when
+// that integer quotient has at most 7 digits; when it has 8 to 16
+// digits Decimal64 is finite but the spec-correct Decimal32 answer is
+// `NaN` with `INVALID`, and when it exceeds 16 digits both formats
+// raise `INVALID`. The `rem_oracle` helper below re-derives the GDA
+// validity rule from the spec: it computes the integer quotient digit
+// count exactly from the widened operands and asserts the
+// spec-correct Decimal32 result, not the raw Decimal64 remainder.
+
+/// Decompose a finite `Decimal32`'s exact decimal string into
+/// `(negative, coefficient, exp10)` so that the value equals
+/// `(-1)^negative × coefficient × 10^exp10`. The coefficient never
+/// exceeds 7 digits, so a `u128` holds it with vast headroom.
+fn decompose(d: Decimal32) -> (bool, u128, i32) {
+    let s = d.to_string();
+    let (negative, rest) = match s.strip_prefix('-') {
+        Some(r) => (true, r),
+        None => (false, s.as_str()),
+    };
+    // Split an optional `E±nn` exponent suffix.
+    let (mantissa, mut exp10): (&str, i32) = match rest.split_once(['E', 'e']) {
+        Some((m, e)) => (m, e.parse::<i32>().expect("decimal exponent fits i32")),
+        None => (rest, 0),
+    };
+    // Fold a fractional point into the integer coefficient.
+    let (int_part, frac_part) = match mantissa.split_once('.') {
+        Some((i, f)) => (i, f),
+        None => (mantissa, ""),
+    };
+    exp10 -= frac_part.len() as i32;
+    let digits: String = int_part.chars().chain(frac_part.chars()).collect();
+    let coefficient: u128 = digits.parse().expect("≤ 7 significant digits fit u128");
+    (negative, coefficient, exp10)
+}
+
+/// Number of decimal digits in the truncated integer quotient
+/// `trunc(|a / b|)`, expressed as a comparison against the
+/// `PRECISION = 7` budget: returns `true` when that quotient has more
+/// than 7 digits (i.e. is `>= 10^7`), the GDA `Division_impossible`
+/// condition for Decimal32.
+///
+/// `|a| = ca · 10^ea`, `|b| = cb · 10^eb`. The quotient is
+/// `trunc((ca / cb) · 10^(ea − eb))`. The boundary `q >= 10^7`
+/// rearranges to `ca · 10^max(g,0) >= 10^7 · cb · 10^max(-g,0)` with
+/// `g = ea − eb`. When `|g|` is large one side dominates by orders of
+/// magnitude and the answer is immediate; only a bounded window of
+/// `g` needs the exact `u128` product, and there it always fits
+/// (`ca, cb < 10^7`, the residual power is `< 10^7`).
+fn quotient_exceeds_precision(ca: u128, ea: i32, cb: u128, eb: i32) -> bool {
+    debug_assert!(ca >= 1 && cb >= 1);
+    const LIMIT: u128 = 10u128.pow(7); // COEFFICIENT_LIMIT
+    let g = ea - eb;
+    if g >= 14 {
+        // ca · 10^(g−7) vs cb. With g − 7 >= 7, ca·10^(g−7) >= 10^7 >
+        // cb (cb < 10^7). Quotient definitely exceeds 7 digits.
+        return true;
+    }
+    if g <= 0 {
+        // cb · 10^(7−g) vs ca. With 7 − g >= 7, cb·10^(7−g) >= 10^7 >
+        // ca. Quotient definitely at most 7 digits.
+        return false;
+    }
+    // Bounded window 1 <= g <= 13. Compare exactly in u128:
+    //   q >= 10^7  iff  ca · 10^g >= 10^7 · cb
+    // ca < 10^7 and 10^g <= 10^13 so the left side is < 10^20 < 2^128;
+    // the right side is < 10^14. No overflow.
+    let lhs = ca * 10u128.pow(g as u32);
+    let rhs = LIMIT * cb;
+    lhs >= rhs
+}
+
+/// The `rem` cross-check with the GDA-correct oracle. For each
+/// generated operand pair the spec-correct Decimal32 result is:
+///
+/// * the Decimal32 operands' own special handling (NaN / 0 / ∞) — out
+///   of scope here, the generator emits finite operands only;
+/// * `NaN` with `INVALID` when `trunc(|a / b|)` has more than 7
+///   digits (GDA `Division_impossible`, IEEE 754-2019 §7.2);
+/// * otherwise the exact remainder, which is small (strictly less
+///   than `|b|`) and exactly representable; the Decimal64 remainder
+///   rounded back to Decimal32 is then the exact oracle.
+fn rem_oracle_check(a: Decimal32, b: Decimal32, rm: RoundingMode) -> Result<(), String> {
+    let (actual, _) = a.rem(b, rm);
+    let (_, ca, ea) = decompose(a);
+    let (_, cb, eb) = decompose(b);
+
+    // Dividend zero: remainder is ±0; quotient is 0 (≤ 7 digits).
+    // Fall through to the finite-oracle branch, which handles it
+    // (Decimal64 also yields a zero remainder).
+    if ca != 0 && quotient_exceeds_precision(ca, ea, cb, eb) {
+        // Spec-correct Decimal32 result: NaN with INVALID.
+        if actual.to_string().contains("NaN") {
+            return Ok(());
+        }
+        return Err(format!(
+            "rem({a}, {b}, {rm:?}): integer quotient exceeds PRECISION = 7 \
+             digits, spec answer is NaN/INVALID, Decimal32 -> {actual} \
+             (a_bits={:#010x} b_bits={:#010x})",
+            a.to_bits(),
+            b.to_bits()
+        ));
+    }
+
+    // Integer quotient fits 7 digits: the exact remainder is small
+    // and representable, so the Decimal64 remainder rounded back to
+    // Decimal32 is the exact oracle.
+    let oracle = narrow(widen(a).rem(widen(b), rm).0, rm);
+    let Some(expected) = oracle else {
+        return Ok(()); // out of Decimal32 range: status-range, skipped
+    };
+    if same_result(actual, expected) {
+        Ok(())
+    } else {
+        Err(format!(
+            "rem({a}, {b}, {rm:?}): Decimal32 -> {actual}, Decimal64 \
+             oracle -> {expected} (a_bits={:#010x} b_bits={:#010x})",
+            a.to_bits(),
+            b.to_bits()
+        ))
+    }
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(4096))]
+    #[test]
+    fn rem_matches_decimal64(
+        a in finite_d32(),
+        b in finite_d32(),
+        rmi in 0usize..ROUNDING_MODES.len(),
+    ) {
+        // Divisor zero is a special (NaN/INVALID in both formats),
+        // out of this value oracle's scope.
+        prop_assume!(!b.is_zero());
+        let rm = ROUNDING_MODES[rmi];
+        if let Err(msg) = rem_oracle_check(a, b, rm) {
+            prop_assert!(false, "{}", msg);
+        }
+    }
+}
 
 /// Helper for the explicit neighborhood probes: parse a literal that
 /// is known to be inside Decimal32's range.
@@ -217,28 +338,34 @@ fn addsub_small_coef_large_gap_neighborhood() {
 }
 
 /// The `rem` large-shift neighborhood: operand pairs whose alignment
-/// shift exceeds `rem.rs`'s fixed `MAX_SAFE_SHIFT` while the quotient
-/// stays small, the regime where the static window conflates u64
-/// overflow with quotient digit count.
+/// shift exceeds `rem.rs`'s former fixed `MAX_SAFE_SHIFT = 12`. With
+/// the dynamic per-side bound the small-quotient pairs now compute
+/// their finite remainder; the large-quotient pairs stay
+/// `Division_impossible`. Each pair is held to the GDA-correct
+/// `rem_oracle_check`, which asserts `NaN`/`INVALID` exactly when the
+/// true integer quotient exceeds 7 digits.
 #[test]
-#[ignore = "red on main: confirmed rem static MAX_SAFE_SHIFT defect; un-ignore with the H tier rem fix (fd-6tl)"]
 fn rem_large_shift_neighborhood() {
     let probes: &[(&str, &str)] = &[
+        // Sound small-quotient witnesses (the H2 defect class):
+        // shift > 12, integer quotient ≤ 7 digits, finite remainder.
+        ("1E+13", "9999999"), // q = 1_000_000 (7 digits), rem 1_000_000
+        ("1E+13", "5000000"), // q = 2_000_000 (7 digits), rem 0
+        // Large-quotient pairs: quotient ≫ 7 digits, spec NaN/INVALID.
         ("1E+20", "1"),
         ("9999999E+20", "1E+5"),
         ("1E+90", "3E+70"),
         ("1234567E+30", "89E+10"),
         ("9.999999E+96", "7"),
+        // The 2026-05-15 pinned KNOWN_ISSUES H3 case: quotient ~16
+        // digits, spec-correct NaN/INVALID (oracle was unsound).
+        ("4.194304E+33", "-3.145728E+18"),
     ];
     for (sa, sb) in probes {
         let (a, b) = (d32(sa), d32(sb));
         for rm in ROUNDING_MODES {
-            let (got, _) = a.rem(b, rm);
-            if let Some(expected) = narrow(widen(a).rem(widen(b), rm).0, rm) {
-                assert!(
-                    same_result(got, expected),
-                    "rem({sa}, {sb}, {rm:?}): Decimal32 -> {got}, oracle -> {expected}"
-                );
+            if let Err(msg) = rem_oracle_check(a, b, rm) {
+                panic!("{msg}");
             }
         }
     }
