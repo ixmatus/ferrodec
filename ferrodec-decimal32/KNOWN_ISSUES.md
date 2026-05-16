@@ -1,11 +1,17 @@
 # ferrodec-decimal32 known issues
 
-Tracks coverage gaps and deferred work. The 2026-05-11 conformance
-investigation (see
+Tracks coverage gaps, deferred work, and confirmed correctness
+defects. The 2026-05-11 conformance investigation (see
 `docs/decisions/0017-decimal64-conformance-coverage-gap.md` in the
-workspace root) found **no correctness bugs** in `Decimal32` itself,
-unlike `Decimal64`. The entries below are coverage / scope gaps, not
-correctness defects.
+workspace root) found no correctness bugs in `Decimal32` because the
+dispatcher exercised only `tosci` and `apply`. The 2026-05-15
+decimal32 correctness slice added a `Decimal64` cross-check oracle
+(every finite `Decimal32` is exactly representable in `Decimal64`,
+and `Decimal64` reached full conformance in its 1.4.0 slice), and it
+immediately surfaced three correctness defect classes in the
+arithmetic paths. Those are pinned in the first section below and
+tracked for the slice's H tier. The remaining sections are coverage
+and scope gaps, not correctness defects.
 
 ## Coverage gap: dsEncode dispatch (BID `#hex` operand decoding)
 
@@ -57,9 +63,54 @@ correctness defects.
   (Slice D was originally bundled with the transcendentals routing
   but the slice's correctness scope grew during execution).
 
-## No known correctness bugs
+## Confirmed correctness defects (decimal32 correctness slice)
 
-The 2026-05-11 investigation that found three correctness bug
-classes in `Decimal64` did not surface any analogous failures in
-`Decimal32`. This is consistent with the published 1.2.0 release
-notes; if a future review reveals defects, they land in this file.
+The `Decimal64` cross-check oracle
+(`ferrodec-decimal32/tests/d64_crosscheck.rs`) surfaced three defect
+classes on 2026-05-15. Each reproducer below is the minimal failing
+input from the property search; the spec answer is the `Decimal64`
+result rounded to 7 digits. The matching cross-check block carries an
+`#[ignore]` whose reason names the reproducer, so the harness stays
+green until the fix; the H tier fix removes the `#[ignore]` and the
+block becomes the permanent guard. These three also seed the Phase 1
+six agent review, which sweeps the full op surface for the remaining
+tier.
+
+### H1: addsub static `ALIGN_LIMIT` window drops the residue
+
+* **Reproducer**: `add(-1E-101, 1E-88)` under `TowardZero` (`a` bits
+  `0x80000001`, `b` bits `0x00D00001`).
+* **Wrong answer**: `1.000000E-88`. **Spec answer**: `9.999999E-89`.
+* **Mechanism (hypothesis)**: the fixed `ALIGN_LIMIT = 12` window in
+  `src/ops/addsub.rs` routes the lower operand to sticky only once
+  the exponent gap exceeds the static bound, so the borrow from the
+  effective subtraction is lost and the directed rounding tips the
+  wrong way. This is the decimal64 fd-d47 and H2 shape. The in crate
+  reference is `src/ops/fma.rs`, which already keys its per side
+  shift on the actual digit count.
+
+### H2: asymmetric-zero magnitude loss in addsub
+
+* **Reproducer**: `sub(-0E-74, -3.145728E-95)` under `NearestEven`
+  (`a` bits `0x81B00000`, `b` bits `0x8C000000`).
+* **Wrong answer**: `1E-101`. **Spec answer**: `3.145728E-95`.
+* **Mechanism (hypothesis)**: subtracting a finite operand from a
+  signed zero with a distant exponent loses the operand's magnitude
+  and yields a near zero instead of the operand. This is the
+  decimal64 H1 shape (asymmetric zero addsub magnitude loss).
+
+### H3: rem static `MAX_SAFE_SHIFT` raises spurious `INVALID`
+
+* **Reproducer**: `rem(4.194304E+33, -3.145728E+18)` under
+  `NearestEven` (`a` bits `0x50000000`, `b` bits `0xAF100000`).
+* **Wrong answer**: `NaN` with `INVALID`. **Spec answer**:
+  `1.048576E+18`.
+* **Mechanism (hypothesis)**: the fixed `MAX_SAFE_SHIFT = 12` in
+  `src/ops/rem.rs` conflates a u64 overflow guard with the quotient
+  digit count, so an alignment shift past the static bound returns
+  `Division_impossible` even though the quotient is small and the
+  remainder is representable. This is the decimal64 H5 shape; the fix
+  is the same dynamic per side bound.
+
+When each defect closes, this section's entry moves to a closed audit
+trail in the same commit as the fix.
