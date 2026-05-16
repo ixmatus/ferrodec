@@ -605,7 +605,21 @@ fn sub_ulp_eff_sub_c_dominates(
         // strictly closer to the true value.
         RoundingMode::NearestEven | RoundingMode::NearestAway => true,
     };
-    let status = Status::INEXACT;
+    // IEEE 754 §7.5 underflow is detected on the *true* value before
+    // rounding (the decTest / GDA convention the exact oracle pins).
+    // The true value here is `cc·10^qc − epsilon` with `epsilon > 0`
+    // tiny: its adjusted exponent is that of `cc·10^qc`, less one when
+    // `cc` is a power of ten (`1.0…0 − epsilon → 0.9…9` drops a
+    // decade). `round_and_pack_finite` only sees the exactly-
+    // representable `cc`, so its after-rounding subnormal test misses
+    // the case where the value is tiny but rounds back up to the
+    // smallest normal — raise UNDERFLOW here. The result is always
+    // inexact (`epsilon ≠ 0`).
+    let true_adjusted = qc + d as i32 - 1 - i32::from(is_pow10);
+    let mut status = Status::INEXACT;
+    if true_adjusted < crate::bid::E_MIN {
+        status |= Status::UNDERFLOW;
+    }
 
     if round_up {
         // Upper candidate `cc · 10^qc`. Pass the FMA's preferred
