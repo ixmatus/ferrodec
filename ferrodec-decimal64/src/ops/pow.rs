@@ -50,38 +50,8 @@ impl Decimal64 {
     /// * `pow(negative finite, non-integer y)` → NaN + INVALID.
     #[must_use]
     pub fn pow(self, exponent: Self, rm: RoundingMode) -> (Self, Status) {
-        // pow(x, 0) = 1, including pow(NaN, 0) = 1.
-        if exponent.is_zero() {
-            return (Decimal64::ONE, Status::OK);
-        }
-        // pow(1, y) = 1 (even for y = NaN, including signaling NaN).
-        // §9.2 ties this to *value*, not cohort, so we must catch
-        // every cohort of 1 (`1×10⁰`, `10×10⁻¹`, `100×10⁻²`, ...),
-        // not just the canonical bit pattern.
-        if equals_one(self) {
-            // sNaN exponent still raises INVALID per the §9.2 rule.
-            if let Class::SignalingNaN { .. } = classify_bits(exponent.0) {
-                return (Decimal64::ONE, Status::INVALID);
-            }
-            return (Decimal64::ONE, Status::OK);
-        }
-        // sNaN propagation.
-        for arg in [self, exponent] {
-            if let Class::SignalingNaN { sign, payload } = classify_bits(arg.0) {
-                return (
-                    Decimal64::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
-                    Status::INVALID,
-                );
-            }
-        }
-        // qNaN propagation (a preferred per §6.2.3).
-        for arg in [self, exponent] {
-            if let Class::QuietNaN { sign, payload } = classify_bits(arg.0) {
-                return (
-                    Decimal64::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
-                    Status::OK,
-                );
-            }
+        if let Some(special) = pow_special_cases(self, exponent) {
+            return special;
         }
 
         // Negative base with non-integer exponent → NaN + INVALID.
@@ -138,41 +108,119 @@ impl Decimal64 {
     /// `cbrt(±∞) = ±∞`, NaN propagates.
     #[must_use]
     pub fn cbrt(self, rm: RoundingMode) -> (Self, Status) {
-        match classify_bits(self.0) {
-            Class::SignalingNaN { sign, payload } => (
+        if let Some(special) = cbrt_special_cases(classify_bits(self.0)) {
+            return special;
+        }
+        // Finite non-zero: route through f64.
+        let x = self.to_f64(RoundingMode::NearestEven).0;
+        let r = libm::cbrt(x);
+        let (val, mut status) = Decimal64::from_f64(r, rm);
+        if !val.is_zero() {
+            status |= Status::INEXACT;
+        }
+        (val, status)
+    }
+
+    /// Kani-only entry for the binary `pow` special-case branch
+    /// without invoking the negative-base integer test or the
+    /// `libm::pow` + `from_f64` pipeline. CBMC never encodes the f64
+    /// path. ADR-0016.
+    #[cfg(kani)]
+    #[doc(hidden)]
+    #[must_use]
+    pub fn pow_special_only_for_kani(self, exponent: Self) -> Option<(Self, Status)> {
+        pow_special_cases(self, exponent)
+    }
+
+    /// Kani-only entry for the `cbrt` special-case branch. ADR-0016.
+    #[cfg(kani)]
+    #[doc(hidden)]
+    #[must_use]
+    pub fn cbrt_special_only_for_kani(self) -> Option<(Self, Status)> {
+        cbrt_special_cases(classify_bits(self.0))
+    }
+}
+
+/// Resolve every `pow` input combination that does not reach the
+/// negative-base integer test or the `libm::pow` + `from_f64`
+/// pipeline. Returns `None` for the fall-through (a base / exponent
+/// pair that needs the f64 path, including the negative-base
+/// non-integer INVALID, which depends on the rounded f64 exponent).
+/// The resolution order is fixed and mirrors IEEE 754-2019 §9.2:
+/// `pow(x, 0) = 1` (even `pow(NaN, 0)`); then `pow(1, y) = 1` by
+/// value not cohort (`sNaN` exponent still raises INVALID); then
+/// `sNaN` propagation over `[base, exponent]`; then `qNaN`
+/// propagation. Shared by production `pow` and the Kani shim so the
+/// two cannot drift.
+fn pow_special_cases(base: Decimal64, exponent: Decimal64) -> Option<(Decimal64, Status)> {
+    // pow(x, 0) = 1, including pow(NaN, 0) = 1.
+    if exponent.is_zero() {
+        return Some((Decimal64::ONE, Status::OK));
+    }
+    // pow(1, y) = 1 (even for y = NaN, including signaling NaN).
+    // §9.2 ties this to *value*, not cohort, so we must catch every
+    // cohort of 1 (`1×10⁰`, `10×10⁻¹`, `100×10⁻²`, ...), not just the
+    // canonical bit pattern.
+    if equals_one(base) {
+        // sNaN exponent still raises INVALID per the §9.2 rule.
+        if let Class::SignalingNaN { .. } = classify_bits(exponent.0) {
+            return Some((Decimal64::ONE, Status::INVALID));
+        }
+        return Some((Decimal64::ONE, Status::OK));
+    }
+    // sNaN propagation.
+    for arg in [base, exponent] {
+        if let Class::SignalingNaN { sign, payload } = classify_bits(arg.0) {
+            return Some((
                 Decimal64::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
                 Status::INVALID,
-            ),
-            Class::QuietNaN { sign, payload } => (
+            ));
+        }
+    }
+    // qNaN propagation (a preferred per §6.2.3).
+    for arg in [base, exponent] {
+        if let Class::QuietNaN { sign, payload } = classify_bits(arg.0) {
+            return Some((
                 Decimal64::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
                 Status::OK,
-            ),
-            Class::Infinity { sign } => (
-                if sign {
-                    Decimal64::NEG_INFINITY
-                } else {
-                    Decimal64::INFINITY
-                },
-                Status::OK,
-            ),
-            Class::Zero { sign, .. } => (
-                if sign {
-                    Decimal64::NEG_ZERO
-                } else {
-                    Decimal64::ZERO
-                },
-                Status::OK,
-            ),
-            Class::Finite { .. } => {
-                let x = self.to_f64(RoundingMode::NearestEven).0;
-                let r = libm::cbrt(x);
-                let (val, mut status) = Decimal64::from_f64(r, rm);
-                if !val.is_zero() {
-                    status |= Status::INEXACT;
-                }
-                (val, status)
-            }
+            ));
         }
+    }
+    None
+}
+
+/// Resolve every `cbrt` input class that does not reach the
+/// `libm::cbrt` + `from_f64` pipeline. `None` only for finite
+/// non-zero. `cbrt(±∞) = ±∞`, `cbrt(±0) = ±0` (sign preserved); the
+/// real cube root has no domain restriction. Shared by production
+/// `cbrt` and the Kani shim so the two cannot drift.
+fn cbrt_special_cases(class: Class) -> Option<(Decimal64, Status)> {
+    match class {
+        Class::SignalingNaN { sign, payload } => Some((
+            Decimal64::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
+            Status::INVALID,
+        )),
+        Class::QuietNaN { sign, payload } => Some((
+            Decimal64::from_bits(crate::bid::pack_quiet_nan(sign, payload)),
+            Status::OK,
+        )),
+        Class::Infinity { sign } => Some((
+            if sign {
+                Decimal64::NEG_INFINITY
+            } else {
+                Decimal64::INFINITY
+            },
+            Status::OK,
+        )),
+        Class::Zero { sign, .. } => Some((
+            if sign {
+                Decimal64::NEG_ZERO
+            } else {
+                Decimal64::ZERO
+            },
+            Status::OK,
+        )),
+        Class::Finite { .. } => None,
     }
 }
 
