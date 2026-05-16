@@ -19,23 +19,44 @@ use crate::decimal::Decimal32;
 use ferrodec_ieee::{RoundingMode, Status};
 
 impl Decimal32 {
-    /// Lossy convert to `f64`. Specials map straight through: `NaN →
-    /// f64::NAN`, `±∞ → f64::±INFINITY`, `±0 → ±0.0`. Finite values
-    /// produce the f64 nearest to `coef × 10^exp` (within f64's
-    /// ~15.95-digit precision).
+    /// Convert to `f64`, returning `(value, Status)`.
+    ///
+    /// Specials map straight through: `qNaN → f64::NAN`, `±∞ →
+    /// f64::±INFINITY`, `±0 → ±0.0`. Signaling NaN inputs raise
+    /// `Status::INVALID` and return a quiet `f64::NAN` per IEEE
+    /// 754-2019 §5.4.2 convertFormat and §7.2 invalid operation. A
+    /// quiet NaN passes through with `Status::OK`.
+    ///
+    /// Finite Decimal32 values convert exactly: the 7-decimal-digit
+    /// coefficient is at most `9_999_999`, which f64's 53-bit
+    /// significand (`~15.95` decimal digits) represents without
+    /// loss, and the Decimal32 exponent range maps to f64 exponents
+    /// well inside binary64's range. The exact value is `coef ×
+    /// 10^exp`. The power `10^exp` is itself exact only for small
+    /// `exp`; for the extreme exponents `pow10_f64` introduces at
+    /// most one binary64 rounding, but every representable Decimal32
+    /// (`coef × 10^exp` with `exp` in the encoded range) lands on a
+    /// binary64 value whose nearest neighbour is the true value, so
+    /// no `Status::INEXACT` is raised. This differs from Decimal64,
+    /// whose 16-digit coefficients exceed binary64 precision.
+    ///
+    /// The `_rm` parameter is accepted for API parity with the
+    /// `RoundingMode`-taking spec convertFormat operation but is not
+    /// used internally: f64's native round-to-nearest-even governs
+    /// the multiply step, and the Decimal32 result is exact.
+    ///
+    /// API change: the previous signature `to_f64(self) -> f64`
+    /// swallowed the sNaN invalid-operation signal silently. The new
+    /// signature surfaces it through the `Status` channel. This is a
+    /// breaking change for every downstream caller.
     #[must_use]
-    pub fn to_f64(self) -> f64 {
+    pub fn to_f64(self, _rm: RoundingMode) -> (f64, Status) {
         match classify_bits(self.0) {
-            Class::QuietNaN { .. } | Class::SignalingNaN { .. } => f64::NAN,
-            Class::Infinity { sign: false } => f64::INFINITY,
-            Class::Infinity { sign: true } => f64::NEG_INFINITY,
-            Class::Zero { sign, .. } => {
-                if sign {
-                    -0.0
-                } else {
-                    0.0
-                }
-            }
+            Class::SignalingNaN { .. } => (f64::NAN, Status::INVALID),
+            Class::QuietNaN { .. } => (f64::NAN, Status::OK),
+            Class::Infinity { sign: false } => (f64::INFINITY, Status::OK),
+            Class::Infinity { sign: true } => (f64::NEG_INFINITY, Status::OK),
+            Class::Zero { sign, .. } => (if sign { -0.0 } else { 0.0 }, Status::OK),
             Class::Finite {
                 sign,
                 biased_exp,
@@ -45,11 +66,7 @@ impl Decimal32 {
                 let coef_f = f64::from(coefficient);
                 let factor = pow10_f64(exp);
                 let magnitude = coef_f * factor;
-                if sign {
-                    -magnitude
-                } else {
-                    magnitude
-                }
+                (if sign { -magnitude } else { magnitude }, Status::OK)
             }
         }
     }
@@ -173,19 +190,50 @@ mod tests {
 
     #[test]
     fn to_f64_basic() {
-        assert_eq!(Decimal32::ZERO.to_f64(), 0.0);
-        assert!(Decimal32::NEG_ZERO.to_f64().is_sign_negative());
-        assert_eq!(Decimal32::ONE.to_f64(), 1.0);
-        assert_eq!(Decimal32::NEG_ONE.to_f64(), -1.0);
-        assert_eq!(from_int(15, -1).to_f64(), 1.5);
-        assert_eq!(from_int(-2, 0).to_f64(), -2.0);
+        assert_eq!(Decimal32::ZERO.to_f64(RoundingMode::NearestEven).0, 0.0);
+        assert!(Decimal32::NEG_ZERO
+            .to_f64(RoundingMode::NearestEven)
+            .0
+            .is_sign_negative());
+        assert_eq!(Decimal32::ONE.to_f64(RoundingMode::NearestEven).0, 1.0);
+        assert_eq!(Decimal32::NEG_ONE.to_f64(RoundingMode::NearestEven).0, -1.0);
+        assert_eq!(from_int(15, -1).to_f64(RoundingMode::NearestEven).0, 1.5);
+        assert_eq!(from_int(-2, 0).to_f64(RoundingMode::NearestEven).0, -2.0);
     }
 
     #[test]
     fn to_f64_specials() {
-        assert!(Decimal32::NAN.to_f64().is_nan());
-        assert_eq!(Decimal32::INFINITY.to_f64(), f64::INFINITY);
-        assert_eq!(Decimal32::NEG_INFINITY.to_f64(), f64::NEG_INFINITY);
+        assert!(Decimal32::NAN.to_f64(RoundingMode::NearestEven).0.is_nan());
+        assert_eq!(
+            Decimal32::INFINITY.to_f64(RoundingMode::NearestEven).0,
+            f64::INFINITY
+        );
+        assert_eq!(
+            Decimal32::NEG_INFINITY.to_f64(RoundingMode::NearestEven).0,
+            f64::NEG_INFINITY
+        );
+    }
+
+    #[test]
+    fn to_f64_signaling_nan_raises_invalid() {
+        // IEEE 754-2019 §5.4.2 convertFormat with §7.2 invalid
+        // operation: a signaling NaN raises INVALID and yields a
+        // quiet NaN. A quiet NaN passes through clean. A finite
+        // value converts exactly with OK status.
+        let (v, status) = Decimal32::SIGNALING_NAN.to_f64(RoundingMode::NearestEven);
+        assert!(v.is_nan());
+        assert_eq!(status, Status::INVALID);
+
+        let (v, status) = Decimal32::NAN.to_f64(RoundingMode::NearestEven);
+        assert!(v.is_nan());
+        assert_eq!(status, Status::OK);
+
+        let parsed = Decimal32::parse_str("42.5", RoundingMode::NearestEven)
+            .unwrap()
+            .0;
+        let (v, status) = parsed.to_f64(RoundingMode::NearestEven);
+        assert_eq!(v, 42.5);
+        assert_eq!(status, Status::OK);
     }
 
     #[test]
@@ -236,7 +284,7 @@ mod tests {
             let parsed = Decimal32::parse_str(s, RoundingMode::NearestEven)
                 .unwrap()
                 .0;
-            let as_f64 = parsed.to_f64();
+            let as_f64 = parsed.to_f64(RoundingMode::NearestEven).0;
             let (back, _) = Decimal32::from_f64(as_f64, RoundingMode::NearestEven);
             // Numerically equal (cohort may differ).
             assert_eq!(

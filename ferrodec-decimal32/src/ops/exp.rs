@@ -49,7 +49,7 @@ impl Decimal32 {
             Class::Infinity { sign: true } => (Decimal32::ZERO, Status::OK),
             Class::Zero { .. } => (Decimal32::ONE, Status::OK),
             Class::Finite { .. } => {
-                let x = self.to_f64();
+                let x = self.to_f64(RoundingMode::NearestEven).0;
                 let r = libm::exp(x);
                 if r.is_infinite() {
                     return (Decimal32::INFINITY, Status::OVERFLOW | Status::INEXACT);
@@ -86,7 +86,7 @@ impl Decimal32 {
             Class::Zero { .. } => (Decimal32::NEG_INFINITY, Status::DIV_BY_ZERO),
             Class::Finite { sign: true, .. } => (Decimal32::NAN, Status::INVALID),
             Class::Finite { sign: false, .. } => {
-                let x = self.to_f64();
+                let x = self.to_f64(RoundingMode::NearestEven).0;
                 let r = libm::log(x);
                 let (val, mut status) = Decimal32::from_f64(r, rm);
                 // ln(positive finite) is exact only at x = 1 (handled
@@ -114,8 +114,8 @@ mod tests {
     fn approx_equal(a: Decimal32, b: Decimal32, max_ulp: u32) -> bool {
         // Convert both to f64 and check relative tolerance proportional
         // to max_ulp at Decimal32 precision (~10^-7 per ULP).
-        let af = a.to_f64();
-        let bf = b.to_f64();
+        let af = a.to_f64(RoundingMode::NearestEven).0;
+        let bf = b.to_f64(RoundingMode::NearestEven).0;
         let tol = 1e-6 * f64::from(max_ulp);
         (af - bf).abs() <= tol * (1.0 + bf.abs())
     }

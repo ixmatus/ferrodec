@@ -116,7 +116,7 @@ impl Decimal32 {
                 Status::OK,
             ),
             Class::Finite { .. } => {
-                let x = self.to_f64();
+                let x = self.to_f64(RoundingMode::NearestEven).0;
                 if x.abs() > 1.0 {
                     return (Decimal32::NAN, Status::INVALID);
                 }
@@ -140,7 +140,7 @@ impl Decimal32 {
             ),
             Class::Infinity { .. } => (Decimal32::NAN, Status::INVALID),
             Class::Zero { .. } | Class::Finite { .. } => {
-                let x = self.to_f64();
+                let x = self.to_f64(RoundingMode::NearestEven).0;
                 if x.abs() > 1.0 {
                     return (Decimal32::NAN, Status::INVALID);
                 }
@@ -207,8 +207,8 @@ impl Decimal32 {
                 _ => {}
             }
         }
-        let y_f = self.to_f64();
-        let x_f = x.to_f64();
+        let y_f = self.to_f64(RoundingMode::NearestEven).0;
+        let x_f = x.to_f64(RoundingMode::NearestEven).0;
         let r = libm::atan2(y_f, x_f);
         let (val, mut status) = Decimal32::from_f64(r, rm);
         if !val.is_zero() {
@@ -227,8 +227,8 @@ mod tests {
     }
 
     fn approx_equal(a: Decimal32, b: Decimal32) -> bool {
-        let af = a.to_f64();
-        let bf = b.to_f64();
+        let af = a.to_f64(RoundingMode::NearestEven).0;
+        let bf = b.to_f64(RoundingMode::NearestEven).0;
         let tol = 1e-6;
         (af - bf).abs() <= tol * (1.0 + bf.abs())
     }

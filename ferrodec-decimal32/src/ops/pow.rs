@@ -87,14 +87,14 @@ impl Decimal32 {
         // Negative base with non-integer exponent → NaN + INVALID.
         if self.is_sign_negative() && !self.is_zero() {
             // Check if exponent is an integer.
-            let y_f = exponent.to_f64();
+            let y_f = exponent.to_f64(RoundingMode::NearestEven).0;
             if y_f.is_finite() && libm::trunc(y_f) != y_f {
                 return (Decimal32::NAN, Status::INVALID);
             }
         }
 
-        let x = self.to_f64();
-        let y = exponent.to_f64();
+        let x = self.to_f64(RoundingMode::NearestEven).0;
+        let y = exponent.to_f64(RoundingMode::NearestEven).0;
         let r = libm::pow(x, y);
         if r.is_nan() {
             return (Decimal32::NAN, Status::INVALID);
@@ -164,7 +164,7 @@ impl Decimal32 {
                 Status::OK,
             ),
             Class::Finite { .. } => {
-                let x = self.to_f64();
+                let x = self.to_f64(RoundingMode::NearestEven).0;
                 let r = libm::cbrt(x);
                 let (val, mut status) = Decimal32::from_f64(r, rm);
                 if !val.is_zero() {
@@ -185,8 +185,8 @@ mod tests {
     }
 
     fn approx_equal(a: Decimal32, b: Decimal32) -> bool {
-        let af = a.to_f64();
-        let bf = b.to_f64();
+        let af = a.to_f64(RoundingMode::NearestEven).0;
+        let bf = b.to_f64(RoundingMode::NearestEven).0;
         let tol = 1e-6;
         (af - bf).abs() <= tol * (1.0 + bf.abs())
     }
