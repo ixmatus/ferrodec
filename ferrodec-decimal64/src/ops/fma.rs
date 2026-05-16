@@ -630,4 +630,28 @@ mod tests {
         );
         assert!(r.is_zero() && r.is_sign_negative());
     }
+
+    #[test]
+    fn fma_subnormal_product_raises_underflow() {
+        // decTest ddfma2901:
+        //   fma 0.3000000001E-191 0.3000000001E-191 0e+384
+        //     -> 9.00000000600000E-384 Underflow Inexact Subnormal
+        // The product's adjusted exponent (-384) is below E_MIN
+        // (-383), so the representable result is subnormal. Pre-M1
+        // the status was INEXACT only; finalise_finite raised
+        // UNDERFLOW solely on the deeply-subnormal `biased < 0` arm.
+        let a = Decimal64::parse_str("0.3000000001E-191", RoundingMode::NearestEven)
+            .unwrap()
+            .0;
+        let c = Decimal64::parse_str("0e+384", RoundingMode::NearestEven)
+            .unwrap()
+            .0;
+        let (r, s) = a.fma(a, c, RoundingMode::NearestEven);
+        let expected = Decimal64::parse_str("9.00000000600000E-384", RoundingMode::NearestEven)
+            .unwrap()
+            .0;
+        assert_eq!(r.to_bits(), expected.to_bits(), "value unchanged by M1");
+        assert!(s.underflow(), "subnormal inexact product signals UNDERFLOW");
+        assert!(s.inexact());
+    }
 }
