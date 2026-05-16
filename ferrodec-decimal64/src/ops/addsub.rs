@@ -56,16 +56,21 @@ impl Decimal64 {
 
     /// IEEE 754-2019 `subtraction(self, other)` rounded by `rm`.
     ///
-    /// Implemented as `add(self, −other)`. `neg()` only toggles the
-    /// sign bit, so when `other` is a NaN the result still propagates
-    /// that NaN (a signaling NaN still raises INVALID and is quieted)
-    /// exactly as `add` would: NaN payloads and the signaling bit are
-    /// untouched by the negation, and the sign of a NaN is not
-    /// observable. `sub(±0, ±0)` and the IEEE sign-of-zero rules
-    /// follow from the same `add` dispatch on the negated operand.
+    /// Implemented as `add(self, −other)`, but the negation is
+    /// applied only when `other` is *not* a NaN. GDA / IEEE 754-2019
+    /// require that subtraction does not affect the sign of a NaN:
+    /// `subtract x NaN` propagates `NaN` (and `subtract x -NaN`
+    /// propagates `-NaN`) with the operand's original sign. Negating
+    /// the NaN operand unconditionally, as an earlier revision did,
+    /// flipped that sign and disagreed with the `ddSubtract.decTest`
+    /// corpus (`ddsub830..` etc.). For non-NaN operands `neg()` only
+    /// toggles the sign bit, so the finite / infinite / zero cases
+    /// reduce to `add` on the negated operand exactly as before,
+    /// including the IEEE sign-of-zero rules.
     #[must_use]
     pub fn sub(self, other: Self, rm: RoundingMode) -> (Self, Status) {
-        add_inner(self, other.neg(), rm)
+        let rhs = if other.is_nan() { other } else { other.neg() };
+        add_inner(self, rhs, rm)
     }
 
     /// Kani-only entry point that returns the special-case branch only,
@@ -78,14 +83,15 @@ impl Decimal64 {
         handle_specials(classify_bits(self.0), classify_bits(rhs.0), rm)
     }
 
-    /// Kani-only entry point for `sub`'s special path. Negates `rhs`
-    /// before dispatching, so sNaN propagation matches
-    /// [`Decimal64::sub`].
+    /// Kani-only entry point for `sub`'s special path. Mirrors
+    /// [`Decimal64::sub`]: the operand is negated only when it is not
+    /// a NaN, so NaN-sign propagation and sNaN INVALID match the
+    /// production path and cannot drift.
     #[cfg(kani)]
     #[doc(hidden)]
     #[must_use]
     pub fn sub_special_only_for_kani(self, rhs: Self, rm: RoundingMode) -> Option<(Self, Status)> {
-        let negated = rhs.neg();
+        let negated = if rhs.is_nan() { rhs } else { rhs.neg() };
         handle_specials(classify_bits(self.0), classify_bits(negated.0), rm)
     }
 }
@@ -554,6 +560,28 @@ mod tests {
 
         let (r, _) = from_int(1, 0).sub(from_int(1, 0), RoundingMode::NearestEven);
         assert!(r.is_zero() && !r.is_sign_negative());
+    }
+
+    #[test]
+    fn sub_does_not_flip_nan_sign() {
+        // Regression (ddSubtract.decTest ddsub830.., F1): subtraction
+        // must not negate the sign of a NaN operand. `subtract x NaN`
+        // propagates `NaN`; `subtract x -NaN` propagates `-NaN`.
+        let (r, s) = from_int(1000, 0).sub(Decimal64::NAN, RoundingMode::NearestEven);
+        assert!(r.is_quiet_nan() && !r.is_sign_negative());
+        assert!(s.is_ok());
+
+        let neg_nan = Decimal64::NAN.neg();
+        let (r, _) = from_int(1000, 0).sub(neg_nan, RoundingMode::NearestEven);
+        assert!(r.is_quiet_nan() && r.is_sign_negative());
+
+        let (r, _) = Decimal64::NEG_INFINITY.sub(Decimal64::NAN, RoundingMode::NearestEven);
+        assert!(r.is_quiet_nan() && !r.is_sign_negative());
+
+        // sNaN still raises INVALID and is quieted; sign unflipped.
+        let (r, s) = from_int(-1, 0).sub(Decimal64::SIGNALING_NAN, RoundingMode::NearestEven);
+        assert!(r.is_quiet_nan() && !r.is_sign_negative());
+        assert!(s.invalid());
     }
 
     #[test]

@@ -57,14 +57,79 @@ const fn expected_per_file() -> &'static [(&'static str, usize)] {
         ("ddBase.decTest", 708),
         ("ddEncode.decTest", 0),
         ("ddFMA.decTest", 2),
+        // F1: `subtract` dispatch wired + the `sub` NaN-sign fix.
+        // 514 of 516 cases pass; the 2 skips are `#`-hex interchange
+        // operands. `add` is intentionally not wired yet: 20
+        // `ddAdd.decTest` cases (the `ddadd64xx` / `ddadd713xx`
+        // boundary-rounding family) still fail and would breach the
+        // zero failure ceiling. They are filed as a discovered
+        // finding for the add round-up-carry fix that must precede
+        // wiring the `add` arm.
+        ("ddSubtract.decTest", 514),
     ]
 }
 
 fn run_case(case: &TestCase, ctx: &Context) -> Outcome {
     match case.op.as_str() {
         "tosci" | "apply" => run_tosci(case, ctx),
+        "subtract" => run_binary(case, ctx),
         _ => Outcome::Skip,
     }
+}
+
+/// Parse one decTest operand at the active rounding mode. Returns
+/// `None` (→ the caller should `Skip`) for operands this port cannot
+/// represent (hex BID interchange, exponents past the parser cap);
+/// a syntactically invalid operand becomes `(NaN, INVALID)` so the
+/// decTest "negative" cases still exercise the op.
+fn parse_operand(s: &str, rm: ferrodec_decimal64::RoundingMode) -> Option<Decimal64> {
+    if s.starts_with('#') {
+        return None;
+    }
+    match Decimal64::parse_str(s, rm) {
+        Ok((v, _)) => Some(v),
+        Err(ParseDecimalError::ExponentOutOfRange) => None,
+        Err(_) => Some(Decimal64::NAN),
+    }
+}
+
+/// `add` / `subtract`: parse both operands, run the op, compare the
+/// formatted result and the conformance-masked status. A case the
+/// port cannot attempt (unrepresentable operand, `#` result, hex
+/// interchange) is skipped, never failed, so the suite's zero
+/// failure ceiling stays meaningful.
+fn run_binary(case: &TestCase, ctx: &Context) -> Outcome {
+    if case.operands.len() != 2 || case.expected.starts_with('#') {
+        return Outcome::Skip;
+    }
+    let rm = match map_rounding(&ctx.rounding) {
+        Some(r) => r,
+        None => return Outcome::Skip,
+    };
+    let (a, b) = match (
+        parse_operand(&case.operands[0], rm),
+        parse_operand(&case.operands[1], rm),
+    ) {
+        (Some(a), Some(b)) => (a, b),
+        _ => return Outcome::Skip,
+    };
+    let (result, status) = match case.op.as_str() {
+        "add" => a.add(b, rm),
+        "subtract" => a.sub(b, rm),
+        _ => unreachable!("run_binary only dispatches add / subtract"),
+    };
+    let formatted = format_value(result);
+    if formatted != case.expected {
+        return Outcome::Fail(format!("got {formatted:?} want {:?}", case.expected));
+    }
+    let expected_status = decode_conditions(&case.conditions);
+    if !status_conformance_eq(status, expected_status) {
+        return Outcome::Fail(format!(
+            "status mismatch: got {status:?} want {expected_status:?} (conditions {:?})",
+            case.conditions
+        ));
+    }
+    Outcome::Pass
 }
 
 /// `toSci` and `apply`: parse the operand string at the active
