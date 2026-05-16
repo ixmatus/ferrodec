@@ -179,6 +179,39 @@ mod tests {
     }
 
     #[test]
+    fn exp_underflow_contract_m7() {
+        // Finding T1 (work-order alias M7) claimed exp produces a
+        // Decimal64-subnormal result that misses UNDERFLOW. Verified
+        // non-reproducible: Decimal64's range reaches 1E-398, far
+        // below f64's smallest non-zero (~5E-324), so every non-zero
+        // libm::exp output maps to a *normal* Decimal64. The f64 path
+        // transitions directly from normal values to exactly 0.0
+        // (libm::exp saturates near x = -745, well before the
+        // Decimal64 subnormal window near x = -881), and that 0.0 is
+        // already covered by the r == 0.0 -> UNDERFLOW branch. This
+        // test pins both ends of the real contract and guards against
+        // an over-eager "fix" that would flag the normal mid-range
+        // result.
+        //
+        // exp(-720) ≈ 2E-313: a normal Decimal64, inexact, NOT a
+        // spurious underflow.
+        let (r, s) = from_int(-720, 0).exp(RoundingMode::NearestEven);
+        assert!(r.is_finite() && !r.is_zero());
+        assert!(!r.is_subnormal(), "exp(-720) is normal, not subnormal");
+        assert!(s.inexact());
+        assert!(
+            !s.underflow(),
+            "exp(-720) must not raise a spurious UNDERFLOW"
+        );
+
+        // exp(-2000): the genuine underflow the f64 pipeline reaches,
+        // saturating to zero with UNDERFLOW + INEXACT.
+        let (r, s) = from_int(-2000, 0).exp(RoundingMode::NearestEven);
+        assert!(r.is_zero());
+        assert!(s.underflow() && s.inexact());
+    }
+
+    #[test]
     fn exp_specials() {
         let (r, _) = Decimal64::INFINITY.exp(RoundingMode::NearestEven);
         assert!(r.is_infinite() && !r.is_sign_negative());
