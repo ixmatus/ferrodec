@@ -135,13 +135,27 @@ fn parse_str_inner(
                         // BEFORE the first non-zero digit. Shifts the
                         // quantum down by one but does not "spend" a
                         // digit-budget slot — the value's significant
-                        // figures haven't started yet.
-                        digits_after_point += 1;
+                        // figures haven't started yet. This branch is
+                        // not bounded by `digits_total` (which stays
+                        // zero until the first significant digit), so
+                        // an adversarial run of leading fractional
+                        // zeros would overflow the `u32` counter (a
+                        // debug-mode panic / DoS). Saturate, then
+                        // reject past `MAX_EXPONENT_MAGNITUDE` — the
+                        // identical guard the explicit-exponent path
+                        // applies at `1e-1000001`.
+                        digits_after_point = digits_after_point.saturating_add(1);
+                        if digits_after_point > MAX_EXPONENT_MAGNITUDE {
+                            return Err(ParseDecimalError::ExponentOutOfRange);
+                        }
                     } else {
                         coef = coef * 10 + d;
                         digits_total += 1;
                         if decimal_seen {
-                            digits_after_point += 1;
+                            // Bounded by `digits_total <
+                            // MAX_PARSED_DIGITS`; saturating for
+                            // uniformity with the unbounded branches.
+                            digits_after_point = digits_after_point.saturating_add(1);
                         }
                     }
                 } else {
@@ -154,7 +168,17 @@ fn parse_str_inner(
                         // such digit pushes the implicit decimal point
                         // one place further right). Track them so the
                         // final `unbiased_exp` absorbs the shift.
+                        // Saturate, then reject past
+                        // `MAX_EXPONENT_MAGNITUDE`: without the cap an
+                        // adversarial run (`"1" + "0"*3e9`) saturates
+                        // to `u32::MAX`, which reinterprets as `-1`
+                        // under the later `as i32` cast and silently
+                        // miscomputes the exponent. Mirrors the
+                        // explicit-exponent guard.
                         extra_int_digits = extra_int_digits.saturating_add(1);
+                        if extra_int_digits > MAX_EXPONENT_MAGNITUDE {
+                            return Err(ParseDecimalError::ExponentOutOfRange);
+                        }
                     }
                     // Sticky-only fractional digits sit *below* the
                     // coefficient's representation precision and feed
@@ -229,6 +253,11 @@ fn parse_str_inner(
         return Err(ParseDecimalError::InvalidCharacter(idx));
     }
 
+    // `extra_int_digits` and `digits_after_point` are each capped at
+    // MAX_EXPONENT_MAGNITUDE (1_000_000) at their increment sites, so
+    // both casts are well below `i32::MAX` and cannot wrap. The
+    // saturating add / sub then guards only `exp_explicit`'s
+    // contribution.
     let unbiased_exp = exp_explicit
         .saturating_add(extra_int_digits as i32)
         .saturating_sub(digits_after_point as i32);
