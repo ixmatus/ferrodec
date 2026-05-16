@@ -55,6 +55,14 @@ impl Decimal64 {
     }
 
     /// IEEE 754-2019 `subtraction(self, other)` rounded by `rm`.
+    ///
+    /// Implemented as `add(self, −other)`. `neg()` only toggles the
+    /// sign bit, so when `other` is a NaN the result still propagates
+    /// that NaN (a signaling NaN still raises INVALID and is quieted)
+    /// exactly as `add` would: NaN payloads and the signaling bit are
+    /// untouched by the negation, and the sign of a NaN is not
+    /// observable. `sub(±0, ±0)` and the IEEE sign-of-zero rules
+    /// follow from the same `add` dispatch on the negated operand.
     #[must_use]
     pub fn sub(self, other: Self, rm: RoundingMode) -> (Self, Status) {
         add_inner(self, other.neg(), rm)
@@ -308,8 +316,15 @@ pub(crate) fn round_and_pack_into_u64(
         }
         shift += 1;
     }
-    debug_assert!(c < keep_threshold);
-    debug_assert!(c <= u128::from(u64::MAX));
+    // `c < keep_threshold` holds by the loop exit condition (it is the
+    // negation of the `while` guard), so no assertion is needed for
+    // it. The `c as u64` cast below is sound because `keep_threshold`
+    // is bounded by `10^WORKING_PRECISION ≤ u64::MAX`, so `c` (now
+    // below the threshold) fits in a `u64`.
+    debug_assert!(
+        c <= u128::from(u64::MAX),
+        "coefficient fits u64 for the cast"
+    );
 
     round_and_pack_finite(
         c as u64,

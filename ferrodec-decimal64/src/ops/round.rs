@@ -101,6 +101,16 @@ pub(crate) fn round_and_pack_finite(
     let mut exp_after = kept_exp;
     if round_up {
         rounded += 1;
+        // Invariant maintained here: `kept_digits == digit count of
+        // `rounded``. A round-up carry changes the digit count in
+        // exactly two ways. (1) `rounded` reaches `COEFFICIENT_LIMIT`
+        // (10^PRECISION): the divide brings it back to PRECISION
+        // digits, and `kept_digits` was already `PRECISION` (it is
+        // `min(digits, PRECISION)` and only a PRECISION-digit `kept`
+        // can carry that far), so it stays correct without a
+        // decrement. (2) `rounded` crosses the next power of ten
+        // (e.g. 99 → 100): the digit count grows by one, matched by
+        // the `kept_digits += 1` below.
         if rounded >= COEFFICIENT_LIMIT {
             rounded /= 10;
             exp_after += 1;
@@ -121,6 +131,17 @@ pub(crate) fn round_and_pack_finite(
                 exp_after -= shift;
             }
         } else if exp_after < q_preferred && !status.inexact() {
+            // Cohort lowering: raise the exponent toward the
+            // preferred quantum by stripping trailing zeros. The loop
+            // exits on the first of two conditions. `want_shift == 0`
+            // means the preferred quantum has been reached, so no
+            // further raise is wanted. `rounded % 10 != 0` means the
+            // least significant digit is non-zero, so dividing by ten
+            // would discard a significant digit and change the value;
+            // only an exact trailing zero can be removed without
+            // altering the numeric result. The `!status.inexact()`
+            // guard above ensures this path runs only for exact
+            // results, where every removable digit is genuinely zero.
             let mut want_shift = q_preferred - exp_after;
             while want_shift > 0 && rounded % 10 == 0 {
                 rounded /= 10;
