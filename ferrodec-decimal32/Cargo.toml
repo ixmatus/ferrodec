@@ -52,6 +52,16 @@ serde = ["fmt", "dep:serde"]
 # routes through `parse_str`. Pulls `binary-float` because
 # integer-conversion paths route through `f64`.
 num-traits = ["fmt", "ops", "binary-float", "dep:num-traits", "dep:libm"]
+# DPD (Densely Packed Decimal) byte-pattern interchange:
+# `Decimal32::to_dpd_bytes` / `from_dpd_bytes`. ferrodec stores the
+# BID encoding internally for arithmetic; DPD is the interchange
+# encoding used by IBM decNumber, z/Architecture decimal-FP hardware,
+# and the upstream `dsEncode.decTest` conformance vectors. The codec
+# is pure boolean equations from IEEE 754-2008 §3.5.2 — no lookup
+# tables, 2 declets over 4 bytes for the 32-bit format. Off by
+# default to preserve the embedded code-size floor. See ADR-0001
+# (BID for arithmetic) and ADR-0009 (DPD interchange).
+dpd = []
 
 [dependencies]
 ferrodec-ieee = { path = "../ferrodec-ieee", version = "0.1.3" }

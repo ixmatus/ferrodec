@@ -13,23 +13,39 @@ arithmetic paths. Those are pinned in the first section below and
 tracked for the slice's H tier. The remaining sections are coverage
 and scope gaps, not correctness defects.
 
-## Coverage gap: dsEncode dispatch (BID `#hex` operand decoding)
+## Resolved: dsEncode DPD interchange dispatch
 
-* **Status**: by design. Conformance dispatcher currently routes
-  `tosci` / `apply` only.
-* **Symptom**: `dsEncode.decTest` reports 2 of 268 cases pass (the
-  two that route via `parse_str` without needing the `#hex` BID
-  interchange decoder). The remaining 266 cases skip pending a
-  dedicated dispatch arm that decodes 8-char hex strings into the
-  32-bit BID pattern. (Decimal128's analog is the
-  `Encoding::Bid` path in `tests/conformance.rs`.)
-* **Closing this gap**: add a `parse_dsencode_hex` helper that
-  zero-pads short inputs and routes through
-  `Decimal32::from_bits`. Wire it into the dispatcher behind a check
-  on operand-prefix `#`. Estimated 30 lines of code; deferred
-  because the conformance signal is narrow (decimal32's vendored
-  vector set is intentionally minimal — only `dsBase` and `dsEncode`
-  ship in `tests/vectors/`).
+* **Status**: resolved. `dsEncode.decTest` is a DPD interchange
+  vector file: its header reads "Selected DPD codes" and the `#hex`
+  literals are IEEE 754-2019 decimal32 DPD byte patterns (8 hex
+  chars = 4 big-endian bytes), not BID raw bits. An earlier draft
+  of this section misdescribed it as a "BID `#hex` decoder" gap;
+  that wording was inaccurate and is corrected here.
+* **What shipped**: a `dpd`-gated DPD interchange codec
+  (`ferrodec-decimal32/src/dpd.rs`): the format-independent declet
+  primitive (pure IEEE 754-2008 §3.5.2 boolean equations, no lookup
+  tables) plus `Decimal32::to_dpd_bytes` / `from_dpd_bytes` for the
+  32-bit interchange framing (1 sign bit, 5-bit combination field,
+  6-bit exponent continuation, 2 declets). BID stays the arithmetic
+  storage encoding (ADR-0001); DPD is a byte-level interchange
+  adapter only (ADR-0009). The codec is off by default to preserve
+  the embedded code-size floor.
+* **Conformance with `dpd` on**: `dsEncode.decTest` passes 250 of
+  268 cases (up from 2). dsBase is unchanged at 698. With the `dpd`
+  feature off the dispatcher skips every `#hex` case, so the
+  feature-off baseline holds (`dsEncode` = 2). The
+  `expected_per_file` table in `tests/conformance.rs` is
+  feature-conditional and pins both counts exactly (ADR-0010).
+* **Residual skips (18, `dpd` on)**: every residual is a
+  `value -> #hex` case carrying a `Clamped` condition (decs035,
+  decs037, decs130, decs132, decs400, decs413..437, decs601..611).
+  decimal32's `parse_str` does not perform the IEEE 754-2019 §7.4
+  preferred-exponent clamp, so the encoded bytes for these inputs
+  legitimately differ. The matching `#hex -> value` decode
+  direction passes for all of them, so the codec itself is fully
+  exercised; the gap is a `parse_str` quantization-policy edge,
+  tracked below under "dsBase residual skips" (the same §7.4 clamp
+  decision). No DPD codec defect remains.
 
 ## Coverage gap: dsBase residual skips (deferred parse edges)
 
