@@ -122,6 +122,28 @@ impl Decimal32 {
         let target_biased_typed = crate::bid::BiasedExp::try_from_biased(target_biased)
             .expect("target_biased from classify_bits");
 
+        // H5: a zero coefficient is representable at every encodable
+        // quantum, so quantize(0, target) is a correctly signed zero
+        // at target's quantum with no exception, whatever the quantum
+        // gap. IEEE 754-2019 §5.3.3 and the GDA quantize operation
+        // raise Invalid_operation only when a non zero coefficient
+        // would need more than PRECISION digits at the target
+        // quantum; zero has no significant digits to overflow. The
+        // pad and drop branches below derive a digit count from the
+        // quantum gap that wrongly trips that gate for zero (the
+        // Decimal64 H6 defect, case ddqua537). Short circuit before
+        // the dispatch so all three rescale branches are covered.
+        if coef == 0 {
+            return (
+                Decimal32::from_bits(crate::bid::pack_finite(
+                    sign,
+                    target_biased_typed,
+                    crate::bid::Coefficient::ZERO,
+                )),
+                Status::OK,
+            );
+        }
+
         // Step 1: rescale to target_q.
         if target_q == self_q {
             // Already at the right quantum; pack as-is. coef came from
@@ -669,5 +691,42 @@ mod tests {
         assert!(r.is_quiet_nan());
         assert!(!r.is_signaling_nan());
         assert!(s.invalid());
+    }
+
+    #[test]
+    fn quantize_zero_at_deep_quantum_is_zero_not_invalid() {
+        // H5 (Decimal64 H6, case ddqua537): a zero coefficient is
+        // representable at every encodable quantum. Before the fix
+        // the pad branch derived a digit count from the quantum gap
+        // and wrongly raised INVALID. Expectations are built through
+        // `parse_str` (the crate is no_std, no `to_string`) and
+        // compared bit exactly, which pins the cohort quantum too.
+        let parse = |s: &str| {
+            Decimal32::parse_str(s, RoundingMode::NearestEven)
+                .unwrap()
+                .0
+        };
+
+        let (r, s) = Decimal32::ZERO.quantize(parse("1E-95"), RoundingMode::NearestEven);
+        assert!(!r.is_nan() && r.is_zero() && !r.is_sign_negative());
+        assert_eq!(r.to_bits(), parse("0E-95").to_bits());
+        assert!(s.is_ok(), "status {s:?}");
+
+        // Format floor: quantum -101 (E_MIN - (PRECISION - 1)).
+        let (r, s) = Decimal32::ZERO.quantize(parse("1E-101"), RoundingMode::NearestEven);
+        assert!(r.is_zero() && s.is_ok());
+        assert_eq!(r.to_bits(), parse("0E-101").to_bits());
+
+        // Sign of self is preserved; a deep positive quantum likewise
+        // no longer trips the gate, across rounding modes.
+        for rm in [
+            RoundingMode::NearestEven,
+            RoundingMode::TowardZero,
+            RoundingMode::TowardNegative,
+        ] {
+            let (r, s) = Decimal32::NEG_ZERO.quantize(parse("1E+50"), rm);
+            assert!(r.is_zero() && r.is_sign_negative() && s.is_ok());
+            assert_eq!(r.to_bits(), parse("-0E+50").to_bits());
+        }
     }
 }
