@@ -120,7 +120,7 @@ macro_rules! crosscheck_active {
                 prop_assert!(
                     same_result(actual, expected),
                     "{}({a}, {b}, {rm:?}): Decimal32 -> {actual}, Decimal64 \
-     oracle -> {expected} (a_bits={:#010x} b_bits={:#010x})",
+oracle -> {expected} (a_bits={:#010x} b_bits={:#010x})",
                     stringify!($op), a.to_bits(), b.to_bits()
                 );
             }
@@ -153,7 +153,7 @@ macro_rules! crosscheck_ignored {
                 prop_assert!(
                     same_result(actual, expected),
                     "{}({a}, {b}, {rm:?}): Decimal32 -> {actual}, Decimal64 \
-     oracle -> {expected} (a_bits={:#010x} b_bits={:#010x})",
+oracle -> {expected} (a_bits={:#010x} b_bits={:#010x})",
                     stringify!($op), a.to_bits(), b.to_bits()
                 );
             }
@@ -162,20 +162,8 @@ macro_rules! crosscheck_ignored {
 }
 
 crosscheck_active!(mul_matches_decimal64, mul);
-crosscheck_ignored!(
-    add_matches_decimal64,
-    add,
-    "red on main: addsub static ALIGN_LIMIT window drops the residue \
-     (e.g. add(-1E-101, 1E-88, TowardZero) -> 1.000000E-88, want \
-     9.999999E-89). Un-ignore with the H tier addsub fix (fd-6tl)."
-);
-crosscheck_ignored!(
-    sub_matches_decimal64,
-    sub,
-    "red on main: asymmetric-zero magnitude loss (e.g. \
-     sub(-0E-74, -3.145728E-95) -> 1E-101, want 3.145728E-95). \
-     Un-ignore with the H tier addsub fix (fd-6tl)."
-);
+crosscheck_active!(add_matches_decimal64, add);
+crosscheck_active!(sub_matches_decimal64, sub);
 crosscheck_ignored!(
     rem_matches_decimal64,
     rem,
@@ -198,7 +186,6 @@ fn d32(s: &str) -> Decimal32 {
 /// truncate the lower operand. Each pair is held to the Decimal64
 /// oracle across all five rounding modes.
 #[test]
-#[ignore = "red on main: confirmed addsub static-window defect; un-ignore with the H tier addsub fix (fd-6tl)"]
 fn addsub_small_coef_large_gap_neighborhood() {
     let probes: &[(&str, &str)] = &[
         ("1E+90", "1E+84"),
