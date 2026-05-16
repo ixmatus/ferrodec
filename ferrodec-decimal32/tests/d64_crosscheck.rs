@@ -315,6 +315,16 @@ fn addsub_small_coef_large_gap_neighborhood() {
         ("1234567E+10", "7654321E-20"),
         ("1E-89", "1E-95"),
         ("5000001E+40", "1E+34"),
+        // Power-of-ten dominant minus a sub-ULP opposite-sign tail:
+        // the Decimal64 fd-d47 regime. The `sub` case exercises the
+        // addsub borrow-and-extend across a power-of-ten leading
+        // digit, where the pre-fd-d47 PRECISION-cohort shape
+        // mis-rounds (leaves seven all-nines with no round digit).
+        ("1E+90", "1E-101"),
+        ("1E+96", "1E-101"),
+        ("1000000E+84", "1E-90"),
+        ("1E+90", "1E+83"),
+        ("1E-89", "1E-101"),
     ];
     for (sa, sb) in probes {
         let (a, b) = (d32(sa), d32(sb));
