@@ -20,6 +20,51 @@ Plus two workspace-internal crates that the three public crates share:
 
 Each public sibling stands alone on crates.io with its own version cadence. They share the verification methodology documented in `docs/decisions/` and the workspace-level lint / MSRV / license discipline.
 
+## How ferrodec is developed
+
+This is an open disclosure of the development process so users can judge for themselves whether the resulting code
+meets their bar.
+
+**Authorship and collaboration.** Parnell Springmeyer is the author of record. ferrodec is developed in collaboration
+with Claude, an AI coding agent from Anthropic. Parnell owns architecture, acceptance criteria, test and verification
+strategy, and release boundaries. Claude drafts the implementation, writes and runs tests and verification harnesses,
+and produces analysis under that direction. **Parnell does not review the generated code line by line.** Human
+oversight operates at the level of design, strategy, and outcomes: does the architecture make sense, are the right
+invariants being checked, does the verification strategy cover the risk surface, do the tests and proofs pass. Merges
+to main are GPG signed by Parnell to attest to that level of review, not to an audit of every line.
+
+**Provenance.** Implementations derive from primary sources: IEEE 754-2008 for decimal floating point semantics, the
+Speleotrove decimal arithmetic specification for operation and rounding behavior, and published open algorithm work
+with stated licenses for the harder pieces (packing conversions, division, correctly rounded transcendentals). The
+agent is instructed to cite recalled sources rather than reproduce verbatim, to surface provenance uncertainty rather
+than hide it, and to choose surface forms (identifiers, helper decomposition, file layout) fresh for idiomatic Rust
+rather than copying from existing C reference implementations that serve as oracles for behavior.
+
+These are instructions to the agent, not guarantees about every line of output. A verbatim reproduction or an unflagged
+derivation could slip through. The project's defense against that is the instruction discipline above plus the human
+reviewer's ability to notice architectural smells that suggest a problem upstream, not a clean room audit. If you spot
+a passage that reads like a copy from a source it should not be copied from, please open an issue.
+
+**Verification.** Correctness lives in the type system where it can, in formal proof harnesses (Kani) where the cost is
+justified, in spec conformance vectors (the Speleotrove decTest suite) for end to end behavior, and in property and
+example tests otherwise. CI runs the usual lints and the full test and verification suite; specific harness counts and
+conformance counts change as the project evolves. Significant decisions are recorded as ADRs in the repo. `unsafe`
+blocks carry a written justification at the call site.
+
+**Scope.** ferrodec is a personal project consisting of a core crate and the ferrodec-decimal32, ferrodec-decimal64,
+and ferrodec-ieee member crates in the same workspace; this disclosure covers all of them. The lead consumer is
+Parnell's own embedded calculator firmware on STM32U class hardware; durability and quality are goals, but this is not
+a funded library with a maintenance team behind it. The published versions on crates.io are yanked; the repository
+remains public for users who want to read or fork the work.
+
+**What this does not promise.** AI collaboration does not transfer responsibility. The author is accountable for what
+ships under his name. The disciplines above narrow the failure surface; they do not eliminate it. In particular, this
+process is most exposed to subtle bugs that a careful human reading of the code would catch but tests, types, and
+formal verification would not. For correctly rounded decimal arithmetic that specifically includes rounding errors on
+boundary cases the decTest suite did not cover, or conformance regressions in operations no harness happened to
+exercise. Issues are welcome and will be triaged as time allows; no SLA is offered. This README describes the project's
+development process and is not a warranty; see the LICENSE file for the legal terms governing use.
+
 ## What ferrodec is
 
 ferrodec implements the BID 128 (Binary Integer Decimal) format from IEEE 754:2019. The encoding gives 34 decimal digits of precision, an exponent range from 10⁻⁶¹⁴³ through 10⁺⁶¹⁴⁴, every IEEE special value (signed zero, signed infinity, quiet and signaling NaN), and the full classification surface. The crate is `no_std`, allocates nothing on its own, and compiles cleanly down to Cortex M0+ (`ARMv6` M, no floating point unit, no hardware divide).
