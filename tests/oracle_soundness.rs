@@ -50,11 +50,12 @@ fn replay(file: &str) -> (usize, usize) {
         let Some(case) = parse_test_case(line) else {
             continue;
         };
-        if !matches!(case.op.as_str(), "add" | "subtract" | "multiply") {
+        if !matches!(case.op.as_str(), "add" | "subtract" | "multiply" | "fma") {
             continue;
         }
+        let arity = if case.op == "fma" { 3 } else { 2 };
         // Out of this oracle's modelled scope -> skip, never fail.
-        if precision != 34 || case.operands.len() != 2 {
+        if precision != 34 || case.operands.len() != arity {
             skipped += 1;
             continue;
         }
@@ -62,10 +63,12 @@ fn replay(file: &str) -> (usize, usize) {
             skipped += 1;
             continue;
         };
-        let (Some(a), Some(b)) = (
-            parse_decimal(&case.operands[0]),
-            parse_decimal(&case.operands[1]),
-        ) else {
+        let Some(operands) = case
+            .operands
+            .iter()
+            .map(|s| parse_decimal(s))
+            .collect::<Option<Vec<_>>>()
+        else {
             skipped += 1;
             continue;
         };
@@ -80,10 +83,12 @@ fn replay(file: &str) -> (usize, usize) {
             continue;
         };
 
+        let f = Format::DECIMAL128;
         let r = match case.op.as_str() {
-            "add" => oracle::add(&a, &b, Format::DECIMAL128, rm),
-            "subtract" => oracle::sub(&a, &b, Format::DECIMAL128, rm),
-            _ => oracle::mul(&a, &b, Format::DECIMAL128, rm),
+            "add" => oracle::add(&operands[0], &operands[1], f, rm),
+            "subtract" => oracle::sub(&operands[0], &operands[1], f, rm),
+            "multiply" => oracle::mul(&operands[0], &operands[1], f, rm),
+            _ => oracle::fma(&operands[0], &operands[1], &operands[2], f, rm),
         };
         let (got, _) =
             Decimal128::parse_str(&r.decimal_string(), rm).expect("oracle string re-parses");
