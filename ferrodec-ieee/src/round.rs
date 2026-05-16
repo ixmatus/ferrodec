@@ -183,3 +183,88 @@ mod tests {
         assert!(!should_round_up(RoundingMode::TowardZero, true, 0, 9, true));
     }
 }
+
+/// Exhaustive Kani proof that [`should_round_up`] equals the IEEE
+/// 754-2019 §4.3.3 rounding-direction table over its entire input
+/// domain.
+///
+/// `should_round_up` is the single decision point every precision's
+/// `round_and_pack_finite` routes through; the static-alignment-window
+/// correctness defects fixed in the decimal64 / decimal32 / decimal128
+/// trains (ADR-0018 / 0019 / 0020) were all errors in *what value the
+/// kernel rounded to*, i.e. in the rounding decision. Pinning that
+/// decision against an independently transcribed spec table for every
+/// `(mode, sign, last-kept digit, round digit, sticky)` combination
+/// turns "tested on the inputs the suite happened to sample" into
+/// "holds for every input". The domain is tiny (5 · 2 · 10 · 10 · 2),
+/// so CBMC discharges it exhaustively in well under a second.
+///
+/// The reference [`spec_round_up`] is a fresh, differently structured
+/// transcription of the §4.3.3 table — not a call back into
+/// `should_round_up` — so the equivalence is load-bearing: a future
+/// edit that breaks production fails this proof.
+#[cfg(kani)]
+mod kani_proofs {
+    use super::{should_round_up, RoundingMode};
+
+    fn rm_from_u8(x: u8) -> RoundingMode {
+        match x {
+            0 => RoundingMode::NearestEven,
+            1 => RoundingMode::NearestAway,
+            2 => RoundingMode::TowardZero,
+            3 => RoundingMode::TowardPositive,
+            _ => RoundingMode::TowardNegative,
+        }
+    }
+
+    /// IEEE 754-2019 §4.3.3, transcribed independently of the
+    /// production function. Structured as a per-mode decision so it
+    /// does not mirror `should_round_up`'s control flow.
+    fn spec_round_up(
+        rm: RoundingMode,
+        sign: bool,
+        last_kept_lsb: u32,
+        round_digit: u32,
+        sticky: bool,
+    ) -> bool {
+        let any_dropped = round_digit != 0 || sticky;
+        match rm {
+            // roundTowardZero: truncate; never away from zero.
+            RoundingMode::TowardZero => false,
+            // roundTowardPositive: up only for a positive inexact result.
+            RoundingMode::TowardPositive => any_dropped && !sign,
+            // roundTowardNegative: up only for a negative inexact result.
+            RoundingMode::TowardNegative => any_dropped && sign,
+            // roundTiesToAway: the dropped tail >= one half ulp.
+            RoundingMode::NearestAway => round_digit >= 5,
+            // roundTiesToEven: > half always; == half only if the tail
+            // exceeds half (sticky) or the kept digit is odd.
+            RoundingMode::NearestEven => {
+                if round_digit > 5 {
+                    true
+                } else if round_digit < 5 {
+                    false
+                } else {
+                    sticky || last_kept_lsb % 2 == 1
+                }
+            }
+        }
+    }
+
+    #[kani::proof]
+    fn should_round_up_matches_spec_table_exhaustively() {
+        let rm = rm_from_u8(kani::any());
+        let sign: bool = kani::any();
+        let last_kept_lsb: u32 = kani::any();
+        let round_digit: u32 = kani::any();
+        let sticky: bool = kani::any();
+        // Documented contract: both are single decimal digits.
+        kani::assume(last_kept_lsb < 10);
+        kani::assume(round_digit < 10);
+
+        assert_eq!(
+            should_round_up(rm, sign, last_kept_lsb, round_digit, sticky),
+            spec_round_up(rm, sign, last_kept_lsb, round_digit, sticky),
+        );
+    }
+}
