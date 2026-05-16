@@ -338,7 +338,7 @@ fn eq_ignore_ascii_case(a: &[u8], b: &[u8]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bid::{pack_finite, BIAS};
+    use crate::bid::{pack_finite, BiasedExp, Coefficient, BIAS};
 
     fn parse(s: &str) -> Decimal32 {
         Decimal32::parse_str(s, RoundingMode::default())
@@ -368,12 +368,20 @@ mod tests {
     fn parse_fixed_with_decimal() {
         // "0.5" = 5 × 10^-1
         let d = parse("0.5");
-        let expected = Decimal32::from_bits(pack_finite(false, BIAS - 1, 5));
+        let expected = Decimal32::from_bits(pack_finite(
+            false,
+            BiasedExp::try_from_biased(BIAS - 1).unwrap(),
+            Coefficient::try_new(5).unwrap(),
+        ));
         assert_eq!(d.to_bits(), expected.to_bits());
 
         // "-1.25" = -125 × 10^-2
         let d = parse("-1.25");
-        let expected = Decimal32::from_bits(pack_finite(true, BIAS - 2, 125));
+        let expected = Decimal32::from_bits(pack_finite(
+            true,
+            BiasedExp::try_from_biased(BIAS - 2).unwrap(),
+            Coefficient::try_new(125).unwrap(),
+        ));
         assert_eq!(d.to_bits(), expected.to_bits());
     }
 
@@ -381,12 +389,20 @@ mod tests {
     fn parse_scientific() {
         // "1e3" = 1 × 10^3
         let d = parse("1e3");
-        let expected = Decimal32::from_bits(pack_finite(false, BIAS + 3, 1));
+        let expected = Decimal32::from_bits(pack_finite(
+            false,
+            BiasedExp::try_from_biased(BIAS + 3).unwrap(),
+            Coefficient::try_new(1).unwrap(),
+        ));
         assert_eq!(d.to_bits(), expected.to_bits());
 
         // "1.5E-2" = 15 × 10^-3
         let d = parse("1.5E-2");
-        let expected = Decimal32::from_bits(pack_finite(false, BIAS - 3, 15));
+        let expected = Decimal32::from_bits(pack_finite(
+            false,
+            BiasedExp::try_from_biased(BIAS - 3).unwrap(),
+            Coefficient::try_new(15).unwrap(),
+        ));
         assert_eq!(d.to_bits(), expected.to_bits());
     }
 
@@ -436,7 +452,11 @@ mod tests {
     #[test]
     fn parse_leading_zeros() {
         let d = parse("0007");
-        let expected = Decimal32::from_bits(pack_finite(false, BIAS, 7));
+        let expected = Decimal32::from_bits(pack_finite(
+            false,
+            BiasedExp::try_from_biased(BIAS).unwrap(),
+            Coefficient::try_new(7).unwrap(),
+        ));
         assert_eq!(d.to_bits(), expected.to_bits());
     }
 
@@ -445,7 +465,11 @@ mod tests {
         // 8 digits → must round to 7. NearestEven with last digit 8 →
         // round up. 12345678 → 1234568 × 10^1.
         let (d, status) = Decimal32::parse_str("12345678", RoundingMode::NearestEven).unwrap();
-        let expected = Decimal32::from_bits(pack_finite(false, BIAS + 1, 1_234_568));
+        let expected = Decimal32::from_bits(pack_finite(
+            false,
+            BiasedExp::try_from_biased(BIAS + 1).unwrap(),
+            Coefficient::try_new(1_234_568).unwrap(),
+        ));
         assert_eq!(d.to_bits(), expected.to_bits());
         assert!(status.inexact());
     }
@@ -477,7 +501,11 @@ mod tests {
     #[test]
     fn from_str_default_rounding() {
         let d: Decimal32 = "1.23".parse().unwrap();
-        let expected = Decimal32::from_bits(pack_finite(false, BIAS - 2, 123));
+        let expected = Decimal32::from_bits(pack_finite(
+            false,
+            BiasedExp::try_from_biased(BIAS - 2).unwrap(),
+            Coefficient::try_new(123).unwrap(),
+        ));
         assert_eq!(d.to_bits(), expected.to_bits());
     }
 }

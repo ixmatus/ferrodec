@@ -107,11 +107,15 @@ impl Decimal32 {
 
         // Zero dividend → ±0 at preferred quantum (sign preserved).
         if coef_a == 0 {
+            // target_q = min(exp_a, exp_b) is within the classify_bits
+            // range; biased conversion is in range.
+            let biased_exp = crate::bid::BiasedExp::try_from_unbiased(target_q)
+                .expect("target_q from classify_bits-derived exponents");
             return (
                 Decimal32::from_bits(crate::bid::pack_finite(
                     sign_a,
-                    (target_q + BIAS as i32) as u32,
-                    0,
+                    biased_exp,
+                    crate::bid::Coefficient::ZERO,
                 )),
                 Status::OK,
             );
@@ -139,12 +143,13 @@ impl Decimal32 {
             }
             // shift_b > MAX_SAFE_SHIFT: |b| ≫ |a|, trunc(a/b) = 0.
             // Remainder = a, packed at target_q = exp_a.
+            // exp_a came from classify_bits.
+            let biased_exp =
+                crate::bid::BiasedExp::try_from_unbiased(exp_a).expect("exp_a from classify_bits");
+            let coefficient = crate::bid::Coefficient::try_new(coef_a as u32)
+                .expect("coef_a < COEFFICIENT_LIMIT from classify_bits");
             return (
-                Decimal32::from_bits(crate::bid::pack_finite(
-                    sign_a,
-                    (exp_a + BIAS as i32) as u32,
-                    coef_a as u32,
-                )),
+                Decimal32::from_bits(crate::bid::pack_finite(sign_a, biased_exp, coefficient)),
                 Status::OK,
             );
         }
@@ -181,12 +186,14 @@ impl Decimal32 {
             return (Decimal32::NAN, Status::INVALID);
         }
 
+        // target_q is bounded by min of two classify_bits-derived exponents,
+        // residue < COEFFICIENT_LIMIT checked above.
+        let biased_exp = crate::bid::BiasedExp::try_from_unbiased(target_q)
+            .expect("target_q from classify_bits-derived exponents");
+        let coefficient = crate::bid::Coefficient::try_new(residue as u32)
+            .expect("residue < COEFFICIENT_LIMIT checked above");
         (
-            Decimal32::from_bits(crate::bid::pack_finite(
-                sign_a,
-                (target_q + BIAS as i32) as u32,
-                residue as u32,
-            )),
+            Decimal32::from_bits(crate::bid::pack_finite(sign_a, biased_exp, coefficient)),
             Status::OK,
         )
     }
@@ -248,14 +255,24 @@ fn handle_specials(a: Class, b: Class) -> Option<(Decimal32, Status)> {
             coefficient,
         } = a
         {
+            let biased_exp = crate::bid::BiasedExp::try_from_biased(biased_exp)
+                .expect("biased_exp from classify_bits");
+            let coefficient = crate::bid::Coefficient::try_new(coefficient)
+                .expect("coefficient from classify_bits");
             return Some((
                 Decimal32::from_bits(crate::bid::pack_finite(sign, biased_exp, coefficient)),
                 Status::OK,
             ));
         }
         if let Zero { sign, biased_exp } = a {
+            let biased_exp = crate::bid::BiasedExp::try_from_biased(biased_exp)
+                .expect("biased_exp from classify_bits");
             return Some((
-                Decimal32::from_bits(crate::bid::pack_finite(sign, biased_exp, 0)),
+                Decimal32::from_bits(crate::bid::pack_finite(
+                    sign,
+                    biased_exp,
+                    crate::bid::Coefficient::ZERO,
+                )),
                 Status::OK,
             ));
         }

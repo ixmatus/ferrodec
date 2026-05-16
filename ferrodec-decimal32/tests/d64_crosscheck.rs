@@ -120,7 +120,7 @@ macro_rules! crosscheck_active {
                 prop_assert!(
                     same_result(actual, expected),
                     "{}({a}, {b}, {rm:?}): Decimal32 -> {actual}, Decimal64 \
-             oracle -> {expected} (a_bits={:#010x} b_bits={:#010x})",
+     oracle -> {expected} (a_bits={:#010x} b_bits={:#010x})",
                     stringify!($op), a.to_bits(), b.to_bits()
                 );
             }
@@ -153,7 +153,7 @@ macro_rules! crosscheck_ignored {
                 prop_assert!(
                     same_result(actual, expected),
                     "{}({a}, {b}, {rm:?}): Decimal32 -> {actual}, Decimal64 \
-             oracle -> {expected} (a_bits={:#010x} b_bits={:#010x})",
+     oracle -> {expected} (a_bits={:#010x} b_bits={:#010x})",
                     stringify!($op), a.to_bits(), b.to_bits()
                 );
             }

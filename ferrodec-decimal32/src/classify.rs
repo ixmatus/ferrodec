@@ -10,8 +10,9 @@ use core::num::FpCategory;
 
 use crate::bid::{
     classify_bits, decimal_digit_count, pack_finite, pack_infinity, pack_quiet_nan,
-    pack_signaling_nan, sign_of, type_field, Class, COEFFICIENT_LIMIT, FORM_B_MARKER,
-    NAN_SIGNALING_SHIFT, PRECISION, SIGN_SHIFT, TYPE_INFINITY, TYPE_NAN, T_BITS, T_MASK,
+    pack_signaling_nan, sign_of, type_field, BiasedExp, Class, Coefficient, COEFFICIENT_LIMIT,
+    FORM_B_MARKER, NAN_SIGNALING_SHIFT, PRECISION, SIGN_SHIFT, TYPE_INFINITY, TYPE_NAN, T_BITS,
+    T_MASK,
 };
 use crate::decimal::Decimal32;
 use ferrodec_ieee::IeeeClass;
@@ -325,10 +326,22 @@ impl Decimal32 {
                 biased_exp,
                 coefficient,
             } => {
-                debug_assert!(coefficient < COEFFICIENT_LIMIT);
+                // `classify_bits` guarantees `biased_exp <= BIASED_EXP_MAX`
+                // by the 8-bit field decode and `coefficient <
+                // COEFFICIENT_LIMIT` per IEEE 754-2019 §3.5.2 (Form A and
+                // canonical Form B encodings only — non-canonical Form B
+                // already maps to `Class::Zero` upstream).
+                let biased_exp =
+                    BiasedExp::try_from_biased(biased_exp).expect("biased_exp from classify_bits");
+                let coefficient =
+                    Coefficient::try_new(coefficient).expect("coefficient from classify_bits");
                 Self::from_bits(pack_finite(sign, biased_exp, coefficient))
             }
-            Class::Zero { sign, biased_exp } => Self::from_bits(pack_finite(sign, biased_exp, 0)),
+            Class::Zero { sign, biased_exp } => {
+                let biased_exp =
+                    BiasedExp::try_from_biased(biased_exp).expect("biased_exp from classify_bits");
+                Self::from_bits(pack_finite(sign, biased_exp, Coefficient::ZERO))
+            }
             Class::Infinity { sign } => Self::from_bits(pack_infinity(sign)),
             Class::QuietNaN { sign, payload } => {
                 let canonical_payload = if payload < MAX_CANONICAL_NAN_PAYLOAD {

@@ -161,11 +161,16 @@ fn add_inner(a: Decimal32, b: Decimal32, rm: RoundingMode) -> (Decimal32, Status
     if coef_a == 0 && coef_b == 0 {
         let q_preferred = exp_a.min(exp_b);
         let result_sign = zero_sum_sign(sign_a, sign_b, rm);
+        // Both `exp_a` and `exp_b` came from `classify_bits`, so
+        // `q_preferred ∈ [-BIAS, BIASED_EXP_MAX - BIAS as i32]` and the
+        // unbiased-to-biased conversion is in range.
+        let biased_exp = crate::bid::BiasedExp::try_from_unbiased(q_preferred)
+            .expect("q_preferred from classify_bits-derived exponents");
         return (
             Decimal32::from_bits(crate::bid::pack_finite(
                 result_sign,
-                (q_preferred + BIAS as i32) as u32,
-                0,
+                biased_exp,
+                crate::bid::Coefficient::ZERO,
             )),
             Status::OK,
         );
@@ -247,11 +252,15 @@ fn add_inner(a: Decimal32, b: Decimal32, rm: RoundingMode) -> (Decimal32, Status
             );
         }
         let result_sign = zero_sum_sign(sign_a, sign_b, rm);
+        // As in the both-zero early return above, `q_preferred` is
+        // bounded by the classify_bits-derived exponent range.
+        let biased_exp = crate::bid::BiasedExp::try_from_unbiased(q_preferred)
+            .expect("q_preferred from classify_bits-derived exponents");
         return (
             Decimal32::from_bits(crate::bid::pack_finite(
                 result_sign,
-                (q_preferred + BIAS as i32) as u32,
-                0,
+                biased_exp,
+                crate::bid::Coefficient::ZERO,
             )),
             Status::OK,
         );
@@ -355,7 +364,7 @@ fn handle_specials(a: Class, b: Class, rm: RoundingMode) -> Option<(Decimal32, S
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bid::{pack_finite, BIAS};
+    use crate::bid::{pack_finite, BiasedExp, Coefficient, BIAS};
 
     fn from_int(n: i32, exp: i32) -> Decimal32 {
         Decimal32::try_new(n, exp).unwrap()
@@ -375,7 +384,11 @@ mod tests {
     fn add_with_carry_renormalises() {
         // 9_999_999 + 1 = 10_000_000 → renormalises to 1_000_000 × 10^1.
         let (r, _) = from_int(9_999_999, 0).add(from_int(1, 0), RoundingMode::NearestEven);
-        let expected = Decimal32::from_bits(pack_finite(false, BIAS + 1, 1_000_000));
+        let expected = Decimal32::from_bits(pack_finite(
+            false,
+            BiasedExp::try_from_biased(BIAS + 1).unwrap(),
+            Coefficient::try_new(1_000_000).unwrap(),
+        ));
         assert_eq!(r.to_bits(), expected.to_bits());
     }
 
@@ -413,14 +426,22 @@ mod tests {
         let a = from_int(1, 0);
         let b = from_int(5, -1);
         let (r, _) = a.add(b, RoundingMode::NearestEven);
-        let expected = Decimal32::from_bits(pack_finite(false, BIAS - 1, 15));
+        let expected = Decimal32::from_bits(pack_finite(
+            false,
+            BiasedExp::try_from_biased(BIAS - 1).unwrap(),
+            Coefficient::try_new(15).unwrap(),
+        ));
         assert_eq!(r.to_bits(), expected.to_bits());
 
         // 1.0 + 0.005 = 1.005
         let a = from_int(10, -1);
         let b = from_int(5, -3);
         let (r, _) = a.add(b, RoundingMode::NearestEven);
-        let expected = Decimal32::from_bits(pack_finite(false, BIAS - 3, 1005));
+        let expected = Decimal32::from_bits(pack_finite(
+            false,
+            BiasedExp::try_from_biased(BIAS - 3).unwrap(),
+            Coefficient::try_new(1005).unwrap(),
+        ));
         assert_eq!(r.to_bits(), expected.to_bits());
     }
 
@@ -507,7 +528,11 @@ mod tests {
         let (r, _) = from_int(123, -2).add(Decimal32::ZERO, RoundingMode::NearestEven);
         // Cohort: `123 × 10^-2 + 0E+0` should preserve the quantum of
         // the smaller (more negative) exponent: -2.
-        let expected = Decimal32::from_bits(pack_finite(false, BIAS - 2, 123));
+        let expected = Decimal32::from_bits(pack_finite(
+            false,
+            BiasedExp::try_from_biased(BIAS - 2).unwrap(),
+            Coefficient::try_new(123).unwrap(),
+        ));
         assert_eq!(r.to_bits(), expected.to_bits());
     }
 }

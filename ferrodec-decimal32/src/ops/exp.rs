@@ -105,7 +105,7 @@ impl Decimal32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bid::{pack_finite, BIAS};
+    use crate::bid::{pack_finite, BiasedExp, Coefficient, BIAS};
 
     fn from_int(n: i32, exp: i32) -> Decimal32 {
         Decimal32::try_new(n, exp).unwrap()
@@ -134,7 +134,11 @@ mod tests {
     fn exp_one_is_e() {
         let (r, _) = Decimal32::ONE.exp(RoundingMode::NearestEven);
         // e ≈ 2.718282 at 7 digits.
-        let expected = Decimal32::from_bits(pack_finite(false, BIAS - 6, 2_718_282));
+        let expected = Decimal32::from_bits(pack_finite(
+            false,
+            BiasedExp::try_from_biased(BIAS - 6).unwrap(),
+            Coefficient::try_new(2_718_282).unwrap(),
+        ));
         assert!(approx_equal(r, expected, 1));
     }
 
@@ -142,7 +146,11 @@ mod tests {
     fn exp_negative_one_is_reciprocal_e() {
         let (r, _) = Decimal32::NEG_ONE.exp(RoundingMode::NearestEven);
         // 1/e ≈ 0.3678794
-        let expected = Decimal32::from_bits(pack_finite(false, BIAS - 7, 3_678_794));
+        let expected = Decimal32::from_bits(pack_finite(
+            false,
+            BiasedExp::try_from_biased(BIAS - 7).unwrap(),
+            Coefficient::try_new(3_678_794).unwrap(),
+        ));
         assert!(approx_equal(r, expected, 1));
     }
 
@@ -187,7 +195,11 @@ mod tests {
     #[test]
     fn ln_e_is_one() {
         // ln(2.718282) ≈ 1.000000 at 7 digits (slight rounding).
-        let e_approx = Decimal32::from_bits(pack_finite(false, BIAS - 6, 2_718_282));
+        let e_approx = Decimal32::from_bits(pack_finite(
+            false,
+            BiasedExp::try_from_biased(BIAS - 6).unwrap(),
+            Coefficient::try_new(2_718_282).unwrap(),
+        ));
         let (r, _) = e_approx.ln(RoundingMode::NearestEven);
         assert!(approx_equal(r, Decimal32::ONE, 1));
     }
@@ -196,7 +208,11 @@ mod tests {
     fn ln_ten_is_ln10() {
         let (r, _) = Decimal32::TEN.ln(RoundingMode::NearestEven);
         // ln(10) ≈ 2.302585
-        let expected = Decimal32::from_bits(pack_finite(false, BIAS - 6, 2_302_585));
+        let expected = Decimal32::from_bits(pack_finite(
+            false,
+            BiasedExp::try_from_biased(BIAS - 6).unwrap(),
+            Coefficient::try_new(2_302_585).unwrap(),
+        ));
         assert!(approx_equal(r, expected, 1));
     }
 
