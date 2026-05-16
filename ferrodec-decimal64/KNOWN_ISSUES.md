@@ -75,6 +75,37 @@ fix slice has a one-line repro to start from.
   survives the slice.
 * **Fix landing**: dedicated decimal64 correctness slice, Phase 2 H3.
 
+## Documented limitation: GDA ideal-exponent Clamped on pre-normalised operands
+
+* **Status**: documented limitation, not a value error. Recorded at
+  H9 of the decimal64 correctness slice.
+* **Symptom**: a few decTest cases whose operands carry an exponent
+  outside the format's quantum range (e.g. `dddiv497`
+  `0E+380 / 1000E-13 -> 0E+369 Clamped`, `ddrem422`
+  `1E+384 % 1E+383 -> 0E+369 Clamped`, `ddrem424`) mark the IEEE
+  754-2019 §7.4 `Clamped` condition, but `ferrodec-decimal64` returns
+  the bit-exact correct value with `Clamped` not raised.
+* **Mechanism**: `Decimal64::parse_str` normalises an out-of-range
+  operand quantum into the cohort at parse time (`1E+384` is stored
+  as coefficient `10^15`, exponent `+369`). The downstream operation
+  then sees in-range operand exponents and performs no representational
+  clamp, so it raises no flag. GDA's reference computes `Clamped` from
+  an extended-precision *ideal* exponent that predates this
+  normalisation. Replicating that bookkeeping is a large change with
+  no value impact.
+* **Why deferred**: the conformance harness classifies `Clamped` as
+  informational (`status_conformance_eq` masks it, mirroring
+  `decode_conditions`), so per-file pass counts are unaffected; the
+  returned values are exact. The §7.4 flag *is* raised at genuine
+  in-operation clamp sites (the `round.rs` §6.3 coefficient pad and
+  zero-exponent clamp, and `div.rs`'s finite-or-zero / Infinity
+  Etiny path); regression tests pin those in
+  `tests/regression_h9_clamped.rs`.
+* **Fix landing**: deferred beyond the 1.4.0 correctness train; a
+  follow-up may thread an ideal-exponent accumulator through the
+  arithmetic paths if a downstream consumer needs the informational
+  flag on these cases.
+
 ## Coverage gap: conformance dispatcher is `Apply` / `tosci` only
 
 * **Status**: by design until the three correctness bugs above are

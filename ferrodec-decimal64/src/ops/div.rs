@@ -153,13 +153,17 @@ fn handle_specials(a: Class, b: Class) -> Option<(Decimal64, Status)> {
     }
     if let (Finite { sign: sa, .. } | Zero { sign: sa, .. }, Infinity { sign: sb }) = (a, b) {
         let result_sign = sa ^ sb;
+        // x / Inf = ±0. The ideal exponent is unboundedly negative,
+        // so it is clamped up to Etiny (BiasedExp::MIN). IEEE
+        // 754-2019 §7.4 Clamped — informational; the zero is exact.
+        // Matches decTest dddiv788 (`-1000 / Inf -> -0E-398 Clamped`).
         return Some((
             Decimal64::from_bits(crate::bid::pack_finite(
                 result_sign,
                 crate::bid::BiasedExp::MIN,
                 crate::bid::Coefficient::ZERO,
             )),
-            Status::OK,
+            Status::CLAMPED,
         ));
     }
     None

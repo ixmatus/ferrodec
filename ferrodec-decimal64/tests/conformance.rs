@@ -21,7 +21,7 @@
 
 use ferrodec_decimal64::{Decimal64, ParseDecimalError, Status};
 use ferrodec_test_support::conformance::{
-    decode_conditions, map_rounding, run_suite, Context, Outcome, TestCase,
+    decode_conditions, map_rounding, run_suite, status_conformance_eq, Context, Outcome, TestCase,
 };
 
 const VECTORS_DIR: &str = "tests/vectors";
@@ -105,7 +105,7 @@ fn run_tosci(case: &TestCase, ctx: &Context) -> Outcome {
         return Outcome::Fail(format!("got {formatted:?} want {:?}", case.expected));
     }
     let expected_status = decode_conditions(&case.conditions);
-    if status.bits() != expected_status.bits() {
+    if !status_conformance_eq(status, expected_status) {
         return Outcome::Fail(format!(
             "status mismatch: got {status:?} want {expected_status:?} (conditions {:?})",
             case.conditions

@@ -180,6 +180,14 @@ fn finalise_finite(
         // clamped is in [0, BIASED_EXP_MAX] by clamp() above.
         let biased_exp =
             BiasedExp::try_from_biased(clamped as u32).expect("clamped in [0, BIASED_EXP_MAX]");
+        if clamped != biased {
+            // The zero's preferred exponent fell outside the format
+            // range and was clamped into it. IEEE 754-2019 §7.4
+            // Clamped — informational; a zero is exact at every
+            // exponent. Matches decTest cases like dddiv497
+            // (`0E+380 / 1000E-13 -> 0E+369 Clamped`).
+            status |= Status::CLAMPED;
+        }
         return (
             Decimal64::from_bits(pack_finite(sign, biased_exp, Coefficient::ZERO)),
             status,
@@ -202,6 +210,11 @@ fn finalise_finite(
             if shifted < COEFFICIENT_LIMIT {
                 let shifted_coef =
                     Coefficient::try_new(shifted).expect("shifted < COEFFICIENT_LIMIT");
+                // IEEE 754-2019 §7.4: the preferred exponent exceeded
+                // the format range and was clamped down (the
+                // coefficient absorbed the shift as trailing zeros).
+                // The condition is informational; the value is exact.
+                status |= Status::CLAMPED;
                 return (
                     Decimal64::from_bits(pack_finite(sign, BiasedExp::MAX, shifted_coef)),
                     status,
