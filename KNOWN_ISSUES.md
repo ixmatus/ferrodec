@@ -117,26 +117,6 @@ and 1.10.1 (99 skips):
   to be 28 bare-`#` cases plus 2 that were also under non-IEEE
   rounding directives.
 
-## Active defect under fix (fd-oaa, decimal128 FMA)
-
-One non-conformance defect is under fix on branch
-`fd-oaa-decimal128-fma` (slice for `ferrodec` 1.15.1). It is not a
-decTest skip and does not affect the 8 622 / 0 figures above; the
-decTest FMA vectors do not exercise the triggering cohort.
-
-`Decimal128::fma` drops a representable addend and raises a spurious
-`INEXACT` when the result is exactly representable but the addend's
-cohort sits at a deep quantum. Concretely `fma(1e33, 1, 3.0)` with
-the `3.0` cohort `coefficient 3000000000000000, exponent -15`
-returns `1000000000000000000000000000000000` rather than the exact
-`1000000000000000000000000000000003`. Root cause: a static
-raw-shift threshold in `src/ops/fma.rs` (the static-alignment-window
-anti-pattern fixed in decimal64 ADR-0018 and decimal32 ADR-0019).
-Reproducer: `tests/regression_fd_oaa.rs`; triage:
-`docs/decisions/plans/2026-05-16-fd-oaa-decimal128-fma-findings.md`.
-The `fd_oaa_fma_shrunk_cohort` test is `#[ignore]` until the fix
-commit; this section is removed when the slice closes.
-
 ## What is NOT skipped
 
 Worth recording the inverse: the suite covers every IEEE 754:2019
