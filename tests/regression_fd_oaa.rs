@@ -61,14 +61,10 @@ fn eq(got: Decimal128, expect: Decimal128) -> bool {
     cmp == Some(Ordering::Equal)
 }
 
-/// The fd-oaa reproducer in its exact shrunk cohort.
-///
-/// Pinned `#[ignore]` in the Phase 1 commit so the per-commit gate
-/// stays green (reproduce-first); the Phase 2 fix commit removes the
-/// `#[ignore]` together with the kernel change (one concern: the
-/// fix and its proof land together).
+/// The fd-oaa reproducer in its exact shrunk cohort. Was `#[ignore]`
+/// in the Phase 1 commit (reproduce-first); the Phase 2 kernel fix
+/// removes the `#[ignore]` so the fix and its proof land together.
 #[test]
-#[ignore = "fd-oaa: unfixed Decimal128 FMA defect; un-ignored by the Phase 2 fix commit"]
 fn fd_oaa_fma_shrunk_cohort() {
     let (got, st) = a().fma(b(), c_shrunk(), RoundingMode::NearestEven);
     assert!(

@@ -51,15 +51,20 @@ use crate::multiword::{u256::widening_mul_u128, U256, U384};
 use crate::ops::{propagate_nan3, round_and_pack_finite};
 use crate::status::{RoundingMode, Status};
 
-/// Maximum digit growth we accept inside the U384 alignment buffer
+/// Maximum aligned digit count we accept inside the `U384` buffer
 /// before falling to the sub-ULP (sticky-only) path.
 ///
-/// The product `a × b` occupies ≤ 68 decimal digits; shifting it up by
-/// `SHIFT_LIMIT` keeps the buffer below `U384`'s ≈ 115-digit envelope
-/// with a comfortable margin. The same limit suffices for the
-/// `c`-side shift because `c` itself is ≤ 34 digits, much smaller than
-/// the product.
-const SHIFT_LIMIT: u32 = 47;
+/// `U384` holds ≈ 115 decimal digits. We cap each aligned operand at
+/// 110 digits, leaving headroom for the effective add to carry into a
+/// 116th digit. The trigger keys on the *dynamic* grown digit count
+/// (`digit_count + shift`), not a static raw-shift threshold: a narrow
+/// product coefficient (`a × b` can be as few as one digit, e.g.
+/// `1e33 × 1`) may be shifted far and still leave the exact aligned
+/// sum well within the buffer. Keying on the raw shift instead
+/// discards a representable addend (fd-oaa); it is the
+/// static-alignment-window anti-pattern corrected in decimal64
+/// (ADR-0018) and decimal32 (ADR-0019).
+const BUFFER_DIGIT_LIMIT: u32 = 110;
 
 impl Decimal128 {
     /// IEEE 754 `fusedMultiplyAdd(self, b, c)`.
@@ -338,10 +343,11 @@ fn fma_finite_kernel(
     let cab_grown_digits = cab.decimal_digit_count() + shift_ab;
     let cc_grown_digits = decimal_digit_count(cc) + shift_c;
 
-    // U384 ≈ 115 digits; we leave headroom for the add to carry into a
-    // 116th digit. SHIFT_LIMIT keeps both side comfortably below.
-    let ab_too_wide = shift_ab > SHIFT_LIMIT || cab_grown_digits > 110;
-    let c_too_wide = shift_c > SHIFT_LIMIT.saturating_add(35) || cc_grown_digits > 110;
+    // The sub-ULP path is needed precisely when aligning into the
+    // U384 buffer would overflow it; that is exactly the dynamic grown
+    // digit count, not a raw shift. See [`BUFFER_DIGIT_LIMIT`].
+    let ab_too_wide = cab_grown_digits > BUFFER_DIGIT_LIMIT;
+    let c_too_wide = cc_grown_digits > BUFFER_DIGIT_LIMIT;
 
     if ab_too_wide || c_too_wide {
         let _ = effective_sub;
@@ -448,10 +454,11 @@ fn fma_sub_ulp(
         let q_pref = qab.min(qc);
         if !effective_sub {
             // Same-sign sub-ULP product: the residue pushes magnitude
-            // up by epsilon ≪ 0.5 ULP (c_too_wide ⇒ qc − qab > 82,
-            // far beyond PRECISION = 34), so existing sub_ulp_round
-            // (epsilon-as-positive-sticky) gives the correct rounded
-            // value for every mode.
+            // up by epsilon ≪ 0.5 ULP (c_too_wide ⇒ digit_count(cc) +
+            // (qc − qab) > BUFFER_DIGIT_LIMIT, so qc − qab > 110 −
+            // digit_count(cc) ≥ 76, far beyond PRECISION = 34), so
+            // existing sub_ulp_round (epsilon-as-positive-sticky)
+            // gives the correct rounded value for every mode.
             return sub_ulp_round(U256::from_u128(cc), qc, sc, false, rm);
         }
         // Opposite-sign sub-ULP product: true magnitude is
@@ -556,8 +563,11 @@ fn sub_ulp_round(
 /// Effective-subtraction sub-ULP path for the `c_too_wide` branch.
 ///
 /// `c` dominates and the product's magnitude is so far below `c`'s
-/// quantum (`qc − qab > 82` per [`SHIFT_LIMIT`]) that the true value
-/// is `cc · 10^qc − epsilon` with `epsilon ≪ 0.5 ULP` of `cc`'s
+/// quantum that the true value is `cc · 10^qc − epsilon`. Reaching
+/// here means `c_too_wide`, i.e.
+/// `digit_count(cc) + (qc − qab) > BUFFER_DIGIT_LIMIT`, hence
+/// `qc − qab > 110 − digit_count(cc) ≥ 76`, so
+/// `epsilon ≪ 0.5 ULP` of `cc`'s
 /// PRECISION-rep neighbours. Round-to-nearest therefore always picks
 /// `cc` (the upper candidate); only the directional modes can pick
 /// the lower candidate `cc − 1 ULP`.
@@ -629,7 +639,10 @@ fn sub_ulp_eff_sub_c_dominates(
 /// in-range branch when `a × b` and `c` have opposite signs.
 ///
 /// `cab` (up to 68 digits) dominates and `c` is sub-ULP at the
-/// result's precision (`qab − qc > SHIFT_LIMIT = 47`). The true
+/// result's precision. Reaching here means `ab_too_wide`, i.e.
+/// `digit_count(cab) + (qab − qc) > BUFFER_DIGIT_LIMIT`, hence
+/// `qab − qc > 110 − digit_count(cab) ≥ 42`, well beyond
+/// `PRECISION = 34`. The true
 /// value is `cab × 10^qab − cc × 10^qc`, slightly below the
 /// magnitude of `cab × 10^qab`. Two sub-cases:
 ///
@@ -981,8 +994,9 @@ mod tests {
         let two_e33_plus_one =
             Decimal128::from_bits(pack_finite(false, BIAS, 2 * 10u128.pow(33) + 1));
         let b = two_e33_plus_one;
-        // c = 1 × 10^-100 (qc = -100 ≪ qab = 0, satisfies
-        // shift_ab > SHIFT_LIMIT = 47 so the ab_too_wide branch fires).
+        // c = 1 × 10^-100 (qc = -100 ≪ qab = 0: shift_ab = 100,
+        // digit_count(cab) ≈ 35, so cab_grown_digits ≈ 135 >
+        // BUFFER_DIGIT_LIMIT and the ab_too_wide branch fires).
         let c = Decimal128::from_bits(pack_finite(false, (BIAS as i32 - 100) as u32, 1));
 
         let (r, s) = a.fma(b, c, RoundingMode::NearestEven);
