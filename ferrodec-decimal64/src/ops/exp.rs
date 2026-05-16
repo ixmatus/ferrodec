@@ -56,7 +56,7 @@ impl Decimal64 {
             Class::Infinity { sign: true } => (Decimal64::ZERO, Status::OK),
             Class::Zero { .. } => (Decimal64::ONE, Status::OK),
             Class::Finite { .. } => {
-                let x = self.to_f64();
+                let x = self.to_f64(RoundingMode::NearestEven).0;
                 let r = libm::exp(x);
                 if r.is_infinite() {
                     return (Decimal64::INFINITY, Status::OVERFLOW | Status::INEXACT);
@@ -93,7 +93,7 @@ impl Decimal64 {
             Class::Zero { .. } => (Decimal64::NEG_INFINITY, Status::DIV_BY_ZERO),
             Class::Finite { sign: true, .. } => (Decimal64::NAN, Status::INVALID),
             Class::Finite { sign: false, .. } => {
-                let x = self.to_f64();
+                let x = self.to_f64(RoundingMode::NearestEven).0;
                 let r = libm::log(x);
                 let (val, mut status) = Decimal64::from_f64(r, rm);
                 // ln(positive finite) is exact only at x = 1 (handled
@@ -123,8 +123,8 @@ mod tests {
         // to max_ulp. Decimal64 carries 16 digits but the f64 round-trip
         // through libm caps achievable precision at ~10⁻¹⁵ relative; we
         // pick 1e-14 to absorb the worst-case double-rounding noise.
-        let af = a.to_f64();
-        let bf = b.to_f64();
+        let af = a.to_f64(RoundingMode::NearestEven).0;
+        let bf = b.to_f64(RoundingMode::NearestEven).0;
         let tol = 1e-14 * f64::from(max_ulp);
         (af - bf).abs() <= tol * (1.0 + bf.abs())
     }

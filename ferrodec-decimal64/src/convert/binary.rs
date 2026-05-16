@@ -23,23 +23,33 @@ use crate::decimal::Decimal64;
 use ferrodec_ieee::{RoundingMode, Status};
 
 impl Decimal64 {
-    /// Lossy convert to `f64`. Specials map straight through: `NaN →
-    /// f64::NAN`, `±∞ → f64::±INFINITY`, `±0 → ±0.0`. Finite values
-    /// produce the f64 nearest to `coef × 10^exp` (within f64's
-    /// ~15.95-digit precision).
+    /// Lossy convert to `f64`, returning `(value, Status)`.
+    ///
+    /// Specials map straight through: `qNaN → f64::NAN`, `±∞ →
+    /// f64::±INFINITY`, `±0 → ±0.0`. Finite values produce the f64
+    /// nearest to `coef × 10^exp` (within f64's ~15.95-digit
+    /// precision). Signaling NaN inputs raise `Status::INVALID` and
+    /// return a quiet `f64::NAN` per IEEE 754-2019 §5.4.2.
+    ///
+    /// The `_rm` parameter is accepted for API parity with the
+    /// `RoundingMode`-taking spec convertFormat operation but is
+    /// not used internally: f64's native rounding (the FPU's
+    /// round-to-nearest-even) governs the multiply step. Callers
+    /// can request a different direction by formatting the
+    /// Decimal64 to a string and parsing with `f64::from_str`.
+    ///
+    /// **API change (1.4.0)**: the previous signature
+    /// `to_f64(self) -> f64` swallowed the sNaN INVALID signal
+    /// silently. The new signature mirrors `ferrodec`'s Decimal128
+    /// `to_f64` (commit `67bd45c`).
     #[must_use]
-    pub fn to_f64(self) -> f64 {
+    pub fn to_f64(self, _rm: RoundingMode) -> (f64, Status) {
         match classify_bits(self.0) {
-            Class::QuietNaN { .. } | Class::SignalingNaN { .. } => f64::NAN,
-            Class::Infinity { sign: false } => f64::INFINITY,
-            Class::Infinity { sign: true } => f64::NEG_INFINITY,
-            Class::Zero { sign, .. } => {
-                if sign {
-                    -0.0
-                } else {
-                    0.0
-                }
-            }
+            Class::SignalingNaN { .. } => (f64::NAN, Status::INVALID),
+            Class::QuietNaN { .. } => (f64::NAN, Status::OK),
+            Class::Infinity { sign: false } => (f64::INFINITY, Status::OK),
+            Class::Infinity { sign: true } => (f64::NEG_INFINITY, Status::OK),
+            Class::Zero { sign, .. } => (if sign { -0.0 } else { 0.0 }, Status::OK),
             Class::Finite {
                 sign,
                 biased_exp,
@@ -56,11 +66,7 @@ impl Decimal64 {
                 let coef_f = coefficient as f64;
                 let factor = pow10_f64(exp);
                 let magnitude = coef_f * factor;
-                if sign {
-                    -magnitude
-                } else {
-                    magnitude
-                }
+                (if sign { -magnitude } else { magnitude }, Status::OK)
             }
         }
     }
@@ -184,19 +190,42 @@ mod tests {
 
     #[test]
     fn to_f64_basic() {
-        assert_eq!(Decimal64::ZERO.to_f64(), 0.0);
-        assert!(Decimal64::NEG_ZERO.to_f64().is_sign_negative());
-        assert_eq!(Decimal64::ONE.to_f64(), 1.0);
-        assert_eq!(Decimal64::NEG_ONE.to_f64(), -1.0);
-        assert_eq!(from_int(15, -1).to_f64(), 1.5);
-        assert_eq!(from_int(-2, 0).to_f64(), -2.0);
+        assert_eq!(Decimal64::ZERO.to_f64(RoundingMode::NearestEven).0, 0.0);
+        assert!(Decimal64::NEG_ZERO
+            .to_f64(RoundingMode::NearestEven)
+            .0
+            .is_sign_negative());
+        assert_eq!(Decimal64::ONE.to_f64(RoundingMode::NearestEven).0, 1.0);
+        assert_eq!(Decimal64::NEG_ONE.to_f64(RoundingMode::NearestEven).0, -1.0);
+        assert_eq!(from_int(15, -1).to_f64(RoundingMode::NearestEven).0, 1.5);
+        assert_eq!(from_int(-2, 0).to_f64(RoundingMode::NearestEven).0, -2.0);
     }
 
     #[test]
     fn to_f64_specials() {
-        assert!(Decimal64::NAN.to_f64().is_nan());
-        assert_eq!(Decimal64::INFINITY.to_f64(), f64::INFINITY);
-        assert_eq!(Decimal64::NEG_INFINITY.to_f64(), f64::NEG_INFINITY);
+        assert!(Decimal64::NAN.to_f64(RoundingMode::NearestEven).0.is_nan());
+        assert_eq!(
+            Decimal64::INFINITY.to_f64(RoundingMode::NearestEven).0,
+            f64::INFINITY
+        );
+        assert_eq!(
+            Decimal64::NEG_INFINITY.to_f64(RoundingMode::NearestEven).0,
+            f64::NEG_INFINITY
+        );
+    }
+
+    #[test]
+    fn to_f64_signaling_nan_raises_invalid() {
+        // IEEE 754-2019 §5.4.2: convertFormat on a signaling NaN
+        // raises INVALID and yields a quiet NaN. A quiet NaN passes
+        // through clean. Mirrors Decimal128 commit 67bd45c.
+        let (v, status) = Decimal64::SIGNALING_NAN.to_f64(RoundingMode::NearestEven);
+        assert!(v.is_nan());
+        assert_eq!(status, Status::INVALID);
+
+        let (v, status) = Decimal64::NAN.to_f64(RoundingMode::NearestEven);
+        assert!(v.is_nan());
+        assert_eq!(status, Status::OK);
     }
 
     #[test]
@@ -251,7 +280,7 @@ mod tests {
             let parsed = Decimal64::parse_str(s, RoundingMode::NearestEven)
                 .unwrap()
                 .0;
-            let as_f64 = parsed.to_f64();
+            let as_f64 = parsed.to_f64(RoundingMode::NearestEven).0;
             let (back, _) = Decimal64::from_f64(as_f64, RoundingMode::NearestEven);
             // Numerically equal (cohort may differ).
             assert_eq!(

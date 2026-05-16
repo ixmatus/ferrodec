@@ -117,7 +117,7 @@ impl Decimal64 {
                 Status::OK,
             ),
             Class::Finite { .. } => {
-                let x = self.to_f64();
+                let x = self.to_f64(RoundingMode::NearestEven).0;
                 if x.abs() > 1.0 {
                     return (Decimal64::NAN, Status::INVALID);
                 }
@@ -141,7 +141,7 @@ impl Decimal64 {
             ),
             Class::Infinity { .. } => (Decimal64::NAN, Status::INVALID),
             Class::Zero { .. } | Class::Finite { .. } => {
-                let x = self.to_f64();
+                let x = self.to_f64(RoundingMode::NearestEven).0;
                 if x.abs() > 1.0 {
                     return (Decimal64::NAN, Status::INVALID);
                 }
@@ -208,8 +208,8 @@ impl Decimal64 {
                 _ => {}
             }
         }
-        let y_f = self.to_f64();
-        let x_f = x.to_f64();
+        let y_f = self.to_f64(RoundingMode::NearestEven).0;
+        let x_f = x.to_f64(RoundingMode::NearestEven).0;
         let r = libm::atan2(y_f, x_f);
         let (val, mut status) = Decimal64::from_f64(r, rm);
         if !val.is_zero() {
@@ -231,8 +231,8 @@ mod tests {
         // Decimal64 carries 16 digits but the f64 round-trip caps
         // effective precision at ~10⁻¹⁵; widen the tolerance to 1e-13
         // to absorb the worst-case double-rounding noise.
-        let af = a.to_f64();
-        let bf = b.to_f64();
+        let af = a.to_f64(RoundingMode::NearestEven).0;
+        let bf = b.to_f64(RoundingMode::NearestEven).0;
         let tol = 1e-13;
         (af - bf).abs() <= tol * (1.0 + bf.abs())
     }

@@ -164,7 +164,7 @@ impl ToPrimitive for Decimal64 {
         if self.is_nan() || self.is_infinite() {
             return None;
         }
-        let f = Decimal64::to_f64(*self);
+        let f = Decimal64::to_f64(*self, RoundingMode::NearestEven).0;
         #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
         let rounded = libm_round(f);
         if !(i64::MIN as f64..=i64::MAX as f64).contains(&rounded) {
@@ -177,7 +177,7 @@ impl ToPrimitive for Decimal64 {
         if self.is_nan() || self.is_infinite() {
             return None;
         }
-        let f = Decimal64::to_f64(*self);
+        let f = Decimal64::to_f64(*self, RoundingMode::NearestEven).0;
         let rounded = libm_round(f);
         if rounded < 0.0 {
             return None;
@@ -191,11 +191,11 @@ impl ToPrimitive for Decimal64 {
         Some(rounded as u64)
     }
     fn to_f64(&self) -> Option<f64> {
-        Some(Decimal64::to_f64(*self))
+        Some(Decimal64::to_f64(*self, RoundingMode::NearestEven).0)
     }
     #[allow(clippy::cast_possible_truncation)]
     fn to_f32(&self) -> Option<f32> {
-        Some(Decimal64::to_f64(*self) as f32)
+        Some(Decimal64::to_f64(*self, RoundingMode::NearestEven).0 as f32)
     }
 }
 
@@ -290,17 +290,24 @@ mod tests {
     #[test]
     fn from_primitive_basics() {
         assert_eq!(
-            <Decimal64 as FromPrimitive>::from_i64(42).unwrap().to_f64(),
+            <Decimal64 as FromPrimitive>::from_i64(42)
+                .unwrap()
+                .to_f64(RoundingMode::NearestEven)
+                .0,
             42.0
         );
         assert_eq!(
-            <Decimal64 as FromPrimitive>::from_u64(42).unwrap().to_f64(),
+            <Decimal64 as FromPrimitive>::from_u64(42)
+                .unwrap()
+                .to_f64(RoundingMode::NearestEven)
+                .0,
             42.0
         );
         assert_eq!(
             <Decimal64 as FromPrimitive>::from_f64(2.5)
                 .unwrap()
-                .to_f64(),
+                .to_f64(RoundingMode::NearestEven)
+                .0,
             2.5
         );
         assert!(<Decimal64 as FromPrimitive>::from_f64(f64::NAN).is_none());
