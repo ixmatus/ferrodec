@@ -17,6 +17,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   CHANGELOG. The decimal64 release tags and publishes on its own
   cadence, independent of the workspace `ferrodec` version.
 
+- `ferrodec-decimal32` 1.4.0: the decimal32 correctness train, the
+  decimal64 sibling. A `Decimal64` cross-check oracle and a six
+  agent review closed 8 H / 6 M / 4 L findings, ported the Kani
+  special case proofs to parity with decimal64, added a `dpd` gated
+  DPD interchange codec (`dsEncode` 250 of 268, was 2), and
+  recorded the train in ADR-0019. Includes a breaking
+  `Decimal32::to_f64` signature change; see that crate's CHANGELOG.
+  Tags and publishes on its own cadence, independent of the
+  workspace `ferrodec` version.
+
 ## [1.15.0] - 2026-05-11
 
 The 2026-05-10 post-publish six-agent correctness review found a

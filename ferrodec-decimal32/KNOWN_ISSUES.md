@@ -1,16 +1,14 @@
 # ferrodec-decimal32 known issues
 
-Tracks coverage gaps, deferred work, and confirmed correctness
-defects. The 2026-05-11 conformance investigation (see
+Tracks coverage gaps, deferred work, and the closed correctness
+audit trail. The 2026-05-11 conformance investigation (see
 `docs/decisions/0017-decimal64-conformance-coverage-gap.md` in the
 workspace root) found no correctness bugs in `Decimal32` because the
-dispatcher exercised only `tosci` and `apply`. The 2026-05-15
-decimal32 correctness slice added a `Decimal64` cross-check oracle
-(every finite `Decimal32` is exactly representable in `Decimal64`,
-and `Decimal64` reached full conformance in its 1.4.0 slice), and it
-immediately surfaced three correctness defect classes in the
-arithmetic paths. Those are pinned in the first section below and
-tracked for the slice's H tier. The remaining sections are coverage
+dispatcher exercised only `tosci` and `apply`. The decimal32
+correctness slice (1.4.0, 2026-05-16, ADR-0019) added a `Decimal64`
+cross-check oracle and a six agent review, which closed eight H, six
+M, and four L findings. The closed defects are recorded as an audit
+trail in the last section. The remaining open sections are coverage
 and scope gaps, not correctness defects.
 
 ## Resolved: dsEncode DPD interchange dispatch
@@ -79,43 +77,38 @@ and scope gaps, not correctness defects.
   (Slice D was originally bundled with the transcendentals routing
   but the slice's correctness scope grew during execution).
 
-## Confirmed correctness defects (decimal32 correctness slice)
+## Closed correctness audit trail (decimal32 1.4.0 slice)
 
 The `Decimal64` cross-check oracle
-(`ferrodec-decimal32/tests/d64_crosscheck.rs`) surfaced three defect
-classes on 2026-05-15. Each reproducer below is the minimal failing
-input from the property search; the spec answer is the `Decimal64`
-result rounded to 7 digits. The matching cross-check block carries an
-`#[ignore]` whose reason names the reproducer, so the harness stays
-green until the fix; the H tier fix removes the `#[ignore]` and the
-block becomes the permanent guard. These three also seed the Phase 1
-six agent review, which sweeps the full op surface for the remaining
-tier.
+(`ferrodec-decimal32/tests/d64_crosscheck.rs`) and the six agent
+review closed the defects below. Every cross-check block is now
+active with zero ignored; each fix carries a reproducer that is red
+on the pre slice tree and green on the fix. Entries are kept as the
+audit trail.
 
-### H1: addsub static `ALIGN_LIMIT` window drops the residue
+### H1: addsub static `ALIGN_LIMIT` window dropped the residue — CLOSED
 
-* **Reproducer**: `add(-1E-101, 1E-88)` under `TowardZero` (`a` bits
-  `0x80000001`, `b` bits `0x00D00001`).
-* **Wrong answer**: `1.000000E-88`. **Spec answer**: `9.999999E-89`.
-* **Mechanism (hypothesis)**: the fixed `ALIGN_LIMIT = 12` window in
-  `src/ops/addsub.rs` routes the lower operand to sticky only once
-  the exponent gap exceeds the static bound, so the borrow from the
-  effective subtraction is lost and the directed rounding tips the
-  wrong way. This is the decimal64 fd-d47 and H2 shape. The in crate
-  reference is `src/ops/fma.rs`, which already keys its per side
-  shift on the actual digit count.
+* **Closed** by commit `45cdfaf` (dynamic per side shift over a u128
+  register plus the zero operand fast path; the fd-d47 power of ten
+  regime is guarded by `eeb9f72`).
+* **Reproducers**: `add(-1E-101, 1E-88)` `TowardZero` returned
+  `1.000000E-88`, now `9.999999E-89`; `sub(-0E-74, -3.145728E-95)`
+  `NearestEven` returned `1E-101`, now `3.145728E-95`.
+* **Mechanism**: the fixed `ALIGN_LIMIT = 12` window routed the
+  lower operand to sticky once the exponent gap exceeded the static
+  bound, losing the effective subtract borrow, and the drop branch
+  treated a signed zero as the dominant operand. The decimal64
+  fd-d47 and H1 shape; `src/ops/fma.rs` was the in crate dynamic
+  reference.
 
-### H2: asymmetric-zero magnitude loss in addsub
+### H2: addsub asymmetric-zero magnitude loss — CLOSED
 
-* **Reproducer**: `sub(-0E-74, -3.145728E-95)` under `NearestEven`
-  (`a` bits `0x81B00000`, `b` bits `0x8C000000`).
-* **Wrong answer**: `1E-101`. **Spec answer**: `3.145728E-95`.
-* **Mechanism (hypothesis)**: subtracting a finite operand from a
-  signed zero with a distant exponent loses the operand's magnitude
-  and yields a near zero instead of the operand. This is the
-  decimal64 H1 shape (asymmetric zero addsub magnitude loss).
+* **Closed** by the same commit `45cdfaf` (one root cause with H1;
+  the zero operand fast path handles it).
+* **Reproducer**: covered by the H1 `sub(-0E-74, -3.145728E-95)`
+  case above.
 
-### H3: rem static `MAX_SAFE_SHIFT` raises spurious `INVALID` — CLOSED (defect confirmed, oracle was unsound)
+### H3 (rem): static `MAX_SAFE_SHIFT` raised spurious `INVALID` — CLOSED (defect confirmed, oracle was unsound)
 
 * **Status**: closed 2026-05-15 by the H2 rem slice. The pinned
   reproducer was an unsound oracle false positive; a *different*
@@ -160,5 +153,16 @@ tier.
   (`shift > 38 − digit_count`) provably has an integer quotient
   exceeding 7 digits, so its `INVALID` is spec-correct.
 
-When each defect closes, this section's entry moves to a closed audit
-trail in the same commit as the fix.
+### Remaining closed findings (H4, H5, H6, H7, H8, M2, M3, M4, L1)
+
+H4 (FMA effective subtract borrow), H5 (quantize zero short
+circuit), H6 (the breaking `to_f64` signature), H7 (inherent
+`to_f32`), H8 (the `parse_str` adversarial counter cap, a security
+fix), M2 (the `scaleb` envelope), M3 (`from_f64` signaling bit), M4
+(the exact integer conversion surface), and L1 (zero engineering
+rendering) all landed in the slice. The full per finding accounting
+with IEEE section citations and before and after values is in
+`CHANGELOG.md` under `[1.4.0]`; ADR-0019 records the train. The
+`Decimal64` cross-check (`tests/d64_crosscheck.rs`, seven blocks,
+zero ignored) plus the Kani special case proofs are the permanent
+regression net.

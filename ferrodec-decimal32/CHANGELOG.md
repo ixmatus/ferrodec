@@ -7,6 +7,163 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-05-16
+
+The decimal32 correctness train, the sibling of the decimal64 1.4.0
+slice. ADR-0017 and ADR-0018 deferred decimal32 to its own slice on
+the reasoning that its `KNOWN_ISSUES` was mostly coverage gap with no
+confirmed defect. A `Decimal64` cross-check oracle was stood up
+(every finite `Decimal32` is exactly representable in the now
+conformance validated `Decimal64`), and it refuted that reasoning
+immediately: a six agent review (ADR-0010 methodology) over the whole
+op surface produced eight H, six M, and four L findings. This release
+closes them, ports the Kani special case coverage to parity with
+decimal64, adds a DPD interchange codec, and records the train in
+ADR-0019. See the parent `ferrodec` crate's CHANGELOG for cycle
+context.
+
+This is a minor bump rather than a patch: several fixes change
+observable outputs on inputs that were previously wrong against the
+spec, and `to_f64` gains a breaking signature change (below). A
+downstream consumer that implicitly relied on the old behaviour
+should read the Changed section. The version posture mirrors the
+deliberate decimal64 1.4.0 decision (ADR-0018).
+
+### Changed
+
+- **BREAKING**: `Decimal32::to_f64` signature changes from
+  `fn to_f64(self) -> f64` to
+  `fn to_f64(self, rm: RoundingMode) -> (f64, Status)`. A signaling
+  NaN input now raises `Status::INVALID` per IEEE 754-2019 §5.4.2
+  instead of being silently quieted (H6). Decimal32 to f64 is exact
+  (a 7 digit coefficient and the Decimal32 exponent range fit
+  binary64 without rounding), so no `INEXACT` is raised. Migration:
+  pass a rounding mode and take `.0` for the value, `.1` for the
+  status.
+
+- `<Decimal32 as ToPrimitive>::to_f32` now routes through a new
+  inherent `Decimal32::to_f32(self, RoundingMode) -> (f32, Status)`
+  that renders the decimal once onto the binary32 grid, instead of
+  the old `to_f64(..) as f32` double rounding chain, and it now
+  signals on a signaling NaN (H7). The numeric result is unchanged
+  for every Decimal32 (the old f64 step was already exact at 7
+  digits); the change removes the double rounding error class
+  structurally and restores the lost signal.
+
+### Added
+
+- `Decimal32::to_f32(self, RoundingMode) -> (f32, Status)`, the
+  single correctly rounded decimal to binary32 path (H7).
+
+- A DPD interchange codec behind the off by default `dpd` feature:
+  `Decimal32::to_dpd_bytes(self) -> [u8; 4]` and
+  `from_dpd_bytes([u8; 4]) -> Self`, pure IEEE 754-2008 §3.5.2
+  boolean declet equations with no lookup tables (ADR-0009 posture;
+  N+1). BID stays the arithmetic storage encoding; DPD is a byte
+  level adapter. `no_std` clean.
+
+- **M4** an exact integer conversion surface,
+  `Decimal32::to_i32 / i64 / i128 / u32 / u64 / u128`, each
+  `(self, RoundingMode) -> (T, Status)` per IEEE 754-2019 §5.4.1,
+  replacing the previous f64 plus `libm_round` detour in the
+  `num-traits` delegates (no double rounding, correct None iff
+  `INVALID`). The decimal64 M5 shape.
+
+### Fixed
+
+- **H1** `Decimal32::add` / `sub`: the static `ALIGN_LIMIT` /
+  `WORKING_PRECISION` alignment window dropped the lower operand's
+  residue and treated a signed zero as the dominant operand,
+  losing magnitude. Replaced with a dynamic per side shift over a
+  u128 register keyed on the actual digit count, plus an explicit
+  zero operand fast path (IEEE 754-2019 §5.4.1, §6.3). Example:
+  `add(-1E-101, 1E-88, TowardZero)` returned `1.000000E-88`, now
+  `9.999999E-89`; `sub(-0E-74, -3.145728E-95)` returned `1E-101`,
+  now `3.145728E-95`. The decimal64 fd-d47 and H1 shape.
+
+- **H2** `Decimal32::rem`: the static `MAX_SAFE_SHIFT` raised a
+  spurious `Invalid_operation` on operand pairs whose true integer
+  quotient is small. Replaced with the dynamic per side bound;
+  `quotient >= COEFFICIENT_LIMIT` is the sole `INVALID` predicate
+  (IEEE 754-2019 §5.3.1, §7.2). Example: `rem(1E+13, 9999999)`
+  returned `(NaN, INVALID)`, now `1.000000E+6`. The decimal64 H5
+  shape. The cross-check rem oracle was also corrected: it had been
+  unsound when the integer quotient has 8 to 16 digits.
+
+- **H3** typed `BiasedExp` and `Coefficient` newtypes in `bid.rs`
+  lift the former `pack_finite` `debug_assert!` preconditions into
+  the type system, and the FMA both zero and exact cancellation
+  early returns now clamp the §6.3 preferred quantum and raise
+  `Status::CLAMPED` instead of wrapping an out of range biased
+  exponent into garbage bits in release builds (IEEE 754-2019 §6.3,
+  §7.4). The decimal64 H3 shape.
+
+- **H4** `Decimal32::fma`: the overflow early returns now apply the
+  effective subtract borrow and extend, so a directed rounding no
+  longer tips one ULP the wrong way on an opposite sign residue
+  (IEEE 754-2019 §4.3, §7). The decimal64 fd-d47 mirror.
+
+- **H5** `Decimal32::quantize`: a zero coefficient at a deep target
+  quantum no longer returns `(NaN, INVALID)`; a zero is
+  representable at every encodable quantum (IEEE 754-2019 §5.3.3).
+  The decimal64 H6 shape.
+
+- **H8** `Decimal32::parse_str`: the implicit exponent counters are
+  saturated and capped at `MAX_EXPONENT_MAGNITUDE`, closing an
+  adversarial input path that panicked in debug builds and wrapped
+  silently in release (IEEE 754-2019 §5.12). Security fix.
+
+- **M2** `Decimal32::scaleb`: an out of envelope `n`
+  (`|n| > 2 * (Emax + precision)`) now returns `(NaN, INVALID)`
+  before the exponent arithmetic, which also closes an i32 overflow
+  on extreme `n` (IEEE 754-2019 §5.3.3). The decimal64 M2 shape.
+
+- **M3** `Decimal32::from_f64`: a binary64 signaling NaN bit pattern
+  now raises `Status::INVALID` (IEEE 754-2019 §5.4.2). The
+  decimal64 M3 shape.
+
+- **L1** `Display` engineering notation: a zero coefficient is
+  rendered as a lone `0` at the adjusted exponent instead of being
+  padded with positional zeros (`0E+5` rendered `000E+3`). The
+  decimal64 L13 shape.
+
+### Verification
+
+- **M5** the five Kani special case shim groups decimal32 lacked
+  (`exp`/`ln`, `trig`, `hyper`, `pow`/`cbrt`, the quantum family)
+  are ported under the ADR-0016 routing rule, bringing decimal32's
+  proof coverage level with decimal64. Kani, all 0 failures (the
+  quantum group is unconditional, so it stacks into every run): 37
+  under `fmt`, 47 under `exp-log`, 49 under `trig`, 54 under
+  `hyperbolic`, 55 under `pow`; no CBMC budget skip needed.
+
+- **M6** the `Decimal64` cross-check is the formalized permanent
+  arithmetic regression net (`tests/d64_crosscheck.rs`): add,
+  subtract, multiply, divide active plus the GDA correct
+  `rem_oracle_check`, seven blocks, zero ignored. A randomized
+  `Display` then `parse_str` round-trip guard (L2) and the closing
+  audited safe invariant comments (L3) and the rem proof note (L4)
+  round out the L tier.
+
+- **N+1** conformance: with the `dpd` feature on,
+  `dsEncode.decTest` passes 250 of 268 (up from 2), `dsBase`
+  unchanged at 698; the per file expected counts are
+  feature conditional and exact match (ADR-0010). The 18 residual
+  `dsEncode` skips are the `value -> #hex` cases carrying a
+  `Clamped` condition, the same §7.4 `parse_str` quantization
+  policy edge tracked for `dsBase`, not a codec defect.
+
+### Known issues
+
+- `parse_str` does not apply the IEEE 754-2019 §7.4 preferred
+  exponent clamp, so a small set of `dsBase` and `dsEncode` cases
+  skip. A cross crate quantization policy decision, see
+  `KNOWN_ISSUES.md`.
+
+- Transcendentals route through `f64` / `libm` (faithfully rounded,
+  not correctly rounded). Documented v1.0 baseline; routing through
+  Decimal128's `Extended` kernel is a 1.16 era follow up.
+
 ## [1.3.0] - 2026-05-11
 
 The post-publish six-agent correctness review (2026-05-10) found
