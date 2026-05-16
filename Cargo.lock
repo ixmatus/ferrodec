@@ -229,6 +229,7 @@ dependencies = [
  "astro-float",
  "criterion",
  "ferrodec-ieee",
+ "ferrodec-test-support",
  "num-traits",
  "proptest",
  "serde",

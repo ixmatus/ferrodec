@@ -322,6 +322,12 @@ pub fn round_exact(
     }
 
     let d = digit_count(&n);
+    // Adjusted exponent of the exact value as if precision were
+    // unbounded — the GDA tininess test keys on this (detected before
+    // rounding), not on the rounded result's exponent. A product like
+    // `(10^-6142) · 0.1` lands just below 10^Emin and is tiny even
+    // though rounding bumps it back up to exactly 10^Emin.
+    let adjusted_unbounded = e0 + i32::try_from(d).expect("digit count fits i32") - 1;
     // Digits to drop: enough for precision, and enough to lift the
     // exponent to `qmin` (subnormal / tiny path).
     let drop_prec = i64::from(d).saturating_sub(i64::from(prec)).max(0);
@@ -402,14 +408,19 @@ pub fn round_exact(
     let mut status = if exact { Status::OK } else { Status::INEXACT };
 
     if exact {
-        // Cohort selection toward the ideal exponent. Pad zeros to lower
-        // the exponent toward `ideal`; strip trailing zeros to raise it
-        // toward `ideal`. Either way the value is unchanged.
-        while exp > ideal && digit_count(&kept) < prec && kept != BigUint::ZERO {
+        // Cohort selection toward the ideal exponent, staying inside the
+        // representable window `[qmin, qmax]`. Pad trailing zeros to
+        // lower the exponent toward `ideal`; strip trailing zeros to
+        // raise it toward `ideal`. The value is unchanged either way,
+        // and crucially the exponent must not leave `[qmin, qmax]` (a
+        // pad below `qmin` followed by the clamp below would otherwise
+        // change the value).
+        while exp > ideal && exp > qmin && digit_count(&kept) < prec && kept != BigUint::ZERO {
             kept *= 10u32;
             exp -= 1;
         }
         while exp < ideal
+            && exp < qmax
             && (&kept % BigUint::from(10u32)) == BigUint::ZERO
             && kept != BigUint::ZERO
         {
@@ -422,11 +433,11 @@ pub fn round_exact(
         exp = qmin;
     }
 
-    // Subnormal / underflow: a result whose adjusted exponent is below
-    // `emin`. decTest raises Underflow only together with Inexact.
-    let adjusted = exp + i32::try_from(digit_count(&kept)).expect("fits") - 1;
-    let subnormal = kept == BigUint::ZERO || adjusted < fmt.emin;
-    if subnormal && !status.is_ok() {
+    // Underflow: the exact result is tiny (its unbounded adjusted
+    // exponent is below `emin`) and inexact. decTest raises Underflow
+    // only together with Inexact, never on an exact subnormal.
+    let tiny = kept == BigUint::ZERO || adjusted_unbounded < fmt.emin;
+    if tiny && !exact {
         status |= Status::UNDERFLOW;
     }
 
@@ -473,10 +484,24 @@ fn aligned_sum(a: &Dec, b: &Dec) -> (bool, BigUint, i32) {
     }
 }
 
-/// Resolve the sign of an exact-zero additive result per IEEE 754-2019
-/// §6.3: `+0` except under `roundTowardNegative`, where it is `-0`.
-fn exact_zero_sign(rm: RoundingMode) -> bool {
-    matches!(rm, RoundingMode::TowardNegative)
+/// Sign of an exact-zero additive result per IEEE 754-2019 §6.3.
+///
+/// When both addends are zero with the *same* sign, the result keeps
+/// that sign (`(-0) + (-0) = -0`). Otherwise — opposite-sign zeros, or
+/// the exact cancellation of two non-zero operands — the result is
+/// `+0`, except under `roundTowardNegative` where it is `-0`.
+fn additive_zero_sign(
+    a_neg: bool,
+    a_zero: bool,
+    b_neg: bool,
+    b_zero: bool,
+    rm: RoundingMode,
+) -> bool {
+    if a_zero && b_zero && a_neg == b_neg {
+        a_neg
+    } else {
+        matches!(rm, RoundingMode::TowardNegative)
+    }
 }
 
 /// Correctly-rounded `a + b`.
@@ -485,7 +510,7 @@ pub fn add(a: &Dec, b: &Dec, fmt: Format, rm: RoundingMode) -> Rounded {
     let ideal = a.exp.min(b.exp);
     let (mut neg, mag, e0) = aligned_sum(a, b);
     if mag == BigUint::ZERO {
-        neg = exact_zero_sign(rm);
+        neg = additive_zero_sign(a.neg, a.is_zero(), b.neg, b.is_zero(), rm);
     }
     round_exact(neg, mag, e0, false, ideal, fmt, rm)
 }
@@ -519,9 +544,10 @@ pub fn fma(a: &Dec, b: &Dec, c: &Dec, fmt: Format, rm: RoundingMode) -> Rounded 
         exp: a.exp + b.exp,
     };
     let ideal = prod.exp.min(c.exp);
+    let prod_zero = prod.coeff == BigUint::ZERO;
     let (mut neg, mag, e0) = aligned_sum(&prod, c);
     if mag == BigUint::ZERO {
-        neg = exact_zero_sign(rm);
+        neg = additive_zero_sign(prod.neg, prod_zero, c.neg, c.is_zero(), rm);
     }
     round_exact(neg, mag, e0, false, ideal, fmt, rm)
 }
