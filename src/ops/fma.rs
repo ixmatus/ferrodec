@@ -688,8 +688,30 @@ fn fma_ab_dom_in_range_eff_sub(
         // cab fits in u128 since `digits ≤ PRECISION = 34`. Build
         // both operands as proper Decimal128 values and let
         // `addsub` handle the alignment and rounding.
-        let cab_u128 = cab.to_u128();
-        let cab_dec = Decimal128::from_bits(pack_finite(sab, (qab + BIAS as i32) as u32, cab_u128));
+        //
+        // The product's quantum `qab` can sit above the storable
+        // range while the value is still representable: `1e1 · 1e6111`
+        // is `1×10^6112`, encodable as `10^33 × 10^6079` (quantum
+        // 6079 ≤ qmax) but not as `1 × 10^6112` (biased 12288 >
+        // BIASED_EXP_MAX). Packing `cab` raw would debug-assert /
+        // mis-encode. Apply the same value-preserving clamp
+        // `round_and_pack_finite` uses (pad trailing zeros, lower the
+        // exponent): `digits ≤ PRECISION` and the earlier
+        // `cab_top_exp ≤ E_MAX` gate guarantee enough slack. This is
+        // the dominant-product analogue of the static-window family
+        // closed in ADR-0018/0019/0020.
+        let mut cab_u128 = cab.to_u128();
+        let mut cab_biased = qab + BIAS as i32;
+        if cab_biased > BIASED_EXP_MAX as i32 {
+            let excess = (cab_biased - BIASED_EXP_MAX as i32) as u32;
+            debug_assert!(
+                digits + excess <= PRECISION,
+                "cab_top_exp ≤ E_MAX gate must leave clamp slack"
+            );
+            cab_u128 *= 10u128.pow(excess);
+            cab_biased = BIASED_EXP_MAX as i32;
+        }
+        let cab_dec = Decimal128::from_bits(pack_finite(sab, cab_biased as u32, cab_u128));
         let c_sign = !sab; // opposite of sab in this branch
         let c_dec = Decimal128::from_bits(pack_finite(c_sign, (qc + BIAS as i32) as u32, cc));
         return cab_dec.add(c_dec, rm);
@@ -734,12 +756,45 @@ fn fma_ab_dom_in_range_eff_sub(
         return (r, s | Status::INEXACT);
     }
 
+    // Product divides evenly to PRECISION (every dropped digit is
+    // zero), so cab·10^qab is itself representable. The true value is
+    // `±(kept·10^kept_q − epsilon)` with `epsilon = c·10^qc > 0` an
+    // opposite-sign residue strictly below one ULP (`cc != 0`). The
+    // bare `round_and_pack(cab, sticky=false)` would report this exact
+    // (no dropped digits) and at magnitude `kept`, but the true value
+    // is just *below* `kept` in magnitude and is never exact. Round
+    // `kept − epsilon` directly: nearest modes keep `kept` (epsilon ≪
+    // 0.5 ULP); the directional modes that round the signed value
+    // toward smaller magnitude pick `kept − 1`. INEXACT always.
+    if round_digit_a == 0 && !sticky_a {
+        let kept_q = qab + drop as i32;
+        let round_to_lower = match rm {
+            // floor of the magnitude
+            RoundingMode::TowardZero => true,
+            // toward +inf: lowers |x| only for a negative result
+            RoundingMode::TowardPositive => sab,
+            // toward -inf: lowers |x| only for a positive result
+            RoundingMode::TowardNegative => !sab,
+            // epsilon is far below half a ULP
+            RoundingMode::NearestEven | RoundingMode::NearestAway => false,
+        };
+        let mag = if round_to_lower {
+            kept.sub(U256::from_u128(1))
+        } else {
+            kept
+        };
+        let (r, s) = round_and_pack_finite(mag, kept_q, q_pref, sab, false, rm, Status::OK);
+        return (r, s | Status::INEXACT);
+    }
+
     // Standard path: cab's natural rounding gives the correct answer.
     // `c`'s sub-ULP contribution is dominated by cab's dropped-tail
     // smallest digit by ≥ 10^47, so it cannot flip any rounding decision
-    // outside the (5, false) tie. Pass cab to round_and_pack with
-    // sticky=false; the function re-extracts the digits and applies
-    // the rounding mode. INEXACT fires automatically because `D_a` > 0.
+    // outside the (5, false) tie and the divides-evenly case handled
+    // above. Pass cab to round_and_pack with sticky=false; the function
+    // re-extracts the digits and applies the rounding mode. INEXACT
+    // fires automatically because `D_a` > 0 (the dropped tail here is
+    // non-zero, so the result is genuinely inexact).
     round_and_pack_finite(cab, qab, q_pref, sab, false, rm, Status::OK)
 }
 
