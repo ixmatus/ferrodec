@@ -71,6 +71,34 @@ impl Decimal64 {
     /// On success returns `(value, status)`. `status.inexact()` is set
     /// iff the input had more significant digits than the format can
     /// represent at the chosen precision.
+    ///
+    /// # Threat model
+    ///
+    /// `parse_str`, and its [`FromStr`](core::str::FromStr) delegate,
+    /// is the only attacker controlled surface in this crate. Anything
+    /// downstream of `str::parse::<Decimal64>()` may hand it bytes from
+    /// any source: file content, user keystrokes, JSON or SMIL feeding
+    /// the calculator core. The caller owns deciding whether the source
+    /// is trusted; the parser itself assumes it is not.
+    ///
+    /// The three outcomes worth defending against are a panic on a
+    /// malformed or oversized literal (a denial of service on debug
+    /// builds), a silent miscompute where an overflowing counter wraps
+    /// the unbiased exponent and yields a numerically wrong value with
+    /// no `INVALID` flag, and unbounded work on a long input. All three
+    /// are closed: the digit and implicit exponent counters saturate
+    /// rather than wrapping, an exponent out of range returns
+    /// [`ParseDecimalError::ExponentOutOfRange`] instead of producing a
+    /// wrong `Decimal64`, and the scan is a single linear pass with no
+    /// quadratic blowup. The saturation caps are the private
+    /// `MAX_PARSED_DIGITS` and `MAX_EXPONENT_MAGNITUDE` constants.
+    ///
+    /// Every accumulator is fixed width: a `u64` coefficient, `u32`
+    /// digit counters, an `i32` exponent. Parsing allocates nothing and
+    /// reads only `core::str`, so the residual risk is integer overflow
+    /// inside those counters, addressed by the saturation above, not
+    /// memory exhaustion. The cost is bounded by input length, not by
+    /// input value.
     pub fn parse_str(s: &str, rm: RoundingMode) -> Result<(Self, Status), ParseDecimalError> {
         parse_str_inner(s.as_bytes(), rm)
     }
