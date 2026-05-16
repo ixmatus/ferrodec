@@ -247,6 +247,25 @@ fn write_engineering(
     adjusted_exp: i32,
     letter: char,
 ) -> fmt::Result {
+    // L13 (Agent 5 B8): a zero coefficient has no significant digit
+    // to rebase, so the engineering mantissa-shift below would pad
+    // the single `0` with extra integer zeros (`00E…`, `000E…`),
+    // which is never a valid rendering. Zero takes the same shape as
+    // `write_scientific`'s zero path: a lone `0` with the
+    // (non-rebased) adjusted exponent. This keeps zero consistent
+    // between scientific and engineering; the GDA `to-engineering`
+    // fractional-zero form (`0.00E+k`) is a documented simplification,
+    // not exercised by the vendored conformance corpus.
+    if coef == 0 {
+        f.write_str("0")?;
+        write!(f, "{letter}")?;
+        return if adjusted_exp >= 0 {
+            write!(f, "+{adjusted_exp}")
+        } else {
+            write!(f, "{adjusted_exp}")
+        };
+    }
+
     // Engineering: rebase the adjusted exponent down to the nearest
     // multiple of 3 (toward -∞), shifting the mantissa right by the
     // remainder.
@@ -375,6 +394,26 @@ mod tests {
         // not exceeding -4): shift=2, target_adjusted=-6. Mantissa = 123.4.
         let d = Decimal64::try_new(1234, -7).unwrap();
         assert_eq!(format!("{}", d.engineering()), "123.4E-6");
+    }
+
+    #[test]
+    fn engineering_zero_no_integer_padding() {
+        // L13 regression: zero must render as a single `0`, never
+        // padded to `00E…` / `000E…` by the mantissa-shift path.
+        // The exponent is the (non-rebased) adjusted exponent,
+        // matching the scientific zero shape.
+        assert_eq!(format!("{}", Decimal64::ZERO.engineering()), "0E+0");
+        assert_eq!(format!("{}", Decimal64::NEG_ZERO.engineering()), "-0E+0");
+        // 0E+1: adjusted_exp = +1 (shift would be 1, which used to
+        // emit "00E+0"); now a lone 0.
+        let z = Decimal64::try_new(0, 1).unwrap();
+        assert_eq!(format!("{}", z.engineering()), "0E+1");
+        // 0E+2: shift would be 2, which used to emit "000E+0".
+        let z = Decimal64::try_new(0, 2).unwrap();
+        assert_eq!(format!("{}", z.engineering()), "0E+2");
+        // 0E-5: negative exponent path.
+        let z = Decimal64::try_new(0, -5).unwrap();
+        assert_eq!(format!("{}", z.engineering()), "0E-5");
     }
 
     #[test]

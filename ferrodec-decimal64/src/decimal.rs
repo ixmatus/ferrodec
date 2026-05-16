@@ -166,7 +166,10 @@ impl core::fmt::Display for Decimal64BuildError {
             Self::CoefficientOutOfRange => {
                 f.write_str("coefficient magnitude exceeds 16 decimal digits")
             }
-            Self::ExponentOutOfRange => f.write_str("exponent outside [-398, 369]"),
+            Self::ExponentOutOfRange => f.write_str(
+                "unbiased exponent outside the Decimal64 quantum range [-398, 369] \
+                 (Etiny = -398, the largest adjusted exponent is +384)",
+            ),
         }
     }
 }
@@ -175,8 +178,35 @@ impl core::error::Error for Decimal64BuildError {}
 
 impl core::fmt::Debug for Decimal64 {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let class = bid::classify_bits(self.0);
-        write!(f, "Decimal64(0x{:016X} = {:?})", self.0, class)
+        // L16 (Agent 5 B11): render a *stable* classification rather
+        // than forwarding the internal `bid::Class` derived `Debug`.
+        // `Class` is a private implementation detail; deriving its
+        // `Debug` here would leak its variant and field names into a
+        // public, semver-relevant surface and couple downstream
+        // snapshot tests to crate internals. These labels are part
+        // of the documented `Debug` contract instead.
+        write!(f, "Decimal64(0x{:016X} = ", self.0)?;
+        match bid::classify_bits(self.0) {
+            bid::Class::SignalingNaN { sign, payload } => {
+                write!(f, "sNaN{{sign:{sign}, payload:{payload}}}")
+            }
+            bid::Class::QuietNaN { sign, payload } => {
+                write!(f, "qNaN{{sign:{sign}, payload:{payload}}}")
+            }
+            bid::Class::Infinity { sign } => write!(f, "Infinity{{sign:{sign}}}"),
+            bid::Class::Zero { sign, biased_exp } => {
+                write!(f, "Zero{{sign:{sign}, biased_exp:{biased_exp}}}")
+            }
+            bid::Class::Finite {
+                sign,
+                biased_exp,
+                coefficient,
+            } => write!(
+                f,
+                "Finite{{sign:{sign}, biased_exp:{biased_exp}, coefficient:{coefficient}}}"
+            ),
+        }?;
+        f.write_str(")")
     }
 }
 

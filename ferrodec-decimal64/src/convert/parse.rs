@@ -65,6 +65,14 @@ impl core::error::Error for ParseDecimalError {}
 const MAX_PARSED_DIGITS: u32 = 19;
 const MAX_EXPONENT_MAGNITUDE: u32 = 1_000_000;
 
+// L12 (Agent 5 B7): the `extra_int_digits as i32` /
+// `digits_after_point as i32` casts in `parse_str` are sound only
+// because both counters are capped at `MAX_EXPONENT_MAGNITUDE`
+// before the cast. Encode "the cap fits in `i32`" as a compile-time
+// invariant so the cast safety is type-checked, not just asserted in
+// prose.
+const _: () = assert!(MAX_EXPONENT_MAGNITUDE <= i32::MAX as u32);
+
 impl Decimal64 {
     /// Parse a `&str` into a `Decimal64`, rounding per `rm`.
     ///
