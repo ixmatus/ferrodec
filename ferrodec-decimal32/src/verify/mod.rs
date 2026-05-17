@@ -35,6 +35,7 @@ mod fma;
 // gated identically.
 #[cfg(feature = "hyperbolic")]
 mod hyper;
+mod integral;
 mod mul;
 // `pow` / `cbrt` live behind the `pow` feature (ops/pow.rs); the
 // harness references their Kani shims, so it is gated identically.
