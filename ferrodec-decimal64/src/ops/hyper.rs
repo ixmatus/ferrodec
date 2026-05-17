@@ -1,115 +1,168 @@
 //! IEEE 754-2019 §9.2 hyperbolic functions for [`Decimal64`].
 //!
-//! `sinh`, `cosh`, `tanh`, `asinh`, `acosh`, `atanh`. Routed through
-//! `f64` via `libm`. Same precision posture as the rest of the
-//! transcendental cluster: Decimal64 carries 16 digits, f64 ~15.95,
-//! so the f64 round-trip caps achievable precision at ~10⁻¹⁵
-//! relative. v1.0 ships this baseline; a future commit can replace
-//! it with a pure-decimal kernel at u128 working precision.
+//! `sinh`, `cosh`, `tanh`, `asinh`, `acosh`, `atanh` route their
+//! finite path through the shared faithful `ferrodec-transcend`
+//! Extended-precision kernel: 50-digit `Extended` working precision
+//! built on the already-faithful `exp` / `ln` primitives, rounded
+//! once at the format boundary, giving faithfully-rounded (≤ 1 ULP
+//! at 16 digits) results without the pre-fd-r0l lossy `f64` / `libm`
+//! detour. The kernel is the same verified implementation the
+//! `ferrodec` (Decimal128) parent uses, instantiated at
+//! `F = Decimal64` via the `DecimalFormat` seam.
 //!
-//! # f64-pipeline range limits
+//! The special-value short-circuits (`sinh_special_cases` etc.) stay
+//! in this module ahead of the kernel call: they are shared with the
+//! ADR-0016 Kani shims (which must never reach the Extended kernel)
+//! and keep Decimal64's special-value semantics byte-identical across
+//! the rewire.
 //!
-//! `sinh` and `cosh` grow as `±e^|x| / 2`, so they saturate `f64` at
-//! the same threshold as [`Decimal64::exp`]: `|x| ≳ 710` overflows
-//! `f64` and the implementation returns `±∞ + OVERFLOW + INEXACT`.
-//! Decimal64's exponent range in principle supports magnitudes up to
-//! `~e^885`, but the f64 pipeline gives up first. A future
-//! pure-decimal kernel would close the gap (see
-//! [`Decimal64::exp`]'s module doc for the same discussion).
+//! # Special cases (IEEE 754-2019 §9.2)
 //!
-//! `tanh`, `asinh`, `acosh`, `atanh` saturate well inside the f64
-//! range and are unaffected.
+//! * `sinh(±0) = ±0`, `sinh(±∞) = ±∞` (sign preserved).
+//! * `cosh(±0) = +1`, `cosh(±∞) = +∞` (even function).
+//! * `tanh(±0) = ±0`, `tanh(±∞) = ±1` (sign preserved).
+//! * `asinh(±0) = ±0`, `asinh(±∞) = ±∞`.
+//! * `acosh(1) = 0`. `acosh(x < 1) = NaN + INVALID`,
+//!   `acosh(+∞) = +∞`, `acosh(−∞) = NaN + INVALID`.
+//! * `atanh(±0) = ±0`. `atanh(±1) = ±∞ + DIV_BY_ZERO`.
+//!   `atanh(|x| > 1) = NaN + INVALID`, `atanh(±∞) = NaN + INVALID`.
+//!
+//! # Range
+//!
+//! The pre-fd-r0l `f64`-pipeline range cap (`sinh` / `cosh` overflow
+//! at `|x| ≳ 710` because `eˣ` saturated `f64` before the Decimal64
+//! exponent range was exhausted) is lifted: the kernel computes
+//! `eˣ` at Extended precision and saturates only at the format's own
+//! `exp_overflow_limit`, so `sinh` / `cosh` are faithful across the
+//! full Decimal64 magnitude range up to the true overflow boundary.
 
 use crate::bid::{classify_bits, Class};
 use crate::decimal::Decimal64;
 use ferrodec_ieee::{RoundingMode, Status};
 
-use super::f64_bridge::{f64_unary, f64_unary_via_value};
-
 impl Decimal64 {
     /// IEEE 754-2019 §9.2 `sinh(self)` rounded by `rm`.
+    ///
+    /// Finite inputs route through the shared faithful
+    /// `ferrodec-transcend` Extended-precision kernel (≤ 1 ULP across
+    /// the true Decimal64 domain), replacing the pre-fd-r0l lossy
+    /// `f64` / `libm::sinh` detour. The `sinh_special_cases`
+    /// short-circuit is kept ahead of the kernel call so Decimal64's
+    /// special-value semantics (and the ADR-0016 Kani shim, which
+    /// shares `sinh_special_cases`) are byte-identical to before;
+    /// only the finite result path changes.
     #[must_use]
     pub fn sinh(self, rm: RoundingMode) -> (Self, Status) {
         if let Some(special) = sinh_special_cases(classify_bits(self.0)) {
             return special;
         }
-        // Finite non-zero: route through f64.
-        f64_unary(self, libm::sinh, rm)
+        // Finite non-zero: faithful shared kernel.
+        ferrodec_transcend::hyperbolic::sinh_kernel::<Decimal64>(self, rm)
     }
 
     /// IEEE 754-2019 §9.2 `cosh(self)` rounded by `rm`.
+    ///
+    /// Finite inputs route through the shared faithful
+    /// `ferrodec-transcend` Extended-precision kernel (≤ 1 ULP across
+    /// the true Decimal64 domain), replacing the pre-fd-r0l lossy
+    /// `f64` / `libm::cosh` detour. The `cosh_special_cases`
+    /// short-circuit is kept ahead of the kernel call so Decimal64's
+    /// special-value semantics (and the ADR-0016 Kani shim, which
+    /// shares `cosh_special_cases`) are byte-identical to before;
+    /// only the finite result path changes.
     #[must_use]
     pub fn cosh(self, rm: RoundingMode) -> (Self, Status) {
         if let Some(special) = cosh_special_cases(classify_bits(self.0)) {
             return special;
         }
-        // Finite non-zero: route through f64.
-        f64_unary(self, libm::cosh, rm)
+        // Finite non-zero: faithful shared kernel.
+        ferrodec_transcend::hyperbolic::cosh_kernel::<Decimal64>(self, rm)
     }
 
     /// IEEE 754-2019 §9.2 `tanh(self)` rounded by `rm`.
+    ///
+    /// Finite inputs route through the shared faithful
+    /// `ferrodec-transcend` Extended-precision kernel (≤ 1 ULP across
+    /// the true Decimal64 domain), replacing the pre-fd-r0l lossy
+    /// `f64` / `libm::tanh` detour. The `tanh_special_cases`
+    /// short-circuit is kept ahead of the kernel call so Decimal64's
+    /// special-value semantics (and the ADR-0016 Kani shim, which
+    /// shares `tanh_special_cases`) are byte-identical to before;
+    /// only the finite result path changes.
     #[must_use]
     pub fn tanh(self, rm: RoundingMode) -> (Self, Status) {
         if let Some(special) = tanh_special_cases(classify_bits(self.0)) {
             return special;
         }
-        // Finite non-zero: route through f64.
-        f64_unary(self, libm::tanh, rm)
+        // Finite non-zero: faithful shared kernel.
+        ferrodec_transcend::hyperbolic::tanh_kernel::<Decimal64>(self, rm)
     }
 
     /// IEEE 754-2019 §9.2 `asinh(self)` rounded by `rm`.
+    ///
+    /// Finite inputs route through the shared faithful
+    /// `ferrodec-transcend` Extended-precision kernel (≤ 1 ULP across
+    /// the true Decimal64 domain), replacing the pre-fd-r0l lossy
+    /// `f64` / `libm::asinh` detour. The `asinh_special_cases`
+    /// short-circuit is kept ahead of the kernel call so Decimal64's
+    /// special-value semantics (and the ADR-0016 Kani shim, which
+    /// shares `asinh_special_cases`) are byte-identical to before;
+    /// only the finite result path changes.
     #[must_use]
     pub fn asinh(self, rm: RoundingMode) -> (Self, Status) {
         if let Some(special) = asinh_special_cases(classify_bits(self.0)) {
             return special;
         }
-        // Finite non-zero: route through f64.
-        f64_unary(self, libm::asinh, rm)
+        // Finite non-zero: faithful shared kernel.
+        ferrodec_transcend::hyperbolic::asinh_kernel::<Decimal64>(self, rm)
     }
 
     /// IEEE 754-2019 §9.2 `acosh(self)` rounded by `rm`. Domain:
     /// `[1, +∞)`. Inputs below 1 raise INVALID.
+    ///
+    /// Finite inputs route through the shared faithful
+    /// `ferrodec-transcend` Extended-precision kernel (≤ 1 ULP across
+    /// the true Decimal64 domain), replacing the pre-fd-r0l lossy
+    /// `f64` / `libm::acosh` detour. The `x < 1` domain INVALID is
+    /// now decided inside the kernel at Extended precision (not on a
+    /// rounded f64 value), so the `acosh_special_cases` short-circuit
+    /// is kept ahead of the kernel for the NaN / Inf / zero /
+    /// negative-finite classes only; the ADR-0016 Kani shim still
+    /// shares `acosh_special_cases`.
     #[must_use]
     pub fn acosh(self, rm: RoundingMode) -> (Self, Status) {
         if let Some(special) = acosh_special_cases(classify_bits(self.0)) {
             return special;
         }
-        // Positive finite non-zero: the `x < 1` domain check depends
-        // on the rounded f64 value, so it is part of the f64
-        // pipeline `_special_cases` returns `None` for.
-        let x = self.to_f64(RoundingMode::NearestEven).0;
-        if x < 1.0 {
-            return (Decimal64::NAN, Status::INVALID);
-        }
-        f64_unary_via_value(x, libm::acosh, rm)
+        // Positive finite non-zero: faithful shared kernel (the
+        // kernel decides the `x < 1` domain INVALID and
+        // `acosh(1) = 0` at Extended precision).
+        ferrodec_transcend::hyperbolic::acosh_kernel::<Decimal64>(self, rm)
     }
 
     /// IEEE 754-2019 §9.2 `atanh(self)` rounded by `rm`. Domain:
     /// `(-1, +1)`. `atanh(±1) = ±∞ + DIV_BY_ZERO`. Outside the open
     /// interval raises INVALID.
+    ///
+    /// Finite inputs route through the shared faithful
+    /// `ferrodec-transcend` Extended-precision kernel (≤ 1 ULP across
+    /// the true Decimal64 domain), replacing the pre-fd-r0l lossy
+    /// `f64` / `libm::atanh` detour. The `|x| == 1` pole
+    /// (`±∞ + DIV_BY_ZERO`) and the `|x| > 1` domain INVALID are now
+    /// decided inside the kernel at Extended precision (not on a
+    /// rounded f64 value), so the `atanh_special_cases` short-circuit
+    /// is kept ahead of the kernel for the NaN / Inf / zero classes
+    /// only; the ADR-0016 Kani shim still shares
+    /// `atanh_special_cases`.
     #[must_use]
     pub fn atanh(self, rm: RoundingMode) -> (Self, Status) {
         if let Some(special) = atanh_special_cases(classify_bits(self.0)) {
             return special;
         }
-        // Finite non-zero: the `|x| == 1` pole and `|x| > 1` domain
-        // checks depend on the rounded f64 value, so they are part of
-        // the f64 pipeline.
-        let x = self.to_f64(RoundingMode::NearestEven).0;
-        if x.abs() == 1.0 {
-            return (
-                if x > 0.0 {
-                    Decimal64::INFINITY
-                } else {
-                    Decimal64::NEG_INFINITY
-                },
-                Status::DIV_BY_ZERO,
-            );
-        }
-        if x.abs() > 1.0 {
-            return (Decimal64::NAN, Status::INVALID);
-        }
-        f64_unary_via_value(x, libm::atanh, rm)
+        // Finite non-zero: faithful shared kernel (the kernel decides
+        // the `|x| == 1` pole and the `|x| > 1` domain INVALID at
+        // Extended precision).
+        ferrodec_transcend::hyperbolic::atanh_kernel::<Decimal64>(self, rm)
     }
 
     /// Kani-only entry for the `sinh` special-case branch without the
