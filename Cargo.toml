@@ -92,7 +92,7 @@ trig = ["fmt", "ferrodec-transcend/trig"]
 # cbrt kernel modules (gated there under the same name) are compiled
 # in when the core shim delegates to them.
 exp-log = ["fmt", "ferrodec-transcend/exp-log"]
-hyperbolic = ["exp-log"]
+hyperbolic = ["exp-log", "ferrodec-transcend/hyperbolic"]
 pow = ["exp-log"]
 # Convenience meta-feature: enable every transcendental at once. The
 # pre-1.2 `transcendentals = ["fmt"]` shape carried the same effect,
