@@ -392,6 +392,34 @@ pub mod oracle {
         arg(x_str, cc).cos(P, AfRm::None, cc)
     }
 
+    /// Sine of the exact value `x_str` computed at a caller-chosen
+    /// working precision `p_bits` instead of the fixed [`P`].
+    ///
+    /// Large-magnitude `sin` / `cos` need the 2/π argument reduction
+    /// carried at a precision that absorbs the input's magnitude
+    /// before the residual is extracted; the fixed 256-bit [`sin`]
+    /// builder loses the residual once `|x|` exceeds `~10^70`. The
+    /// `property_sincos_large` suites pass `p_bits` scaled to the
+    /// input magnitude (the same `≈ 3.4` bits per decimal digit rule
+    /// the direct-tier Decimal128 suite uses). The widened result is
+    /// still in `[-1, 1]`, so the harness's 256-bit comparison
+    /// (`P_CMP`) brackets it exactly. Keeping this in the shared
+    /// builder set is what lets the astro-float-free decimal32 widen
+    /// tier reach a magnitude-widened oracle without naming
+    /// astro-float.
+    pub fn sin_at(x_str: &str, p_bits: usize, cc: &mut Consts) -> BigFloat {
+        let x = BigFloat::parse(x_str, Radix::Dec, p_bits, AfRm::None, cc);
+        x.sin(p_bits, AfRm::None, cc)
+    }
+
+    /// Cosine of the exact value `x_str` at a caller-chosen working
+    /// precision `p_bits`. The `cos` analogue of [`sin_at`]; see that
+    /// builder for why a magnitude-scaled precision is required.
+    pub fn cos_at(x_str: &str, p_bits: usize, cc: &mut Consts) -> BigFloat {
+        let x = BigFloat::parse(x_str, Radix::Dec, p_bits, AfRm::None, cc);
+        x.cos(p_bits, AfRm::None, cc)
+    }
+
     /// Tangent, in radians, of the exact value `x_str`.
     pub fn tan(x_str: &str, cc: &mut Consts) -> BigFloat {
         arg(x_str, cc).tan(P, AfRm::None, cc)
