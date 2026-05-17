@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.4] - 2026-05-17
+
+### Added
+
+- `IeeeDecodedClass` — the decoded BID bit-pattern form (sign,
+  biased exponent, coefficient, or NaN payload) that a sibling's
+  `classify_bits` produces and that the shared arithmetic and
+  transcendental kernels consume. Distinct from `IeeeClass` (the
+  §5.7.2 ten-class observation): this enum carries the reconstructed
+  numeric components, not a classification label. The shape is
+  precision-agnostic (`u128` coefficient / payload, `u32` biased
+  exponent), so all three siblings and the forthcoming shared
+  transcendental crate see one definition rather than a per-crate
+  copy. Purely additive: `ferrodec` now aliases its private
+  `bid::Class` to this type via a `pub(crate) use`, so existing
+  call sites and behaviour are unchanged.
+
+Introduced to underpin the `ferrodec-transcend` extraction
+(faithful Extended-kernel transcendentals shared across the decimal
+siblings).
+
 ## [0.1.3] - 2026-05-11
 
 ### Added

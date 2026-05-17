@@ -79,24 +79,17 @@ pub(crate) const COEFFICIENT_FIELD_LIMIT: u128 = 1u128 << 113;
 /// Result of decoding the bit pattern of a [`Decimal128`].
 ///
 /// The decode never fails: every 128-bit input maps to exactly one variant.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum Class {
-    /// Finite, non-zero value with `coefficient ∈ [1, 10^34 − 1]`.
-    Finite {
-        sign: bool,
-        biased_exp: u32,
-        coefficient: u128,
-    },
-    /// Numerical zero. `biased_exp` is preserved so `total_cmp` can
-    /// distinguish cohorts (`+0E+0`, `+0E+1`, …).
-    Zero { sign: bool, biased_exp: u32 },
-    /// ±Infinity.
-    Infinity { sign: bool },
-    /// Quiet NaN with the given trailing-significand payload.
-    QuietNaN { sign: bool, payload: u128 },
-    /// Signaling NaN with the given trailing-significand payload.
-    SignalingNaN { sign: bool, payload: u128 },
-}
+///
+/// Re-exported from `ferrodec_ieee::IeeeDecodedClass`, the shared-crate
+/// single source of truth introduced in 0.1.4 so the forthcoming
+/// `ferrodec-transcend` kernel and all three siblings share one
+/// definition. Aliased here so existing `crate::bid::Class` call
+/// sites (classify.rs, cmp.rs, decimal.rs, dpd.rs, the `ops/*` and
+/// `convert/*` arithmetic, math/*) keep their import and `match`
+/// arms unchanged — the variant shape is identical, so this is a
+/// behaviour-neutral substitution (same precedent as
+/// `decimal_digit_count` below).
+pub(crate) use ferrodec_ieee::IeeeDecodedClass as Class;
 
 // Decoding -------------------------------------------------------------------
 

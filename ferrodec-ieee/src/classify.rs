@@ -50,3 +50,45 @@ pub enum IeeeClass {
     /// `+∞`.
     PositiveInfinity,
 }
+
+/// Decoded form of a BID-encoded decimal datum's bit pattern.
+///
+/// This is the *decode* result a sibling's `classify_bits` produces
+/// from a raw interchange pattern: the canonical sign / biased
+/// exponent / coefficient (or NaN payload) recovered from the bits,
+/// after the IEEE 754-2019 §3.5.2 non-canonical-coefficient
+/// canonicalisation. It is distinct from [`IeeeClass`], which is the
+/// §5.7.2 ten-class *observation* of a value; this enum carries the
+/// reconstructed numeric components the arithmetic and transcendental
+/// kernels actually consume.
+///
+/// The shape is precision-agnostic: a `u128` coefficient / payload
+/// covers Decimal32, Decimal64 and Decimal128, and `biased_exp: u32`
+/// covers every sibling's exponent envelope. Only the bit-layout
+/// `classify_bits` that produces this enum is precision-specific.
+///
+/// The decode never fails: every input bit pattern maps to exactly
+/// one variant.
+///
+/// Provenance: lifted verbatim (variant shape and field semantics)
+/// from `ferrodec`'s in-crate `bid::Class`, which now aliases this
+/// type so the shared kernel and all three siblings see one
+/// definition.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum IeeeDecodedClass {
+    /// Finite, non-zero value with `coefficient ∈ [1, 10^p − 1]`.
+    Finite {
+        sign: bool,
+        biased_exp: u32,
+        coefficient: u128,
+    },
+    /// Numerical zero. `biased_exp` is preserved so `total_cmp` can
+    /// distinguish cohorts (`+0E+0`, `+0E+1`, …).
+    Zero { sign: bool, biased_exp: u32 },
+    /// ±Infinity.
+    Infinity { sign: bool },
+    /// Quiet NaN with the given trailing-significand payload.
+    QuietNaN { sign: bool, payload: u128 },
+    /// Signaling NaN with the given trailing-significand payload.
+    SignalingNaN { sign: bool, payload: u128 },
+}

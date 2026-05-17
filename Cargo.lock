@@ -270,7 +270,7 @@ dependencies = [
 
 [[package]]
 name = "ferrodec-ieee"
-version = "0.1.3"
+version = "0.1.4"
 
 [[package]]
 name = "ferrodec-multiword"
