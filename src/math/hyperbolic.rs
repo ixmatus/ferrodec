@@ -46,9 +46,9 @@ impl Decimal128 {
             Class::Zero { .. } => return (self, Status::OK),
             Class::Finite { .. } => {}
         }
-        let x_ext = Extended::from_decimal128(self);
+        let x_ext = Extended::from_format(self);
         let result_ext = sinh_ext(x_ext);
-        let (result, status) = result_ext.to_decimal128(0, rm);
+        let (result, status) = result_ext.to_format::<Decimal128>(0, rm);
         (result, status | Status::INEXACT)
     }
 
@@ -62,9 +62,9 @@ impl Decimal128 {
             Class::Zero { .. } => return (Decimal128::ONE, Status::OK),
             Class::Finite { .. } => {}
         }
-        let x_ext = Extended::from_decimal128(self).abs();
+        let x_ext = Extended::from_format(self).abs();
         let result_ext = cosh_ext(x_ext);
-        let (result, status) = result_ext.to_decimal128(0, rm);
+        let (result, status) = result_ext.to_format::<Decimal128>(0, rm);
         (result, status | Status::INEXACT)
     }
 
@@ -115,12 +115,12 @@ impl Decimal128 {
                 Status::INEXACT,
             );
         }
-        let x_ext = Extended::from_decimal128(self);
+        let x_ext = Extended::from_format(self);
         let s = sinh_ext(x_ext);
         let c = cosh_ext(x_ext.abs());
         // tanh inherits the sign of x via sinh; cosh is symmetric.
-        let result_ext = s.div(c);
-        let (result, status) = result_ext.to_decimal128(0, rm);
+        let result_ext = s.div::<Decimal128>(c);
+        let (result, status) = result_ext.to_format::<Decimal128>(0, rm);
         (result, status | Status::INEXACT)
     }
 
@@ -137,16 +137,16 @@ impl Decimal128 {
         // asinh(x) = sign(x) · ln(|x| + sqrt(x² + 1))
         // Working on |x| keeps the inner sum strictly positive.
         let neg = self.is_sign_negative();
-        let abs_x_ext = Extended::from_decimal128(self).abs();
+        let abs_x_ext = Extended::from_format(self).abs();
         let x_sq_plus_one = abs_x_ext.square().add(Extended::ONE);
-        let inner = abs_x_ext.add(x_sq_plus_one.sqrt());
+        let inner = abs_x_ext.add(x_sq_plus_one.sqrt::<Decimal128>());
         // Pass `inner` to `ln_from_extended` directly — keeping the
         // argument at 50-digit working precision avoids a 34-digit
         // round trip that would propagate ≤ 1 ULP through `ln` to the
         // result.
         let result_ext = ln_from_extended(inner);
         let signed_ext = if neg { result_ext.neg() } else { result_ext };
-        let (result, status) = signed_ext.to_decimal128(0, rm);
+        let (result, status) = signed_ext.to_format::<Decimal128>(0, rm);
         (result, status | Status::INEXACT)
     }
 
@@ -198,7 +198,7 @@ impl Decimal128 {
         // threshold further would shift the work back to the direct
         // path without breaking anything; raising it would force
         // log1p past its smooth convergence window.
-        let x_ext = Extended::from_decimal128(self);
+        let x_ext = Extended::from_format(self);
         let y = x_ext.sub(Extended::ONE);
         const LOG1P_THRESHOLD: Extended = Extended {
             coef: U256::from_u128(1),
@@ -207,14 +207,14 @@ impl Decimal128 {
         };
         let result_ext = if y.cmp(LOG1P_THRESHOLD) == core::cmp::Ordering::Less {
             let x_plus_one = x_ext.add(Extended::ONE);
-            let inner = y.add(y.mul(x_plus_one).sqrt());
+            let inner = y.add(y.mul(x_plus_one).sqrt::<Decimal128>());
             log1p_extended(inner)
         } else {
             let x_sq_minus_one = x_ext.square().sub(Extended::ONE);
-            let inner = x_ext.add(x_sq_minus_one.sqrt());
+            let inner = x_ext.add(x_sq_minus_one.sqrt::<Decimal128>());
             ln_from_extended(inner)
         };
-        let (result, status) = result_ext.to_decimal128(0, rm);
+        let (result, status) = result_ext.to_format::<Decimal128>(0, rm);
         (result, status | Status::INEXACT)
     }
 
@@ -248,13 +248,13 @@ impl Decimal128 {
         }
         // atanh(x) = ½·ln((1 + x) / (1 − x)) — ratio stays at extended
         // precision through the ln call.
-        let x_ext = Extended::from_decimal128(self);
+        let x_ext = Extended::from_format(self);
         let one_plus = Extended::ONE.add(x_ext);
         let one_minus = Extended::ONE.sub(x_ext);
-        let ratio = one_plus.div(one_minus);
+        let ratio = one_plus.div::<Decimal128>(one_minus);
         let ln_ratio_ext = ln_from_extended(ratio);
         let result_ext = ln_ratio_ext.div_u32(2);
-        let (result, status) = result_ext.to_decimal128(0, rm);
+        let (result, status) = result_ext.to_format::<Decimal128>(0, rm);
         (result, status | Status::INEXACT)
     }
 }

@@ -27,7 +27,7 @@
 //!    `sin` is odd, so `sin(x) = -sin(|x|)` when `x < 0`. `cos` is
 //!    even, so `cos(x) = cos(|x|)` regardless of sign.
 //! 4. Round once to `Decimal128` at the end via
-//!    [`Extended::to_decimal128`]. Result is faithfully rounded
+//!    [`Extended::to_format`]. Result is faithfully rounded
 //!    (≤ 1 ULP) against `astro-float`.
 
 use crate::bid::{classify_bits, Class};
@@ -109,8 +109,8 @@ impl Decimal128 {
                 status_red | Status::INEXACT,
             );
         }
-        let tan_ext = sin_ext.div(cos_ext);
-        let (tan_d, st) = tan_ext.to_decimal128(0, rm);
+        let tan_ext = sin_ext.div::<Decimal128>(cos_ext);
+        let (tan_d, st) = tan_ext.to_format::<Decimal128>(0, rm);
         (tan_d, st | status_red | Status::INEXACT)
     }
 }
@@ -119,8 +119,8 @@ impl Decimal128 {
 /// reduction. Returns them as `((sin, sin_status), (cos, cos_status))`.
 fn sincos_kernel(x: Decimal128, rm: RoundingMode) -> ((Decimal128, Status), (Decimal128, Status)) {
     let (sin_x_ext, cos_x_ext, status_red) = sincos_extended(x);
-    let (sin_d, sin_status) = sin_x_ext.to_decimal128(0, rm);
-    let (cos_d, cos_status) = cos_x_ext.to_decimal128(0, rm);
+    let (sin_d, sin_status) = sin_x_ext.to_format::<Decimal128>(0, rm);
+    let (cos_d, cos_status) = cos_x_ext.to_format::<Decimal128>(0, rm);
     let status = status_red | Status::INEXACT;
     ((sin_d, sin_status | status), (cos_d, cos_status | status))
 }

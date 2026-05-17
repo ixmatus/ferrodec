@@ -43,15 +43,15 @@ impl Decimal128 {
             Class::SignalingNaN { .. } => return (nan_from(self), Status::INVALID),
             Class::QuietNaN { .. } => return (self, Status::OK),
             Class::Infinity { sign } => {
-                let half_pi = pi_over_two_ext().to_decimal128(0, rm).0;
+                let half_pi = pi_over_two_ext().to_format::<Decimal128>(0, rm).0;
                 return (if sign { half_pi.neg() } else { half_pi }, Status::INEXACT);
             }
             Class::Zero { .. } => return (self, Status::OK),
             Class::Finite { .. } => {}
         }
-        let x_ext = Extended::from_decimal128(self);
+        let x_ext = Extended::from_format(self);
         let result_ext = atan_ext(x_ext);
-        let (result, status) = result_ext.to_decimal128(0, rm);
+        let (result, status) = result_ext.to_format::<Decimal128>(0, rm);
         (result, status | Status::INEXACT)
     }
 
@@ -72,7 +72,7 @@ impl Decimal128 {
             Some(core::cmp::Ordering::Greater) => return (Decimal128::NAN, Status::INVALID),
             Some(core::cmp::Ordering::Equal) => {
                 // asin(±1) = ±π/2.
-                let half_pi = pi_over_two_ext().to_decimal128(0, rm).0;
+                let half_pi = pi_over_two_ext().to_format::<Decimal128>(0, rm).0;
                 let signed = if self.is_sign_negative() {
                     half_pi.neg()
                 } else {
@@ -82,9 +82,9 @@ impl Decimal128 {
             }
             _ => {}
         }
-        let x_ext = Extended::from_decimal128(self);
+        let x_ext = Extended::from_format(self);
         let result_ext = asin_ext(x_ext);
-        let (result, status) = result_ext.to_decimal128(0, rm);
+        let (result, status) = result_ext.to_format::<Decimal128>(0, rm);
         (result, status | Status::INEXACT)
     }
 
@@ -97,7 +97,7 @@ impl Decimal128 {
             Class::QuietNaN { .. } => return (self, Status::OK),
             Class::Infinity { .. } => return (Decimal128::NAN, Status::INVALID),
             Class::Zero { .. } => {
-                let half_pi = pi_over_two_ext().to_decimal128(0, rm).0;
+                let half_pi = pi_over_two_ext().to_format::<Decimal128>(0, rm).0;
                 return (half_pi, Status::INEXACT);
             }
             Class::Finite { .. } => {}
@@ -109,18 +109,18 @@ impl Decimal128 {
             Some(core::cmp::Ordering::Equal) => {
                 // acos(1) = 0; acos(-1) = π.
                 if self.is_sign_negative() {
-                    let pi_d = pi_ext().to_decimal128(0, rm).0;
+                    let pi_d = pi_ext().to_format::<Decimal128>(0, rm).0;
                     return (pi_d, Status::INEXACT);
                 }
                 return (Decimal128::ZERO, Status::OK);
             }
             _ => {}
         }
-        let x_ext = Extended::from_decimal128(self);
+        let x_ext = Extended::from_format(self);
         // acos(x) = π/2 - asin(x).
         let asin_ext_v = asin_ext(x_ext);
         let result_ext = pi_over_two_ext().sub(asin_ext_v);
-        let (result, status) = result_ext.to_decimal128(0, rm);
+        let (result, status) = result_ext.to_format::<Decimal128>(0, rm);
         (result, status | Status::INEXACT)
     }
 
@@ -136,13 +136,13 @@ impl Decimal128 {
         if y.is_nan() || x.is_nan() {
             return (propagate_nan2(y, x), Status::OK);
         }
-        let pi_d = pi_ext().to_decimal128(0, rm).0;
-        let half_pi = pi_over_two_ext().to_decimal128(0, rm).0;
+        let pi_d = pi_ext().to_format::<Decimal128>(0, rm).0;
+        let half_pi = pi_over_two_ext().to_format::<Decimal128>(0, rm).0;
         let three_quarter_pi = pi_over_four_ext()
             .mul(Extended::from_i32(3))
-            .to_decimal128(0, rm)
+            .to_format::<Decimal128>(0, rm)
             .0;
-        let quarter_pi = pi_over_four_ext().to_decimal128(0, rm).0;
+        let quarter_pi = pi_over_four_ext().to_format::<Decimal128>(0, rm).0;
 
         let y_neg = y.is_sign_negative();
         let signed = |v: Decimal128| if y_neg { v.neg() } else { v };
@@ -209,9 +209,9 @@ impl Decimal128 {
         }
         // Both finite non-zero. Compute y/x at extended precision, run
         // atan, then quadrant-shift.
-        let y_ext = Extended::from_decimal128(y);
-        let x_ext = Extended::from_decimal128(x);
-        let q = y_ext.div(x_ext);
+        let y_ext = Extended::from_format(y);
+        let x_ext = Extended::from_format(x);
+        let q = y_ext.div::<Decimal128>(x_ext);
         let mut result_ext = atan_ext(q);
         if x.is_sign_negative() {
             // atan2 in quadrants 2 / 3: shift by ±π.
@@ -221,7 +221,7 @@ impl Decimal128 {
                 result_ext = result_ext.add(pi_ext());
             }
         }
-        let (result, status) = result_ext.to_decimal128(0, rm);
+        let (result, status) = result_ext.to_format::<Decimal128>(0, rm);
         (result, status | Status::INEXACT)
     }
 }
@@ -236,7 +236,7 @@ fn atan_ext(x: Extended) -> Extended {
     // Stage 1: |x| > 1 → atan(x) = π/2 - atan(1/x) (with sign).
     let mut inverted = false;
     if t.cmp(Extended::ONE) == core::cmp::Ordering::Greater {
-        t = t.recip();
+        t = t.recip::<Decimal128>();
         inverted = true;
     }
 
@@ -245,7 +245,7 @@ fn atan_ext(x: Extended) -> Extended {
     if t.cmp(tan_eighth) == core::cmp::Ordering::Greater {
         let num = t.sub(Extended::ONE);
         let den = t.add(Extended::ONE);
-        t = num.div(den); // signed: in [-tan(π/8), 0]
+        t = num.div::<Decimal128>(den); // signed: in [-tan(π/8), 0]
         shift = pi_over_four_ext();
     }
 
@@ -292,9 +292,9 @@ fn asin_ext(x: Extended) -> Extended {
         return x;
     }
     let one_minus_x_sq = Extended::ONE.sub(x.square());
-    let sqrt_term = one_minus_x_sq.sqrt();
+    let sqrt_term = one_minus_x_sq.sqrt::<Decimal128>();
     let denom = Extended::ONE.add(sqrt_term);
-    let inner = x.div(denom);
+    let inner = x.div::<Decimal128>(denom);
     let half_atan = atan_ext(inner);
     half_atan.add(half_atan)
 }

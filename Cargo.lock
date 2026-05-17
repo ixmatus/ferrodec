@@ -231,6 +231,7 @@ dependencies = [
  "ferrodec-ieee",
  "ferrodec-multiword",
  "ferrodec-test-support",
+ "ferrodec-transcend",
  "num-traits",
  "proptest",
  "serde",

@@ -59,7 +59,7 @@ impl Decimal128 {
             Class::Zero { .. } => return (Decimal128::ONE, Status::OK),
             Class::Finite { .. } => {}
         }
-        let arg_ext = Extended::from_decimal128(self).mul(ln2_ext());
+        let arg_ext = Extended::from_format(self).mul(ln2_ext());
         exp_from_extended(arg_ext, rm)
     }
 }
@@ -83,7 +83,7 @@ fn exp_kernel(x: Decimal128, rm: RoundingMode) -> (Decimal128, Status) {
         return early;
     }
 
-    let x_ext = Extended::from_decimal128(x);
+    let x_ext = Extended::from_format(x);
     exp_from_extended(x_ext, rm)
 }
 
@@ -116,7 +116,7 @@ pub(super) fn exp_from_extended(x_ext: Extended, rm: RoundingMode) -> (Decimal12
     }
 
     let result_ext = exp_extended(x_ext);
-    let (result, status) = result_ext.to_decimal128(0, rm);
+    let (result, status) = result_ext.to_format::<Decimal128>(0, rm);
     (result, status | Status::INEXACT)
 }
 

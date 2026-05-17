@@ -27,6 +27,7 @@
 
 mod consts;
 pub(crate) mod extended;
+mod format_impl;
 
 #[cfg(feature = "exp-log")]
 mod cbrt;

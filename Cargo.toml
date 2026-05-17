@@ -129,6 +129,7 @@ dpd = []
 [dependencies]
 ferrodec-ieee = { path = "ferrodec-ieee", version = "0.1.4" }
 ferrodec-multiword = { path = "ferrodec-multiword", version = "0.1.0" }
+ferrodec-transcend = { path = "ferrodec-transcend", version = "0.1.0" }
 serde = { version = "1", default-features = false, optional = true }
 num-traits = { version = "0.2", default-features = false, optional = true }
 

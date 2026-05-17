@@ -67,7 +67,7 @@ fn ln_kernel(x: Decimal128, rm: RoundingMode) -> (Decimal128, Status) {
         return (Decimal128::ZERO, Status::OK);
     }
     let result_ext = ln_extended(x);
-    let (result, status) = result_ext.to_decimal128(0, rm);
+    let (result, status) = result_ext.to_format::<Decimal128>(0, rm);
     (result, status | Status::INEXACT)
 }
 
@@ -84,7 +84,7 @@ fn log10_kernel(x: Decimal128, rm: RoundingMode) -> (Decimal128, Status) {
     // log10(x) = ln(x) · (1/ln(10)) at extended precision.
     let ln_ext = ln_extended(x);
     let result_ext = ln_ext.mul(inv_ln10_ext());
-    let (result, status) = result_ext.to_decimal128(0, rm);
+    let (result, status) = result_ext.to_format::<Decimal128>(0, rm);
     (result, status | Status::INEXACT)
 }
 
@@ -100,7 +100,7 @@ fn log2_kernel(x: Decimal128, rm: RoundingMode) -> (Decimal128, Status) {
     }
     let ln_ext = ln_extended(x);
     let result_ext = ln_ext.mul(inv_ln2_ext());
-    let (result, status) = result_ext.to_decimal128(0, rm);
+    let (result, status) = result_ext.to_format::<Decimal128>(0, rm);
     (result, status | Status::INEXACT)
 }
 
@@ -123,7 +123,7 @@ fn ln_special_cases(x: Decimal128) -> Option<(Decimal128, Status)> {
 /// Compute `ln(x)` at extended precision. Caller has already filtered
 /// NaN / Inf / zero / negative inputs and the `x == 1` edge case.
 pub(super) fn ln_extended(x: Decimal128) -> Extended {
-    ln_from_extended(Extended::from_decimal128(x))
+    ln_from_extended(Extended::from_format(x))
 }
 
 /// Compute `ln(x_ext)` at extended precision, given an extended-

@@ -18,9 +18,9 @@
 //! Everything between those boundaries is precision-agnostic
 //! fixed-width integer math.
 //!
-//! The `Extended` intermediate and the kernel bodies land in
-//! subsequent commits of the extraction; this commit establishes the
-//! crate and the [`DecimalFormat`] seam contract only.
+//! The [`Extended`](extended::Extended) intermediate is now present
+//! (genericized over [`DecimalFormat`]); the kernel bodies land in
+//! subsequent commits of the extraction.
 //!
 //! `no_std`, alloc-free (the only `alloc` use is in test modules).
 //!
@@ -28,6 +28,7 @@
 
 #![no_std]
 
+pub mod extended;
 mod format;
 
 pub use format::DecimalFormat;

@@ -226,7 +226,7 @@ fn pow_kernel(x: Decimal128, y: Decimal128, rm: RoundingMode) -> (Decimal128, St
     // (≤ 1 ULP) for typical inputs.
     let abs_x = x.abs();
     let ln_x_ext = ln_extended(abs_x);
-    let y_ext = Extended::from_decimal128(y);
+    let y_ext = Extended::from_format(y);
     let y_ln_x_ext = y_ext.mul(ln_x_ext);
     let (result, mut status) = exp_from_extended(y_ln_x_ext, rm);
 

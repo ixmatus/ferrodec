@@ -1051,7 +1051,7 @@ pub(super) fn reduce(x: Decimal128) -> (u32, Extended, Status) {
             ..
         } => (biased_exp, coefficient),
         // Caller filters these out, but be defensive.
-        _ => return (0, Extended::from_decimal128(x), Status::OK),
+        _ => return (0, Extended::from_format(x), Status::OK),
     };
     debug_assert!(c != 0);
 
@@ -1066,7 +1066,7 @@ pub(super) fn reduce(x: Decimal128) -> (u32, Extended, Status) {
     // (i.e., |x| < 0.1 — well below π/4).
     if decade < -1 {
         // r = |x| as Extended.
-        let mut r = Extended::from_decimal128(x);
+        let mut r = Extended::from_format(x);
         r.sign = false;
         return (0, r, Status::INEXACT);
     }
@@ -1080,7 +1080,7 @@ pub(super) fn reduce(x: Decimal128) -> (u32, Extended, Status) {
     let i_hi_signed = q + I_HI_OFFSET as i32;
     if i_hi_signed < 1 {
         // Window empty: |x · 2/π| ≪ 10^{-FRAC_DIGITS}, so k = 0.
-        let mut r = Extended::from_decimal128(x);
+        let mut r = Extended::from_format(x);
         r.sign = false;
         return (0, r, Status::INEXACT);
     }
@@ -1190,7 +1190,7 @@ mod tests {
     }
 
     fn r_to_decimal(r: Extended) -> Decimal128 {
-        let (d, _) = r.to_decimal128(0, RoundingMode::NearestEven);
+        let (d, _) = r.to_format::<Decimal128>(0, RoundingMode::NearestEven);
         d
     }
 
