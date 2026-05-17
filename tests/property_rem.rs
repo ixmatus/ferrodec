@@ -1,8 +1,22 @@
 //! Property tests for `Decimal128::rem` (IEEE remainder).
+//!
+//! IEEE 754 remainder is *always exact* (`r = x − n·y`, a difference
+//! of scaled integers), so the **exact oracle** asserts `rem(x, y)`
+//! bit-for-bit — cohort included — with an exact status, across the
+//! full finite domain (non-zero `y`). This widens the prior
+//! `i128`-only coverage (`|x|, |y| ≤ 10^6`), kept here as a fast
+//! secondary check, plus the magnitude/sign invariants and the
+//! `rem_trunc` pins. See ADR-0021.
 
 use proptest::prelude::*;
 
 use ferrodec::Decimal128;
+#[cfg(feature = "fmt")]
+use ferrodec::RoundingMode;
+#[cfg(feature = "fmt")]
+use ferrodec_test_support::conformance::status_conformance_eq;
+#[cfg(feature = "fmt")]
+use ferrodec_test_support::oracle::{self, parse_decimal, Expect, Format};
 
 const BIAS_U32: u32 = 6176;
 
@@ -136,6 +150,72 @@ proptest! {
             matches!(cmp, Some(core::cmp::Ordering::Less)),
             "|rem_trunc({}, {})| = {:?} not strictly less than |{}| = {:?}",
             x, y, abs_got, y, abs_y
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Exact correctly-rounded oracle (requires `fmt` for Display +
+// parse_str; the rest of this file's tests do not).
+
+#[cfg(feature = "fmt")]
+fn rem_result_matches(got: Decimal128, want: &Expect) -> bool {
+    match want {
+        Expect::Nan => got.is_nan(),
+        Expect::Infinity { neg } => got.is_infinite() && got.is_sign_negative() == *neg,
+        Expect::Finite { neg, coeff, exp } => {
+            got.is_finite() && {
+                let (n, c, e) = oracle::decode_decimal128(got.to_bits());
+                n == *neg && c == *coeff && e == *exp
+            }
+        }
+    }
+}
+
+#[cfg(feature = "fmt")]
+fn finite() -> impl Strategy<Value = Decimal128> {
+    (
+        any::<bool>(),
+        prop_oneof![
+            0u32..=64u32,
+            (BIAS_U32 - 100)..=(BIAS_U32 + 100),
+            (12287u32 - 64)..=12287u32,
+        ],
+        prop_oneof![
+            1u128..=1_000,
+            1u128..=10_000_000_000,
+            1u128..=10u128.pow(20),
+            1u128..=(10u128.pow(34) - 1),
+        ],
+    )
+        .prop_map(|(s, e, c)| decimal_finite(s, e, c))
+}
+
+#[cfg(feature = "fmt")]
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(2048))]
+
+    /// `rem(x, y)` is the exact IEEE 754 remainder, bit-for-bit and
+    /// status-for-status, across the full finite domain (non-zero
+    /// `y`). The result is always exact, so the rounding mode passed
+    /// to the oracle is immaterial — it only fixes the cohort, which
+    /// the GDA `min(exp x, exp y)` ideal exponent already determines.
+    #[test]
+    fn rem_is_exactly_correctly_rounded(x in finite(), y in finite()) {
+        prop_assume!(!y.is_zero());
+        let (got, gs) = x.rem(y);
+        let dx = parse_decimal(&format!("{x:e}")).expect("finite operand");
+        let dy = parse_decimal(&format!("{y:e}")).expect("finite operand");
+        let r = oracle::rem(&dx, &dy, Format::DECIMAL128, RoundingMode::NearestEven);
+        prop_assert!(
+            rem_result_matches(got, &r.value),
+            "value rem({x:e}, {y:e}): got {got:e}, oracle {}",
+            r.decimal_string()
+        );
+        prop_assert!(
+            status_conformance_eq(gs, r.status),
+            "status rem({x:e}, {y:e}): got {gs:?}, oracle {:?}",
+            r.status
         );
     }
 }

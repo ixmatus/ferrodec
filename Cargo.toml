@@ -134,6 +134,7 @@ num-traits = { version = "0.2", default-features = false, optional = true }
 [dev-dependencies]
 proptest = "1"
 astro-float = "0.9"
+ferrodec-test-support = { path = "ferrodec-test-support" }
 criterion = { version = "0.5", default-features = false, features = ["cargo_bench_support"] }
 serde_json = "1"
 serde_test = "1"

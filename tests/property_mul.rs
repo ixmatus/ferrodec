@@ -6,26 +6,23 @@
 //!    sign rule, `(−a) × b == −(a × b)`).
 //! 2. `i128` integer oracle: for `|a|, |b| ≤ 2^31`, the product of two
 //!    `i64` operands fits in `i128`.
-//! 3. **astro-float oracle**: 1000-bit `BigFloat` cross-check across
-//!    all five IEEE rounding directions, with a `within_ulps(1)`
-//!    tolerance. Operands sample from a tight central exponent band
-//!    so the product stays well clear of overflow / underflow. The
-//!    slack is structural: decimal exponents like `× 10^-20` have no
-//!    exact binary representation, so the intermediate carries a
-//!    sub-ULP error that can flip rounding decisions when the exact
-//!    product lands on a half-ULP boundary. The 1-ULP envelope absorbs
-//!    the noise while still surfacing any >1-ULP bug.
+//! 3. **Exact correctly-rounded oracle**: the true product of two
+//!    scaled integers is itself a scaled integer, so the oracle forms
+//!    it exactly and rounds it correctly per the active mode. The
+//!    assertion is bit-exact — cohort included — with an exact status
+//!    match, across the full finite domain and every IEEE rounding
+//!    direction. This replaces the former 1-ULP astro-float envelope;
+//!    IEEE 754-2019 §4.3 admits zero tolerance. See ADR-0021.
 
-#[cfg(feature = "fmt")]
-use astro_float::{BigFloat, Consts, Radix, RoundingMode as AfRm};
 use proptest::prelude::*;
+use proptest::test_runner::TestCaseError;
 
 use ferrodec::{Decimal128, RoundingMode};
 
 #[cfg(feature = "fmt")]
-mod common;
+use ferrodec_test_support::conformance::status_conformance_eq;
 #[cfg(feature = "fmt")]
-use common::{bigfloat_to_decimal_string, within_ulps};
+use ferrodec_test_support::oracle::{self, parse_decimal, Format};
 
 const MODES: &[RoundingMode] = &[
     RoundingMode::NearestEven,
@@ -207,66 +204,64 @@ proptest! {
 }
 
 // ---------------------------------------------------------------------------
-// astro-float oracle (requires the `fmt` feature for `Display` +
-// `parse_str`; the rest of this file's tests do not depend on `fmt`)
+// Exact correctly-rounded oracle (requires the `fmt` feature for
+// `Display` + `parse_str`; the rest of this file's tests do not depend
+// on `fmt`).
 
-/// Sample a finite `Decimal128` constrained to a narrow central
-/// exponent band so that any product stays well clear of overflow
-/// and underflow.
+/// Assert that `a.mul(b, rm)` is *the* correctly-rounded product,
+/// bit-for-bit, with the exact IEEE 754 status, over the full finite
+/// domain (overflow / underflow exponents included — the former
+/// astro-float test had to assume them away).
 #[cfg(feature = "fmt")]
-fn central_finite() -> impl Strategy<Value = Decimal128> {
-    (
-        any::<bool>(),
-        (BIAS_U32 - 20)..=(BIAS_U32 + 20),
-        prop_oneof![
-            1u128..=1_000,
-            1u128..=10_000_000_000,
-            1u128..=10u128.pow(20),
-            1u128..=(10u128.pow(34) - 1),
-        ],
-    )
-        .prop_map(|(s, e, c)| decimal_finite(s, e, c))
-}
-
-#[cfg(feature = "fmt")]
-fn oracle_mul(a: Decimal128, b: Decimal128) -> String {
-    // 1000 bits = ~300 decimal digits, well above Decimal128's 34. At
-    // lower precisions the binary error from non-exact decimal
-    // exponents (`× 10^-20` etc.) compounds through the multiplication
-    // enough to push the 50th-digit rendering one off, flipping
-    // round-to-even decisions on operands whose exact product lands
-    // on a half-ULP boundary.
-    let p = 1000;
-    let mut cc = Consts::new().expect("init consts");
-    let av = BigFloat::parse(&format!("{a}"), Radix::Dec, p, AfRm::None, &mut cc);
-    let bv = BigFloat::parse(&format!("{b}"), Radix::Dec, p, AfRm::None, &mut cc);
-    let r = av.mul(&bv, p, AfRm::None);
-    bigfloat_to_decimal_string(&r, &mut cc, 50)
+fn assert_exact_mul(a: Decimal128, b: Decimal128, rm: RoundingMode) -> Result<(), TestCaseError> {
+    let (got, gs) = a.mul(b, rm);
+    // Forced scientific (`{:e}`) is cohort-faithful: it emits the exact
+    // coefficient and quantum. Auto `Display` uses fixed notation in
+    // the comfortable range and re-quantizes (e.g. `1×10^1` -> "10"),
+    // which would feed the oracle the wrong ideal exponent.
+    let da = parse_decimal(&format!("{a:e}")).expect("finite operand");
+    let db = parse_decimal(&format!("{b:e}")).expect("finite operand");
+    let r = oracle::mul(&da, &db, Format::DECIMAL128, rm);
+    let (want, _) = Decimal128::parse_str(&r.decimal_string(), rm).expect("oracle string parses");
+    prop_assert_eq!(
+        got.to_bits(),
+        want.to_bits(),
+        "value a={} b={} rm={:?}: got {} ({:#034x}), want {} ({:#034x}) [oracle {}]",
+        a,
+        b,
+        rm,
+        got,
+        got.to_bits(),
+        want,
+        want.to_bits(),
+        r.decimal_string()
+    );
+    prop_assert!(
+        status_conformance_eq(gs, r.status),
+        "status a={} b={} rm={:?}: got {:?}, want {:?} [oracle {}]",
+        a,
+        b,
+        rm,
+        gs,
+        r.status,
+        r.decimal_string()
+    );
+    Ok(())
 }
 
 #[cfg(feature = "fmt")]
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(1024))]
+    #![proptest_config(ProptestConfig::with_cases(2048))]
 
-    /// `mul` on central-band operands matches a 1000-bit BigFloat
-    /// oracle re-rounded to Decimal128 under each IEEE rounding
-    /// direction, within 1 ULP.
+    /// `mul` is the exact correctly-rounded product, bit-for-bit,
+    /// across the full finite domain and every IEEE rounding
+    /// direction.
     #[test]
-    fn mul_matches_astro_float_oracle(
-        a in central_finite(),
-        b in central_finite(),
+    fn mul_is_exactly_correctly_rounded(
+        a in arbitrary_finite(),
+        b in arbitrary_finite(),
         rm_idx in 0u8..5,
     ) {
-        let rm = MODES[rm_idx as usize];
-        let (got, status) = a.mul(b, rm);
-        prop_assume!(!status.overflow() && !status.underflow());
-        let want_str = oracle_mul(a, b);
-        let (want, _) = Decimal128::parse_str(&want_str, rm)
-            .expect("oracle string re-parses");
-        prop_assert!(
-            within_ulps(got, want, 1),
-            "a={:?} b={:?} rm={:?}: got {:?}, want {:?} (oracle {})",
-            a, b, rm, got, want, want_str
-        );
+        assert_exact_mul(a, b, MODES[rm_idx as usize])?;
     }
 }

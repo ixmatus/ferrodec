@@ -46,3 +46,4 @@ The ADRs in number order:
 - [0018 — Decimal64 H-tier correctness train closing (1.4.0)](0018-decimal64-correctness-train-closing.md) *(supersedes 0017)*
 - [0019 — Decimal32 correctness train closing (1.4.0)](0019-decimal32-correctness-train-closing.md)
 - [0020 — Decimal128 FMA dynamic sub-ULP trigger (1.15.1)](0020-decimal128-fma-dynamic-subulp-trigger.md)
+- [0021 — Exact correctly-rounded oracle supersedes the ULP envelope](0021-exact-oracle-supersedes-ulp-envelope.md)

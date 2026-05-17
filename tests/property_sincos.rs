@@ -1,117 +1,113 @@
-//! Faithful-rounding cross-check for `Decimal128::sin` / `cos` vs astro-float.
-//!
-//! Companion to `tests/property_sincos_large.rs`, which only checked
-//! large-|x| inputs at 5-10 ULP. With the Taylor body running at
-//! `Extended` precision and the Payne-Hanek window widened to
-//! `FRAC_DIGITS = 76` (via the U512 multiplication path), we now hold
-//! to 1 ULP across the full domain — including inputs that land
-//! within 1 ULP of a multiple of π/2.
+//! Faithful-rounding contract for `Decimal128::sin` / `cos` vs
+//! astro-float, asserted for every IEEE 754 rounding direction
+//! (ADR-0021, IEEE 754-2019 §9.2). Companion to
+//! `tests/property_sincos_large.rs` (large `|x|`). See
+//! `tests/common/mod.rs`; this is not a `± ULP` tolerance envelope.
 
 #![cfg(feature = "trig")]
 
 use astro_float::{BigFloat, Consts, Radix, RoundingMode as AfRm};
-use ferrodec::RoundingMode;
 use proptest::prelude::*;
 
 mod common;
-use common::{bigfloat_to_decimal_string, parse, within_ulps};
+use common::{assert_faithful, parse, MODES};
 
-fn oracle_sin(x_str: &str) -> String {
-    oracle_apply(x_str, astro_float::BigFloat::sin)
-}
+/// Working precision for the astro-float oracle: 256 bits ≈ 77 decimal
+/// digits — enough to survive the worst-case argument-reduction
+/// cancellation near a multiple of π/2 and still bracket the result.
+const P: usize = 256;
 
-fn oracle_cos(x_str: &str) -> String {
-    oracle_apply(x_str, astro_float::BigFloat::cos)
-}
-
-fn oracle_apply<F>(x_str: &str, f: F) -> String
+fn oracle_apply<F>(x_str: &str, f: F, cc: &mut Consts) -> BigFloat
 where
     F: FnOnce(&BigFloat, usize, AfRm, &mut Consts) -> BigFloat,
 {
-    let p = 220;
-    let rm = AfRm::None;
-    let mut cc = Consts::new().expect("init consts");
-    let x = BigFloat::parse(x_str, Radix::Dec, p, rm, &mut cc);
-    let r = f(&x, p, rm, &mut cc);
-    bigfloat_to_decimal_string(&r, &mut cc, 50)
+    let x = BigFloat::parse(x_str, Radix::Dec, P, AfRm::None, cc);
+    f(&x, P, AfRm::None, cc)
 }
 
-fn check_sin_cos(x_str: &str, ulps: u32) {
+fn check_sin_cos(x_str: &str) {
     let x = parse(x_str);
-    let exact_str = format!("{x}");
-    let (got_sin, _) = x.sin(RoundingMode::NearestEven);
-    let (got_cos, _) = x.cos(RoundingMode::NearestEven);
-    let want_sin_str = oracle_sin(&exact_str);
-    let want_cos_str = oracle_cos(&exact_str);
-    let want_sin = parse(&want_sin_str);
-    let want_cos = parse(&want_cos_str);
-    assert!(
-        within_ulps(got_sin, want_sin, ulps),
-        "sin({exact_str}): got {got_sin:?}, want {want_sin:?} (oracle {want_sin_str})"
-    );
-    assert!(
-        within_ulps(got_cos, want_cos, ulps),
-        "cos({exact_str}): got {got_cos:?}, want {want_cos:?} (oracle {want_cos_str})"
-    );
+    let exact = format!("{x:e}");
+    let mut cc = Consts::new().expect("init consts");
+    let o_sin = oracle_apply(&exact, astro_float::BigFloat::sin, &mut cc);
+    let o_cos = oracle_apply(&exact, astro_float::BigFloat::cos, &mut cc);
+    for &rm in MODES {
+        let (got_sin, s_sin) = x.sin(rm);
+        let (got_cos, s_cos) = x.cos(rm);
+        assert_faithful(
+            got_sin,
+            s_sin,
+            &o_sin,
+            &mut cc,
+            rm,
+            &format!("sin({exact})"),
+        );
+        assert_faithful(
+            got_cos,
+            s_cos,
+            &o_cos,
+            &mut cc,
+            rm,
+            &format!("cos({exact})"),
+        );
+    }
 }
 
 // Spot tests --------------------------------------------------------------
 
 #[test]
 fn spot_zero() {
-    check_sin_cos("0", 1);
+    check_sin_cos("0");
 }
 #[test]
 fn spot_one() {
-    check_sin_cos("1", 1);
+    check_sin_cos("1");
 }
 #[test]
 fn spot_neg_one() {
-    check_sin_cos("-1", 1);
+    check_sin_cos("-1");
 }
 #[test]
 fn spot_pi_over_six() {
-    check_sin_cos("0.5235987755982988730771072305465838", 1);
+    check_sin_cos("0.5235987755982988730771072305465838");
 }
 #[test]
 fn spot_pi_over_four() {
-    check_sin_cos("0.7853981633974483096156608458198757", 1);
+    check_sin_cos("0.7853981633974483096156608458198757");
 }
 #[test]
 fn spot_pi_over_three() {
-    check_sin_cos("1.047197551196597746154214461093168", 1);
+    check_sin_cos("1.047197551196597746154214461093168");
 }
-// These three inputs land within ~1 ULP of an integer multiple of π/2.
-// The Payne-Hanek window now extracts 76 fractional digits — enough to
-// retain ≥ 43 sig digits after the worst-case 33-digit cancellation —
-// so they round faithfully (≤ 1 ULP).
+// These three inputs land within ~1 ULP of an integer multiple of π/2,
+// the worst case for argument reduction.
 #[test]
 fn spot_pi_over_two() {
-    check_sin_cos("1.570796326794896619231321691639751", 1);
+    check_sin_cos("1.570796326794896619231321691639751");
 }
 #[test]
 fn spot_pi() {
-    check_sin_cos("3.141592653589793238462643383279503", 1);
+    check_sin_cos("3.141592653589793238462643383279503");
 }
 #[test]
 fn spot_two_pi() {
-    check_sin_cos("6.283185307179586476925286766559006", 1);
+    check_sin_cos("6.283185307179586476925286766559006");
 }
 #[test]
 fn spot_tiny_pos() {
-    check_sin_cos("0.00001", 1);
+    check_sin_cos("0.00001");
 }
 #[test]
 fn spot_tiny_neg() {
-    check_sin_cos("-0.00001", 1);
+    check_sin_cos("-0.00001");
 }
 #[test]
 fn spot_random_finite() {
-    check_sin_cos("123.456789012345", 1);
+    check_sin_cos("123.456789012345");
 }
 #[test]
 fn spot_just_under_one() {
-    check_sin_cos("0.9999999999999999999999999999999999", 1);
+    check_sin_cos("0.9999999999999999999999999999999999");
 }
 
 // Property sweep ----------------------------------------------------------
@@ -119,9 +115,10 @@ fn spot_just_under_one() {
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(48))]
 
-    /// `sin` / `cos` at 1 ULP across moderate-magnitude inputs.
+    /// `sin` / `cos` faithfully rounded across moderate-magnitude
+    /// inputs, every rounding direction.
     #[test]
-    fn sincos_random_within_1_ulp(
+    fn sincos_random_faithful(
         coef_bits in 1u128..=u128::MAX,
         exp in -10i32..=15,
         sign in any::<bool>(),
@@ -130,20 +127,15 @@ proptest! {
         if coef == 0 { return Ok(()); }
         let value_str = format!("{}{}e{}", if sign { "-" } else { "" }, coef, exp);
         let x = parse(&value_str);
-        let exact_str = format!("{x}");
-        let (got_sin, _) = x.sin(RoundingMode::NearestEven);
-        let (got_cos, _) = x.cos(RoundingMode::NearestEven);
-        let want_sin_str = oracle_sin(&exact_str);
-        let want_cos_str = oracle_cos(&exact_str);
-        let want_sin = parse(&want_sin_str);
-        let want_cos = parse(&want_cos_str);
-        prop_assert!(
-            within_ulps(got_sin, want_sin, 1),
-            "sin({exact_str}): got {got_sin:?}, want {want_sin:?} (oracle {want_sin_str})"
-        );
-        prop_assert!(
-            within_ulps(got_cos, want_cos, 1),
-            "cos({exact_str}): got {got_cos:?}, want {want_cos:?} (oracle {want_cos_str})"
-        );
+        let exact = format!("{x:e}");
+        let mut cc = Consts::new().expect("init consts");
+        let o_sin = oracle_apply(&exact, astro_float::BigFloat::sin, &mut cc);
+        let o_cos = oracle_apply(&exact, astro_float::BigFloat::cos, &mut cc);
+        for &rm in MODES {
+            let (got_sin, s_sin) = x.sin(rm);
+            let (got_cos, s_cos) = x.cos(rm);
+            assert_faithful(got_sin, s_sin, &o_sin, &mut cc, rm, &format!("sin({exact})"));
+            assert_faithful(got_cos, s_cos, &o_cos, &mut cc, rm, &format!("cos({exact})"));
+        }
     }
 }

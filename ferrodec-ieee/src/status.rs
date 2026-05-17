@@ -159,9 +159,51 @@ pub enum RoundingMode {
     TowardNegative,
 }
 
+impl RoundingMode {
+    /// The rounding direction to apply to `|x|` when the result's sign
+    /// will be flipped afterwards, so that rounding `−|r|` is identical
+    /// to rounding the true signed value directly.
+    ///
+    /// Negation reflects the real line about zero, which swaps "toward
+    /// `+∞`" and "toward `−∞`"; the to-nearest modes and round-toward-
+    /// zero are symmetric under negation and are unchanged. Used by the
+    /// odd transcendental kernels (e.g. `cbrt`) that evaluate on `|x|`
+    /// and re-apply the sign: rounding the magnitude under `rm` and then
+    /// negating would round a negative result the wrong way for the two
+    /// directed modes (IEEE 754-2019 §4.3.3).
+    #[must_use]
+    pub const fn for_negation(self) -> Self {
+        match self {
+            Self::TowardPositive => Self::TowardNegative,
+            Self::TowardNegative => Self::TowardPositive,
+            other => other,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn for_negation_swaps_only_directed_infinities() {
+        use RoundingMode::*;
+        assert_eq!(TowardPositive.for_negation(), TowardNegative);
+        assert_eq!(TowardNegative.for_negation(), TowardPositive);
+        assert_eq!(NearestEven.for_negation(), NearestEven);
+        assert_eq!(NearestAway.for_negation(), NearestAway);
+        assert_eq!(TowardZero.for_negation(), TowardZero);
+        // Involution: applying it twice is the identity.
+        for rm in [
+            NearestEven,
+            NearestAway,
+            TowardZero,
+            TowardPositive,
+            TowardNegative,
+        ] {
+            assert_eq!(rm.for_negation().for_negation(), rm);
+        }
+    }
 
     #[test]
     fn ok_is_zero() {

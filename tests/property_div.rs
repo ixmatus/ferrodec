@@ -1,8 +1,22 @@
 //! Property tests for `Decimal128::div`.
+//!
+//! The headline check is the **exact correctly-rounded oracle**: the
+//! quotient is expanded to `precision + 2` digits with an exact
+//! integer remainder (the remainder being non-zero is the exact
+//! sticky bit), so `div(a, b)` is asserted bit-for-bit — cohort
+//! included — with an exact status, across the full finite domain
+//! (non-zero divisor) and every IEEE rounding direction. This
+//! replaces the previous `i128`-only oracle that covered just
+//! `|a|, |b| ≤ 10^6`. The algebraic identities and the
+//! `(a*b)/b = a` integer cross-check are kept. See ADR-0021.
 
 use proptest::prelude::*;
 
 use ferrodec::{Decimal128, RoundingMode};
+#[cfg(feature = "fmt")]
+use ferrodec_test_support::conformance::status_conformance_eq;
+#[cfg(feature = "fmt")]
+use ferrodec_test_support::oracle::{self, parse_decimal, Expect, Format};
 
 const MODES: &[RoundingMode] = &[
     RoundingMode::NearestEven,
@@ -108,5 +122,74 @@ proptest! {
         let (cmp, _) = quotient.partial_cmp(da);
         prop_assert_eq!(cmp, Some(core::cmp::Ordering::Equal),
             "(({}) * ({})) / ({}) should equal ({})", a, b, b, a);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Exact correctly-rounded oracle (requires `fmt` for Display +
+// parse_str; the rest of this file's tests do not).
+
+#[cfg(feature = "fmt")]
+fn div_result_matches(got: Decimal128, want: &Expect) -> bool {
+    match want {
+        Expect::Nan => got.is_nan(),
+        Expect::Infinity { neg } => got.is_infinite() && got.is_sign_negative() == *neg,
+        Expect::Finite { neg, coeff, exp } => {
+            got.is_finite() && {
+                let (n, c, e) = oracle::decode_decimal128(got.to_bits());
+                n == *neg && c == *coeff && e == *exp
+            }
+        }
+    }
+}
+
+#[cfg(feature = "fmt")]
+fn finite() -> impl Strategy<Value = Decimal128> {
+    (
+        any::<bool>(),
+        prop_oneof![
+            0u32..=64u32,
+            (BIAS_U32 - 100)..=(BIAS_U32 + 100),
+            (12287u32 - 64)..=12287u32,
+        ],
+        prop_oneof![
+            1u128..=1_000,
+            1u128..=10_000_000_000,
+            1u128..=10u128.pow(20),
+            1u128..=(10u128.pow(34) - 1),
+        ],
+    )
+        .prop_map(|(s, e, c)| decimal_finite(s, e, c))
+}
+
+#[cfg(feature = "fmt")]
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(2048))]
+
+    /// `div(a, b)` is the exact correctly-rounded quotient,
+    /// bit-for-bit, across the full finite domain (non-zero divisor)
+    /// and every IEEE rounding direction.
+    #[test]
+    fn div_is_exactly_correctly_rounded(
+        a in finite(),
+        b in finite(),
+        rm_idx in 0u8..5,
+    ) {
+        prop_assume!(!b.is_zero());
+        let rm = MODES[rm_idx as usize];
+        let (got, gs) = a.div(b, rm);
+        let da = parse_decimal(&format!("{a:e}")).expect("finite operand");
+        let db = parse_decimal(&format!("{b:e}")).expect("finite operand");
+        let r = oracle::div(&da, &db, Format::DECIMAL128, rm);
+        prop_assert!(
+            div_result_matches(got, &r.value),
+            "value div({a:e}, {b:e}) rm={rm:?}: got {got:e}, oracle {}",
+            r.decimal_string()
+        );
+        prop_assert!(
+            status_conformance_eq(gs, r.status),
+            "status div({a:e}, {b:e}) rm={rm:?}: got {gs:?}, oracle {:?}",
+            r.status
+        );
     }
 }

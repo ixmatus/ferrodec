@@ -64,6 +64,24 @@ const fn expected_per_file() -> &'static [(&'static str, usize)] {
         // / feedback_regression_guard_exact_match.
         ("ddAdd.decTest", 973),
         ("ddBase.decTest", 708),
+        // F4 (S10, fd-7n8): `compare` / `comparetotal` /
+        // `comparetotmag` / `samequantum` / `quantize` wired. No
+        // ferrodec correctness defect surfaced — the 22 `ddCompare`
+        // cases that first failed were NaN-result payload/sign
+        // expectations (`compare -NaN -NaN -> -NaN`); the conformance
+        // contract for a NaN result is "is a NaN", payload/sign not
+        // pinned, exactly as the canonical Decimal128 runner treats
+        // them (status, incl. the sNaN `INVALID`, is still compared
+        // exactly). `ddCompare` 647 of 649 (2 `#`-hex skips);
+        // `ddCompareTotal` / `ddCompareTotalMag` 611 of 613 (2 `#`-hex
+        // each); `ddSameQuantum` 333 of 333 (predicate, no skips);
+        // `ddQuantize` 606 of 683 (77 skips: extreme exponents past
+        // the parser cap and `#`-hex). `ddCompareSig` stays 0 —
+        // `compareSignal` is unimplemented (same posture as the
+        // Decimal128 runner). Exact-match per ADR-0010.
+        ("ddCompare.decTest", 647),
+        ("ddCompareTotal.decTest", 611),
+        ("ddCompareTotalMag.decTest", 611),
         // F2: `multiply` / `divide` wired. No correctness bug
         // surfaced (the H3 typed-BiasedExp work already made them
         // conformant): `ddMultiply.decTest` 444 of 446 (2 `#`-hex
@@ -80,6 +98,8 @@ const fn expected_per_file() -> &'static [(&'static str, usize)] {
         // unrepresentable operands / `#`-hex.
         ("ddFMA.decTest", 1318),
         ("ddMultiply.decTest", 444),
+        ("ddQuantize.decTest", 606),
+        ("ddSameQuantum.decTest", 333),
         ("ddSubtract.decTest", 514),
     ]
 }
@@ -89,8 +109,164 @@ fn run_case(case: &TestCase, ctx: &Context) -> Outcome {
         "tosci" | "apply" => run_tosci(case, ctx),
         "add" | "subtract" | "multiply" | "divide" => run_binary(case, ctx),
         "fma" => run_ternary(case, ctx),
+        "compare" => run_compare(case, ctx),
+        "comparetotal" => run_total(case, ctx, false),
+        // decTest spells the magnitude variant `comparetotmag`; accept
+        // the longer alias too for robustness.
+        "comparetotmag" | "comparetotalmag" => run_total(case, ctx, true),
+        "samequantum" => run_samequantum(case, ctx),
+        "quantize" => run_quantize(case, ctx),
         _ => Outcome::Skip,
     }
+}
+
+/// Render an `Ordering` as the decTest integer token `-1` / `0` / `1`.
+fn ord_token(ord: core::cmp::Ordering) -> Decimal64 {
+    match ord {
+        core::cmp::Ordering::Less => Decimal64::NEG_ONE,
+        core::cmp::Ordering::Equal => Decimal64::ZERO,
+        core::cmp::Ordering::Greater => Decimal64::ONE,
+    }
+}
+
+/// Whether a decTest expected token denotes a NaN (quiet or signaling,
+/// any sign, any payload — e.g. `NaN`, `-NaN`, `NaN9`, `sNaN123`).
+fn expected_is_nan(expected: &str) -> bool {
+    let body = expected.trim_start_matches(['-', '+']);
+    body.starts_with("NaN")
+        || body.starts_with("nan")
+        || body.starts_with("sNaN")
+        || body.starts_with("snan")
+        || body.starts_with("qNaN")
+}
+
+/// Compare the formatted result and conformance-masked status against
+/// the decTest expectation, with the same skip-not-fail policy as
+/// `run_binary`.
+///
+/// NaN-result policy mirrors the canonical `Decimal128` conformance
+/// runner: when the test expects a NaN, the contract is only that the
+/// actual is *a* NaN — the result NaN's sign and payload are not pinned
+/// (ferrodec's compare returns an ordering, not the propagated operand
+/// NaN, and `Display` does not render a payload). The status is still
+/// compared exactly, so the signaling-NaN `INVALID` distinction is
+/// preserved.
+fn check(result: Decimal64, status: Status, case: &TestCase) -> Outcome {
+    let formatted = format_value(result);
+    if expected_is_nan(&case.expected) {
+        if !result.is_nan() {
+            return Outcome::Fail(format!("expected NaN, got {formatted:?}"));
+        }
+    } else if formatted != case.expected {
+        return Outcome::Fail(format!("got {formatted:?} want {:?}", case.expected));
+    }
+    let expected_status = decode_conditions(&case.conditions);
+    if !status_conformance_eq(status, expected_status) {
+        return Outcome::Fail(format!(
+            "status mismatch: got {status:?} want {expected_status:?} (conditions {:?})",
+            case.conditions
+        ));
+    }
+    Outcome::Pass
+}
+
+/// `compare`: GDA quiet comparison. A NaN operand yields a NaN result
+/// (signaling NaN additionally raises `INVALID`); otherwise the result
+/// is `-1` / `0` / `1`. The status from `partial_cmp` is the IEEE 754
+/// status the spec mandates.
+fn run_compare(case: &TestCase, ctx: &Context) -> Outcome {
+    if case.operands.len() != 2 || case.expected.starts_with('#') {
+        return Outcome::Skip;
+    }
+    let rm = match map_rounding(&ctx.rounding) {
+        Some(r) => r,
+        None => return Outcome::Skip,
+    };
+    let (a, b) = match (
+        parse_operand(&case.operands[0], rm),
+        parse_operand(&case.operands[1], rm),
+    ) {
+        (Some(a), Some(b)) => (a, b),
+        _ => return Outcome::Skip,
+    };
+    let (ord, status) = a.partial_cmp(b);
+    let result = match ord {
+        None => Decimal64::NAN,
+        Some(o) => ord_token(o),
+    };
+    check(result, status, case)
+}
+
+/// `comparetotal` / `comparetotmag`: IEEE 754-2019 §5.10 total-order
+/// predicate (or its magnitude variant). Always defined: never NaN,
+/// never raises a flag.
+fn run_total(case: &TestCase, ctx: &Context, magnitude: bool) -> Outcome {
+    if case.operands.len() != 2 || case.expected.starts_with('#') {
+        return Outcome::Skip;
+    }
+    let rm = match map_rounding(&ctx.rounding) {
+        Some(r) => r,
+        None => return Outcome::Skip,
+    };
+    let (a, b) = match (
+        parse_operand(&case.operands[0], rm),
+        parse_operand(&case.operands[1], rm),
+    ) {
+        (Some(a), Some(b)) => (a, b),
+        _ => return Outcome::Skip,
+    };
+    let ord = if magnitude {
+        a.compare_total_magnitude(b)
+    } else {
+        a.total_cmp(b)
+    };
+    check(ord_token(ord), Status::OK, case)
+}
+
+/// `samequantum`: §5.3.2 predicate, rendered as the decTest boolean
+/// token `1` / `0`. Total, never raises a flag.
+fn run_samequantum(case: &TestCase, ctx: &Context) -> Outcome {
+    if case.operands.len() != 2 || case.expected.starts_with('#') {
+        return Outcome::Skip;
+    }
+    let rm = match map_rounding(&ctx.rounding) {
+        Some(r) => r,
+        None => return Outcome::Skip,
+    };
+    let (a, b) = match (
+        parse_operand(&case.operands[0], rm),
+        parse_operand(&case.operands[1], rm),
+    ) {
+        (Some(a), Some(b)) => (a, b),
+        _ => return Outcome::Skip,
+    };
+    let result = if a.same_quantum(b) {
+        Decimal64::ONE
+    } else {
+        Decimal64::ZERO
+    };
+    check(result, Status::OK, case)
+}
+
+/// `quantize`: §5.3.3, identical result/status comparison shape to
+/// `run_binary` (it returns `(Decimal64, Status)`).
+fn run_quantize(case: &TestCase, ctx: &Context) -> Outcome {
+    if case.operands.len() != 2 || case.expected.starts_with('#') {
+        return Outcome::Skip;
+    }
+    let rm = match map_rounding(&ctx.rounding) {
+        Some(r) => r,
+        None => return Outcome::Skip,
+    };
+    let (a, b) = match (
+        parse_operand(&case.operands[0], rm),
+        parse_operand(&case.operands[1], rm),
+    ) {
+        (Some(a), Some(b)) => (a, b),
+        _ => return Outcome::Skip,
+    };
+    let (result, status) = a.quantize(b, rm);
+    check(result, status, case)
 }
 
 /// `fma`: parse all three operands, run `a.fma(b, c)`, compare the

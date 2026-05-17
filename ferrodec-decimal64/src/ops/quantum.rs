@@ -240,6 +240,45 @@ impl Decimal64 {
         )
     }
 
+    /// IEEE 754-2019 §5.3.2 `sameQuantum(self, other)`: `true` when the
+    /// two operands have the same quantum (encoding) exponent.
+    ///
+    /// Special-operand rules per the General Decimal Arithmetic spec:
+    /// two NaNs (quiet or signaling, any payload) have the same
+    /// quantum; two infinities have the same quantum; a special paired
+    /// with a finite/zero does not. For finite and zero operands the
+    /// quantum is the biased exponent, so cohort matters: `1.0` and
+    /// `1.00` differ. Never raises a status flag (no signaling-NaN
+    /// trap). Mirrors `Decimal128::same_quantum` so values keep the
+    /// same predicate across precisions.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use ferrodec_decimal64::Decimal64;
+    ///
+    /// let a = Decimal64::try_new(123, -2).unwrap(); // 1.23, q=10^-2
+    /// let b = Decimal64::try_new(456, -2).unwrap(); // 4.56, q=10^-2
+    /// assert!(a.same_quantum(b));
+    ///
+    /// let c = Decimal64::try_new(12, -1).unwrap(); // 1.2, q=10^-1
+    /// assert!(!a.same_quantum(c));
+    /// ```
+    #[inline]
+    #[must_use]
+    pub fn same_quantum(self, other: Self) -> bool {
+        use Class::{Finite, Infinity, QuietNaN, SignalingNaN, Zero};
+        match (classify_bits(self.0), classify_bits(other.0)) {
+            (QuietNaN { .. } | SignalingNaN { .. }, QuietNaN { .. } | SignalingNaN { .. }) => true,
+            (Infinity { .. }, Infinity { .. }) => true,
+            (
+                Zero { biased_exp: a, .. } | Finite { biased_exp: a, .. },
+                Zero { biased_exp: b, .. } | Finite { biased_exp: b, .. },
+            ) => a == b,
+            _ => false,
+        }
+    }
+
     /// IEEE 754-2019 §5.3.3 `scaleB(self, n)`: returns `self * 10^n`.
     ///
     /// Equivalent to shifting the unbiased exponent by `n`. NaN
@@ -622,6 +661,23 @@ mod tests {
 
     fn from_int(n: i64, exp: i32) -> Decimal64 {
         Decimal64::try_new(n, exp).unwrap()
+    }
+
+    #[test]
+    fn same_quantum_cohort_and_specials() {
+        // Same biased exponent ⇒ same quantum, regardless of value.
+        assert!(from_int(123, -2).same_quantum(from_int(456, -2)));
+        assert!(from_int(0, -2).same_quantum(from_int(999, -2)));
+        // Different cohort of the same numeric value.
+        assert!(!from_int(10, -1).same_quantum(from_int(100, -2)));
+        // Two NaNs share a quantum; NaN vs finite does not.
+        assert!(Decimal64::NAN.same_quantum(Decimal64::SIGNALING_NAN));
+        assert!(!Decimal64::NAN.same_quantum(from_int(1, 0)));
+        // Two infinities share a quantum; ∞ vs finite does not.
+        assert!(Decimal64::INFINITY.same_quantum(Decimal64::NEG_INFINITY));
+        assert!(!Decimal64::INFINITY.same_quantum(from_int(1, 0)));
+        // Never raises a flag (predicate is total) — nothing to assert
+        // on status because the API returns a bare `bool` by design.
     }
 
     #[test]

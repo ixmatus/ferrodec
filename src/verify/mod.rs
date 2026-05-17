@@ -20,10 +20,13 @@ mod div;
 #[cfg(feature = "dpd")]
 mod dpd;
 mod encode;
+mod fma;
+mod integral;
 mod mul;
 mod nan_payload;
 #[cfg(feature = "pow")]
 mod pow;
 mod quantum;
 mod rem;
+mod round;
 mod sqrt;

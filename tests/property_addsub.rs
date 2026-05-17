@@ -8,27 +8,24 @@
 //! 2. **Integer oracle**: for operands whose values fit in `i64`, the
 //!    computed result must match the corresponding `i64` arithmetic
 //!    converted back into a `Decimal128`.
-//! 3. **astro-float oracle**: arbitrary-precision binary-float
-//!    cross-check at 1000-bit `BigFloat` precision, all five IEEE
-//!    rounding directions, with a `within_ulps(1)` tolerance. The
-//!    slack is structural: decimal exponents like `× 10^-20` have no
-//!    exact binary representation, so the `BigFloat` intermediate
-//!    carries a sub-ULP error that can flip rounding decisions on
-//!    operands whose exact result lands on a half-ULP boundary. The
-//!    1-ULP envelope absorbs that without losing the test's bug-
-//!    catching value — anything ferrodec gets >1 ULP wrong still
-//!    surfaces.
+//! 3. **Exact correctly-rounded oracle**: the true result is computed
+//!    with arbitrary-precision integers (the sum of two scaled
+//!    integers is itself an integer), so the assertion is bit-exact —
+//!    cohort included — and the status is matched exactly, across the
+//!    full finite domain and every IEEE rounding direction. This
+//!    replaces the former 1-ULP astro-float envelope: IEEE 754-2019
+//!    §4.3 admits zero tolerance, and a half-ULP-biased implementation
+//!    that the envelope would have passed now fails. See ADR-0021.
 
-#[cfg(feature = "fmt")]
-use astro_float::{BigFloat, Consts, Radix, RoundingMode as AfRm};
 use proptest::prelude::*;
+use proptest::test_runner::TestCaseError;
 
 use ferrodec::{Decimal128, RoundingMode};
 
 #[cfg(feature = "fmt")]
-mod common;
+use ferrodec_test_support::conformance::status_conformance_eq;
 #[cfg(feature = "fmt")]
-use common::{bigfloat_to_decimal_string, within_ulps};
+use ferrodec_test_support::oracle::{self, parse_decimal, Format};
 
 const MODES: &[RoundingMode] = &[
     RoundingMode::NearestEven,
@@ -282,92 +279,86 @@ fn decimal_from_i128(n: i128) -> Decimal128 {
 }
 
 // ---------------------------------------------------------------------------
-// astro-float oracle (requires the `fmt` feature for `Display` +
-// `parse_str`; the rest of this file's tests do not depend on `fmt`)
+// Exact correctly-rounded oracle (requires the `fmt` feature for
+// `Display` + `parse_str`; the rest of this file's tests do not depend
+// on `fmt`).
+//
+// The oracle forms the true sum / difference with arbitrary-precision
+// integers and rounds it correctly per the active mode. The check is
+// bit-exact including cohort, plus an exact status match, over the full
+// finite domain — far underflow and far overflow exponents included
+// (the former 1-ULP astro-float test had to assume them away).
 
-/// Sample a finite `Decimal128` from the central exponent band
-/// (`BIAS ± 100`). The astro-float oracle compares numeric values, so
-/// operands stay well clear of overflow / underflow noise; the
-/// boundary cases are covered by the wide-domain identities earlier
-/// in this file.
+/// Assert that `a.add(b, rm)` / `a.sub(b, rm)` is *the* correctly-
+/// rounded result, bit-for-bit, with the exact IEEE 754 status.
 #[cfg(feature = "fmt")]
-fn central_finite() -> impl Strategy<Value = Decimal128> {
-    (
-        any::<bool>(),
-        (BIAS_U32 - 100)..=(BIAS_U32 + 100),
-        prop_oneof![
-            1u128..=1_000,
-            1u128..=10_000_000_000,
-            1u128..=10u128.pow(20),
-            1u128..=(10u128.pow(34) - 1),
-        ],
-    )
-        .prop_map(|(s, e, c)| decimal_finite(s, e, c))
-}
-
-/// Compute `a op b` at 1000-bit `BigFloat` precision and render to a
-/// 50-digit decimal string. The caller re-parses through
-/// `Decimal128::parse_str` under round-half-to-even so the final
-/// rounding decision is ferrodec's own — astro-float just provides
-/// the high-precision intermediate.
-#[cfg(feature = "fmt")]
-fn oracle_op(
+fn assert_exact(
     a: Decimal128,
     b: Decimal128,
-    op: impl Fn(&BigFloat, &BigFloat, usize, AfRm) -> BigFloat,
-) -> String {
-    let p = 1000;
-    let mut cc = Consts::new().expect("init consts");
-    let av = BigFloat::parse(&format!("{a}"), Radix::Dec, p, AfRm::None, &mut cc);
-    let bv = BigFloat::parse(&format!("{b}"), Radix::Dec, p, AfRm::None, &mut cc);
-    let r = op(&av, &bv, p, AfRm::None);
-    bigfloat_to_decimal_string(&r, &mut cc, 50)
+    rm: RoundingMode,
+    op_add: bool,
+) -> Result<(), TestCaseError> {
+    let (got, gs) = if op_add { a.add(b, rm) } else { a.sub(b, rm) };
+    // Forced scientific (`{:e}`) is cohort-faithful: it emits the exact
+    // coefficient and quantum. Auto `Display` uses fixed notation in
+    // the comfortable range and re-quantizes (e.g. `1×10^1` -> "10"),
+    // which would feed the oracle the wrong ideal exponent.
+    let da = parse_decimal(&format!("{a:e}")).expect("finite operand");
+    let db = parse_decimal(&format!("{b:e}")).expect("finite operand");
+    let r = if op_add {
+        oracle::add(&da, &db, Format::DECIMAL128, rm)
+    } else {
+        oracle::sub(&da, &db, Format::DECIMAL128, rm)
+    };
+    let (want, _) = Decimal128::parse_str(&r.decimal_string(), rm).expect("oracle string parses");
+    prop_assert_eq!(
+        got.to_bits(),
+        want.to_bits(),
+        "value a={} b={} rm={:?}: got {} ({:#034x}), want {} ({:#034x}) [oracle {}]",
+        a,
+        b,
+        rm,
+        got,
+        got.to_bits(),
+        want,
+        want.to_bits(),
+        r.decimal_string()
+    );
+    prop_assert!(
+        status_conformance_eq(gs, r.status),
+        "status a={} b={} rm={:?}: got {:?}, want {:?} [oracle {}]",
+        a,
+        b,
+        rm,
+        gs,
+        r.status,
+        r.decimal_string()
+    );
+    Ok(())
 }
 
 #[cfg(feature = "fmt")]
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(1024))]
+    #![proptest_config(ProptestConfig::with_cases(2048))]
 
-    /// `add` on central-band operands matches a 1000-bit BigFloat
-    /// oracle re-rounded to Decimal128 under each IEEE rounding
-    /// direction, within 1 ULP.
+    /// `add` is the exact correctly-rounded sum, bit-for-bit, across
+    /// the full finite domain and every IEEE rounding direction.
     #[test]
-    fn add_matches_astro_float_oracle(
-        a in central_finite(),
-        b in central_finite(),
+    fn add_is_exactly_correctly_rounded(
+        a in arbitrary_finite(),
+        b in arbitrary_finite(),
         rm_idx in 0u8..5,
     ) {
-        let rm = MODES[rm_idx as usize];
-        let (got, status) = a.add(b, rm);
-        prop_assume!(!status.overflow() && !status.underflow());
-        let want_str = oracle_op(a, b, BigFloat::add);
-        let (want, _) = Decimal128::parse_str(&want_str, rm)
-            .expect("oracle string re-parses");
-        prop_assert!(
-            within_ulps(got, want, 1),
-            "a={:?} b={:?} rm={:?}: got {:?}, want {:?} (oracle {})",
-            a, b, rm, got, want, want_str
-        );
+        assert_exact(a, b, MODES[rm_idx as usize], true)?;
     }
 
-    /// `sub` on central-band operands matches the BigFloat oracle
-    /// within 1 ULP under each IEEE rounding direction.
+    /// `sub` is the exact correctly-rounded difference, bit-for-bit.
     #[test]
-    fn sub_matches_astro_float_oracle(
-        a in central_finite(),
-        b in central_finite(),
+    fn sub_is_exactly_correctly_rounded(
+        a in arbitrary_finite(),
+        b in arbitrary_finite(),
         rm_idx in 0u8..5,
     ) {
-        let rm = MODES[rm_idx as usize];
-        let (got, status) = a.sub(b, rm);
-        prop_assume!(!status.overflow() && !status.underflow());
-        let want_str = oracle_op(a, b, BigFloat::sub);
-        let (want, _) = Decimal128::parse_str(&want_str, rm)
-            .expect("oracle string re-parses");
-        prop_assert!(
-            within_ulps(got, want, 1),
-            "a={:?} b={:?} rm={:?}: got {:?}, want {:?} (oracle {})",
-            a, b, rm, got, want, want_str
-        );
+        assert_exact(a, b, MODES[rm_idx as usize], false)?;
     }
 }

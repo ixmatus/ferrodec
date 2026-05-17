@@ -74,6 +74,55 @@ impl Decimal128 {
     pub fn round_ties_even(self) -> Self {
         round_to_integral_kernel(self, RoundingMode::NearestEven, false).0
     }
+
+    /// Special-case shim for Kani (ADR-0016): resolves the
+    /// non-finite / zero classes of `roundToIntegral`, returning `None`
+    /// for finite operands so CBMC never has to encode the digit-drop
+    /// loop. The finite path's correctness is carried by the exact
+    /// oracle in `tests/property_integral.rs` and the S6/S7 rounding
+    /// proofs; the harnesses in `src/verify/integral.rs` only exercise
+    /// this shim. Routes the special classes through the real kernel
+    /// (its NaN / Infinity / Zero arms are loop-free), so the proof is
+    /// about production behaviour, not a reimplementation.
+    #[cfg(kani)]
+    #[must_use]
+    pub fn round_to_integral_special_only_for_kani(self) -> Option<(Self, Status)> {
+        round_to_integral_special_cases(self)
+    }
+}
+
+/// The non-finite and zero arms of `roundToIntegral`, factored out so
+/// they can be proven in isolation (ADR-0016): this function is
+/// **loop-free**, so the Kani shim
+/// [`Decimal128::round_to_integral_special_only_for_kani`] can route
+/// every special class through real production logic without CBMC ever
+/// touching the finite digit-drop loops. Returns `None` for a finite
+/// operand (the caller then runs the finite path). The result of these
+/// classes does not depend on the rounding direction.
+fn round_to_integral_special_cases(x: Decimal128) -> Option<(Decimal128, Status)> {
+    match classify_bits(x.to_bits()) {
+        Class::SignalingNaN { sign, payload } => Some((
+            // sNaN → quiet NaN + INVALID, per IEEE 754-2019 §6.2.
+            Decimal128::from_bits(pack_quiet_nan(sign, payload)),
+            Status::INVALID,
+        )),
+        Class::QuietNaN { .. } | Class::Infinity { .. } => Some((x, Status::OK)),
+        Class::Zero { sign, biased_exp } => {
+            // Preferred quantum: max(unbiased, 0). If unbiased ≥ 0,
+            // the input already has the right quantum; otherwise pull
+            // it up to 0.
+            let unbiased = biased_exp as i32 - BIAS as i32;
+            if unbiased >= 0 {
+                Some((x, Status::OK))
+            } else {
+                Some((
+                    Decimal128::from_bits(pack_finite(sign, BIAS, 0)),
+                    Status::OK,
+                ))
+            }
+        }
+        Class::Finite { .. } => None,
+    }
 }
 
 fn round_to_integral_kernel(
@@ -81,29 +130,10 @@ fn round_to_integral_kernel(
     rm: RoundingMode,
     signal_inexact: bool,
 ) -> (Decimal128, Status) {
+    if let Some(special) = round_to_integral_special_cases(x) {
+        return special;
+    }
     match classify_bits(x.to_bits()) {
-        Class::SignalingNaN { sign, payload } => {
-            // sNaN → quiet NaN + INVALID, per IEEE 754-2019 §6.2.
-            (
-                Decimal128::from_bits(pack_quiet_nan(sign, payload)),
-                Status::INVALID,
-            )
-        }
-        Class::QuietNaN { .. } | Class::Infinity { .. } => (x, Status::OK),
-        Class::Zero { sign, biased_exp } => {
-            // Preferred quantum: max(unbiased, 0). If unbiased ≥ 0,
-            // the input already has the right quantum; otherwise pull
-            // it up to 0.
-            let unbiased = biased_exp as i32 - BIAS as i32;
-            if unbiased >= 0 {
-                (x, Status::OK)
-            } else {
-                (
-                    Decimal128::from_bits(pack_finite(sign, BIAS, 0)),
-                    Status::OK,
-                )
-            }
-        }
         Class::Finite {
             sign,
             biased_exp,
@@ -187,6 +217,9 @@ fn round_to_integral_kernel(
                 status,
             )
         }
+        // sNaN / qNaN / Infinity / Zero are resolved above by
+        // `round_to_integral_special_cases`.
+        _ => unreachable!("non-finite handled by round_to_integral_special_cases"),
     }
 }
 
