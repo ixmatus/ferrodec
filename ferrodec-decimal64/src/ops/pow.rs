@@ -109,19 +109,22 @@ impl Decimal64 {
     /// IEEE 754-2019 §9.2 `cbrt(self)` rounded by `rm`. Defined for
     /// all real x including negatives. `cbrt(±0) = ±0`,
     /// `cbrt(±∞) = ±∞`, NaN propagates.
+    ///
+    /// The finite non-zero path routes through the shared faithful
+    /// `ferrodec-transcend` Extended-precision kernel (≤ 1 ULP at 16
+    /// digits), replacing the pre-fd-r0l lossy `f64` / `libm::cbrt`
+    /// detour. The `cbrt_special_cases` short-circuit is kept ahead of
+    /// the kernel call so Decimal64's special-value semantics (and the
+    /// ADR-0016 Kani shim, which shares `cbrt_special_cases`) are
+    /// byte-identical to before; only the finite non-zero result path
+    /// changes.
     #[must_use]
     pub fn cbrt(self, rm: RoundingMode) -> (Self, Status) {
         if let Some(special) = cbrt_special_cases(classify_bits(self.0)) {
             return special;
         }
-        // Finite non-zero: route through f64.
-        let x = self.to_f64(RoundingMode::NearestEven).0;
-        let r = libm::cbrt(x);
-        let (val, mut status) = Decimal64::from_f64(r, rm);
-        if !val.is_zero() {
-            status |= Status::INEXACT;
-        }
-        (val, status)
+        // Finite non-zero: faithful shared kernel.
+        ferrodec_transcend::cbrt::cbrt_kernel::<Decimal64>(self, rm)
     }
 
     /// Kani-only entry for the binary `pow` special-case branch

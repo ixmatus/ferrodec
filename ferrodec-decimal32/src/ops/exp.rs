@@ -1,7 +1,13 @@
 //! IEEE 754-2019 §9.2 exponential functions for [`Decimal32`].
 //!
 //! `exp` and `ln` route their finite-non-zero path through the shared
-//! faithful `ferrodec-transcend` Extended-precision kernel: 50-digit
+//! faithful `ferrodec-transcend` Extended-precision kernel. The base
+//! variants `exp2` / `log2` / `log10` are pure delegations onto the
+//! same faithful kernel (it resolves every special case internally),
+//! at exact parity with the `ferrodec` (Decimal128) parent and the
+//! `ferrodec-decimal64` sibling.
+//!
+//! The shared kernel runs at 50-digit
 //! `Extended` working precision, rounded once at the format boundary,
 //! giving faithfully-rounded (≤ 1 ULP at 7 digits) results without
 //! the pre-fd-r0l lossy `f64` / `libm` detour. The kernel is the same
@@ -78,6 +84,27 @@ impl Decimal32 {
         }
         // Positive finite non-zero: faithful shared kernel.
         ferrodec_transcend::ln::ln_kernel::<Decimal32>(self, rm)
+    }
+
+    /// Base-2 exponential `2^self`. Computed as
+    /// `exp(self · ln(2))` at extended precision.
+    #[must_use]
+    pub fn exp2(self, rm: RoundingMode) -> (Self, Status) {
+        ferrodec_transcend::exp::exp2_kernel::<Decimal32>(self, rm)
+    }
+
+    /// Base-10 logarithm `log10(self)`. Computed as
+    /// `ln_extended(self) · (1/ln(10))_extended`, then rounded once.
+    #[must_use]
+    pub fn log10(self, rm: RoundingMode) -> (Self, Status) {
+        ferrodec_transcend::ln::log10_kernel::<Decimal32>(self, rm)
+    }
+
+    /// Base-2 logarithm `log2(self)`. Computed as
+    /// `ln_extended(self) · (1/ln(2))_extended`, then rounded once.
+    #[must_use]
+    pub fn log2(self, rm: RoundingMode) -> (Self, Status) {
+        ferrodec_transcend::ln::log2_kernel::<Decimal32>(self, rm)
     }
 
     /// Kani-only entry returning the `exp` special-case branch without
