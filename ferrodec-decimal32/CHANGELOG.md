@@ -22,9 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   faithful, and previously saturated inputs now return their true
   finite value. Special-value semantics (NaN / infinity / zero /
   negative) and the ADR-0016 Kani shims are byte-identical to before;
-  only the finite result path changes. `pow` still routes through
-  `f64` via `libm` and keeps its documented sub-1-ULP envelope until
-  a later slice migrates it. New dependencies on the
+  only the finite result path changes. New dependencies on the
   `ferrodec-transcend` and `ferrodec-multiword` workspace crates
   (pulled by `exp-log`) change the published dependency graph;
   `ferrodec-decimal32` itself stays astro-float-free (the
@@ -72,10 +70,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ferrodec-multiword` crates were already in the graph via
   `exp-log`). `hyper.rs` was the last functional caller of the
   internal `f64`-routed `ops/f64_bridge.rs` adapter (trig left it in
-  the P3 phase; `pow` uses `libm::pow` directly), so the now-dead
-  `f64_bridge` shim was removed in the same change; `dep:libm` and
-  the libm feature graph are untouched (`pow` still routes through
-  `libm`).
+  the P3 phase; `pow` used `libm::pow` directly), so the now-dead
+  `f64_bridge` shim was removed in the same change.
+
+- `Decimal32::pow` is now faithfully rounded (≤ 1 ULP at 7 digits,
+  every IEEE 754-2019 rounding direction) via the shared
+  `ferrodec-transcend` Extended-precision kernel, replacing the lossy
+  `f64` / `libm::pow` detour. `pow(x, y)` evaluates
+  `exp(y · ln(|x|))` entirely at Extended precision (with the
+  bit-exact integer-exponent fast path), at exact parity with the
+  Decimal128 parent through the `DecimalFormat` seam.
+  Behaviour-improving, not a bug fix: the negative-base /
+  non-integer-exponent INVALID and the `pow(±0, y)` / `pow(±∞, y)` /
+  `pow(x, ±∞)` rules are now decided at Extended precision rather
+  than on a rounded f64 exponent. The `pow_special_cases`
+  short-circuit and the ADR-0016 Kani shim are byte-identical to
+  before. The faithful contract is proven by the new
+  `tests/property_pow.rs` and `tests/property_pow_specials.rs`
+  suites (astro-float-free, Design A: the oracle reaches them only
+  through the shared `ferrodec-test-support` builders). The `pow`
+  feature now forwards `ferrodec-transcend/pow` (the workspace
+  crates were already in the graph via `exp-log`).
+
+- `libm` is no longer a dependency of this crate. It had been
+  retained only for the pre-fd-r0l f64 transcendental detour; with
+  `pow` now on the shared kernel, no `src/` code makes any
+  functional `libm` call, so `dep:libm` was dropped from the
+  `exp-log` / `trig` feature arrays and the `libm` dependency line
+  removed. This shrinks the published dependency graph; the public
+  surface is unchanged.
 
 ### Added
 

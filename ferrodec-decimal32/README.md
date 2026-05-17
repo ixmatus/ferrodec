@@ -63,11 +63,11 @@ to ±0 with the encoded sign and biased exponent, per IEEE 754-2019
 | --- | --- |
 | `fmt` (default) | `parse_str`, `Display`, `LowerExp`, `UpperExp`, `Engineering`. Alloc-free; uses `core::fmt::Write`. |
 | `binary-float` | `Decimal32::to_f64`, `Decimal32::from_f64`. Auto-enabled by every transcendental feature. |
-| `exp-log` | `exp`, `ln`. Routes through `f64` via `libm` (pure Rust, no FFI). |
-| `trig` | `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`. |
-| `hyperbolic` | `sinh`, `cosh`, `tanh`, `asinh`, `acosh`, `atanh`. Auto-pulls `exp-log`. |
-| `pow` | `pow`, `cbrt`. Auto-pulls `exp-log`. |
-| `transcendentals` | Convenience meta-feature: enables all four clusters. |
+| `exp-log` | `exp`, `ln`, `exp2`, `log2`, `log10`. Faithfully rounded via the shared `ferrodec-transcend` Extended-precision kernel (pure Rust, no FFI). |
+| `trig` | `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`. Same shared faithful kernel, Payne-Hanek argument reduction. |
+| `hyperbolic` | `sinh`, `cosh`, `tanh`, `asinh`, `acosh`, `atanh`. Same shared faithful kernel. Auto-pulls `exp-log`. |
+| `pow` | `pow`, `cbrt`. Same shared faithful kernel. Auto-pulls `exp-log`. |
+| `transcendentals` | Convenience meta-feature: enables all four clusters. No transcendental routes through `f64`; `libm` is not a dependency. |
 | `ops` | `core::ops` overloads (`Add`, `Sub`, `Mul`, `Div`, `Rem`, `Neg`, plus `*Assign`). Defaults to `RoundingMode::NearestEven`; drops `Status`. |
 | `serde` | `Serialize` / `Deserialize` via the canonical decimal string. The `serde_bid` helper module serialises the raw 32-bit BID pattern in binary formats. |
 | `num-traits` | `Zero`, `One`, `Bounded`, `Signed`, `Num`, `From\|To Primitive`. Auto-pulls `ops` + `binary-float` + `fmt`. |
@@ -104,14 +104,22 @@ with `|=` / `Status::merge` across a sequence of operations.
 All §5 mandatory operations are correctly rounded per the active
 [`RoundingMode`].
 
-§9.2 transcendentals route through `f64` via `libm`. The double-
-rounding error is bounded under 1 ULP at Decimal32's 7-digit
-precision because `f64` carries ~15.95 digits — far above the 7
-needed. Faithful rounding rather than guaranteed correct rounding;
-correctly-rounded transcendentals are a follow-on goal.
+The whole §9.2 transcendental surface (`exp`, `ln`, `exp2`, `log2`,
+`log10`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`,
+`sinh`, `cosh`, `tanh`, `asinh`, `acosh`, `atanh`, `pow`, `cbrt`)
+is faithfully rounded (≤ 1 ULP at 7 digits, every IEEE 754-2019
+rounding direction) via the shared `ferrodec-transcend`
+Extended-precision kernel, at exact parity with the `ferrodec`
+(Decimal128) parent and the `ferrodec-decimal64` sibling. No
+transcendental routes through `f64` any more, so the pre-fd-r0l
+f64-round-trip detour is gone and `libm` is no longer a dependency.
+The forward trig functions use Payne-Hanek argument reduction
+(faithful across the full Decimal32 magnitude range); `pow`
+evaluates `exp(y · ln(|x|))` at Extended precision.
 
-Worst-case accuracy for the transcendentals on representative
-inputs: ≤ 1 ULP at 7 digits.
+The contract is faithful rounding (the returned value is one of the
+two representable values bracketing the exact result), not
+correct rounding (always the single nearest); ADR-0021 records it.
 
 ## Supported targets
 
@@ -175,11 +183,14 @@ between Decimal32 and Decimal128) is in development.
   needed). FMA uses `u128` for the exact-product alignment with
   `c`, but compresses back to `u64` via sticky tracking before
   routing through the standard rounding path.
-- The transcendental kernels route through `f64` via `libm`. Each
-  short-circuits the IEEE 754 §9.2 special cases (sNaN propagation,
-  zero / infinity boundaries, domain errors) before entering the
-  f64 path, so spec-mandated flags are emitted correctly even when
-  the underlying f64 result would not surface them.
+- The transcendental kernels route through the shared
+  `ferrodec-transcend` Extended-precision kernel (no `f64` / `libm`
+  detour). Each short-circuits the IEEE 754 §9.2 special cases (sNaN
+  propagation, zero / infinity boundaries, domain errors) in a
+  byte-stable `*_special_cases` routine before entering the kernel,
+  so the spec-mandated flags and the ADR-0016 Kani special-case
+  proofs stay byte-identical. The result is faithfully rounded
+  (≤ 1 ULP at 7 digits).
 
 ## MSRV policy
 

@@ -58,41 +58,40 @@ and scope gaps, not correctness defects.
   rather than `Err(ExponentOutOfRange)`). Cross-crate decision —
   see decimal128 for the parallel concern.
 
-## Coverage gap: pow routes through f64 / libm
+## Resolved: transcendentals route through f64 / libm
 
-* **Status**: narrowed by the fd-r0l train. The exp-log family
-  (`exp`, `ln`, `exp2`, `log2`, `log10`), `cbrt`, the whole trig
-  family (`sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`), and
-  the whole hyperbolic family (`sinh`, `cosh`, `tanh`, `asinh`,
-  `acosh`, `atanh`) are no longer on the f64 path: they are
-  faithfully rounded via the shared `ferrodec-transcend`
+* **Status**: closed by the fd-r0l train. The whole transcendental
+  surface — the exp-log family (`exp`, `ln`, `exp2`, `log2`,
+  `log10`), `cbrt`, the whole trig family (`sin`, `cos`, `tan`,
+  `asin`, `acos`, `atan`, `atan2`), the whole hyperbolic family
+  (`sinh`, `cosh`, `tanh`, `asinh`, `acosh`, `atanh`), and `pow` —
+  is faithfully rounded via the shared `ferrodec-transcend`
   Extended-precision kernel (≤ 1 ULP at 7 digits, every IEEE
   754-2019 rounding direction), at exact parity with the Decimal128
-  parent and the decimal64 sibling. The trig family uses the
-  Payne-Hanek argument reduction and is faithful across the full
-  Decimal32 magnitude range; the hyperbolic family is faithful
-  across the full Decimal32 magnitude range up to the true overflow
-  boundary. The remaining f64 / `libm` operation is `pow` (`pow`);
-  its docstring documents the v1.0 baseline.
-* **Symptom (remaining op)**: `pow` converts to `f64`, calls
-  `libm::pow`, converts back. f64's ~15.95-digit precision is
-  comfortably above Decimal32's 7 digits, so the round-trip error
-  stays under 1 ULP at the boundary. The result is
-  faithfully-rounded (≤ 1 ULP) rather than correctly-rounded (exact
-  best-rounding).
-* **Closing this gap**: the architectural decision was taken in the
-  fd-r0l train. Rather than depend on the parent `ferrodec` crate,
-  the proven Decimal128 `Extended` kernel was lifted into a shared
-  `ferrodec-transcend` crate so the dependency graph stays acyclic;
-  `ferrodec-decimal32` now depends on `ferrodec-transcend` /
+  parent and the decimal64 sibling. No operation routes through f64
+  any more; `libm` is no longer a dependency of this crate.
+* **What shipped**: the proven Decimal128 `Extended` kernel was
+  lifted into a shared `ferrodec-transcend` crate (so the dependency
+  graph stays acyclic rather than depending on the parent `ferrodec`
+  crate); `ferrodec-decimal32` depends on `ferrodec-transcend` /
   `ferrodec-multiword` (pulled by `exp-log`) and stays
   astro-float-free. The exp-log family and `cbrt` migrated in the
   P2 phase, the trig family in the P3 phase (Payne-Hanek argument
   reduction), the hyperbolic family in the P4 phase (on the
-  already-faithful exp / ln primitives); the pow family is scheduled
-  for the P5 phase of the same train on the identical seam.
-  ADR-0021 records the faithful-rounding contract; the closing ADR
-  records the train.
+  already-faithful exp / ln primitives), and `pow` in the P5 phase
+  (`exp(y · ln(|x|))` at Extended precision with the bit-exact
+  integer-exponent fast path) on the identical `DecimalFormat`
+  seam. With `pow` migrated, no `src/` code makes any functional
+  `libm` call, so the P5 cleanup dropped `dep:libm` from the
+  `exp-log` / `trig` feature arrays and removed the `libm`
+  dependency line. The `pow_special_cases` short-circuits and the
+  ADR-0016 Kani shims stayed byte-identical across every phase. The
+  faithful contract is proven by the per-family `tests/property_*`
+  suites (`property_exp`, `property_ln`, `property_cbrt`,
+  `property_sincos`, `property_inverse_trig`, `property_hyperbolic`,
+  `property_pow`, `property_pow_specials`), astro-float-free
+  (Design A). ADR-0021 records the faithful-rounding contract; the
+  closing fd-r0l ADR records the train.
 
 ## Closed correctness audit trail (decimal32 1.4.0 slice)
 
