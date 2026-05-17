@@ -22,9 +22,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   faithful, and previously saturated inputs now return their true
   finite value. Special-value semantics (NaN / infinity / zero /
   negative) and the ADR-0016 Kani shims are byte-identical to before;
-  only the finite result path changes. `hyperbolic` and `pow` still
-  route through `f64` via `libm` and keep their documented sub-1-ULP
-  envelope until a later slice migrates them. New dependencies on the
+  only the finite result path changes. `pow` still routes through
+  `f64` via `libm` and keeps its documented sub-1-ULP envelope until
+  a later slice migrates it. New dependencies on the
   `ferrodec-transcend` and `ferrodec-multiword` workspace crates
   (pulled by `exp-log`) change the published dependency graph;
   `ferrodec-decimal32` itself stays astro-float-free (the
@@ -49,6 +49,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The `trig` feature now pulls the `ferrodec-transcend` /
   `ferrodec-multiword` workspace crates (already in the graph via
   `exp-log`).
+
+- `Decimal32::sinh`, `cosh`, `tanh`, `asinh`, `acosh`, and `atanh`
+  are now faithfully rounded (≤ 1 ULP at 7 digits, every IEEE
+  754-2019 rounding direction) via the shared `ferrodec-transcend`
+  Extended-precision kernel (built on the already-faithful `exp` /
+  `ln` primitives), replacing the lossy `f64` / `libm` detour, at
+  exact parity with the Decimal128 parent and the
+  `ferrodec-decimal64` sibling. The hyperbolic family is faithful
+  across the full `Decimal32` magnitude range up to the true
+  overflow boundary (the pre-fd-r0l `sinh` / `cosh` f64-overflow cap
+  is lifted). Behaviour-improving, not a bug fix. The `acosh`
+  `x < 1` domain INVALID and `acosh(1) = 0`, and the `atanh`
+  `|x| == 1` pole (`±∞ + DIV_BY_ZERO`) and `|x| > 1` domain INVALID,
+  are now decided at Extended precision rather than on a rounded f64
+  value; special-value semantics and the ADR-0016 Kani shims are
+  byte-identical to before. The faithful contract is proven by the
+  new `tests/property_hyperbolic.rs` suite, which stays
+  astro-float-free through the shared `transcend_oracle` builders.
+  The `hyperbolic` feature now forwards
+  `ferrodec-transcend/hyperbolic` (the `ferrodec-transcend` /
+  `ferrodec-multiword` crates were already in the graph via
+  `exp-log`). `hyper.rs` was the last functional caller of the
+  internal `f64`-routed `ops/f64_bridge.rs` adapter (trig left it in
+  the P3 phase; `pow` uses `libm::pow` directly), so the now-dead
+  `f64_bridge` shim was removed in the same change; `dep:libm` and
+  the libm feature graph are untouched (`pow` still routes through
+  `libm`).
 
 ### Added
 

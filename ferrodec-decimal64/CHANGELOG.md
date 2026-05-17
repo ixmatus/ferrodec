@@ -25,11 +25,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   semantics (NaN / infinity / zero / negative) and the ADR-0016 Kani
   shims are byte-identical to before. The faithful contract is proven
   by the new `tests/property_exp.rs` and `tests/property_ln.rs`
-  suites. `hyperbolic` and `pow` still route through `f64` via `libm`
-  and keep their documented ~10⁻¹⁵ envelope until a later slice
-  migrates them. New dependencies on the `ferrodec-transcend`
-  and `ferrodec-multiword` workspace crates (pulled by `exp-log`)
-  change the published dependency graph.
+  suites. `pow` still routes through `f64` via `libm` and keeps its
+  documented ~10⁻¹⁵ envelope until a later slice migrates it. New
+  dependencies on the `ferrodec-transcend` and `ferrodec-multiword`
+  workspace crates (pulled by `exp-log`) change the published
+  dependency graph.
 
 - `Decimal64::sin`, `cos`, `tan`, `asin`, `acos`, `atan`, and
   `atan2` are now faithfully rounded (≤ 1 ULP at 16 digits, every
@@ -48,6 +48,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and `tests/property_inverse_trig.rs` suites. The `trig` feature now
   pulls the `ferrodec-transcend` / `ferrodec-multiword` workspace
   crates (already in the graph via `exp-log`).
+
+- `Decimal64::sinh`, `cosh`, `tanh`, `asinh`, `acosh`, and `atanh`
+  are now faithfully rounded (≤ 1 ULP at 16 digits, every IEEE
+  754-2019 rounding direction) via the shared `ferrodec-transcend`
+  Extended-precision kernel (built on the already-faithful `exp` /
+  `ln` primitives), replacing the lossy `f64` / `libm` detour, at
+  exact parity with the Decimal128 parent. The pre-fd-r0l `sinh` /
+  `cosh` f64-overflow cap at `|x| ≳ 710` is lifted: the kernel
+  computes `eˣ` at Extended precision and saturates only at the
+  format's own overflow boundary, so the hyperbolic family is
+  faithful across the full `Decimal64` magnitude range.
+  Behaviour-improving, not a bug fix. The `acosh` `x < 1` domain
+  INVALID and `acosh(1) = 0`, and the `atanh` `|x| == 1` pole
+  (`±∞ + DIV_BY_ZERO`) and `|x| > 1` domain INVALID, are now decided
+  at Extended precision rather than on a rounded f64 value;
+  special-value semantics and the ADR-0016 Kani shims are
+  byte-identical to before. The faithful contract is proven by the
+  new `tests/property_hyperbolic.rs` suite. The `hyperbolic` feature
+  now forwards `ferrodec-transcend/hyperbolic` (the
+  `ferrodec-transcend` / `ferrodec-multiword` crates were already in
+  the graph via `exp-log`). `hyper.rs` was the last functional
+  caller of the internal `f64`-routed `ops/f64_bridge.rs` adapter
+  (trig left it in the P3 phase; `pow` uses `libm::pow` directly), so
+  the now-dead `f64_bridge` shim was removed in the same change;
+  `dep:libm` and the libm feature graph are untouched (`pow` still
+  routes through `libm`).
 
 ### Added
 
