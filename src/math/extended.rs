@@ -1,5 +1,10 @@
 //! Re-export shim: Extended now lives in ferrodec-transcend (P0a.2 c3). The Decimal128 round-trip oracle stays here, parameterized at F=Decimal128, as part of the byte-identical regression gate.
 
+// Consumed only by the round-trip test module below now that c11
+// moved pow's kernel (the last non-test in-core `Extended` user) out;
+// keep the re-export as the test gate's handle. Same `allow` shape as
+// the c6 exp shim's re-export.
+#[allow(unused_imports)]
 pub(crate) use ferrodec_transcend::extended::Extended;
 
 #[cfg(test)]

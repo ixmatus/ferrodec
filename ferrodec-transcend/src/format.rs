@@ -133,4 +133,12 @@ pub trait DecimalFormat: Copy + Sized {
     /// from the Newton seed: this is a real result-domain divide
     /// (e.g. `pow`'s final `ONE / result` inversion).
     fn div_fmt(self, other: Self, rm: RoundingMode) -> (Self, Status);
+    /// `self * other` rounded at the format's precision. Used by
+    /// `pow`'s square-and-multiply integer fast path, which only
+    /// commits its result when no intermediate multiply rounded.
+    fn mul_fmt(self, other: Self, rm: RoundingMode) -> (Self, Status);
+    /// Round to the nearest `i32` under `rm`, reporting `INVALID`
+    /// (via the `Status`) when the value does not fit. Used by
+    /// `pow` to recover the integer exponent for the fast path.
+    fn to_i32_fmt(self, rm: RoundingMode) -> (i32, Status);
 }

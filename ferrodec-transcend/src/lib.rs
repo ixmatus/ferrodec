@@ -44,6 +44,8 @@ pub mod hyperbolic;
 pub mod inverse_trig;
 #[cfg(feature = "exp-log")]
 pub mod ln;
+#[cfg(feature = "pow")]
+pub mod pow;
 #[cfg(feature = "trig")]
 pub mod sincos;
 

@@ -120,4 +120,12 @@ impl DecimalFormat for Decimal128 {
     fn div_fmt(self, other: Self, rm: RoundingMode) -> (Self, Status) {
         self.div(other, rm)
     }
+
+    fn mul_fmt(self, other: Self, rm: RoundingMode) -> (Self, Status) {
+        self.mul(other, rm)
+    }
+
+    fn to_i32_fmt(self, rm: RoundingMode) -> (i32, Status) {
+        self.to_i32(rm)
+    }
 }

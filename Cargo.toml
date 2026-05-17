@@ -93,7 +93,7 @@ trig = ["fmt", "ferrodec-transcend/trig"]
 # in when the core shim delegates to them.
 exp-log = ["fmt", "ferrodec-transcend/exp-log"]
 hyperbolic = ["exp-log", "ferrodec-transcend/hyperbolic"]
-pow = ["exp-log"]
+pow = ["exp-log", "ferrodec-transcend/pow"]
 # Convenience meta-feature: enable every transcendental at once. The
 # pre-1.2 `transcendentals = ["fmt"]` shape carried the same effect,
 # so existing dependents that ask for `transcendentals` see no change.
