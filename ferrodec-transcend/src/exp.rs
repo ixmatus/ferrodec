@@ -86,17 +86,20 @@ pub fn exp2_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
 /// any magnitude this routine handles the OVERFLOW / UNDERFLOW
 /// thresholds internally.
 pub fn exp_from_extended<F: DecimalFormat>(x_ext: Extended, rm: RoundingMode) -> (F, Status) {
-    // Magnitude gate: `exp` overflows past `+ln(MAX) ≈ +14149.4` and
-    // underflows past `−ln(1/MIN_SUBNORMAL) ≈ −14223`. The
-    // thresholds are asymmetric because Decimal128's exponent range
-    // is lopsided (E_MAX = 6144, MIN_SUBNORMAL exponent = −6176).
-    // Inputs in `(−14223, −14150]` produce subnormals — must NOT
-    // short-circuit to zero, the Taylor pipeline handles them.
+    // Magnitude gate: `exp` overflows past the format's
+    // `exp_overflow_limit` and underflows past its
+    // `exp_underflow_limit`. The two thresholds are asymmetric
+    // because every IEEE decimal format has a lopsided exponent
+    // range (the negative-side round-to-zero boundary sits further
+    // out than the positive-side overflow boundary). Inputs between
+    // the two limits on the negative side produce subnormals — they
+    // must NOT short-circuit to zero, the Taylor pipeline handles
+    // them.
     let abs = x_ext.abs();
     let limit = if x_ext.sign {
-        Extended::EXP_UNDERFLOW_LIMIT
+        F::exp_underflow_limit()
     } else {
-        Extended::EXP_OVERFLOW_LIMIT
+        F::exp_overflow_limit()
     };
     if abs.cmp(limit) == core::cmp::Ordering::Greater {
         return if x_ext.sign {
@@ -214,15 +217,15 @@ fn taylor_exp_ext(r: Extended) -> Extended {
 
 /// Coarse extreme-magnitude detection. Returns `Some((±∞ or ±0, status))`
 /// when the input is way outside the convergence window. Asymmetric
-/// thresholds — see [`Extended::EXP_OVERFLOW_LIMIT`] /
-/// [`Extended::EXP_UNDERFLOW_LIMIT`] for why.
+/// thresholds — see [`DecimalFormat::exp_overflow_limit`] /
+/// [`DecimalFormat::exp_underflow_limit`] for why.
 fn saturate_extreme<F: DecimalFormat>(x: F) -> Option<(F, Status)> {
     let positive = !x.is_sign_negative();
     let abs_ext = Extended::from_format::<F>(x).abs();
     let threshold = if positive {
-        Extended::parse_str("14150")
+        F::exp_overflow_limit()
     } else {
-        Extended::parse_str("14221")
+        F::exp_underflow_limit()
     };
     if abs_ext.cmp(threshold) != core::cmp::Ordering::Greater {
         return None;

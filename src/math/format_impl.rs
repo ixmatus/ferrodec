@@ -9,6 +9,7 @@
 
 use crate::decimal::Decimal128;
 use ferrodec_ieee::{RoundingMode, Status};
+use ferrodec_transcend::extended::Extended;
 use ferrodec_transcend::DecimalFormat;
 
 impl DecimalFormat for Decimal128 {
@@ -127,5 +128,32 @@ impl DecimalFormat for Decimal128 {
 
     fn to_i32_fmt(self, rm: RoundingMode) -> (i32, Status) {
         self.to_i32(rm)
+    }
+
+    /// Overflow threshold for `exp(x)`. `e^x` overflows to `+∞` at
+    /// `x ≈ ln(MAX) ≈ +14149.4`; values strictly above this
+    /// short-circuit to `+∞ + OVERFLOW`. `Extended::from_u128(14150)`
+    /// reproduces the pre-relocation `Extended::EXP_OVERFLOW_LIMIT`
+    /// const exactly (`coef = 14150`, `exp = 0`, `sign = false`), so
+    /// the Decimal128 magnitude gate is bit-identical.
+    fn exp_overflow_limit() -> Extended {
+        Extended::from_u128(14150)
+    }
+
+    /// Underflow threshold for `exp(x)`. The smallest representable
+    /// subnormal is `1 × 10⁻⁶¹⁷⁶`, and round-to-nearest-even maps
+    /// any `exp(x) < ½ × MIN_SUBNORMAL` to `+0`. That boundary sits
+    /// at `x ≈ ln(0.5 × 10⁻⁶¹⁷⁶) ≈ −14220.85`, so `+14221` is the
+    /// first integer past which the saturate short-circuit is safe.
+    /// Setting the underflow threshold at `+14150` (matching the
+    /// overflow side) was too tight — it discarded every
+    /// subnormal-range result for `x ∈ (−14221, −14150]`, which the
+    /// Taylor pipeline is fully capable of producing. The asymmetry
+    /// is intrinsic to decimal128's lopsided exponent range
+    /// (`E_MAX` = 6144, `MIN_SUBNORMAL` exponent = −6176).
+    /// `Extended::from_u128(14221)` reproduces the pre-relocation
+    /// `Extended::EXP_UNDERFLOW_LIMIT` const exactly.
+    fn exp_underflow_limit() -> Extended {
+        Extended::from_u128(14221)
     }
 }

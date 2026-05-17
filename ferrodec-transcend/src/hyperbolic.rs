@@ -49,7 +49,7 @@ pub fn sinh_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
         Class::Finite { .. } => {}
     }
     let x_ext = Extended::from_format(x);
-    let result_ext = sinh_ext(x_ext);
+    let result_ext = sinh_ext::<F>(x_ext);
     let (result, status) = result_ext.to_format::<F>(0, rm);
     (result, status | Status::INEXACT)
 }
@@ -64,7 +64,7 @@ pub fn cosh_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
         Class::Finite { .. } => {}
     }
     let x_ext = Extended::from_format(x).abs();
-    let result_ext = cosh_ext(x_ext);
+    let result_ext = cosh_ext::<F>(x_ext);
     let (result, status) = result_ext.to_format::<F>(0, rm);
     (result, status | Status::INEXACT)
 }
@@ -91,8 +91,7 @@ pub fn tanh_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
     // Tightening would save a few exp calls in the (38, 80] strip
     // without affecting correctness, but the strip is rarely hit
     // and the current threshold composes safely with sinh / cosh
-    // which use the same `EXP_OVERFLOW_LIMIT = 14150` ceiling
-    // upstream.
+    // which use the format's `exp_overflow_limit` ceiling upstream.
     let abs_ext = Extended::from_format::<F>(x).abs();
     if abs_ext.cmp(Extended::parse_str("80")) == core::cmp::Ordering::Greater {
         return (
@@ -105,8 +104,8 @@ pub fn tanh_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
         );
     }
     let x_ext = Extended::from_format(x);
-    let s = sinh_ext(x_ext);
-    let c = cosh_ext(x_ext.abs());
+    let s = sinh_ext::<F>(x_ext);
+    let c = cosh_ext::<F>(x_ext.abs());
     // tanh inherits the sign of x via sinh; cosh is symmetric.
     let result_ext = s.div::<F>(c);
     let (result, status) = result_ext.to_format::<F>(0, rm);
@@ -245,7 +244,7 @@ pub fn atanh_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
 }
 
 /// `sinh(x)` at [`Extended`] precision.
-fn sinh_ext(x: Extended) -> Extended {
+fn sinh_ext<F: DecimalFormat>(x: Extended) -> Extended {
     if x.is_zero() {
         return x;
     }
@@ -255,10 +254,10 @@ fn sinh_ext(x: Extended) -> Extended {
     if x.abs().cmp(Extended::HALF) == core::cmp::Ordering::Less {
         return sinh_taylor(x);
     }
-    // Saturation: |x| past the exp convergence ceiling lands outside
-    // Decimal128's range. Return a pre-overflow magnitude with the
-    // sign of x; the boundary round produces ±∞ + OVERFLOW.
-    if x.abs().cmp(Extended::EXP_OVERFLOW_LIMIT) == core::cmp::Ordering::Greater {
+    // Saturation: |x| past the format's exp convergence ceiling lands
+    // outside the format's range. Return a pre-overflow magnitude with
+    // the sign of x; the boundary round produces ±∞ + OVERFLOW.
+    if x.abs().cmp(F::exp_overflow_limit()) == core::cmp::Ordering::Greater {
         return Extended::saturate_overflow(x.sign);
     }
     // sinh(x) = (e^x − e^{-x}) / 2, evaluated entirely at extended
@@ -298,7 +297,7 @@ fn sinh_taylor(x: Extended) -> Extended {
 
 /// `cosh(x)` at [`Extended`] precision. Caller passes the absolute
 /// value (cosh is even).
-fn cosh_ext(abs_x: Extended) -> Extended {
+fn cosh_ext<F: DecimalFormat>(abs_x: Extended) -> Extended {
     if abs_x.is_zero() {
         return Extended::ONE;
     }
@@ -306,9 +305,9 @@ fn cosh_ext(abs_x: Extended) -> Extended {
     if abs_x.cmp(Extended::HALF) == core::cmp::Ordering::Less {
         return cosh_taylor(abs_x);
     }
-    // Saturation: |x| past the exp convergence ceiling lands outside
-    // Decimal128's range. cosh is always positive.
-    if abs_x.cmp(Extended::EXP_OVERFLOW_LIMIT) == core::cmp::Ordering::Greater {
+    // Saturation: |x| past the format's exp convergence ceiling lands
+    // outside the format's range. cosh is always positive.
+    if abs_x.cmp(F::exp_overflow_limit()) == core::cmp::Ordering::Greater {
         return Extended::saturate_overflow(false);
     }
     // cosh(x) = (e^x + e^{-x}) / 2, end-to-end at extended precision.

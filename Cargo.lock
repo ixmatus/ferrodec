@@ -260,7 +260,9 @@ version = "1.4.0"
 dependencies = [
  "astro-float",
  "ferrodec-ieee",
+ "ferrodec-multiword",
  "ferrodec-test-support",
+ "ferrodec-transcend",
  "libm",
  "num-traits",
  "proptest",

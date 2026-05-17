@@ -9,6 +9,7 @@
 //! `ferrodec-transcend` extraction behaviour-neutral for the
 //! formally-verified Decimal128 parent.
 
+use crate::extended::Extended;
 use core::cmp::Ordering;
 use ferrodec_ieee::{IeeeDecodedClass as Class, RoundingMode, Status};
 use ferrodec_multiword::U256;
@@ -141,4 +142,23 @@ pub trait DecimalFormat: Copy + Sized {
     /// (via the `Status`) when the value does not fit. Used by
     /// `pow` to recover the integer exponent for the fast path.
     fn to_i32_fmt(self, rm: RoundingMode) -> (i32, Status);
+
+    /// **`exp` magnitude gate — overflow side.** The coarse threshold
+    /// `T` such that any `x` with `x > +T` has `exp(x)` overflowing
+    /// the format to `+∞ + OVERFLOW`. Returned as the kernel's
+    /// [`Extended`] working type so the gate is a single
+    /// `abs.cmp(limit)` decision regardless of format. Format-specific
+    /// because it derives from the format's `E_MAX`; see each impl for
+    /// the derivation. The asymmetry with
+    /// [`exp_underflow_limit`](DecimalFormat::exp_underflow_limit) is
+    /// intrinsic to the format's lopsided exponent range.
+    fn exp_overflow_limit() -> Extended;
+
+    /// **`exp` magnitude gate — underflow side.** The coarse threshold
+    /// `T` such that any `x` with `x < −T` has `exp(x)` rounding to
+    /// `+0 + UNDERFLOW`. Inputs in `(−T, −overflow_limit]` produce
+    /// representable subnormals and must *not* short-circuit; the
+    /// Taylor pipeline handles them. Format-specific; see each impl
+    /// for the derivation.
+    fn exp_underflow_limit() -> Extended;
 }

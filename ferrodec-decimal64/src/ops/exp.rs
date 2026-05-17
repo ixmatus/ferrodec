@@ -1,30 +1,32 @@
 //! IEEE 754-2019 §9.2 exponential functions for [`Decimal64`].
 //!
-//! `exp` and `ln` route through `f64` via `libm` (pure Rust, `no_std`,
-//! no FFI). Unlike Decimal32 where f64's ~15.95 digits are far more
-//! than the 7-digit decimal target, Decimal64's 16 digits sit right at
-//! the f64 boundary: the bottom Decimal64 digit may differ from the
-//! correctly-rounded value when the f64 round-trip introduces a
-//! sub-ULP rounding-direction divergence. v1.0 ships this f64 path as
-//! the canonical baseline; a follow-on can replace it with a
-//! pure-decimal Taylor / Newton kernel at u128 working precision once
-//! one is needed (the public surface is drop-in compatible).
+//! `exp` and `ln` route their finite-non-zero path through the shared
+//! faithful `ferrodec-transcend` Extended-precision kernel: 50-digit
+//! `Extended` working precision, rounded once at the format boundary,
+//! giving faithfully-rounded (≤ 1 ULP at 16 digits) results without
+//! the pre-fd-r0l lossy `f64` / `libm` detour. The kernel is the same
+//! verified implementation the `ferrodec` (Decimal128) parent uses,
+//! instantiated at `F = Decimal64` via the `DecimalFormat` seam.
+//!
+//! The special-value short-circuits (`exp_special_cases` /
+//! `ln_special_cases`) stay in this module ahead of the kernel call:
+//! they are shared with the ADR-0016 Kani shims (which must never
+//! reach the Extended kernel) and keep Decimal64's special-value
+//! semantics byte-identical across the rewire.
 //!
 //! # Special cases (IEEE 754-2019 §9.2)
 //!
 //! * NaN propagates (sNaN raises INVALID).
 //! * `exp(±∞)`: `+∞ → +∞`, `−∞ → +0`.
 //! * `exp(±0) = 1`.
-//! * Out of range: in principle, Decimal64's exponent range supports
-//!   `exp(x)` up to `x ≈ 885` (since `e^885 ≈ 10^384 = MAX`) and
-//!   underflow to subnormals down to `x ≈ −908`. **In practice the
-//!   `f64`-pipeline overflows first**: `libm::exp` saturates `f64`
-//!   at `x ≈ 709.78`, and `libm::exp(-x)` underflows `f64` at
-//!   `x ≈ 745`. So this implementation returns `+∞ + OVERFLOW` at
-//!   `x ≥ 710` (rather than 885) and `+0 + UNDERFLOW + INEXACT` at
-//!   `x ≤ −745` (rather than −908). A future pure-decimal Taylor /
-//!   Newton kernel at u128 working precision would close the gap;
-//!   the public surface is drop-in compatible.
+//! * Out of range: Decimal64's exponent range supports `exp(x)` up to
+//!   `x ≈ +886.49` (since `e^886.49 ≈ 10^385 = MAX`) and underflow to
+//!   subnormals down to `x ≈ −916.98`. The faithful kernel's
+//!   magnitude gate short-circuits to `+∞ + OVERFLOW` for `x > +887`
+//!   and to `+0 + UNDERFLOW + INEXACT` for `x < −918`; inputs in
+//!   `(−918, −887]` produce representable subnormals (the Taylor
+//!   pipeline handles them). The thresholds are derived in
+//!   `DecimalFormat for Decimal64` (`transcend_impl.rs`).
 //!
 //! # Special cases for `ln`
 //!
@@ -40,47 +42,41 @@ use ferrodec_ieee::{RoundingMode, Status};
 
 impl Decimal64 {
     /// IEEE 754-2019 §9.2 `exp(self)` rounded by `rm`.
+    ///
+    /// Finite non-zero inputs route through the shared faithful
+    /// `ferrodec-transcend` Extended-precision kernel (≤ 1 ULP across
+    /// the true Decimal64 domain), replacing the pre-fd-r0l lossy
+    /// `f64` / `libm::exp` detour. The `exp_special_cases`
+    /// short-circuit is kept ahead of the kernel call so Decimal64's
+    /// special-value semantics (and the ADR-0016 Kani shim, which
+    /// shares `exp_special_cases`) are byte-identical to before; only
+    /// the finite-non-zero result path changes.
     #[must_use]
     pub fn exp(self, rm: RoundingMode) -> (Self, Status) {
         if let Some(special) = exp_special_cases(classify_bits(self.0)) {
             return special;
         }
-        // Finite non-zero: route through f64.
-        let x = self.to_f64(RoundingMode::NearestEven).0;
-        let r = libm::exp(x);
-        if r.is_infinite() {
-            return (Decimal64::INFINITY, Status::OVERFLOW | Status::INEXACT);
-        }
-        if r == 0.0 {
-            return (Decimal64::ZERO, Status::UNDERFLOW | Status::INEXACT);
-        }
-        let (val, mut status) = Decimal64::from_f64(r, rm);
-        // exp of a non-zero finite is essentially never exact; emit
-        // INEXACT unconditionally to match IEEE 754 §9.2 expectations
-        // even when the f64 round-trip happens to land on a
-        // representable value.
-        status |= Status::INEXACT;
-        (val, status)
+        // Finite non-zero: faithful shared kernel.
+        ferrodec_transcend::exp::exp_kernel::<Decimal64>(self, rm)
     }
 
     /// IEEE 754-2019 §9.2 `ln(self)` rounded by `rm`.
+    ///
+    /// Finite positive inputs route through the shared faithful
+    /// `ferrodec-transcend` Extended-precision kernel (≤ 1 ULP across
+    /// the true Decimal64 domain), replacing the pre-fd-r0l lossy
+    /// `f64` / `libm::log` detour. The `ln_special_cases`
+    /// short-circuit is kept ahead of the kernel call so Decimal64's
+    /// special-value semantics (and the ADR-0016 Kani shim, which
+    /// shares `ln_special_cases`) are byte-identical to before; only
+    /// the finite-positive result path changes.
     #[must_use]
     pub fn ln(self, rm: RoundingMode) -> (Self, Status) {
         if let Some(special) = ln_special_cases(classify_bits(self.0)) {
             return special;
         }
-        // Positive finite non-zero: route through f64.
-        let x = self.to_f64(RoundingMode::NearestEven).0;
-        let r = libm::log(x);
-        let (val, mut status) = Decimal64::from_f64(r, rm);
-        // ln(positive finite) is exact only at x = 1 (the f64
-        // round-trip produces 0.0) or at integer powers of 10 where
-        // the result is also exactly representable. For most inputs,
-        // set INEXACT.
-        if !val.is_zero() {
-            status |= Status::INEXACT;
-        }
-        (val, status)
+        // Positive finite non-zero: faithful shared kernel.
+        ferrodec_transcend::ln::ln_kernel::<Decimal64>(self, rm)
     }
 
     /// Kani-only entry returning the `exp` special-case branch
