@@ -381,4 +381,65 @@ pub mod oracle {
     pub fn cbrt(x_str: &str, cc: &mut Consts) -> BigFloat {
         arg(x_str, cc).cbrt(P, AfRm::None)
     }
+
+    /// Sine, in radians, of the exact value `x_str`.
+    pub fn sin(x_str: &str, cc: &mut Consts) -> BigFloat {
+        arg(x_str, cc).sin(P, AfRm::None, cc)
+    }
+
+    /// Cosine, in radians, of the exact value `x_str`.
+    pub fn cos(x_str: &str, cc: &mut Consts) -> BigFloat {
+        arg(x_str, cc).cos(P, AfRm::None, cc)
+    }
+
+    /// Tangent, in radians, of the exact value `x_str`.
+    pub fn tan(x_str: &str, cc: &mut Consts) -> BigFloat {
+        arg(x_str, cc).tan(P, AfRm::None, cc)
+    }
+
+    /// Inverse sine of the exact value `x_str` (domain `[-1, +1]`).
+    pub fn asin(x_str: &str, cc: &mut Consts) -> BigFloat {
+        arg(x_str, cc).asin(P, AfRm::None, cc)
+    }
+
+    /// Inverse cosine of the exact value `x_str` (domain `[-1, +1]`).
+    pub fn acos(x_str: &str, cc: &mut Consts) -> BigFloat {
+        arg(x_str, cc).acos(P, AfRm::None, cc)
+    }
+
+    /// Inverse tangent of the exact value `x_str`.
+    pub fn atan(x_str: &str, cc: &mut Consts) -> BigFloat {
+        arg(x_str, cc).atan(P, AfRm::None, cc)
+    }
+
+    /// Two-argument arctangent `atan2(y, x)`, in radians, of the exact
+    /// values `y_str` / `x_str`. astro-float has no native `atan2`;
+    /// it is synthesized as `atan(y / x)` plus the quadrant shift
+    /// (`±π` when `x < 0`, the sign taken from `y`), the exact
+    /// construction the `Decimal128` `property_inverse_trig` suite's
+    /// `check_atan2` used before this builder centralised it. The
+    /// caller passes the sign bits of the parsed `y` / `x` (via the
+    /// format's own `is_sign_negative`) so the quadrant decision is
+    /// not a re-parse of the strings.
+    pub fn atan2(
+        y_str: &str,
+        x_str: &str,
+        y_is_neg: bool,
+        x_is_neg: bool,
+        cc: &mut Consts,
+    ) -> BigFloat {
+        let yv = arg(y_str, cc);
+        let xv = arg(x_str, cc);
+        let pi_bf = cc.pi(P, AfRm::None);
+        let q = yv.div(&xv, P, AfRm::None);
+        let mut oracle = q.atan(P, AfRm::None, cc);
+        if x_is_neg {
+            if y_is_neg {
+                oracle = oracle.sub(&pi_bf, P, AfRm::None);
+            } else {
+                oracle = oracle.add(&pi_bf, P, AfRm::None);
+            }
+        }
+        oracle
+    }
 }

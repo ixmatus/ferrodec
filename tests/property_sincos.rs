@@ -6,31 +6,19 @@
 
 #![cfg(feature = "trig")]
 
-use astro_float::{BigFloat, Consts, Radix, RoundingMode as AfRm};
+use astro_float::Consts;
+use ferrodec_test_support::transcend_oracle::oracle;
 use proptest::prelude::*;
 
 mod common;
 use common::{assert_faithful, parse, MODES};
 
-/// Working precision for the astro-float oracle: 256 bits ≈ 77 decimal
-/// digits — enough to survive the worst-case argument-reduction
-/// cancellation near a multiple of π/2 and still bracket the result.
-const P: usize = 256;
-
-fn oracle_apply<F>(x_str: &str, f: F, cc: &mut Consts) -> BigFloat
-where
-    F: FnOnce(&BigFloat, usize, AfRm, &mut Consts) -> BigFloat,
-{
-    let x = BigFloat::parse(x_str, Radix::Dec, P, AfRm::None, cc);
-    f(&x, P, AfRm::None, cc)
-}
-
 fn check_sin_cos(x_str: &str) {
     let x = parse(x_str);
     let exact = format!("{x:e}");
     let mut cc = Consts::new().expect("init consts");
-    let o_sin = oracle_apply(&exact, astro_float::BigFloat::sin, &mut cc);
-    let o_cos = oracle_apply(&exact, astro_float::BigFloat::cos, &mut cc);
+    let o_sin = oracle::sin(&exact, &mut cc);
+    let o_cos = oracle::cos(&exact, &mut cc);
     for &rm in MODES {
         let (got_sin, s_sin) = x.sin(rm);
         let (got_cos, s_cos) = x.cos(rm);
@@ -127,10 +115,17 @@ proptest! {
         if coef == 0 { return Ok(()); }
         let value_str = format!("{}{}e{}", if sign { "-" } else { "" }, coef, exp);
         let x = parse(&value_str);
+        // A parse-overflowed ±∞ input is out of the faithful domain
+        // (`sin`/`cos` of ±∞ is NaN + INVALID, a special result, not a
+        // faithfully-rounded finite value). Skip it without weakening
+        // the bracket, the same idiom as the `coef == 0` skip; the
+        // generated `exp ≤ 15` range cannot overflow `Decimal128`, so
+        // this is a defensive guard rather than a reachable corner.
+        if !x.is_finite() { return Ok(()); }
         let exact = format!("{x:e}");
         let mut cc = Consts::new().expect("init consts");
-        let o_sin = oracle_apply(&exact, astro_float::BigFloat::sin, &mut cc);
-        let o_cos = oracle_apply(&exact, astro_float::BigFloat::cos, &mut cc);
+        let o_sin = oracle::sin(&exact, &mut cc);
+        let o_cos = oracle::cos(&exact, &mut cc);
         for &rm in MODES {
             let (got_sin, s_sin) = x.sin(rm);
             let (got_cos, s_cos) = x.cos(rm);
