@@ -281,6 +281,7 @@ version = "0.1.0"
 name = "ferrodec-test-support"
 version = "0.1.0"
 dependencies = [
+ "astro-float",
  "ferrodec-ieee",
  "num-bigint",
 ]

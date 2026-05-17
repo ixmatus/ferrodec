@@ -15,3 +15,11 @@
 
 pub mod conformance;
 pub mod oracle;
+
+/// Generic faithful-rounding oracle harness for the transcendental
+/// property suites (ADR-0021). Gated behind the `transcend-oracle`
+/// feature so `astro-float` is compiled only for the dev-dependents
+/// that assert the faithful contract, never for the conformance-only
+/// path.
+#[cfg(feature = "transcend-oracle")]
+pub mod transcend_oracle;
