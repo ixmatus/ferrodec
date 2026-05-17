@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `Decimal32::exp`, `Decimal32::ln`, and `Decimal32::cbrt` are now
+  faithfully rounded (≤ 1 ULP at 7 digits, every IEEE 754-2019
+  rounding direction) via the shared `ferrodec-transcend`
+  Extended-precision kernel, replacing the lossy `f64` / `libm`
+  detour. The kernel is the same verified implementation the
+  `ferrodec` (Decimal128) parent and the `ferrodec-decimal64` sibling
+  use, instantiated at `F = Decimal32` through the `DecimalFormat`
+  seam. The rewrite also reaches `Decimal32`'s true domain rather than
+  the narrower `f64` saturation window. This is behaviour-improving,
+  not a bug fix: previously wrong-by-rounding results become correctly
+  faithful, and previously saturated inputs now return their true
+  finite value. Special-value semantics (NaN / infinity / zero /
+  negative) and the ADR-0016 Kani shims are byte-identical to before;
+  only the finite result path changes. `trig`, `hyperbolic`, and
+  `pow` still route through `f64` via `libm` and keep their
+  documented sub-1-ULP envelope until a later slice migrates them.
+  New dependencies on the `ferrodec-transcend` and `ferrodec-multiword`
+  workspace crates (pulled by `exp-log`) change the published
+  dependency graph; `ferrodec-decimal32` itself stays
+  astro-float-free (the faithful-rounding oracle compiles only inside
+  the `ferrodec-test-support` dev-dependency).
+
+### Added
+
+- `Decimal32::exp2`, `Decimal32::log2`, and `Decimal32::log10`,
+  faithfully rounded (≤ 1 ULP at 7 digits, every IEEE 754-2019
+  rounding direction) via the shared `ferrodec-transcend` kernel as
+  pure delegations (the kernel resolves every special case, exactly
+  as on the Decimal128 parent). They ship under the existing
+  `exp-log` feature. With `exp` / `ln` / `cbrt` now faithful (above),
+  the exp-log family reaches exact capability parity with the
+  Decimal128 parent and the `ferrodec-decimal64` sibling, closing the
+  documented asymmetry. The faithful contract is proven by the new
+  `tests/property_exp.rs`, `tests/property_ln.rs`, and
+  `tests/property_cbrt.rs` suites across every rounding direction.
+
 ## [1.4.0] - 2026-05-16
 
 The decimal32 correctness train, the sibling of the decimal64 1.4.0

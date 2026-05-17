@@ -25,11 +25,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   semantics (NaN / infinity / zero / negative) and the ADR-0016 Kani
   shims are byte-identical to before. The faithful contract is proven
   by the new `tests/property_exp.rs` and `tests/property_ln.rs`
-  suites. `trig`, `hyperbolic`, `pow`, and `cbrt` still route through
+  suites. `trig`, `hyperbolic`, and `pow` still route through
   `f64` via `libm` and keep their documented ~10⁻¹⁵ envelope until a
   later slice migrates them. New dependencies on the `ferrodec-transcend`
   and `ferrodec-multiword` workspace crates (pulled by `exp-log`)
   change the published dependency graph.
+
+### Added
+
+- `Decimal64::exp2`, `Decimal64::log2`, and `Decimal64::log10`,
+  faithfully rounded (≤ 1 ULP at 16 digits, every IEEE 754-2019
+  rounding direction) via the shared `ferrodec-transcend` kernel as
+  pure delegations (the kernel resolves every special case, exactly
+  as on the `ferrodec` Decimal128 parent). They ship under the
+  existing `exp-log` feature. With these, `Decimal64::cbrt` now
+  faithfully rounded via the same kernel (below), the exp-log family
+  reaches exact capability parity with the Decimal128 parent, closing
+  the documented asymmetry. The faithful contract is proven by the
+  extended `tests/property_exp.rs` / `tests/property_ln.rs` and the
+  new `tests/property_cbrt.rs`.
+
+### Changed
+
+- `Decimal64::cbrt` is now faithfully rounded (≤ 1 ULP at 16 digits,
+  every IEEE 754-2019 rounding direction) via the shared
+  `ferrodec-transcend` kernel, replacing the `f64` / `libm::cbrt`
+  detour. Behaviour-improving, not a bug fix. The `cbrt` special-value
+  short-circuit and the ADR-0016 Kani shim are byte-identical to
+  before; only the finite non-zero result path changes. `cbrt` stays
+  under the `pow` feature.
 
 ## [1.4.0] - 2026-05-15
 
