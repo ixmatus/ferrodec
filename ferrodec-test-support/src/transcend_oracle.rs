@@ -470,4 +470,37 @@ pub mod oracle {
         }
         oracle
     }
+
+    /// Hyperbolic sine of the exact value `x_str`.
+    pub fn sinh(x_str: &str, cc: &mut Consts) -> BigFloat {
+        arg(x_str, cc).sinh(P, AfRm::None, cc)
+    }
+
+    /// Hyperbolic cosine of the exact value `x_str`.
+    pub fn cosh(x_str: &str, cc: &mut Consts) -> BigFloat {
+        arg(x_str, cc).cosh(P, AfRm::None, cc)
+    }
+
+    /// Hyperbolic tangent of the exact value `x_str`.
+    pub fn tanh(x_str: &str, cc: &mut Consts) -> BigFloat {
+        arg(x_str, cc).tanh(P, AfRm::None, cc)
+    }
+
+    /// Inverse hyperbolic sine of the exact value `x_str` (defined for
+    /// all real `x`).
+    pub fn asinh(x_str: &str, cc: &mut Consts) -> BigFloat {
+        arg(x_str, cc).asinh(P, AfRm::None, cc)
+    }
+
+    /// Inverse hyperbolic cosine of the exact value `x_str` (domain
+    /// `[1, +∞)`).
+    pub fn acosh(x_str: &str, cc: &mut Consts) -> BigFloat {
+        arg(x_str, cc).acosh(P, AfRm::None, cc)
+    }
+
+    /// Inverse hyperbolic tangent of the exact value `x_str` (domain
+    /// `(-1, +1)`).
+    pub fn atanh(x_str: &str, cc: &mut Consts) -> BigFloat {
+        arg(x_str, cc).atanh(P, AfRm::None, cc)
+    }
 }
