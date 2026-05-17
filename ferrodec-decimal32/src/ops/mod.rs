@@ -12,8 +12,6 @@ pub(crate) mod addsub;
 pub(crate) mod div;
 #[cfg(feature = "exp-log")]
 pub(crate) mod exp;
-#[cfg(any(feature = "trig", feature = "hyperbolic"))]
-pub(crate) mod f64_bridge;
 pub(crate) mod fma;
 #[cfg(feature = "hyperbolic")]
 pub(crate) mod hyper;

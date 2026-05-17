@@ -53,7 +53,7 @@ binary-float = ["fmt"]
 #                 fd-r0l). Implies `exp-log`.
 exp-log = ["binary-float", "dep:libm", "dep:ferrodec-transcend", "dep:ferrodec-multiword", "ferrodec-transcend/exp-log"]
 trig = ["binary-float", "dep:libm", "dep:ferrodec-transcend", "dep:ferrodec-multiword", "ferrodec-transcend/trig"]
-hyperbolic = ["exp-log"]
+hyperbolic = ["exp-log", "dep:ferrodec-transcend", "dep:ferrodec-multiword", "ferrodec-transcend/hyperbolic"]
 pow = ["exp-log"]
 # Convenience meta-feature: enable every transcendental at once.
 transcendentals = ["trig", "exp-log", "hyperbolic", "pow"]
