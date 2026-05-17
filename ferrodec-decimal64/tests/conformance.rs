@@ -101,6 +101,14 @@ const fn expected_per_file() -> &'static [(&'static str, usize)] {
         ("ddQuantize.decTest", 606),
         ("ddSameQuantum.decTest", 333),
         ("ddSubtract.decTest", 514),
+        // fd-hnx: `tointegral` / `tointegralx` (IEEE 754-2019 §5.9
+        // `roundToIntegral{,Exact}`) wired. No ferrodec correctness
+        // defect surfaced (0 fail): `ddToIntegral.decTest` 164 of 178,
+        // the 14 skips being non-IEEE rounding directives, operands
+        // past the parser cap, and `#`-hex interchange — never
+        // failures. Exact-match per-file count per ADR-0010 /
+        // feedback_regression_guard_exact_match.
+        ("ddToIntegral.decTest", 164),
     ]
 }
 
@@ -116,6 +124,8 @@ fn run_case(case: &TestCase, ctx: &Context) -> Outcome {
         "comparetotmag" | "comparetotalmag" => run_total(case, ctx, true),
         "samequantum" => run_samequantum(case, ctx),
         "quantize" => run_quantize(case, ctx),
+        "tointegral" => run_integral(case, ctx, false),
+        "tointegralx" => run_integral(case, ctx, true),
         _ => Outcome::Skip,
     }
 }
@@ -266,6 +276,31 @@ fn run_quantize(case: &TestCase, ctx: &Context) -> Outcome {
         _ => return Outcome::Skip,
     };
     let (result, status) = a.quantize(b, rm);
+    check(result, status, case)
+}
+
+/// `tointegral` / `tointegralx`: IEEE 754-2019 §5.9
+/// `roundToIntegral{,Exact}`. Unary, at the active rounding mode;
+/// `tointegralx` signals `INEXACT` when a non-zero fractional part is
+/// discarded, `tointegral` never does. Same result/status comparison
+/// shape and skip-not-fail policy as `run_quantize`.
+fn run_integral(case: &TestCase, ctx: &Context, signal_inexact: bool) -> Outcome {
+    if case.operands.len() != 1 || case.expected.starts_with('#') {
+        return Outcome::Skip;
+    }
+    let rm = match map_rounding(&ctx.rounding) {
+        Some(r) => r,
+        None => return Outcome::Skip,
+    };
+    let a = match parse_operand(&case.operands[0], rm) {
+        Some(a) => a,
+        None => return Outcome::Skip,
+    };
+    let (result, status) = if signal_inexact {
+        a.round_to_integral_exact(rm)
+    } else {
+        a.round_to_integral(rm)
+    };
     check(result, status, case)
 }
 
