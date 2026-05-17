@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-05-17
+
 ### Changed
 
 - `Decimal64::exp` and `Decimal64::ln` are now faithfully rounded

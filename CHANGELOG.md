@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.16.0] - 2026-05-17
+
 - Internal: the transcendental kernel (exp / ln / sin·cos / inverse
   trig / hyperbolic / pow / cbrt / argument reduction, plus the
   `Extended` 50-digit intermediate and its constants) was extracted
@@ -23,25 +25,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ferrodec-ieee` → `ferrodec-multiword` → `ferrodec-transcend` →
   `ferrodec`.
 
-- `ferrodec-decimal64` 1.4.0: the decimal64 H tier correctness
-  train. Closes the three H class bugs ADR-0017 surfaced plus the
-  full 9 H / 14 M / 17 L six agent finding set, wires the
-  arithmetic conformance dispatch (`add` / `subtract` / `multiply`
-  / `divide` / `fma`, full `dd*` corpus at zero failures), and
-  records the train in ADR-0018 (supersedes ADR-0017). Includes a
-  breaking `Decimal64::to_f64` signature change; see that crate's
-  CHANGELOG. The decimal64 release tags and publishes on its own
-  cadence, independent of the workspace `ferrodec` version.
-
-- `ferrodec-decimal32` 1.4.0: the decimal32 correctness train, the
-  decimal64 sibling. A `Decimal64` cross-check oracle and a six
-  agent review closed 8 H / 6 M / 4 L findings, ported the Kani
-  special case proofs to parity with decimal64, added a `dpd` gated
-  DPD interchange codec (`dsEncode` 250 of 268, was 2), and
-  recorded the train in ADR-0019. Includes a breaking
-  `Decimal32::to_f64` signature change; see that crate's CHANGELOG.
-  Tags and publishes on its own cadence, independent of the
-  workspace `ferrodec` version.
+- Sibling cadence: `ferrodec-decimal64` and `ferrodec-decimal32`
+  ship 1.5.0 on the same date, consuming the new
+  `ferrodec-transcend` kernel to make their entire §9.2
+  transcendental surface faithfully rounded (≤ 1 ULP) at exact
+  parity with `Decimal128`, dropping their `libm` detour. That work
+  (the fd-r0l train) is recorded in ADR-0024 and in each sibling's
+  own CHANGELOG; the siblings tag and publish on their own cadence,
+  independent of the workspace `ferrodec` version. `Decimal128`
+  itself is unchanged by fd-r0l — only this crate's extraction (the
+  bullet above) and the resulting dependency graph differ for
+  1.16.0.
 
 ## [1.15.1] - 2026-05-16
 
