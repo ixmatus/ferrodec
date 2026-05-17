@@ -19,13 +19,15 @@ fmt = []
 # callers needing full Decimal64 precision should use `parse_str` /
 # `Display` instead. Pulls `fmt` for the round-trip path.
 binary-float = ["fmt"]
-# Transcendental sub-features. Each pulls in `binary-float` because the
-# kernels route through f64 via `libm` (pure Rust, no_std-compatible,
-# no FFI). The libm f64 path caps achievable precision at ~10⁻¹⁵
-# relative — one digit below Decimal64's nominal 16. v1.0 ships this
-# baseline; a follow-on can replace it with a pure-decimal Taylor /
-# Newton kernel at u128 working precision when needed (public surface
-# is drop-in compatible).
+# Transcendental sub-features. `exp` / `ln` are faithfully rounded
+# (≤ 1 ULP at 16 digits) via the shared `ferrodec-transcend`
+# Extended-precision kernel after the fd-r0l pilot. The remaining
+# operations (trig, inverse-trig, hyperbolic, pow, cbrt) still route
+# through f64 via `libm` (pure Rust, no_std-compatible, no FFI); that
+# libm f64 path caps their achievable precision at ~10⁻¹⁵ relative,
+# one digit below Decimal64's nominal 16. A follow-on can migrate them
+# onto the same pure-decimal kernel when needed (public surface is
+# drop-in compatible). Each sub-feature pulls in `binary-float`.
 #
 # `exp-log`     — exp, ln. Routes through the shared faithful
 #                 `ferrodec-transcend` Extended-precision kernel
@@ -75,7 +77,7 @@ num-traits = { version = "0.2", default-features = false, optional = true }
 serde = { version = "1", default-features = false, optional = true }
 
 [dev-dependencies]
-ferrodec-test-support = { path = "../ferrodec-test-support" }
+ferrodec-test-support = { path = "../ferrodec-test-support", features = ["transcend-oracle"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_test = "1"

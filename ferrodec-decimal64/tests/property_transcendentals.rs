@@ -1,18 +1,23 @@
-//! astro-float cross-check for the `Decimal64` transcendental
-//! cluster (`exp`, `ln`, the trig / inverse-trig / hyperbolic /
+//! astro-float cross-check for the still-`f64`-routed `Decimal64`
+//! transcendental cluster (the trig / inverse-trig / hyperbolic /
 //! inverse-hyperbolic families, `pow`, `cbrt`).
 //!
-//! Decimal64's transcendentals route through `f64` via `libm`
-//! (`ops/trig.rs`, `ops/hyper.rs`, `ops/exp.rs`, `ops/pow.rs`), so
-//! the documented accuracy envelope is the f64 round-trip limit:
-//! ~10⁻¹⁵ relative, with accuracy specified only for `|x| < 2^53`
-//! (see the `ops/trig.rs` module doc). These tests therefore hold
-//! the implementation to that *documented* envelope, a `1e-13`
-//! relative bound with a `1.0` absolute cushion — the same contract
-//! the in-crate `approx_equal` unit-test helpers already encode —
-//! not the 1-ULP-at-16-digits a pure-decimal kernel would meet.
-//! The oracle is `astro-float` (pure Rust arbitrary precision, no
-//! MPFR / C FFI; `feedback_oracle_choice`).
+//! `exp` and `ln` no longer live here. The fd-r0l pilot rewired them
+//! onto the shared faithful `ferrodec-transcend` Extended-precision
+//! kernel, so they now meet the exact faithful-rounding contract
+//! (≤ 1 ULP at 16 digits, every rounding direction) proven in
+//! `tests/property_exp.rs` and `tests/property_ln.rs`. This file
+//! retains only the operations that still route through `f64` via
+//! `libm` (`ops/trig.rs`, `ops/hyper.rs`, `ops/pow.rs`), whose
+//! documented accuracy envelope is the f64 round-trip limit: ~10⁻¹⁵
+//! relative, with accuracy specified only for `|x| < 2^53` (see the
+//! `ops/trig.rs` module doc). These tests therefore hold the
+//! implementation to that *documented* envelope, a `1e-13` relative
+//! bound with a `1.0` absolute cushion — the same contract the
+//! in-crate `approx_equal` unit-test helpers already encode — not the
+//! 1-ULP-at-16-digits a pure-decimal kernel would meet. The oracle is
+//! `astro-float` (pure Rust arbitrary precision, no MPFR / C FFI;
+//! `feedback_oracle_choice`).
 //!
 //! Range, not precision, is out of scope here: inputs are kept where
 //! the true result stays inside `f64`'s finite range so the
@@ -110,31 +115,9 @@ where
     );
 }
 
-// exp / ln ----------------------------------------------------------------
-
-#[test]
-fn spot_exp() {
-    for s in [
-        "0", "1", "-1", "5", "-5", "0.5", "-0.3", "50", "-50", "12.75",
-    ] {
-        check_unary("exp", s, Decimal64::exp, BigFloat::exp);
-    }
-}
-
-#[test]
-fn spot_ln() {
-    for s in [
-        "1",
-        "2",
-        "10",
-        "0.5",
-        "1000000",
-        "0.0001",
-        "2.718281828459045",
-    ] {
-        check_unary("ln", s, Decimal64::ln, BigFloat::ln);
-    }
-}
+// exp / ln moved to the faithful suites `tests/property_exp.rs` and
+// `tests/property_ln.rs` (fd-r0l P1). What follows is the still-f64
+// envelope for the remaining operations.
 
 // trig --------------------------------------------------------------------
 
@@ -227,32 +210,8 @@ fn spot_cbrt() {
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(48))]
 
-    /// `exp` over `[-50, 50]`: the true result stays well inside f64
-    /// range and the documented envelope holds.
-    #[test]
-    fn exp_sweep(bits in any::<u64>(), sign in any::<bool>()) {
-        let frac = bits as f64 / u64::MAX as f64;
-        let mag = frac * 50.0;
-        let s = format!("{}{:.10}", if sign { "-" } else { "" }, mag);
-        let x = parse(&s);
-        let (got, _) = x.exp(RoundingMode::NearestEven);
-        let want = oracle_unary(&s, BigFloat::exp);
-        prop_assert!(close(got, want), "exp({s}): got {:?}, want {want}",
-            got.to_f64(RoundingMode::NearestEven).0);
-    }
-
-    /// `ln` over `(0, 1e12]`.
-    #[test]
-    fn ln_sweep(bits in 1u64..=u64::MAX) {
-        let frac = bits as f64 / u64::MAX as f64;
-        let val = frac * 1e12 + 1e-6;
-        let s = format!("{val:.6}");
-        let x = parse(&s);
-        let (got, _) = x.ln(RoundingMode::NearestEven);
-        let want = oracle_unary(&s, BigFloat::ln);
-        prop_assert!(close(got, want), "ln({s}): got {:?}, want {want}",
-            got.to_f64(RoundingMode::NearestEven).0);
-    }
+    // `exp` / `ln` sweeps moved to the faithful suites
+    // `tests/property_exp.rs` / `tests/property_ln.rs` (fd-r0l P1).
 
     /// `sin` / `cos` over moderate magnitude (well inside the
     /// `|x| < 2^53` accuracy envelope).

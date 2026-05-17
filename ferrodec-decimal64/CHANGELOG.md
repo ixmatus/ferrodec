@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `Decimal64::exp` and `Decimal64::ln` are now faithfully rounded
+  (≤ 1 ULP at 16 digits, every IEEE 754-2019 rounding direction) via
+  the shared `ferrodec-transcend` Extended-precision kernel, replacing
+  the lossy `f64` / `libm` detour that capped precision at ~10⁻¹⁵
+  relative. The kernel is the same verified implementation the
+  `ferrodec` (Decimal128) parent uses, instantiated at
+  `F = Decimal64` through the `DecimalFormat` seam. The rewrite also
+  reaches `Decimal64`'s true domain: `exp(800)` is now finite where
+  the `f64` path saturated near `x ≈ 709`, and `ln` is faithful
+  across the full positive range down to `~10⁻³⁹⁸` and up to
+  `~10³⁸⁴`. This is behaviour-improving, not a bug fix: previously
+  wrong-by-rounding results become correctly faithful, and previously
+  saturated inputs now return their true finite value. Special-value
+  semantics (NaN / infinity / zero / negative) and the ADR-0016 Kani
+  shims are byte-identical to before. The faithful contract is proven
+  by the new `tests/property_exp.rs` and `tests/property_ln.rs`
+  suites. `trig`, `hyperbolic`, `pow`, and `cbrt` still route through
+  `f64` via `libm` and keep their documented ~10⁻¹⁵ envelope until a
+  later slice migrates them. New dependencies on the `ferrodec-transcend`
+  and `ferrodec-multiword` workspace crates (pulled by `exp-log`)
+  change the published dependency graph.
+
 ## [1.4.0] - 2026-05-15
 
 The decimal64 correctness train. ADR-0017 carved this slice out of
