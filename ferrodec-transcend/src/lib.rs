@@ -38,6 +38,8 @@ pub mod argred;
 pub mod cbrt;
 #[cfg(feature = "exp-log")]
 pub mod exp;
+#[cfg(feature = "trig")]
+pub mod inverse_trig;
 #[cfg(feature = "exp-log")]
 pub mod ln;
 #[cfg(feature = "trig")]
