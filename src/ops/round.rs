@@ -402,3 +402,272 @@ fn overflow_result(sign: bool, rm: RoundingMode) -> Decimal128 {
 const fn biased(unbiased_exp: i32) -> u32 {
     (unbiased_exp + BIAS as i32) as u32
 }
+
+/// Width-bounded analogue of the rounding kernel's decision core, the
+/// formal-verification target for S7 (ADR-0021).
+///
+/// [`round_and_pack_finite`] runs its drop / decide / power-of-ten-carry
+/// core (Steps 1–3) on a `U256` over the full 34-digit domain — the
+/// `decimal_digit_count` walk and the `div_rem10` drop loop make that
+/// pipeline intractable for CBMC, so it stays out of Kani scope by
+/// ADR-0016. The *logic* of that core is width-independent, so this
+/// module reproduces it at the narrowest faithful width — `u32`, the
+/// decimal32 kernel shape (`p = 7`, significand `< 10^9`). It is also
+/// deliberately **loop-free**: the digit count is a comparison ladder
+/// and the digit drop selects a *literal* power-of-ten divisor by a
+/// `match` on the drop amount, so CBMC never has to unroll a loop or
+/// bit-blast a symbolic-by-symbolic division. That is what keeps the
+/// equivalence proof tractable; an earlier `u128`, loop-based draft did
+/// not terminate (the plan's fallback ladder anticipated exactly this
+/// and the narrowing is its prescribed remedy).
+///
+/// The single decision point — `should_round_up` — is the exact
+/// production function, already proven exhaustively against the IEEE
+/// 754-2019 §4.3.3 table by S6, so the kernel proof composes with the
+/// decision proof rather than re-deriving it.
+#[cfg(any(test, kani))]
+pub(crate) mod bounded_kernel {
+    use super::{should_round_up, RoundingMode};
+
+    /// `10^k` for `k ≤ 9` (every value `≤ 10^9` fits `u32`). A `match`,
+    /// not a loop, so CBMC sees a constant.
+    pub(crate) const fn pow10_u32(k: u32) -> u32 {
+        match k {
+            0 => 1,
+            1 => 10,
+            2 => 100,
+            3 => 1_000,
+            4 => 10_000,
+            5 => 100_000,
+            6 => 1_000_000,
+            7 => 10_000_000,
+            8 => 100_000_000,
+            _ => 1_000_000_000,
+        }
+    }
+
+    /// Decimal digit count of `n` (with `0` having one digit) for
+    /// `n < 10^9`, by a comparison ladder — loop-free, so CBMC encodes
+    /// it as a small decision tree rather than an unrolled division
+    /// chain.
+    pub(crate) const fn decimal_digits_u32(n: u32) -> u32 {
+        if n < 10 {
+            1
+        } else if n < 100 {
+            2
+        } else if n < 1_000 {
+            3
+        } else if n < 10_000 {
+            4
+        } else if n < 100_000 {
+            5
+        } else if n < 1_000_000 {
+            6
+        } else if n < 10_000_000 {
+            7
+        } else if n < 100_000_000 {
+            8
+        } else {
+            9
+        }
+    }
+
+    /// Round the integer significand `coef` to at most `p` significant
+    /// decimal digits under `rm`, mirroring Steps 1–3 of
+    /// [`super::round_and_pack_finite`] at fixed `u32` width:
+    ///
+    /// 1. Drop the low `digits − p` digits, recovering the round digit
+    ///    and the sticky bit by a single division with a *literal*
+    ///    power-of-ten divisor (the closed form of the production
+    ///    `extract_dropped_digits` loop).
+    /// 2. Decide via the production [`should_round_up`].
+    /// 3. Increment on a round-up and divide back by ten if that crossed
+    ///    the `10^p` boundary, bumping the exponent.
+    ///
+    /// Returns `(rounded_coef, exp_delta)`, `exp_delta ∈ {0, 1}` (the
+    /// power-of-ten carry). Quantum padding, overflow / underflow and
+    /// packing are deliberately *not* modelled here: they are separate
+    /// concerns downstream of the rounding decision and out of the
+    /// width-bounded kernel's scope.
+    pub(crate) fn round_to_p_digits(coef: u32, p: u32, sign: bool, rm: RoundingMode) -> (u32, i32) {
+        let digits = decimal_digits_u32(coef);
+        if digits <= p {
+            return (coef, 0);
+        }
+        let drop = digits - p;
+
+        // Split off the dropped tail with a constant divisor chosen by
+        // the (small) drop amount. `below = 10^(drop-1)` isolates the
+        // most-significant dropped digit (the round digit); everything
+        // beneath it is the sticky tail.
+        let divisor = pow10_u32(drop);
+        let below = pow10_u32(drop - 1);
+        let kept = coef / divisor;
+        let dropped = coef % divisor;
+        let round_digit = (dropped / below) % 10;
+        let sticky = dropped % below != 0;
+
+        let last_kept_lsb = kept % 10;
+        let mut rounded = kept;
+        let mut exp_delta = 0i32;
+        if should_round_up(rm, sign, last_kept_lsb, round_digit, sticky) {
+            rounded += 1;
+            if rounded == pow10_u32(p) {
+                rounded /= 10;
+                exp_delta = 1;
+            }
+        }
+        (rounded, exp_delta)
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        const MODES: [RoundingMode; 5] = [
+            RoundingMode::NearestEven,
+            RoundingMode::NearestAway,
+            RoundingMode::TowardZero,
+            RoundingMode::TowardPositive,
+            RoundingMode::TowardNegative,
+        ];
+
+        #[test]
+        fn no_drop_when_within_precision() {
+            assert_eq!(
+                round_to_p_digits(1_234_567, 7, false, RoundingMode::NearestEven),
+                (1_234_567, 0)
+            );
+            assert_eq!(
+                round_to_p_digits(42, 7, true, RoundingMode::TowardNegative),
+                (42, 0)
+            );
+        }
+
+        #[test]
+        fn half_even_tie_breaks_to_even() {
+            // 1_234_565 with a single dropped "5", nothing below ⇒ exact
+            // tie; kept LSB 5 is odd ⇒ round up to 1_234_566.
+            assert_eq!(
+                round_to_p_digits(12_345_655, 7, false, RoundingMode::NearestEven),
+                (1_234_566, 0)
+            );
+            // 1_234_560 with a dropped "5" ⇒ tie; kept LSB 0 even ⇒
+            // stays 1_234_560.
+            assert_eq!(
+                round_to_p_digits(12_345_605, 7, false, RoundingMode::NearestEven),
+                (1_234_560, 0)
+            );
+        }
+
+        #[test]
+        fn directed_modes_follow_sign() {
+            // Drop "9": toward +∞ rounds a positive up, toward −∞ leaves
+            // it, and the mirror holds for a negative significand.
+            assert_eq!(
+                round_to_p_digits(12_345_679, 7, false, RoundingMode::TowardPositive),
+                (1_234_568, 0)
+            );
+            assert_eq!(
+                round_to_p_digits(12_345_679, 7, false, RoundingMode::TowardNegative),
+                (1_234_567, 0)
+            );
+            assert_eq!(
+                round_to_p_digits(12_345_679, 7, true, RoundingMode::TowardNegative),
+                (1_234_568, 0)
+            );
+        }
+
+        #[test]
+        fn power_of_ten_carry_bumps_exponent() {
+            // 9_999_999 with a dropped "9" rounds up to 10_000_000 →
+            // 1_000_000 e+1.
+            assert_eq!(
+                round_to_p_digits(99_999_999, 7, false, RoundingMode::NearestEven),
+                (1_000_000, 1)
+            );
+        }
+
+        #[test]
+        fn truncation_toward_zero_never_increments() {
+            assert_eq!(
+                round_to_p_digits(99_999_999, 7, false, RoundingMode::TowardZero),
+                (9_999_999, 0)
+            );
+        }
+
+        /// Bounded *exhaustive* concrete check: a dense grid of
+        /// significands × both signs × all five modes, cross-checked
+        /// against an independently computed reference. This is the
+        /// plan's "kernel via bounded-check" carrier — it holds the
+        /// empirical weight in `cargo test` regardless of CBMC's mood,
+        /// and runs in well under a second.
+        #[test]
+        fn exhaustive_grid_matches_reference() {
+            // Independent reference: digit count by repeated division
+            // (a different method to the kernel's comparison ladder),
+            // and the §4.3.3 decision transcribed afresh.
+            fn ref_digits(mut n: u32) -> u32 {
+                if n == 0 {
+                    return 1;
+                }
+                let mut d = 0;
+                while n != 0 {
+                    n /= 10;
+                    d += 1;
+                }
+                d
+            }
+            fn ref_up(rm: RoundingMode, sign: bool, lsb: u32, rd: u32, st: bool) -> bool {
+                let any = rd != 0 || st;
+                match rm {
+                    RoundingMode::TowardZero => false,
+                    RoundingMode::TowardPositive => any && !sign,
+                    RoundingMode::TowardNegative => any && sign,
+                    RoundingMode::NearestAway => rd >= 5,
+                    RoundingMode::NearestEven => rd > 5 || (rd == 5 && (st || lsb % 2 == 1)),
+                }
+            }
+            fn reference(coef: u32, p: u32, sign: bool, rm: RoundingMode) -> (u32, i32) {
+                let digits = ref_digits(coef);
+                if digits <= p {
+                    return (coef, 0);
+                }
+                let drop = digits - p;
+                let divisor = pow10_u32(drop);
+                let below = pow10_u32(drop - 1);
+                let kept = coef / divisor;
+                let dropped = coef % divisor;
+                let rd = (dropped / below) % 10;
+                let st = dropped % below != 0;
+                let mut r = kept;
+                let mut ed = 0;
+                if ref_up(rm, sign, kept % 10, rd, st) {
+                    r += 1;
+                    if r == pow10_u32(p) {
+                        r /= 10;
+                        ed = 1;
+                    }
+                }
+                (r, ed)
+            }
+
+            // Walk a representative grid: every value 0..=20_000 (covers
+            // the digit-count ladder up to 5 digits and all carry edges
+            // at p ≤ 4), plus the 7-digit boundary band around 10^7.
+            for p in [2u32, 4, 7] {
+                for coef in (0u32..=20_000).chain(9_999_990..=10_000_010) {
+                    for sign in [false, true] {
+                        for rm in MODES {
+                            assert_eq!(
+                                round_to_p_digits(coef, p, sign, rm),
+                                reference(coef, p, sign, rm),
+                                "coef={coef} p={p} sign={sign} rm={rm:?}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

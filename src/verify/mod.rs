@@ -26,4 +26,5 @@ mod nan_payload;
 mod pow;
 mod quantum;
 mod rem;
+mod round;
 mod sqrt;
