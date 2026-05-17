@@ -1,0 +1,13 @@
+[package]
+name = "ferrodec-multiword"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Fixed-width 256/384/512-bit unsigned integer primitives for the ferrodec decimal family"
+repository.workspace = true
+keywords = ["bigint", "u256", "no_std", "embedded", "decimal"]
+categories = ["embedded", "mathematics", "no-std", "no-std::no-alloc"]
+
+[lints]
+workspace = true
