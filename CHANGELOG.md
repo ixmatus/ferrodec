@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Internal: the transcendental kernel (exp / ln / sin·cos / inverse
+  trig / hyperbolic / pow / cbrt / argument reduction, plus the
+  `Extended` 50-digit intermediate and its constants) was extracted
+  into a new shared `ferrodec-transcend` workspace crate, generic
+  over a `DecimalFormat` seam, so the decimal siblings can reuse one
+  verified implementation instead of a per-precision copy. The
+  fixed-width integer primitives moved to `ferrodec-multiword` and
+  the decoded-class type to `ferrodec-ieee` 0.1.4 on the same
+  rationale. Behaviour-neutral for `Decimal128`: the public API is
+  unchanged and the full transcendental property suite, conformance
+  corpus, and per-kernel unit tests stay byte-identical green. This
+  changes the published dependency graph (`ferrodec` now depends on
+  `ferrodec-transcend` and `ferrodec-ieee` 0.1.4); publish order is
+  `ferrodec-ieee` → `ferrodec-multiword` → `ferrodec-transcend` →
+  `ferrodec`.
+
 - `ferrodec-decimal64` 1.4.0: the decimal64 H tier correctness
   train. Closes the three H class bugs ADR-0017 surfaced plus the
   full 9 H / 14 M / 17 L six agent finding set, wires the
