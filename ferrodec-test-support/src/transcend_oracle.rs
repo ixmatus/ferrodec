@@ -303,3 +303,72 @@ pub fn assert_faithful<F: FaithfulFormat>(
         );
     }
 }
+
+/// Exact high-precision oracle values for the exp-log family of
+/// transcendentals, computed once here in astro-float so every decimal
+/// sibling's `tests/property_*.rs` shares one definition.
+///
+/// Each builder parses the exact scientific string of an input (the
+/// [`FaithfulFormat::sci`] form) at [`oracle::P`]-bit
+/// precision, applies the
+/// operation with `RoundingMode::None` (the recommendation in the
+/// astro-float docs when a sub-ULP function-approximation error is
+/// acceptable, since the comparison dead-band absorbs it), and returns
+/// the resulting [`BigFloat`] for [`assert_faithful`].
+///
+/// Centralising these means the direct tier (decimal64, Decimal128) and
+/// the widen tier (decimal32, which renders its input through a lossless
+/// decimal64 carrier) feed the *same* exact 256-bit oracle, so
+/// faithfulness soundness is uniform across siblings and astro-float
+/// stays confined to this crate.
+pub mod oracle {
+    use astro_float::{BigFloat, Consts, Radix, RoundingMode as AfRm};
+
+    /// Working precision for the astro-float oracle: 256 bits
+    /// (`≈ 77` decimal digits), far above the widest sibling's faithful
+    /// bracket (36 digits for `Decimal128`) and identical to the
+    /// `P_CMP` comparison precision the harness converts against.
+    pub const P: usize = 256;
+
+    /// Parse the exact scientific string of an input into a `BigFloat`
+    /// at oracle precision.
+    fn arg(x_str: &str, cc: &mut Consts) -> BigFloat {
+        BigFloat::parse(x_str, Radix::Dec, P, AfRm::None, cc)
+    }
+
+    /// `e^x` of the exact value `x_str`.
+    pub fn exp(x_str: &str, cc: &mut Consts) -> BigFloat {
+        arg(x_str, cc).exp(P, AfRm::None, cc)
+    }
+
+    /// `2^x` of the exact value `x_str`. astro-float has no direct
+    /// `exp2`; `2.pow(x)` computes it at full oracle precision.
+    pub fn exp2(x_str: &str, cc: &mut Consts) -> BigFloat {
+        let x = arg(x_str, cc);
+        let two = BigFloat::from_word(2, P);
+        two.pow(&x, P, AfRm::None, cc)
+    }
+
+    /// Natural logarithm of the exact value `x_str`.
+    pub fn ln(x_str: &str, cc: &mut Consts) -> BigFloat {
+        arg(x_str, cc).ln(P, AfRm::None, cc)
+    }
+
+    /// Base-2 logarithm of the exact value `x_str`.
+    pub fn log2(x_str: &str, cc: &mut Consts) -> BigFloat {
+        arg(x_str, cc).log2(P, AfRm::None, cc)
+    }
+
+    /// Base-10 logarithm of the exact value `x_str`.
+    pub fn log10(x_str: &str, cc: &mut Consts) -> BigFloat {
+        arg(x_str, cc).log10(P, AfRm::None, cc)
+    }
+
+    /// Cube root of the exact value `x_str`. `cc` is consumed parsing
+    /// the argument; astro-float's `cbrt` itself needs no constants
+    /// cache, so all six builders still share one call shape across the
+    /// property suites.
+    pub fn cbrt(x_str: &str, cc: &mut Consts) -> BigFloat {
+        arg(x_str, cc).cbrt(P, AfRm::None)
+    }
+}

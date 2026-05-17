@@ -14,27 +14,18 @@
 
 #![cfg(feature = "exp-log")]
 
-use astro_float::{BigFloat, Consts, Radix, RoundingMode as AfRm};
+use astro_float::Consts;
+use ferrodec_test_support::transcend_oracle::oracle;
 use proptest::prelude::*;
 
 mod common;
 use common::{assert_faithful, parse, MODES};
 
-/// Working precision for the astro-float oracle: 256 bits ≈ 77 decimal
-/// digits, far above the 16-digit faithful bracket (`common`).
-const P: usize = 256;
-
-/// Compute `exp` of the exact value `x_str` at high precision.
-fn oracle_exp(x_str: &str, cc: &mut Consts) -> BigFloat {
-    let x = BigFloat::parse(x_str, Radix::Dec, P, AfRm::None, cc);
-    x.exp(P, AfRm::None, cc)
-}
-
 fn check_exp_at(x_str: &str) {
     let x = parse(x_str);
     let exact = format!("{x:e}");
     let mut cc = Consts::new().expect("init consts");
-    let oracle = oracle_exp(&exact, &mut cc);
+    let oracle = oracle::exp(&exact, &mut cc);
     for &rm in MODES {
         let (got, status) = x.exp(rm);
         assert_faithful(
@@ -152,7 +143,7 @@ proptest! {
         let x = parse(&value_str);
         let exact = format!("{x:e}");
         let mut cc = Consts::new().expect("init consts");
-        let oracle = oracle_exp(&exact, &mut cc);
+        let oracle = oracle::exp(&exact, &mut cc);
         for &rm in MODES {
             let (got, status) = x.exp(rm);
             assert_faithful(
