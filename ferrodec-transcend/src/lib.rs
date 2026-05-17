@@ -28,6 +28,7 @@
 
 #![no_std]
 
+pub mod consts;
 pub mod extended;
 mod format;
 
