@@ -19,13 +19,16 @@ fmt = []
 # callers needing full Decimal64 precision should use `parse_str` /
 # `Display` instead. Pulls `fmt` for the round-trip path.
 binary-float = ["fmt"]
-# Transcendental sub-features. The whole exp-log family
-# (`exp` / `ln` / `exp2` / `log2` / `log10`) and `cbrt` are faithfully
-# rounded (≤ 1 ULP at 16 digits, every IEEE 754-2019 rounding
-# direction) via the shared `ferrodec-transcend` Extended-precision
-# kernel after the fd-r0l train, at exact parity with the
-# `ferrodec` (Decimal128) parent. The remaining operations (trig,
-# inverse-trig, hyperbolic, pow) still route through f64 via `libm`
+# Transcendental sub-features. The exp-log family
+# (`exp` / `ln` / `exp2` / `log2` / `log10`), `cbrt`, and the whole
+# trig family (`sin` / `cos` / `tan` / `asin` / `acos` / `atan` /
+# `atan2`) are faithfully rounded (≤ 1 ULP at 16 digits, every IEEE
+# 754-2019 rounding direction) via the shared `ferrodec-transcend`
+# Extended-precision kernel after the fd-r0l train, at exact parity
+# with the `ferrodec` (Decimal128) parent; the trig family uses the
+# Payne-Hanek argument reduction, so its accuracy is no longer capped
+# at the pre-fd-r0l `|x| < 2^53` f64-round-trip limit. The remaining
+# operations (hyperbolic, pow) still route through f64 via `libm`
 # (pure Rust, no_std-compatible, no FFI); that libm f64 path caps
 # their achievable precision at ~10⁻¹⁵ relative, one digit below
 # Decimal64's nominal 16. A follow-on can migrate them onto the same
@@ -39,7 +42,14 @@ binary-float = ["fmt"]
 #                 `libm` detour. `dep:libm` is retained because the
 #                 `pow` / `hyperbolic` features (which imply
 #                 `exp-log`) still route through `libm`.
-# `trig`        — sin, cos, tan, asin, acos, atan.
+# `trig`        — sin, cos, tan, asin, acos, atan, atan2. Route
+#                 through the shared faithful `ferrodec-transcend`
+#                 Extended-precision kernel with Payne-Hanek
+#                 argument reduction (≤ 1 ULP across the true
+#                 Decimal64 domain), not the pre-fd-r0l lossy f64 /
+#                 `libm` detour. `dep:libm` is retained because the
+#                 `hyperbolic` / `pow` features still route through
+#                 `libm`.
 # `hyperbolic`  — sinh, cosh, tanh, asinh, acosh, atanh. Implies
 #                 `exp-log`.
 # `pow`         — pow (f64 / `libm`), cbrt (faithful shared kernel,

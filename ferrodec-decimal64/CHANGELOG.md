@@ -25,11 +25,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   semantics (NaN / infinity / zero / negative) and the ADR-0016 Kani
   shims are byte-identical to before. The faithful contract is proven
   by the new `tests/property_exp.rs` and `tests/property_ln.rs`
-  suites. `trig`, `hyperbolic`, and `pow` still route through
-  `f64` via `libm` and keep their documented ~10⁻¹⁵ envelope until a
-  later slice migrates them. New dependencies on the `ferrodec-transcend`
+  suites. `hyperbolic` and `pow` still route through `f64` via `libm`
+  and keep their documented ~10⁻¹⁵ envelope until a later slice
+  migrates them. New dependencies on the `ferrodec-transcend`
   and `ferrodec-multiword` workspace crates (pulled by `exp-log`)
   change the published dependency graph.
+
+- `Decimal64::sin`, `cos`, `tan`, `asin`, `acos`, `atan`, and
+  `atan2` are now faithfully rounded (≤ 1 ULP at 16 digits, every
+  IEEE 754-2019 rounding direction) via the shared
+  `ferrodec-transcend` Extended-precision kernel, replacing the lossy
+  `f64` / `libm` detour. The forward functions use the Payne-Hanek
+  argument reduction, so the pre-fd-r0l `|x| < 2^53` accuracy
+  limitation (the f64 round-trip lost the low digits before
+  reduction began) is lifted: `sin` / `cos` / `tan` are now faithful
+  across the full `Decimal64` magnitude range. Behaviour-improving,
+  not a bug fix. The `asin` / `acos` `|x| > 1` domain INVALID is now
+  decided at Extended precision rather than on a rounded f64 value;
+  special-value semantics and the ADR-0016 Kani shims are
+  byte-identical to before. The faithful contract is proven by the
+  new `tests/property_sincos.rs`, `tests/property_sincos_large.rs`,
+  and `tests/property_inverse_trig.rs` suites. The `trig` feature now
+  pulls the `ferrodec-transcend` / `ferrodec-multiword` workspace
+  crates (already in the graph via `exp-log`).
 
 ### Added
 

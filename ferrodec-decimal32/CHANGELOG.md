@@ -22,14 +22,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   faithful, and previously saturated inputs now return their true
   finite value. Special-value semantics (NaN / infinity / zero /
   negative) and the ADR-0016 Kani shims are byte-identical to before;
-  only the finite result path changes. `trig`, `hyperbolic`, and
-  `pow` still route through `f64` via `libm` and keep their
-  documented sub-1-ULP envelope until a later slice migrates them.
-  New dependencies on the `ferrodec-transcend` and `ferrodec-multiword`
-  workspace crates (pulled by `exp-log`) change the published
-  dependency graph; `ferrodec-decimal32` itself stays
-  astro-float-free (the faithful-rounding oracle compiles only inside
-  the `ferrodec-test-support` dev-dependency).
+  only the finite result path changes. `hyperbolic` and `pow` still
+  route through `f64` via `libm` and keep their documented sub-1-ULP
+  envelope until a later slice migrates them. New dependencies on the
+  `ferrodec-transcend` and `ferrodec-multiword` workspace crates
+  (pulled by `exp-log`) change the published dependency graph;
+  `ferrodec-decimal32` itself stays astro-float-free (the
+  faithful-rounding oracle compiles only inside the
+  `ferrodec-test-support` dev-dependency).
+
+- `Decimal32::sin`, `cos`, `tan`, `asin`, `acos`, `atan`, and
+  `atan2` are now faithfully rounded (≤ 1 ULP at 7 digits, every
+  IEEE 754-2019 rounding direction) via the shared
+  `ferrodec-transcend` Extended-precision kernel, replacing the lossy
+  `f64` / `libm` detour, at exact parity with the Decimal128 parent
+  and the `ferrodec-decimal64` sibling. The forward functions use the
+  Payne-Hanek argument reduction, faithful across the full
+  `Decimal32` magnitude range. Behaviour-improving, not a bug fix.
+  The `asin` / `acos` `|x| > 1` domain INVALID is now decided at
+  Extended precision rather than on a rounded f64 value;
+  special-value semantics and the ADR-0016 Kani shims are
+  byte-identical to before. The faithful contract is proven by the
+  new `tests/property_sincos.rs`, `tests/property_sincos_large.rs`,
+  and `tests/property_inverse_trig.rs` suites, which stay
+  astro-float-free through the shared `transcend_oracle` builders.
+  The `trig` feature now pulls the `ferrodec-transcend` /
+  `ferrodec-multiword` workspace crates (already in the graph via
+  `exp-log`).
 
 ### Added
 

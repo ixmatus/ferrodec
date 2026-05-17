@@ -58,18 +58,20 @@ and scope gaps, not correctness defects.
   rather than `Err(ExponentOutOfRange)`). Cross-crate decision —
   see decimal128 for the parallel concern.
 
-## Coverage gap: trig / inverse-trig / hyperbolic / pow route through f64 / libm
+## Coverage gap: hyperbolic / pow route through f64 / libm
 
-* **Status**: narrowed by the fd-r0l train. The whole exp-log family
-  (`exp`, `ln`, `exp2`, `log2`, `log10`) and `cbrt` are no longer on
-  the f64 path: they are faithfully rounded via the shared
-  `ferrodec-transcend` Extended-precision kernel (≤ 1 ULP at 7
-  digits, every IEEE 754-2019 rounding direction), at exact parity
-  with the Decimal128 parent and the decimal64 sibling. The remaining
-  f64 / `libm` operations are `sin` / `cos` / `tan` / `asin` /
-  `acos` / `atan` (`trig`), the hyperbolic family (`hyperbolic`), and
+* **Status**: narrowed by the fd-r0l train. The exp-log family
+  (`exp`, `ln`, `exp2`, `log2`, `log10`), `cbrt`, and the whole trig
+  family (`sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`) are
+  no longer on the f64 path: they are faithfully rounded via the
+  shared `ferrodec-transcend` Extended-precision kernel (≤ 1 ULP at
+  7 digits, every IEEE 754-2019 rounding direction), at exact parity
+  with the Decimal128 parent and the decimal64 sibling. The trig
+  family uses the Payne-Hanek argument reduction and is faithful
+  across the full Decimal32 magnitude range. The remaining f64 /
+  `libm` operations are the hyperbolic family (`hyperbolic`) and
   `pow` (`pow`); their docstrings document the v1.0 baseline.
-* **Symptom (remaining ops)**: `sin` / `cos` / `pow` / ... convert to
+* **Symptom (remaining ops)**: `sinh` / `pow` / ... convert to
   `f64`, call the corresponding `libm` function, convert back. f64's
   ~15.95-digit precision is comfortably above Decimal32's 7 digits,
   so the round-trip error stays under 1 ULP at the boundary. The
@@ -82,10 +84,11 @@ and scope gaps, not correctness defects.
   `ferrodec-decimal32` now depends on `ferrodec-transcend` /
   `ferrodec-multiword` (pulled by `exp-log`) and stays
   astro-float-free. The exp-log family and `cbrt` migrated in the
-  P2 phase; the trig (Payne-Hanek phase), hyperbolic, and pow
-  families are scheduled for the P3 / P4 phases of the same train on
-  the identical seam. ADR-0021 records the faithful-rounding
-  contract; the closing ADR records the train.
+  P2 phase, the trig family in the P3 phase (Payne-Hanek argument
+  reduction); the hyperbolic and pow families are scheduled for the
+  P4 / P5 phases of the same train on the identical seam. ADR-0021
+  records the faithful-rounding contract; the closing ADR records
+  the train.
 
 ## Closed correctness audit trail (decimal32 1.4.0 slice)
 

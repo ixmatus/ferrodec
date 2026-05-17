@@ -16,19 +16,21 @@ fmt = []
 # f64 conversions (Decimal32 ↔ f64). No alloc; routes via the canonical
 # decimal-string round-trip.
 binary-float = ["fmt"]
-# Transcendental sub-features. The whole exp-log family
-# (`exp` / `ln` / `exp2` / `log2` / `log10`) and `cbrt` are faithfully
-# rounded (≤ 1 ULP at 7 digits, every IEEE 754-2019 rounding
-# direction) via the shared `ferrodec-transcend` Extended-precision
-# kernel after the fd-r0l train, at exact parity with the
-# `ferrodec` (Decimal128) parent and the `ferrodec-decimal64`
-# sibling. The remaining operations (trig, inverse-trig, hyperbolic,
-# pow) still route through f64 via `libm` (pure Rust,
-# no_std-compatible, no FFI); that libm f64 path's worst-case
-# double-rounding error stays under 1 ULP at Decimal32's 7 digits. A
-# follow-on can migrate them onto the same pure-decimal kernel when
-# needed (public surface is drop-in compatible). Each sub-feature
-# pulls in `binary-float`.
+# Transcendental sub-features. The exp-log family
+# (`exp` / `ln` / `exp2` / `log2` / `log10`), `cbrt`, and the whole
+# trig family (`sin` / `cos` / `tan` / `asin` / `acos` / `atan` /
+# `atan2`) are faithfully rounded (≤ 1 ULP at 7 digits, every IEEE
+# 754-2019 rounding direction) via the shared `ferrodec-transcend`
+# Extended-precision kernel after the fd-r0l train, at exact parity
+# with the `ferrodec` (Decimal128) parent and the
+# `ferrodec-decimal64` sibling; the trig family uses the Payne-Hanek
+# argument reduction, faithful across the full Decimal32 magnitude
+# range. The remaining operations (hyperbolic, pow) still route
+# through f64 via `libm` (pure Rust, no_std-compatible, no FFI);
+# that libm f64 path's worst-case double-rounding error stays under
+# 1 ULP at Decimal32's 7 digits. A follow-on can migrate them onto
+# the same pure-decimal kernel when needed (public surface is
+# drop-in compatible). Each sub-feature pulls in `binary-float`.
 #
 # `exp-log`     — exp, ln, exp2, log2, log10. Route through the
 #                 shared faithful `ferrodec-transcend`
@@ -37,7 +39,14 @@ binary-float = ["fmt"]
 #                 `libm` detour. `dep:libm` is retained because the
 #                 `pow` / `hyperbolic` features (which imply
 #                 `exp-log`) still route through `libm`.
-# `trig`        — sin, cos, tan, asin, acos, atan.
+# `trig`        — sin, cos, tan, asin, acos, atan, atan2. Route
+#                 through the shared faithful `ferrodec-transcend`
+#                 Extended-precision kernel with Payne-Hanek
+#                 argument reduction (≤ 1 ULP across the true
+#                 Decimal32 domain), not the pre-fd-r0l lossy f64 /
+#                 `libm` detour. `dep:libm` is retained because the
+#                 `hyperbolic` / `pow` features still route through
+#                 `libm`.
 # `hyperbolic`  — sinh, cosh, tanh, asinh, acosh, atanh. Implies
 #                 `exp-log`.
 # `pow`         — pow (f64 / `libm`), cbrt (faithful shared kernel,
