@@ -113,6 +113,15 @@ proptest! {
     ) {
         let coef = coef_bits % (10u128.pow(34));
         if coef == 0 { return Ok(()); }
+        // The fixed-256-bit `oracle::sin` / `oracle::cos` is sound only
+        // for moderate magnitudes: Payne-Hanek reduction of a large
+        // argument consumes oracle digits, so past ~10^15 fewer than
+        // 34 survive to bracket the (faithful) Decimal128 result. Large
+        // magnitudes are covered, soundly, by `property_sincos_large`'s
+        // magnitude-scaled oracle. Skip them here without weakening the
+        // bracket — the same out-of-(oracle-)domain idiom as the
+        // `coef == 0` / `!is_finite` skips. fd-3cd.
+        if coef.ilog10() as i32 + exp > 15 { return Ok(()); }
         let value_str = format!("{}{}e{}", if sign { "-" } else { "" }, coef, exp);
         let x = parse(&value_str);
         // A parse-overflowed ±∞ input is out of the faithful domain
