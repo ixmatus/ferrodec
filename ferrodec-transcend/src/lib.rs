@@ -40,5 +40,7 @@ pub mod cbrt;
 pub mod exp;
 #[cfg(feature = "exp-log")]
 pub mod ln;
+#[cfg(feature = "trig")]
+pub mod sincos;
 
 pub use format::DecimalFormat;

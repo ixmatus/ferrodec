@@ -1,9 +1,11 @@
 //! Re-export shim: the Payne-Hanek argument-reduction kernel moved to
-//! ferrodec-transcend (P0a.2 c7). `reduce()` is re-exported under the
-//! original `crate::math::argred` path so the still-in-core sincos
-//! compiles unchanged; its `Decimal128` reduction tests stay here as
-//! the byte-identical regression gate.
+//! ferrodec-transcend (P0a.2 c7). The sincos kernel that consumed
+//! `crate::math::argred::reduce` itself moved to ferrodec-transcend
+//! (P0a.2 c8), so the re-export is now needed only by the retained
+//! `Decimal128` reduction tests below, which stay here as the
+//! byte-identical regression gate.
 
+#[cfg(test)]
 pub(crate) use ferrodec_transcend::argred::reduce;
 
 #[cfg(test)]
