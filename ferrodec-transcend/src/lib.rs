@@ -31,5 +31,6 @@
 pub mod consts;
 pub mod extended;
 mod format;
+pub mod ln;
 
 pub use format::DecimalFormat;
