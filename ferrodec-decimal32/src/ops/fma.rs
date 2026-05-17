@@ -106,6 +106,69 @@ fn h2_borrow_and_extend(coef: u128, exp: i32) -> (u128, i32) {
     }
 }
 
+/// Value-preserving re-cohort of a dominant operand to the full
+/// `u128` digit budget so a sub-ULP residue fed through `pre_sticky`
+/// lands strictly below the *precision* LSB, not below the operand's
+/// own (possibly very coarse) quantum.
+///
+/// fd-9fi: the effective-addition twin of `h2_borrow_and_extend`
+/// (which carries the one-ULP borrow for effective subtraction). On
+/// effective addition the residue *raises* the dominant magnitude;
+/// for a short coefficient at a coarse quantum (e.g. `1 × 10^27` with
+/// a same-sign sub-ULP residue) the funnel applied the directed
+/// round-up one ULP at the operand's quantum instead of at the
+/// 7-digit precision LSB, doubling the magnitude
+/// (`fma(-1e-101, 1e-101, -1e+27)` `TowardNegative` → `-2e27` vs the
+/// correctly-rounded `-1.000001e+27`). Widening the coefficient first
+/// (no borrow — the residue adds) places the rounding decision at the
+/// precision boundary. The effective-addition analogue of the
+/// `fd-7nf` static-window FMA defect family closed for `Decimal128`
+/// (ADR-0018/0019/0020).
+fn extend_to_u128_cap(coef: u128, exp: i32) -> (u128, i32) {
+    let coef_digits = decimal_digit_count_u128(coef);
+    if coef_digits >= U128_DIGIT_CAP {
+        (coef, exp)
+    } else {
+        let k = U128_DIGIT_CAP - coef_digits;
+        (coef * POW10_U128[k as usize], exp - k as i32)
+    }
+}
+
+/// Working digit budget for the *overlap* alignment path: the number
+/// of digits of the dominant magnitude retained exactly before the
+/// final precision rounding. `2 × PRECISION` keeps `PRECISION` guard
+/// digits beyond the rounded result — far more than the single round
+/// digit a correct rounding needs — while `WORK_DIGITS + 1` (the
+/// combine carry) stays well within `U128_DIGIT_CAP`.
+const WORK_DIGITS: u32 = 2 * PRECISION;
+
+// Compile-time invariant: the combined sum (≤ `WORK_DIGITS + 1`
+// digits) must fit a `u128` (≤ `U128_DIGIT_CAP` digits), i.e.
+// `WORK_DIGITS < U128_DIGIT_CAP`.
+const _: () = assert!(WORK_DIGITS < U128_DIGIT_CAP);
+
+/// Align `coef × 10^exp` to the working quantum `q_work`, returning
+/// the aligned coefficient and whether any non-zero digit was dropped
+/// below `q_work` (the sticky bit). Used by the overlap path, where
+/// `q_work` is set `WORK_DIGITS − 1` digits below the dominant
+/// magnitude's top, so every dropped digit is provably below the
+/// rounding position and collapses correctly into the sticky bit.
+fn align_to_quantum(coef: u128, exp: i32, q_work: i32) -> (u128, bool) {
+    if exp >= q_work {
+        let k = (exp - q_work) as u32;
+        (coef * POW10_U128[k as usize], false)
+    } else {
+        let drop = (q_work - exp) as u32;
+        let digits = decimal_digit_count_u128(coef);
+        if drop >= digits {
+            (0, coef != 0)
+        } else {
+            let divisor = POW10_U128[drop as usize];
+            (coef / divisor, coef % divisor != 0)
+        }
+    }
+}
+
 impl Decimal32 {
     /// IEEE 754-2019 `fusedMultiplyAdd(self, b, c)` rounded by `rm`.
     ///
@@ -206,82 +269,114 @@ impl Decimal32 {
         let ab_safe_shift = U128_DIGIT_CAP - ab_digits;
         let c_safe_shift = U128_DIGIT_CAP - c_digits;
 
-        let mut pre_sticky = false;
-
-        // If aligning either operand into u128 would overflow, that
-        // side's value at `target_q` exceeds `10³⁸`, which is far
-        // beyond the other side's representable range (at most ~14
-        // digits at `target_q` for ab, ~7 for c). It therefore
-        // *actually* dominates, and the early-return takes the
-        // dominant value plus a sticky bit for the sub-window residue.
-        //
-        // H4 / H2-mirror (Phase 1 finding A3-F3, decimal64 fd-d47):
-        // on effective subtraction (`ab_sign != sign_c`) the truncated
-        // side's residue subtracts from the dominant magnitude, so the
-        // funnel's `pre_sticky = true` convention (residue *above* the
-        // LSB) reads the directed-rounding direction backwards. Borrow
-        // one ULP from the dominant coefficient and re-extend
-        // (`h2_borrow_and_extend`) so the residue is a correctly
-        // signed positive sticky at a lower quantum. IEEE 754-2019 §7
-        // requires the single fused rounding to be of the true
-        // `a × b + c`; §4.3 ties the directed-rounding direction to
-        // the dropped residue's sign relative to the kept value.
-        let ab_u128: u128 = if shift_ab <= ab_safe_shift {
-            u128::from(ab_coef) * POW10_U128[shift_ab as usize]
-        } else {
-            pre_sticky |= coef_c != 0;
-            let effective_sub = ab_sign != sign_c;
-            let (coef, exp) = if effective_sub && pre_sticky {
-                h2_borrow_and_extend(u128::from(ab_coef), ab_exp)
-            } else {
-                (u128::from(ab_coef), ab_exp)
-            };
-            return round_and_pack_into_u32(coef, exp, target_q, ab_sign, pre_sticky, rm);
-        };
-
-        let c_u128: u128 = if shift_c <= c_safe_shift {
-            u128::from(coef_c) * POW10_U128[shift_c as usize]
-        } else {
-            pre_sticky |= ab_coef != 0;
-            let effective_sub = ab_sign != sign_c;
-            let (coef, exp) = if effective_sub && pre_sticky {
-                h2_borrow_and_extend(u128::from(coef_c), c_exp)
-            } else {
-                (u128::from(coef_c), c_exp)
-            };
-            return round_and_pack_into_u32(coef, exp, target_q, sign_c, pre_sticky, rm);
-        };
-
-        // Sign-aware combine in u128.
-        let (combined_u128, combined_sign) = if ab_sign == sign_c {
-            (ab_u128 + c_u128, ab_sign)
-        } else if ab_u128 > c_u128 {
-            (ab_u128 - c_u128, ab_sign)
-        } else if c_u128 > ab_u128 {
-            (c_u128 - ab_u128, sign_c)
-        } else {
-            // Exact cancellation. §6.3 sign rule.
-            let q_preferred = target_q;
-            let result_sign = zero_sum_sign(ab_sign, sign_c, rm);
-            // Cancellation mirror of the H3 fix above: when ab and c
-            // align to equal magnitudes (opposite signs), the result
-            // is exact zero and the preferred quantum may fall outside
-            // the representable range. Same §6.3 + §7.4 clamp rule.
-            let (biased_exp, clamped) = crate::bid::BiasedExp::clamp_unbiased(q_preferred);
+        // Exact-zero cancellation: ab and c align to equal magnitudes
+        // with opposite signs. The result is exact zero and the
+        // preferred quantum may fall outside the representable range
+        // (IEEE 754-2019 §6.3 + §7.4 clamp, the H3 cancellation
+        // mirror). Shared by every combine path below.
+        let cancel_to_zero = |result_sign: bool| -> (Decimal32, Status) {
+            let (biased_exp, clamped) = crate::bid::BiasedExp::clamp_unbiased(target_q);
             let status = if clamped { Status::CLAMPED } else { Status::OK };
-            return (
+            (
                 Decimal32::from_bits(crate::bid::pack_finite(
                     result_sign,
                     biased_exp,
                     crate::bid::Coefficient::ZERO,
                 )),
                 status,
-            );
+            )
         };
 
+        if shift_ab <= ab_safe_shift && shift_c <= c_safe_shift {
+            // Both operands align exactly at `target_q`: the sum is
+            // exact in u128, no residue, the funnel only rounds to
+            // PRECISION.
+            let ab_u128 = u128::from(ab_coef) * POW10_U128[shift_ab as usize];
+            let c_u128 = u128::from(coef_c) * POW10_U128[shift_c as usize];
+            let (combined_u128, combined_sign) = if ab_sign == sign_c {
+                (ab_u128 + c_u128, ab_sign)
+            } else if ab_u128 > c_u128 {
+                (ab_u128 - c_u128, ab_sign)
+            } else if c_u128 > ab_u128 {
+                (c_u128 - ab_u128, sign_c)
+            } else {
+                return cancel_to_zero(zero_sum_sign(ab_sign, sign_c, rm));
+            };
+            return round_and_pack_into_u32(
+                combined_u128,
+                target_q,
+                target_q,
+                combined_sign,
+                false,
+                rm,
+            );
+        }
+
+        // At least one side cannot align exactly at `target_q` in
+        // u128. Classify by magnitude gap, not by which alignment
+        // overflowed.
+        let ab_top = ab_exp + ab_digits as i32 - 1;
+        let c_top = c_exp + c_digits as i32 - 1;
+        let hi_top = ab_top.max(c_top);
+        let lo_top = ab_top.min(c_top);
+
+        if hi_top - lo_top >= WORK_DIGITS as i32 {
+            // The lower-magnitude side sits more than the working
+            // precision below the dominant side: it is a genuine
+            // sub-ULP residue. Take the dominant value plus a sticky
+            // bit. H4: the funnel's `q_preferred` must be `target_q`
+            // (the §6.3 additive preferred quantum). H2 mirror: on
+            // effective subtraction the residue subtracts from the
+            // dominant magnitude, so the `pre_sticky = true`
+            // residue-above-LSB convention reads the direction
+            // backwards — borrow one ULP and re-extend. fd-9fi: on
+            // effective addition re-cohort the dominant operand so
+            // the directed round-up lands at the precision LSB, not
+            // at the operand's own coarse quantum.
+            let effective_sub = ab_sign != sign_c;
+            if ab_top >= c_top {
+                let pre_sticky = coef_c != 0;
+                let (coef, exp) = if effective_sub && pre_sticky {
+                    h2_borrow_and_extend(u128::from(ab_coef), ab_exp)
+                } else {
+                    extend_to_u128_cap(u128::from(ab_coef), ab_exp)
+                };
+                return round_and_pack_into_u32(coef, exp, target_q, ab_sign, pre_sticky, rm);
+            }
+            let pre_sticky = ab_coef != 0;
+            let (coef, exp) = if effective_sub && pre_sticky {
+                h2_borrow_and_extend(u128::from(coef_c), c_exp)
+            } else {
+                extend_to_u128_cap(u128::from(coef_c), c_exp)
+            };
+            return round_and_pack_into_u32(coef, exp, target_q, sign_c, pre_sticky, rm);
+        }
+
+        // Overlap: the two magnitudes are within `WORK_DIGITS` of
+        // each other but cannot be summed exactly at `target_q` in
+        // u128. Raise the working quantum so both sides fit, keeping
+        // `WORK_DIGITS` digits of the dominant magnitude and folding
+        // only the genuinely sub-precision tail of each side into the
+        // sticky bit. The old `shift > safe_shift` early-return
+        // treated the overflowing side as a pure residue and
+        // discarded its overlap with the dominant precision window
+        // (~`PRECISION`-scale ULP folded into one sticky bit).
+        let q_work = target_q.max(hi_top - (WORK_DIGITS as i32 - 1));
+        let (ab_aln, ab_st) = align_to_quantum(u128::from(ab_coef), ab_exp, q_work);
+        let (c_aln, c_st) = align_to_quantum(u128::from(coef_c), c_exp, q_work);
+        let pre_sticky = ab_st || c_st;
+        let (combined_u128, combined_sign) = if ab_sign == sign_c {
+            (ab_aln + c_aln, ab_sign)
+        } else if ab_aln > c_aln {
+            (ab_aln - c_aln, ab_sign)
+        } else if c_aln > ab_aln {
+            (c_aln - ab_aln, sign_c)
+        } else {
+            return cancel_to_zero(zero_sum_sign(ab_sign, sign_c, rm));
+        };
         round_and_pack_into_u32(
             combined_u128,
-            target_q,
+            q_work,
             target_q,
             combined_sign,
             pre_sticky,
@@ -854,20 +949,28 @@ mod tests {
         // `pre_sticky = true` convention is read correctly.
         //
         // The exact value is `10^90 + 10^-101`, strictly *above*
-        // `10^90` by a sub-ULP amount. Spec answers (§4.3):
+        // `10^90` by a ~`10^-185`-ULP same-sign residue. The ULP at 7
+        // significant digits is `10^84`. Spec answers (§4.3):
         //   * TowardZero / TowardNegative / NearestEven: the nearest /
         //     toward-zero / toward-−∞ neighbour is `1.000000E+90`.
-        //   * TowardPositive: round *up* to the next representable
-        //     value above `10^90` = `2.000000E+90`.
-        // The load-bearing control claim: the additive path never
-        // borrows *down* to `9.999999E+89` (the effective-subtract
-        // spec answer), proving `h2_borrow_and_extend` is gated on
-        // `effective_sub` and does not regress the additive funnel.
+        //   * TowardPositive: the smallest representable value
+        //     *strictly greater* than the exact value is the next
+        //     7-digit cohort step, `1.000001E+90` — NOT `2.000000E+90`
+        //     (that was the pre-fix fd-9fi doubling bug: the directed
+        //     round-up applied to the bare 1-digit coefficient at its
+        //     own `10^90` quantum instead of the precision LSB; this
+        //     control had pinned the buggy value, corrected against
+        //     the exact oracle in tests/regression_fd_9fi.rs).
+        // The load-bearing control claim is unchanged: the additive
+        // path never borrows *down* to `9.999999E+89` (the
+        // effective-subtract spec answer), proving
+        // `h2_borrow_and_extend` is gated on `effective_sub` and does
+        // not regress the additive funnel.
         let a = Decimal32::try_new(1, 45).unwrap();
         let b = Decimal32::try_new(1, 45).unwrap();
         let c = Decimal32::try_new(1, -101).unwrap();
         let stay_spec = Decimal32::try_new(1_000_000, 84).unwrap(); // 1.000000E+90
-        let up_spec = Decimal32::try_new(2_000_000, 84).unwrap(); // 2.000000E+90
+        let up_spec = Decimal32::try_new(1_000_001, 84).unwrap(); // 1.000001E+90
         let wrong_low = Decimal32::try_new(9_999_999, 83).unwrap(); // 9.999999E+89
 
         for m in [
@@ -895,7 +998,7 @@ mod tests {
             r.to_bits(),
             up_spec.to_bits(),
             "fma(1E+45, 1E+45, +1E-101) under TowardPositive should round up to \
-             2.000000E+90 (value is strictly above 10^90), got {r:?}"
+             1.000001E+90 (next 7-digit cohort step above the exact value), got {r:?}"
         );
         assert_ne!(
             r.to_bits(),

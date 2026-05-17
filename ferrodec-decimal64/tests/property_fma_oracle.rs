@@ -117,18 +117,17 @@ proptest! {
     /// bit-for-bit, across the full finite domain and every IEEE
     /// rounding direction.
     ///
-    /// `#[ignore]` — fd-dpg's purpose was to find out whether the
-    /// siblings carry the parent's `fd-7nf` FMA defect family; this
-    /// sweep proved they do (filed P1 **fd-9fi**: tiny opposite-sign
-    /// product with a dominant same-sign addend under a directed mode
-    /// gives a gross magnitude error, e.g.
-    /// `fma(1e-398, -1e-398, -1e+114)` TowardNegative → `-2e114`
-    /// instead of `-1.000000000000001e114`). The sweep is correct; the
-    /// kernel is not. It is quarantined, not deleted, so the eventual
-    /// `fd-9fi` fix lands by *removing this attribute* and watching it
-    /// go green. It must NOT be un-ignored without the fix.
-    #[ignore = "fd-9fi: sibling fma carries the fd-7nf family; \
-                un-ignore with the kernel fix"]
+    /// fd-dpg's purpose was to find out whether the siblings carry the
+    /// parent's `fd-7nf` FMA defect family; this sweep proved they do
+    /// (P1 **fd-9fi**: a tiny opposite-sign product with a dominant
+    /// same-sign addend under a directed mode gave a gross magnitude
+    /// error, e.g. `fma(1e-398, -1e-398, -1e+114)` TowardNegative →
+    /// `-2e114` instead of `-1.000000000000001e114`, because the
+    /// dominant operand was not re-cohorted before the funnel applied
+    /// the directed round-up). fd-9fi fixed it
+    /// (`fma::extend_to_u128_cap`, the effective-addition analogue of
+    /// the parent `fd-7nf` clamp); this sweep is now green and stays
+    /// active as the regression guard.
     #[test]
     fn fma_is_exactly_correctly_rounded(
         a in finite(),

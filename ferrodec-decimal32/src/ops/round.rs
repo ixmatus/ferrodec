@@ -18,7 +18,7 @@
 
 use crate::bid::{
     pack_finite, pack_infinity, BiasedExp, Coefficient, BIAS, BIASED_EXP_MAX, COEFFICIENT_LIMIT,
-    PRECISION,
+    E_MIN, PRECISION,
 };
 use crate::decimal::Decimal32;
 use ferrodec_ieee::{should_round_up, RoundingMode, Status};
@@ -271,8 +271,22 @@ fn finalise_finite(
         let last_lsb = (kept % 10) as u32;
         let round_up = should_round_up(rm, sign, last_lsb, round_digit, sticky);
         let final_coef = if round_up { kept + 1 } else { kept };
+        // A `biased < 0` result is subnormal by construction. IEEE
+        // 754-2019 §7.5 signals UNDERFLOW when a subnormal result is
+        // inexact, where inexactness can arise either from this arm's
+        // own digit drop *or* from an earlier precision rounding the
+        // caller already recorded in `status` (the fd-9fi sibling-FMA
+        // exact-oracle sweep surfaced `fma(-5.738903e-42,
+        // 5.487024e-55, -0e-101)`: the 14→7 precision drop set
+        // INEXACT, then this arm's 1-digit shift was exact, so the old
+        // `round_digit != 0 || sticky` test mistook it for "no
+        // underflow"). Port of the decimal64 fd-99f / M1 rule, which
+        // decimal32 lacked.
         if round_digit != 0 || sticky {
-            status |= Status::INEXACT | Status::UNDERFLOW;
+            status |= Status::INEXACT;
+        }
+        if status.inexact() {
+            status |= Status::UNDERFLOW;
         }
         // After rounding the subnormal could cross back over to normal
         // if it gained a digit (e.g. 9_999_999 + ulp = 10_000_000): in
@@ -300,6 +314,23 @@ fn finalise_finite(
     }
 
     // biased ∈ [0, biased_exp_max] from the if-arms above, coef < COEFFICIENT_LIMIT.
+    //
+    // IEEE 754-2019 §7.5: a result that is representable (biased ≥ 0)
+    // but tiny is still subnormal when its adjusted exponent falls
+    // below E_MIN. The deeply-subnormal `biased < 0` arm above already
+    // raises UNDERFLOW; this catches the representable subnormal that
+    // the `biased < 0` test misses (the fd-9fi sibling-FMA exact-oracle
+    // sweep surfaced `fma(-5.738903e-42, 5.487024e-55, -0e-101)` as
+    // Inexact only, want Underflow Inexact). Underflow is signalled
+    // only together with inexactness (an exact subnormal is `Subnormal`
+    // but not `Underflow`), so it gates on the INEXACT the rounding
+    // step already accumulated. Port of the decimal64 fd-99f / M1 rule
+    // (`finalise_finite`), which decimal32 lacked.
+    let adjusted_exp = unbiased_exp + digit_count_u64(coef) as i32 - 1;
+    if adjusted_exp < E_MIN && status.inexact() {
+        status |= Status::UNDERFLOW;
+    }
+
     let biased_exp =
         BiasedExp::try_from_biased(biased as u32).expect("biased in [0, BIASED_EXP_MAX]");
     let coefficient = Coefficient::try_new(coef as u32).expect("coef < COEFFICIENT_LIMIT");
