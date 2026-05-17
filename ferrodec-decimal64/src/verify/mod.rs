@@ -16,6 +16,7 @@
 //! finite-finite arithmetic path to the property tests.
 
 mod addsub;
+mod canonical;
 mod cmp;
 mod div;
 // `exp` / `ln` live behind the `exp-log` feature (ops/exp.rs); the

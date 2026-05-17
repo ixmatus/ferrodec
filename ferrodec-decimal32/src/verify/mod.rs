@@ -16,8 +16,15 @@
 //! finite-finite arithmetic path to the property tests.
 
 mod addsub;
+mod canonical;
 mod cmp;
 mod div;
+// DPD interchange codec lives behind the `dpd` feature
+// (`src/dpd.rs`); the harness references it, so it is gated
+// identically. `decimal64` has no DPD codec, so this port is
+// decimal32-only.
+#[cfg(feature = "dpd")]
+mod dpd;
 // `exp` / `ln` live behind the `exp-log` feature (ops/exp.rs); the
 // harness references their Kani shims, so it is gated identically.
 #[cfg(feature = "exp-log")]

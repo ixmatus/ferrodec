@@ -108,7 +108,7 @@ jobs:
       - uses: model-checking/kani-github-action@v1.1
       - run: cargo kani --package ferrodec-ieee
       - run: cargo kani --features=transcendentals
-      - run: cargo kani --package ferrodec-decimal32 --features=fmt
+      - run: cargo kani --package ferrodec-decimal32 --features=fmt,dpd
       - run: cargo kani --package ferrodec-decimal64 --features=transcendentals
 
   # ---------- ferrodec-ieee (shared metadata crate) ----------
