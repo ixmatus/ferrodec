@@ -1,23 +1,33 @@
 //! IEEE 754-2019 §9.2 exponential functions for [`Decimal32`].
 //!
-//! `exp` and `ln` route through `f64` via `libm` (pure Rust, `no_std`,
-//! no FFI). The f64 round-trip introduces at most a faint
-//! double-rounding error: f64 carries ~15.95 decimal digits of
-//! precision, far more than Decimal32's 7, so the worst-case
-//! rounding-direction divergence at the Decimal32 ULP boundary is
-//! under 1 ULP. For correctly-rounded transcendentals at every
-//! representable input, a future commit can replace the f64 path
-//! with a pure-decimal Taylor / Newton kernel — the change is
-//! drop-in.
+//! `exp` and `ln` route their finite-non-zero path through the shared
+//! faithful `ferrodec-transcend` Extended-precision kernel: 50-digit
+//! `Extended` working precision, rounded once at the format boundary,
+//! giving faithfully-rounded (≤ 1 ULP at 7 digits) results without
+//! the pre-fd-r0l lossy `f64` / `libm` detour. The kernel is the same
+//! verified implementation the `ferrodec` (Decimal128) parent and the
+//! `ferrodec-decimal64` sibling use, instantiated at `F = Decimal32`
+//! via the `DecimalFormat` seam.
+//!
+//! The special-value short-circuits (`exp_special_cases` /
+//! `ln_special_cases`) stay in this module ahead of the kernel call:
+//! they are shared with the ADR-0016 Kani shims (which must never
+//! reach the Extended kernel) and keep Decimal32's special-value
+//! semantics byte-identical across the rewire.
 //!
 //! # Special cases (IEEE 754-2019 §9.2)
 //!
 //! * NaN propagates (sNaN raises INVALID).
 //! * `exp(±∞)`: `+∞ → +∞`, `−∞ → +0`.
 //! * `exp(±0) = 1`.
-//! * Out of range: `exp(x)` for `x` above the format's overflow
-//!   threshold (~221) → `+∞ + OVERFLOW`. For `x` below the underflow
-//!   threshold (~−233) → `+0 + UNDERFLOW + INEXACT`.
+//! * Out of range: Decimal32's exponent range supports `exp(x)` up to
+//!   `x ≈ +223.35` (since `e^223.35 ≈ 10^97 = MAX`) and underflow to
+//!   subnormals down to `x ≈ −233.25`. The faithful kernel's
+//!   magnitude gate short-circuits to `+∞ + OVERFLOW` for `x > +224`
+//!   and to `+0 + UNDERFLOW + INEXACT` for `x < −235`; inputs in
+//!   `(−235, −224]` produce representable subnormals (the Taylor
+//!   pipeline handles them). The thresholds are derived in
+//!   `DecimalFormat for Decimal32` (`transcend_impl.rs`).
 //!
 //! # Special cases for `ln`
 //!
@@ -33,47 +43,41 @@ use ferrodec_ieee::{RoundingMode, Status};
 
 impl Decimal32 {
     /// IEEE 754-2019 §9.2 `exp(self)` rounded by `rm`.
+    ///
+    /// Finite non-zero inputs route through the shared faithful
+    /// `ferrodec-transcend` Extended-precision kernel (≤ 1 ULP across
+    /// the true Decimal32 domain), replacing the pre-fd-r0l lossy
+    /// `f64` / `libm::exp` detour. The `exp_special_cases`
+    /// short-circuit is kept ahead of the kernel call so Decimal32's
+    /// special-value semantics (and the ADR-0016 Kani shim, which
+    /// shares `exp_special_cases`) are byte-identical to before; only
+    /// the finite-non-zero result path changes.
     #[must_use]
     pub fn exp(self, rm: RoundingMode) -> (Self, Status) {
         if let Some(special) = exp_special_cases(classify_bits(self.0)) {
             return special;
         }
-        // Finite non-zero: route through f64.
-        let x = self.to_f64(RoundingMode::NearestEven).0;
-        let r = libm::exp(x);
-        if r.is_infinite() {
-            return (Decimal32::INFINITY, Status::OVERFLOW | Status::INEXACT);
-        }
-        if r == 0.0 {
-            return (Decimal32::ZERO, Status::UNDERFLOW | Status::INEXACT);
-        }
-        let (val, mut status) = Decimal32::from_f64(r, rm);
-        // exp of a non-zero finite is essentially never exact; emit
-        // INEXACT unconditionally to match IEEE 754 §9.2 expectations
-        // even when the f64 round-trip happens to land on a
-        // representable value.
-        status |= Status::INEXACT;
-        (val, status)
+        // Finite non-zero: faithful shared kernel.
+        ferrodec_transcend::exp::exp_kernel::<Decimal32>(self, rm)
     }
 
     /// IEEE 754-2019 §9.2 `ln(self)` rounded by `rm`.
+    ///
+    /// Finite positive inputs route through the shared faithful
+    /// `ferrodec-transcend` Extended-precision kernel (≤ 1 ULP across
+    /// the true Decimal32 domain), replacing the pre-fd-r0l lossy
+    /// `f64` / `libm::log` detour. The `ln_special_cases`
+    /// short-circuit is kept ahead of the kernel call so Decimal32's
+    /// special-value semantics (and the ADR-0016 Kani shim, which
+    /// shares `ln_special_cases`) are byte-identical to before; only
+    /// the finite-positive result path changes.
     #[must_use]
     pub fn ln(self, rm: RoundingMode) -> (Self, Status) {
         if let Some(special) = ln_special_cases(classify_bits(self.0)) {
             return special;
         }
-        // Positive finite non-zero: route through f64.
-        let x = self.to_f64(RoundingMode::NearestEven).0;
-        let r = libm::log(x);
-        let (val, mut status) = Decimal32::from_f64(r, rm);
-        // ln(positive finite) is exact only at x = 1 (the f64
-        // round-trip produces 0.0) or at integer powers of 10 where
-        // the result is also exactly representable. For most inputs,
-        // set INEXACT.
-        if !val.is_zero() {
-            status |= Status::INEXACT;
-        }
-        (val, status)
+        // Positive finite non-zero: faithful shared kernel.
+        ferrodec_transcend::ln::ln_kernel::<Decimal32>(self, rm)
     }
 
     /// Kani-only entry returning the `exp` special-case branch without

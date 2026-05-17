@@ -331,7 +331,7 @@ fn add_inner(a: Decimal32, b: Decimal32, rm: RoundingMode) -> (Decimal32, Status
 /// PRECISION (= 7) digits, so 14 retained digits in the `u64`
 /// preserve the rounding decision. Mirrors the in-crate `fma.rs`
 /// helper of the same shape.
-fn round_and_pack_into_u32(
+pub(crate) fn round_and_pack_into_u32(
     coef_u128: u128,
     unbiased_exp: i32,
     q_preferred: i32,

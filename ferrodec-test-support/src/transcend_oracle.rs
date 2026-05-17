@@ -65,7 +65,17 @@
 
 use core::cmp::Ordering;
 
-use astro_float::{BigFloat, Consts, Radix, RoundingMode as AfRm};
+use astro_float::{Radix, RoundingMode as AfRm};
+
+/// Re-export of astro-float's [`BigFloat`] and [`Consts`] so a consumer
+/// crate can name the oracle's true-value and constants-cache types
+/// (`oracle::exp(&exact, &mut cc)` returns a `BigFloat`; `Consts` seeds
+/// it) without taking a direct `astro-float` dependency of its own. The
+/// decimal32 manifest stays astro-float-free (Design-A constraint):
+/// astro-float compiles only transitively inside this test-support
+/// crate. decimal64 / Decimal128 keep their own `use astro_float::...`
+/// and are unaffected by this re-export.
+pub use astro_float::{BigFloat, Consts};
 
 /// The decimal-format capabilities the faithful-rounding harness needs.
 ///
