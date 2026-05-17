@@ -382,6 +382,20 @@ pub mod oracle {
         arg(x_str, cc).cbrt(P, AfRm::None)
     }
 
+    /// `x_str` raised to the power `y_str`, both parsed at oracle
+    /// precision. astro-float's `pow(&self, &n, ...)` computes the
+    /// general `xʸ` at full precision; the `exp2` builder above uses
+    /// the same primitive with a literal base `2`. Centralising the
+    /// genuine two-argument `pow(x, y)` here lets the direct tier
+    /// (Decimal128, decimal64) and the astro-float-free decimal32
+    /// widen tier feed the same exact 256-bit oracle, the same reason
+    /// the unary builders are shared.
+    pub fn pow(x_str: &str, y_str: &str, cc: &mut Consts) -> BigFloat {
+        let x = arg(x_str, cc);
+        let y = arg(y_str, cc);
+        x.pow(&y, P, AfRm::None, cc)
+    }
+
     /// Sine, in radians, of the exact value `x_str`.
     pub fn sin(x_str: &str, cc: &mut Consts) -> BigFloat {
         arg(x_str, cc).sin(P, AfRm::None, cc)
