@@ -19,7 +19,7 @@ use core::cmp::Ordering;
 /// `mul10`) and the rounding-pipeline crossover check in
 /// `round_and_pack_finite`. Test `pow10_table_matches_u128_pow`
 /// (`mod tests` below) checks every entry against `10u128.pow(k)`.
-pub(crate) const POW10_U128: [u128; 39] = {
+pub const POW10_U128: [u128; 39] = {
     let mut arr = [0u128; 39];
     arr[0] = 1;
     let mut i = 1;
@@ -32,21 +32,21 @@ pub(crate) const POW10_U128: [u128; 39] = {
 
 /// 256-bit unsigned integer, little-endian halves.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
-pub(crate) struct U256 {
-    pub(crate) lo: u128,
-    pub(crate) hi: u128,
+pub struct U256 {
+    pub lo: u128,
+    pub hi: u128,
 }
 
 impl U256 {
-    pub(crate) const ZERO: Self = Self { lo: 0, hi: 0 };
+    pub const ZERO: Self = Self { lo: 0, hi: 0 };
 
     #[inline]
-    pub(crate) const fn from_u128(x: u128) -> Self {
+    pub const fn from_u128(x: u128) -> Self {
         Self { lo: x, hi: 0 }
     }
 
     #[inline]
-    pub(crate) const fn is_zero(self) -> bool {
+    pub const fn is_zero(self) -> bool {
         self.lo == 0 && self.hi == 0
     }
 
@@ -54,13 +54,13 @@ impl U256 {
     /// non-zero. The arithmetic layer only calls this after verifying the
     /// rounded coefficient fits in 113 bits.
     #[inline]
-    pub(crate) const fn to_u128(self) -> u128 {
+    pub const fn to_u128(self) -> u128 {
         debug_assert!(self.hi == 0);
         self.lo
     }
 
     #[inline]
-    pub(crate) fn cmp(self, other: Self) -> Ordering {
+    pub fn cmp(self, other: Self) -> Ordering {
         match self.hi.cmp(&other.hi) {
             Ordering::Equal => self.lo.cmp(&other.lo),
             ord => ord,
@@ -71,7 +71,8 @@ impl U256 {
     /// sum fits in 256 bits — for our use case (sum of two ≤ 226-bit
     /// aligned coefficients), this is guaranteed.
     #[inline]
-    pub(crate) const fn add(self, other: Self) -> Self {
+    #[must_use]
+    pub const fn add(self, other: Self) -> Self {
         let (lo, carry) = self.lo.overflowing_add(other.lo);
         let hi = self.hi.wrapping_add(other.hi).wrapping_add(carry as u128);
         Self { lo, hi }
@@ -79,7 +80,8 @@ impl U256 {
 
     /// `self - other`. Pre-condition: `self >= other`.
     #[inline]
-    pub(crate) const fn sub(self, other: Self) -> Self {
+    #[must_use]
+    pub const fn sub(self, other: Self) -> Self {
         let (lo, borrow) = self.lo.overflowing_sub(other.lo);
         let hi = self.hi.wrapping_sub(other.hi).wrapping_sub(borrow as u128);
         Self { lo, hi }
@@ -88,7 +90,8 @@ impl U256 {
     /// `self * 10`. Pre-condition: result fits in 256 bits — the arithmetic
     /// layer never multiplies past the working envelope.
     #[inline]
-    pub(crate) fn mul10(self) -> Self {
+    #[must_use]
+    pub fn mul10(self) -> Self {
         // (hi : lo) * 10 = (10 * hi) << 128 + (10 * lo)
         // We compute the four 128×128→256 products, fold carries.
         let (lo_hi, lo_lo) = widening_mul_u128(self.lo, 10);
@@ -112,7 +115,8 @@ impl U256 {
     /// the upper bits would overflow the 256-bit envelope and the
     /// `debug_assert!` catches the violation in test builds.
     #[inline]
-    pub(crate) const fn mul_u128(self, m: u128) -> Self {
+    #[must_use]
+    pub const fn mul_u128(self, m: u128) -> Self {
         let (lo_hi, lo_lo) = widening_mul_u128(self.lo, m);
         let (hi_hi, hi_lo) = widening_mul_u128(self.hi, m);
         debug_assert!(hi_hi == 0, "U256::mul_u128 overflow");
@@ -133,7 +137,8 @@ impl U256 {
     /// as `self · 10^38 · 10^(k − 38)` (two multiplies). Both shapes are
     /// far cheaper than the previous sequential `mul10`-loop, which paid
     /// the four-component multi-precision multiply on every iteration.
-    pub(crate) fn mul_pow10(self, k: u32) -> Self {
+    #[must_use]
+    pub fn mul_pow10(self, k: u32) -> Self {
         if k == 0 {
             return self;
         }
@@ -146,7 +151,7 @@ impl U256 {
     }
 
     /// `self / 10` returning the quotient and the remainder digit.
-    pub(crate) fn div_rem10(self) -> (Self, u32) {
+    pub fn div_rem10(self) -> (Self, u32) {
         // Long division: split into halves and divide top-down.
         let (q_hi, r1) = div_rem_u128_by_small(self.hi, 10);
         // `r1 * 2^128 + lo` divided by 10: feed lo with r1 * 2^128 high bits.
@@ -168,7 +173,7 @@ impl U256 {
     /// conditionally subtracts `divisor`. 256 iterations.
     ///
     /// Pre-condition: `divisor != 0`.
-    pub(crate) fn div_rem_u128(self, divisor: u128) -> (Self, u128) {
+    pub fn div_rem_u128(self, divisor: u128) -> (Self, u128) {
         debug_assert!(divisor != 0);
 
         // Short path when the high half is zero.
@@ -226,7 +231,7 @@ impl U256 {
     /// `div_rem_u128` and averages with overflow-safe `(a/2 + b/2 + a&b&1)`.
     /// Converges in O(log log n) once close — for 234-bit inputs that
     /// is well under 20 iterations.
-    pub(crate) fn isqrt(self) -> (u128, Self) {
+    pub fn isqrt(self) -> (u128, Self) {
         if self.is_zero() {
             return (0, Self::ZERO);
         }
@@ -280,7 +285,7 @@ impl U256 {
     }
 
     /// Number of significant decimal digits in `self`. Returns `1` for zero.
-    pub(crate) fn decimal_digit_count(self) -> u32 {
+    pub fn decimal_digit_count(self) -> u32 {
         if self.is_zero() {
             return 1;
         }
@@ -306,7 +311,7 @@ impl U256 {
 /// 64-bit hosts (and `__umulsi3` plus folding on 32-bit, which is exactly
 /// what we want for the M0+ floor).
 #[inline]
-pub(crate) const fn widening_mul_u128(a: u128, b: u128) -> (u128, u128) {
+pub const fn widening_mul_u128(a: u128, b: u128) -> (u128, u128) {
     let a_lo = a as u64 as u128;
     let a_hi = a >> 64;
     let b_lo = b as u64 as u128;

@@ -72,11 +72,11 @@ narrower exponent range rarely triggers it.
 | --- | --- |
 | `fmt` (default) | `parse_str`, `Display`, `LowerExp`, `UpperExp`, `Engineering`. Alloc-free; uses `core::fmt::Write`. |
 | `binary-float` | `Decimal64::to_f64`, `Decimal64::from_f64`. Auto-enabled by every transcendental feature. |
-| `exp-log` | `exp`, `ln`. Routes through `f64` via `libm` (pure Rust, no FFI). |
-| `trig` | `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`. |
-| `hyperbolic` | `sinh`, `cosh`, `tanh`, `asinh`, `acosh`, `atanh`. Auto-pulls `exp-log`. |
-| `pow` | `pow`, `cbrt`. Auto-pulls `exp-log`. |
-| `transcendentals` | Convenience meta-feature: enables all four clusters. |
+| `exp-log` | `exp`, `ln`, `exp2`, `log2`, `log10`. Faithfully rounded via the shared `ferrodec-transcend` Extended-precision kernel (pure Rust, no FFI). |
+| `trig` | `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`. Same shared faithful kernel, Payne-Hanek argument reduction. |
+| `hyperbolic` | `sinh`, `cosh`, `tanh`, `asinh`, `acosh`, `atanh`. Same shared faithful kernel. Auto-pulls `exp-log`. |
+| `pow` | `pow`, `cbrt`. Same shared faithful kernel. Auto-pulls `exp-log`. |
+| `transcendentals` | Convenience meta-feature: enables all four clusters. No transcendental routes through `f64`; `libm` is not a dependency. |
 | `ops` | `core::ops` overloads (`Add`, `Sub`, `Mul`, `Div`, `Rem`, `Neg`, plus `*Assign`). Defaults to `RoundingMode::NearestEven`; drops `Status`. |
 | `serde` | `Serialize` / `Deserialize` via the canonical decimal string. The `serde_bid` helper module serialises the raw 64-bit BID pattern in binary formats. |
 | `num-traits` | `Zero`, `One`, `Bounded`, `Signed`, `Num`, `From\|To Primitive`. Auto-pulls `ops` + `binary-float` + `fmt`. |
@@ -113,17 +113,22 @@ with `|=` / `Status::merge` across a sequence of operations.
 All §5 mandatory operations are correctly rounded per the active
 [`RoundingMode`].
 
-§9.2 transcendentals route through `f64` via `libm`. Decimal64
-carries 16 digits while f64 carries ~15.95, so the f64 round-trip
-caps achievable precision at ~10⁻¹⁵ relative — one digit below
-Decimal64's nominal 16. The public surface is drop-in compatible
-with a future pure-decimal Taylor / Newton kernel at u128 working
-precision, which is the planned follow-on for callers needing
-correctly-rounded transcendentals at the full 16 digits.
+The whole §9.2 transcendental surface (`exp`, `ln`, `exp2`, `log2`,
+`log10`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`,
+`sinh`, `cosh`, `tanh`, `asinh`, `acosh`, `atanh`, `pow`, `cbrt`)
+is faithfully rounded (≤ 1 ULP at 16 digits, every IEEE 754-2019
+rounding direction) via the shared `ferrodec-transcend`
+Extended-precision kernel, at exact parity with the `ferrodec`
+(Decimal128) parent. No transcendental routes through `f64` any
+more, so the pre-fd-r0l ~10⁻¹⁵ f64-round-trip cap is lifted and
+`libm` is no longer a dependency. The forward trig functions use
+Payne-Hanek argument reduction (faithful across the full Decimal64
+magnitude range, not capped at the old `|x| < 2^53` limit); `pow`
+evaluates `exp(y · ln(|x|))` at Extended precision.
 
-Worst-case accuracy for the transcendentals on representative
-inputs: ~1 ULP at 15 digits, occasional 1 ULP loss at the 16th
-digit.
+The contract is faithful rounding (the returned value is one of the
+two representable values bracketing the exact result), not
+correct rounding (always the single nearest); ADR-0021 records it.
 
 ## Supported targets
 
@@ -187,13 +192,14 @@ both compile when `ops` is on.
   `round_and_pack_into_u64` helper compresses the u128 working
   value back to the canonical u64 with sticky tracking before
   routing through `round_and_pack_finite`.
-- The transcendental kernels route through `f64` via `libm`. Each
-  short-circuits the IEEE 754 §9.2 special cases (sNaN propagation,
-  zero / infinity boundaries, domain errors) before entering the
-  f64 path, so spec-mandated flags are emitted correctly even when
-  the underlying f64 result would not surface them. Decimal64 sits
-  right at f64's precision boundary, so the 16th digit may drift by
-  1 ULP through the round-trip; see the accuracy note above.
+- The transcendental kernels route through the shared
+  `ferrodec-transcend` Extended-precision kernel (no `f64` / `libm`
+  detour). Each short-circuits the IEEE 754 §9.2 special cases
+  (sNaN propagation, zero / infinity boundaries, domain errors) in a
+  byte-stable `*_special_cases` routine before entering the kernel,
+  so the spec-mandated flags and the ADR-0016 Kani special-case
+  proofs stay byte-identical. The result is faithfully rounded
+  (≤ 1 ULP at 16 digits); see the accuracy note above.
 
 ## MSRV policy
 

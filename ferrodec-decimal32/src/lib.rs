@@ -63,6 +63,8 @@ mod ops;
 mod ops_traits;
 #[cfg(feature = "serde")]
 mod serde_impls;
+#[cfg(feature = "exp-log")]
+mod transcend_impl;
 #[cfg(kani)]
 mod verify;
 

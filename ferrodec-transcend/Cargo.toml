@@ -1,0 +1,37 @@
+[package]
+name = "ferrodec-transcend"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Shared faithful Extended-precision transcendental kernel for the ferrodec decimal family"
+repository.workspace = true
+keywords = ["decimal", "transcendental", "no_std", "embedded", "ieee754"]
+categories = ["embedded", "mathematics", "no-std", "no-std::no-alloc"]
+
+[features]
+# Feature names and the implication graph mirror the core `ferrodec`
+# crate verbatim, so a sibling can forward its own `trig` / `exp-log`
+# / `hyperbolic` / `pow` / `transcendentals` selection 1:1 without any
+# feature-translation glue. `fmt` is retained for parity even though
+# the kernel parses constants through `Extended::parse_str`
+# unconditionally; keeping the name aligned avoids a translation seam.
+default = []
+fmt = []
+trig = ["fmt"]
+exp-log = ["fmt"]
+hyperbolic = ["exp-log"]
+pow = ["exp-log"]
+transcendentals = ["trig", "exp-log", "hyperbolic", "pow"]
+
+[dependencies]
+ferrodec-ieee = { path = "../ferrodec-ieee", version = "0.1.4" }
+ferrodec-multiword = { path = "../ferrodec-multiword", version = "0.1.0" }
+
+[dev-dependencies]
+proptest = "1"
+astro-float = "0.9"
+ferrodec-test-support = { path = "../ferrodec-test-support" }
+
+[lints]
+workspace = true

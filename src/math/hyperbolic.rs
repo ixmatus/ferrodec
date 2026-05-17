@@ -1,358 +1,48 @@
-//! Hyperbolic functions and their inverses.
-//!
-//! ## Forward
-//!
-//! * `sinh(x) = (eˣ − e⁻ˣ) / 2`
-//! * `cosh(x) = (eˣ + e⁻ˣ) / 2`
-//! * `tanh(x) = sinh(x) / cosh(x)`
-//!
-//! For large `|x|` (≳ 14000) `eˣ` overflows; both `sinh` and `cosh`
-//! saturate to `±∞`, and `tanh` saturates to `±1`.
-//!
-//! For small `|x|` (`|x| < 0.5`), the naive `(eˣ − e⁻ˣ)/2` formula
-//! suffers cancellation (eˣ and e⁻ˣ are both ≈ 1). We use Taylor
-//! directly there: `sinh(x) = x + x³/3! + x⁵/5! + …`. `cosh` is even
-//! so the same concern doesn't apply (no cancellation between
-//! adjacent terms).
-//!
-//! ## Inverse
-//!
-//! * `asinh(x) = ln(x + √(x² + 1))` for all real `x`. Stable for
-//!   any sign because `x² + 1 ≥ 1`.
-//! * `acosh(x) = ln(x + √(x² − 1))` for `x ≥ 1`; NaN otherwise.
-//! * `atanh(x) = ½·ln((1 + x) / (1 − x))` for `|x| < 1`; ±∞ at
-//!   `±1`; NaN otherwise.
-//!
-//! All routines run at `Extended` precision and round once at the
-//! `Decimal128` boundary.
+//! Re-export + delegating shim: the hyperbolic kernel moved to
+//! ferrodec-transcend (P0a.2 c10). The public
+//! `Decimal128::{sinh,cosh,tanh,asinh,acosh,atanh}` wrappers and
+//! their behaviour tests stay here as the byte-identical regression
+//! gate.
 
-use crate::bid::{classify_bits, Class};
 use crate::decimal::Decimal128;
-use crate::math::exp::exp_extended;
-use crate::math::extended::Extended;
-use crate::math::ln::{ln_from_extended, log1p_extended};
-use crate::multiword::U256;
-use crate::ops::nan_from;
-use crate::status::{RoundingMode, Status};
+use ferrodec_ieee::{RoundingMode, Status};
 
 impl Decimal128 {
     /// Hyperbolic sine.
     #[must_use]
     pub fn sinh(self, rm: RoundingMode) -> (Self, Status) {
-        match classify_bits(self.to_bits()) {
-            Class::SignalingNaN { .. } => return (nan_from(self), Status::INVALID),
-            Class::QuietNaN { .. } => return (self, Status::OK),
-            Class::Infinity { .. } => return (self, Status::OK),
-            Class::Zero { .. } => return (self, Status::OK),
-            Class::Finite { .. } => {}
-        }
-        let x_ext = Extended::from_decimal128(self);
-        let result_ext = sinh_ext(x_ext);
-        let (result, status) = result_ext.to_decimal128(0, rm);
-        (result, status | Status::INEXACT)
+        ferrodec_transcend::hyperbolic::sinh_kernel::<Decimal128>(self, rm)
     }
 
     /// Hyperbolic cosine.
     #[must_use]
     pub fn cosh(self, rm: RoundingMode) -> (Self, Status) {
-        match classify_bits(self.to_bits()) {
-            Class::SignalingNaN { .. } => return (nan_from(self), Status::INVALID),
-            Class::QuietNaN { .. } => return (self, Status::OK),
-            Class::Infinity { .. } => return (Decimal128::INFINITY, Status::OK),
-            Class::Zero { .. } => return (Decimal128::ONE, Status::OK),
-            Class::Finite { .. } => {}
-        }
-        let x_ext = Extended::from_decimal128(self).abs();
-        let result_ext = cosh_ext(x_ext);
-        let (result, status) = result_ext.to_decimal128(0, rm);
-        (result, status | Status::INEXACT)
+        ferrodec_transcend::hyperbolic::cosh_kernel::<Decimal128>(self, rm)
     }
 
     /// Hyperbolic tangent.
     #[must_use]
     pub fn tanh(self, rm: RoundingMode) -> (Self, Status) {
-        match classify_bits(self.to_bits()) {
-            Class::SignalingNaN { .. } => return (nan_from(self), Status::INVALID),
-            Class::QuietNaN { .. } => return (self, Status::OK),
-            Class::Infinity { sign } => {
-                return (
-                    if sign {
-                        Decimal128::NEG_ONE
-                    } else {
-                        Decimal128::ONE
-                    },
-                    Status::OK,
-                );
-            }
-            Class::Zero { .. } => return (self, Status::OK),
-            Class::Finite { .. } => {}
-        }
-        // For |x| ≳ 35 ln(10) ≈ 80, tanh saturates to ±1 within
-        // Decimal128 precision. The eˣ branch would overflow well
-        // before that anyway.
-        //
-        // The 80 threshold is conservative; the actual `|tanh(x) − 1|
-        // < ulp(1)` boundary at 34-digit precision is `|x| ≳ 38`
-        // (≈ 17 × ln(10), since the relative error of tanh past x is
-        // bounded by `2 e^(−2x)` and 1 ULP at unity is `10^−33`).
-        // Tightening would save a few exp calls in the (38, 80] strip
-        // without affecting correctness, but the strip is rarely hit
-        // and the current threshold composes safely with sinh / cosh
-        // which use the same `EXP_OVERFLOW_LIMIT = 14150` ceiling
-        // upstream.
-        let abs_x = self.abs();
-        let saturate_threshold = Decimal128::parse_str("80", RoundingMode::NearestEven)
-            .expect("literal")
-            .0;
-        let (cmp, _) = abs_x.partial_cmp(saturate_threshold);
-        if matches!(cmp, Some(core::cmp::Ordering::Greater)) {
-            return (
-                if self.is_sign_negative() {
-                    Decimal128::NEG_ONE
-                } else {
-                    Decimal128::ONE
-                },
-                Status::INEXACT,
-            );
-        }
-        let x_ext = Extended::from_decimal128(self);
-        let s = sinh_ext(x_ext);
-        let c = cosh_ext(x_ext.abs());
-        // tanh inherits the sign of x via sinh; cosh is symmetric.
-        let result_ext = s.div(c);
-        let (result, status) = result_ext.to_decimal128(0, rm);
-        (result, status | Status::INEXACT)
+        ferrodec_transcend::hyperbolic::tanh_kernel::<Decimal128>(self, rm)
     }
 
     /// Inverse hyperbolic sine, defined for all real `self`.
     #[must_use]
     pub fn asinh(self, rm: RoundingMode) -> (Self, Status) {
-        match classify_bits(self.to_bits()) {
-            Class::SignalingNaN { .. } => return (nan_from(self), Status::INVALID),
-            Class::QuietNaN { .. } => return (self, Status::OK),
-            Class::Infinity { .. } => return (self, Status::OK),
-            Class::Zero { .. } => return (self, Status::OK),
-            Class::Finite { .. } => {}
-        }
-        // asinh(x) = sign(x) · ln(|x| + sqrt(x² + 1))
-        // Working on |x| keeps the inner sum strictly positive.
-        let neg = self.is_sign_negative();
-        let abs_x_ext = Extended::from_decimal128(self).abs();
-        let x_sq_plus_one = abs_x_ext.square().add(Extended::ONE);
-        let inner = abs_x_ext.add(x_sq_plus_one.sqrt());
-        // Pass `inner` to `ln_from_extended` directly — keeping the
-        // argument at 50-digit working precision avoids a 34-digit
-        // round trip that would propagate ≤ 1 ULP through `ln` to the
-        // result.
-        let result_ext = ln_from_extended(inner);
-        let signed_ext = if neg { result_ext.neg() } else { result_ext };
-        let (result, status) = signed_ext.to_decimal128(0, rm);
-        (result, status | Status::INEXACT)
+        ferrodec_transcend::hyperbolic::asinh_kernel::<Decimal128>(self, rm)
     }
 
     /// Inverse hyperbolic cosine, defined for `self ≥ 1`.
     #[must_use]
     pub fn acosh(self, rm: RoundingMode) -> (Self, Status) {
-        match classify_bits(self.to_bits()) {
-            Class::SignalingNaN { .. } => return (nan_from(self), Status::INVALID),
-            Class::QuietNaN { .. } => return (self, Status::OK),
-            Class::Infinity { sign } => {
-                return if sign {
-                    (Decimal128::NAN, Status::INVALID)
-                } else {
-                    (Decimal128::INFINITY, Status::OK)
-                };
-            }
-            Class::Zero { .. } => return (Decimal128::NAN, Status::INVALID),
-            Class::Finite { .. } => {}
-        }
-        let (cmp, _) = self.partial_cmp(Decimal128::ONE);
-        match cmp {
-            Some(core::cmp::Ordering::Less) => return (Decimal128::NAN, Status::INVALID),
-            Some(core::cmp::Ordering::Equal) => return (Decimal128::ZERO, Status::OK),
-            _ => {}
-        }
-        // Two paths, picked by how close x is to 1:
-        //
-        // * For x near 1, computing `x² − 1` directly cancels and costs
-        //   ~`digit_count(x − 1)` digits of precision. Extended carries
-        //   ~16 digits of headroom over Decimal128, so the original
-        //   formula is fine for `x − 1 ≥ 10⁻¹⁶` but loses the envelope
-        //   below that. The log1p path keeps `(x − 1)` explicit and
-        //   factors `x² − 1 = (x − 1)(x + 1)`, avoiding the cancellation
-        //   entirely:
-        //
-        //       acosh(x) = ln(1 + (x − 1) + sqrt((x − 1)(x + 1)))
-        //                = log1p((x − 1) + sqrt((x − 1)(x + 1)))
-        //
-        // * For x further from 1 the original `ln(x + sqrt(x² − 1))`
-        //   path runs entirely at Extended precision (commit f43ce0e)
-        //   and stays within ≤ 1 ULP at 34 digits.
-        //
-        // The threshold `0.01` keeps `inner` comfortably inside log1p's
-        // Taylor convergence window (`inner ≤ ~0.15` at this y).
-        // Cross-checked against the cancellation budget: at the
-        // boundary `x − 1 = 0.01` the direct `x² − 1` formulation loses
-        // only `digit_count(x − 1) ≈ 2` digits, comfortably inside
-        // Extended's ~16-digit headroom over Decimal128. Lowering the
-        // threshold further would shift the work back to the direct
-        // path without breaking anything; raising it would force
-        // log1p past its smooth convergence window.
-        let x_ext = Extended::from_decimal128(self);
-        let y = x_ext.sub(Extended::ONE);
-        const LOG1P_THRESHOLD: Extended = Extended {
-            coef: U256::from_u128(1),
-            exp: -2,
-            sign: false,
-        };
-        let result_ext = if y.cmp(LOG1P_THRESHOLD) == core::cmp::Ordering::Less {
-            let x_plus_one = x_ext.add(Extended::ONE);
-            let inner = y.add(y.mul(x_plus_one).sqrt());
-            log1p_extended(inner)
-        } else {
-            let x_sq_minus_one = x_ext.square().sub(Extended::ONE);
-            let inner = x_ext.add(x_sq_minus_one.sqrt());
-            ln_from_extended(inner)
-        };
-        let (result, status) = result_ext.to_decimal128(0, rm);
-        (result, status | Status::INEXACT)
+        ferrodec_transcend::hyperbolic::acosh_kernel::<Decimal128>(self, rm)
     }
 
     /// Inverse hyperbolic tangent, defined for `|self| < 1`.
     #[must_use]
     pub fn atanh(self, rm: RoundingMode) -> (Self, Status) {
-        match classify_bits(self.to_bits()) {
-            Class::SignalingNaN { .. } => return (nan_from(self), Status::INVALID),
-            Class::QuietNaN { .. } => return (self, Status::OK),
-            Class::Infinity { .. } => return (Decimal128::NAN, Status::INVALID),
-            Class::Zero { .. } => return (self, Status::OK),
-            Class::Finite { .. } => {}
-        }
-        let abs_x = self.abs();
-        let (cmp, _) = abs_x.partial_cmp(Decimal128::ONE);
-        match cmp {
-            Some(core::cmp::Ordering::Greater) => return (Decimal128::NAN, Status::INVALID),
-            Some(core::cmp::Ordering::Equal) => {
-                // atanh(±1) = ±∞, raise DIV_BY_ZERO (the formula has
-                // 1/(1−|x|) at the singularity).
-                return (
-                    if self.is_sign_negative() {
-                        Decimal128::NEG_INFINITY
-                    } else {
-                        Decimal128::INFINITY
-                    },
-                    Status::DIV_BY_ZERO,
-                );
-            }
-            _ => {}
-        }
-        // atanh(x) = ½·ln((1 + x) / (1 − x)) — ratio stays at extended
-        // precision through the ln call.
-        let x_ext = Extended::from_decimal128(self);
-        let one_plus = Extended::ONE.add(x_ext);
-        let one_minus = Extended::ONE.sub(x_ext);
-        let ratio = one_plus.div(one_minus);
-        let ln_ratio_ext = ln_from_extended(ratio);
-        let result_ext = ln_ratio_ext.div_u32(2);
-        let (result, status) = result_ext.to_decimal128(0, rm);
-        (result, status | Status::INEXACT)
+        ferrodec_transcend::hyperbolic::atanh_kernel::<Decimal128>(self, rm)
     }
-}
-
-/// `sinh(x)` at `Extended` precision.
-fn sinh_ext(x: Extended) -> Extended {
-    if x.is_zero() {
-        return x;
-    }
-    // For |x| < 0.5 use Taylor directly to avoid cancellation in
-    // (eˣ − e⁻ˣ)/2. The threshold 0.5 keeps Taylor convergence at
-    // ≤ ~40 iterations for 50-digit precision.
-    if x.abs().cmp(Extended::HALF) == core::cmp::Ordering::Less {
-        return sinh_taylor(x);
-    }
-    // Saturation: |x| past the exp convergence ceiling lands outside
-    // Decimal128's range. Return a pre-overflow magnitude with the
-    // sign of x; the boundary round produces ±∞ + OVERFLOW.
-    if x.abs().cmp(Extended::EXP_OVERFLOW_LIMIT) == core::cmp::Ordering::Greater {
-        return Extended::saturate_overflow(x.sign);
-    }
-    // sinh(x) = (e^x − e^{-x}) / 2, evaluated entirely at extended
-    // precision so the cancellation is bounded by Extended's 50-digit
-    // working envelope rather than Decimal128's 34-digit one. Combined
-    // with the |x| < 0.5 Taylor branch above, this gives ≤ 1 ULP at the
-    // 34-digit boundary across the whole representable domain.
-    let e_pos = exp_extended(x);
-    let e_neg = exp_extended(x.neg());
-    e_pos.sub(e_neg).div_u32(2)
-}
-
-/// `sinh(x)` Taylor series for `|x| < 0.5`.
-/// `sinh(x) = x + x³/3! + x⁵/5! + …` (all positive — no
-/// cancellation).
-fn sinh_taylor(x: Extended) -> Extended {
-    let mut sum = x;
-    let mut term = x;
-    let x_sq = x.square();
-    let mut n: u32 = 1;
-    for _ in 0..120 {
-        n += 1;
-        let denom = (2 * n - 2) * (2 * n - 1);
-        term = term.mul(x_sq).div_u32(denom);
-        let next_sum = sum.add(term);
-        if next_sum.cmp(sum) == core::cmp::Ordering::Equal {
-            sum = next_sum;
-            break;
-        }
-        sum = next_sum;
-        if term.is_zero() {
-            break;
-        }
-    }
-    sum
-}
-
-/// `cosh(x)` at `Extended` precision. Caller passes the absolute
-/// value (cosh is even).
-fn cosh_ext(abs_x: Extended) -> Extended {
-    if abs_x.is_zero() {
-        return Extended::ONE;
-    }
-    // For small |x| (<0.5), Taylor is more accurate (no cancellation).
-    if abs_x.cmp(Extended::HALF) == core::cmp::Ordering::Less {
-        return cosh_taylor(abs_x);
-    }
-    // Saturation: |x| past the exp convergence ceiling lands outside
-    // Decimal128's range. cosh is always positive.
-    if abs_x.cmp(Extended::EXP_OVERFLOW_LIMIT) == core::cmp::Ordering::Greater {
-        return Extended::saturate_overflow(false);
-    }
-    // cosh(x) = (e^x + e^{-x}) / 2, end-to-end at extended precision.
-    let e_pos = exp_extended(abs_x);
-    let e_neg = exp_extended(abs_x.neg());
-    e_pos.add(e_neg).div_u32(2)
-}
-
-/// `cosh(x) = 1 + x²/2! + x⁴/4! + …` for small `|x|`.
-fn cosh_taylor(x: Extended) -> Extended {
-    let mut sum = Extended::ONE;
-    let mut term = Extended::ONE;
-    let x_sq = x.square();
-    let mut n: u32 = 0;
-    for _ in 0..120 {
-        n += 1;
-        let denom = (2 * n - 1) * (2 * n);
-        term = term.mul(x_sq).div_u32(denom);
-        let next_sum = sum.add(term);
-        if next_sum.cmp(sum) == core::cmp::Ordering::Equal {
-            sum = next_sum;
-            break;
-        }
-        sum = next_sum;
-        if term.is_zero() {
-            break;
-        }
-    }
-    sum
 }
 
 #[cfg(test)]

@@ -1,11 +1,20 @@
 //! IEEE 754-2019 §9.2 trigonometric functions for [`Decimal64`].
 //!
-//! `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`. All route
-//! through `f64` via `libm` (pure Rust, `no_std`, no FFI). Decimal64
-//! carries 16 digits while f64 carries ~15.95, so the bottom Decimal64
-//! digit may be lost in the f64 round-trip. v1.0 ships this baseline;
-//! a future commit can replace it with a pure-decimal kernel at u128
-//! working precision (the public surface is drop-in compatible).
+//! `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2` route their
+//! finite path through the shared faithful `ferrodec-transcend`
+//! Extended-precision kernel: 50-digit `Extended` working precision
+//! with Payne-Hanek argument reduction for `sin` / `cos` / `tan`,
+//! rounded once at the format boundary, giving faithfully-rounded
+//! (≤ 1 ULP at 16 digits) results without the pre-fd-r0l lossy
+//! `f64` / `libm` detour. The kernel is the same verified
+//! implementation the `ferrodec` (Decimal128) parent uses,
+//! instantiated at `F = Decimal64` via the `DecimalFormat` seam.
+//!
+//! The special-value short-circuits (`sin_special_cases` etc.) stay
+//! in this module ahead of the kernel call: they are shared with the
+//! ADR-0016 Kani shims (which must never reach the Extended kernel)
+//! and keep Decimal64's special-value semantics byte-identical across
+//! the rewire.
 //!
 //! # Special cases (IEEE 754-2019 §9.2)
 //!
@@ -16,117 +25,142 @@
 //!   `asin(±1) = ±π/2`.
 //! * `acos(1) = 0`. `acos(±|x| > 1) = NaN + INVALID`.
 //! * `atan(±0) = ±0`. `atan(±∞) = ±π/2`.
-//! * `atan2(y, x)` follows the f64 conventions; NaN inputs produce
-//!   NaN.
+//! * `atan2(y, x)` follows the IEEE 754-2019 §9.2.1 quadrant
+//!   conventions; NaN inputs produce NaN.
 //!
-//! # Argument reduction precision (documented limitation)
+//! # Argument reduction
 //!
-//! `sin`, `cos`, and `tan` reduce their argument modulo a multiple of
-//! `π/2` inside `libm`, at f64 precision. f64 represents an integer
-//! exactly only up to `2^53 ≈ 9.007 × 10^15`. Above that the
-//! Decimal64 argument cannot round-trip through f64 without losing its
-//! low digits before reduction even begins, so the reduced angle, and
-//! therefore the result, carries error that grows with the argument.
-//! Accuracy is specified only for `|x| < 2^53`; a Decimal64 such as
-//! `9_999_999_999_999_999` fed to `sin` returns a value whose low
-//! digits are not meaningful. This is an accepted limitation for
-//! 1.4.0, not a correctness bug against the documented envelope: the
-//! inverse functions (`asin`, `acos`, `atan`, `atan2`) take bounded
-//! arguments and are unaffected. A margined, decimal aware reduction
-//! (the analogue of the Decimal128 `argred` module) lands with the
-//! pure-decimal transcendentals rewrite deferred in the ferrodec
-//! 1.15.0 CHANGELOG; the public surface stays drop-in compatible.
+//! The pre-fd-r0l `|x| < 2^53` accuracy limitation (the f64
+//! round-trip lost the low digits before reduction began) is lifted:
+//! `sin` / `cos` / `tan` now reduce the argument with the same
+//! Payne-Hanek module the Decimal128 parent uses, which parameterises
+//! correctly to Decimal64's narrower exponent range (the spike
+//! fd-57z confirmed the 2/π table over-covers the siblings). The
+//! reduction is faithful across the full Decimal64 magnitude range.
 
 use crate::bid::{classify_bits, Class};
 use crate::decimal::Decimal64;
 use ferrodec_ieee::{RoundingMode, Status};
 
-use super::f64_bridge::{f64_unary, f64_unary_via_value};
-
 impl Decimal64 {
     /// IEEE 754-2019 §9.2 `sin(self)` rounded by `rm`.
+    ///
+    /// Finite inputs route through the shared faithful
+    /// `ferrodec-transcend` Extended-precision kernel (Payne-Hanek
+    /// reduction, ≤ 1 ULP across the true Decimal64 domain),
+    /// replacing the pre-fd-r0l lossy `f64` / `libm::sin` detour. The
+    /// `sin_special_cases` short-circuit is kept ahead of the kernel
+    /// call so Decimal64's special-value semantics (and the ADR-0016
+    /// Kani shim, which shares `sin_special_cases`) are byte-identical
+    /// to before; only the finite result path changes.
     #[must_use]
     pub fn sin(self, rm: RoundingMode) -> (Self, Status) {
         if let Some(special) = sin_special_cases(classify_bits(self.0)) {
             return special;
         }
-        // Finite non-zero: route through f64.
-        f64_unary(self, libm::sin, rm)
+        // Finite non-zero: faithful shared kernel.
+        ferrodec_transcend::sincos::sin_kernel::<Decimal64>(self, rm)
     }
 
     /// IEEE 754-2019 §9.2 `cos(self)` rounded by `rm`.
+    ///
+    /// Finite inputs route through the shared faithful
+    /// `ferrodec-transcend` Extended-precision kernel (Payne-Hanek
+    /// reduction, ≤ 1 ULP across the true Decimal64 domain),
+    /// replacing the pre-fd-r0l lossy `f64` / `libm::cos` detour. The
+    /// `cos_special_cases` short-circuit is kept ahead of the kernel
+    /// call so Decimal64's special-value semantics (and the ADR-0016
+    /// Kani shim, which shares `cos_special_cases`) are byte-identical
+    /// to before; only the finite result path changes.
     #[must_use]
     pub fn cos(self, rm: RoundingMode) -> (Self, Status) {
         if let Some(special) = cos_special_cases(classify_bits(self.0)) {
             return special;
         }
-        // Finite non-zero: route through f64.
-        f64_unary(self, libm::cos, rm)
+        // Finite non-zero: faithful shared kernel.
+        ferrodec_transcend::sincos::cos_kernel::<Decimal64>(self, rm)
     }
 
     /// IEEE 754-2019 §9.2 `tan(self)` rounded by `rm`.
+    ///
+    /// Finite inputs route through the shared faithful
+    /// `ferrodec-transcend` Extended-precision kernel (Payne-Hanek
+    /// reduction, ≤ 1 ULP across the true Decimal64 domain),
+    /// replacing the pre-fd-r0l lossy `f64` / `libm::tan` detour. The
+    /// `tan_special_cases` short-circuit is kept ahead of the kernel
+    /// call so Decimal64's special-value semantics (and the ADR-0016
+    /// Kani shim, which shares `tan_special_cases`) are byte-identical
+    /// to before; only the finite result path changes.
     #[must_use]
     pub fn tan(self, rm: RoundingMode) -> (Self, Status) {
         if let Some(special) = tan_special_cases(classify_bits(self.0)) {
             return special;
         }
-        // Finite non-zero: route through f64.
-        f64_unary(self, libm::tan, rm)
+        // Finite non-zero: faithful shared kernel.
+        ferrodec_transcend::sincos::tan_kernel::<Decimal64>(self, rm)
     }
 
     /// IEEE 754-2019 §9.2 `asin(self)` rounded by `rm`.
     /// Domain: `[-1, +1]`. Outside the domain raises INVALID.
+    ///
+    /// Finite inputs route through the shared faithful
+    /// `ferrodec-transcend` Extended-precision kernel (≤ 1 ULP across
+    /// the true Decimal64 domain), replacing the pre-fd-r0l lossy
+    /// `f64` / `libm::asin` detour. The `|x| > 1` domain INVALID is
+    /// now decided inside the kernel at Extended precision (not on a
+    /// rounded f64 value), so the `asin_special_cases` short-circuit
+    /// is kept ahead of the kernel for the NaN / Inf / zero classes
+    /// only; the ADR-0016 Kani shim still shares `asin_special_cases`.
     #[must_use]
     pub fn asin(self, rm: RoundingMode) -> (Self, Status) {
         if let Some(special) = asin_special_cases(classify_bits(self.0)) {
             return special;
         }
-        // Finite non-zero: the `|x| > 1` domain check lives on the
-        // f64 path because it depends on the rounded f64 value, so it
-        // is part of the pipeline `_special_cases` returns `None` for.
-        let x = self.to_f64(RoundingMode::NearestEven).0;
-        if x.abs() > 1.0 {
-            return (Decimal64::NAN, Status::INVALID);
-        }
-        f64_unary_via_value(x, libm::asin, rm)
+        // Finite non-zero: faithful shared kernel (the kernel decides
+        // the `|x| > 1` domain INVALID at Extended precision).
+        ferrodec_transcend::inverse_trig::asin_kernel::<Decimal64>(self, rm)
     }
 
     /// IEEE 754-2019 §9.2 `acos(self)` rounded by `rm`.
     /// Domain: `[-1, +1]`. Outside the domain raises INVALID.
+    ///
+    /// Finite inputs route through the shared faithful
+    /// `ferrodec-transcend` Extended-precision kernel (≤ 1 ULP across
+    /// the true Decimal64 domain), replacing the pre-fd-r0l lossy
+    /// `f64` / `libm::acos` detour. The `|x| > 1` domain INVALID is
+    /// now decided inside the kernel at Extended precision (not on a
+    /// rounded f64 value); the `acos_special_cases` short-circuit is
+    /// kept ahead of the kernel for the NaN / Inf classes and the
+    /// ADR-0016 Kani shim still shares it.
     #[must_use]
     pub fn acos(self, rm: RoundingMode) -> (Self, Status) {
         if let Some(special) = acos_special_cases(classify_bits(self.0)) {
             return special;
         }
-        // Both `Zero` and finite non-zero reach the f64 path: `acos`
-        // has no exact zero-result special, and the `|x| > 1` domain
-        // check depends on the rounded f64 value.
-        let x = self.to_f64(RoundingMode::NearestEven).0;
-        if x.abs() > 1.0 {
-            return (Decimal64::NAN, Status::INVALID);
-        }
-        f64_unary_via_value(x, libm::acos, rm)
+        // `Zero` and finite non-zero: faithful shared kernel (the
+        // kernel decides the `|x| > 1` domain INVALID at Extended
+        // precision and `acos(±0) = π/2`).
+        ferrodec_transcend::inverse_trig::acos_kernel::<Decimal64>(self, rm)
     }
 
     /// IEEE 754-2019 §9.2 `atan(self)` rounded by `rm`.
+    ///
+    /// Finite inputs and `±∞` route through the shared faithful
+    /// `ferrodec-transcend` Extended-precision kernel (≤ 1 ULP across
+    /// the true Decimal64 domain, `atan(±∞) = ±π/2`), replacing the
+    /// pre-fd-r0l lossy `f64` / `libm::atan` detour. The
+    /// `atan_special_cases` short-circuit is kept ahead of the kernel
+    /// for the NaN / zero classes (it returns `None` for `Infinity`
+    /// and finite non-zero, the cases the kernel resolves); the
+    /// ADR-0016 Kani shim still shares `atan_special_cases`.
     #[must_use]
     pub fn atan(self, rm: RoundingMode) -> (Self, Status) {
         if let Some(special) = atan_special_cases(classify_bits(self.0)) {
             return special;
         }
-        // `Infinity` and finite non-zero both reach `libm::atan`:
-        // `atan(±∞) = ±π/2` is computed by libm, not a pure special.
-        match classify_bits(self.0) {
-            Class::Infinity { sign } => {
-                let v = if sign {
-                    f64::NEG_INFINITY
-                } else {
-                    f64::INFINITY
-                };
-                f64_unary_via_value(v, libm::atan, rm)
-            }
-            _ => f64_unary(self, libm::atan, rm),
-        }
+        // `Infinity` and finite non-zero: faithful shared kernel
+        // (the kernel computes `atan(±∞) = ±π/2`).
+        ferrodec_transcend::inverse_trig::atan_kernel::<Decimal64>(self, rm)
     }
 
     /// `atan2(self, x)` — the angle whose tangent is `self / x`,
@@ -141,19 +175,23 @@ impl Decimal64 {
     /// INVALID even when `x` is also NaN; a quiet NaN in `self` short
     /// circuits before `x` is examined, so a signaling NaN in `x`
     /// does not upgrade the status in that case.
+    ///
+    /// Finite, infinite, and zero operands route through the shared
+    /// faithful `ferrodec-transcend` Extended-precision kernel (≤ 1
+    /// ULP, IEEE 754-2019 §9.2.1 quadrant dispatch), replacing the
+    /// pre-fd-r0l lossy `f64` / `libm::atan2` detour. The
+    /// `atan2_special_cases` short-circuit is kept ahead of the
+    /// kernel for the NaN-propagation branch only (it returns `None`
+    /// when neither operand is NaN, the single case the kernel
+    /// resolves); the ADR-0016 Kani shim still shares
+    /// `atan2_special_cases`.
     #[must_use]
     pub fn atan2(self, x: Self, rm: RoundingMode) -> (Self, Status) {
         if let Some(special) = atan2_special_cases(self, x) {
             return special;
         }
-        let y_f = self.to_f64(RoundingMode::NearestEven).0;
-        let x_f = x.to_f64(RoundingMode::NearestEven).0;
-        let r = libm::atan2(y_f, x_f);
-        let (val, mut status) = Decimal64::from_f64(r, rm);
-        if !val.is_zero() {
-            status |= Status::INEXACT;
-        }
-        (val, status)
+        // Neither operand is NaN: faithful shared kernel.
+        ferrodec_transcend::inverse_trig::atan2_kernel::<Decimal64>(self, x, rm)
     }
 
     /// Kani-only entry returning the `sin` special-case branch

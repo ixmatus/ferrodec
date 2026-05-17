@@ -1,4 +1,5 @@
-//! Shared helpers for the transcendental property-test files. Lives at
+//! Thin `Decimal128` adapter onto the shared, generic faithful-rounding
+//! harness in `ferrodec_test_support::transcend_oracle`. Lives at
 //! `tests/common/mod.rs` so each `tests/property_*.rs` file can pull it
 //! in via `mod common;` without Cargo treating it as a separate
 //! integration-test binary.
@@ -19,7 +20,7 @@
 //! exact mathematical result (equivalently: no representable value lies
 //! strictly between the result and the true value).
 //!
-//! This module asserts that contract *exactly*. It does **not** use a
+//! The harness asserts that contract *exactly*. It does **not** use a
 //! symmetric `± k ULP` tolerance envelope: an envelope silently admits
 //! a systematically half-ULP-biased kernel (every result rounded the
 //! wrong way by just under a ULP still "passes"), which is precisely
@@ -35,138 +36,143 @@
 //! value is strictly between `got` and the true result). The three
 //! directed `ferrodec` rounding modes additionally pin *which* of the
 //! two adjacent values the spec mandates for that direction.
+//!
+//! The faithful machinery itself (`to_bf`, `cmp_approx`,
+//! `within_faithful_ulp`, `faithful_side_ok`, `assert_faithful`, the
+//! `P_CMP = 256` precision, the `1e-40` / `1e-300` dead-band) now lives
+//! once in `ferrodec_test_support::transcend_oracle`, generic over the
+//! `FaithfulFormat` trait. The [`D128`] newtype below is the
+//! `Decimal128` implementation of that trait (a newtype because the
+//! orphan rule forbids implementing a foreign trait for the foreign
+//! `Decimal128` directly from this test crate). Same-named, concrete
+//! `Decimal128`-signature wrappers (`assert_faithful`, `parse`, `MODES`,
+//! `within_faithful_ulp`, `faithful_side_ok`) sit on top so every
+//! `tests/property_*.rs` keeps its `use common::{...}` lines and call
+//! sites byte-unchanged. `within_rel_ulps` stays here too: it is a
+//! `Decimal128`-arithmetic identity cross-check, not the faithful
+//! contract, so it does not belong in the generic harness.
 
 #![allow(dead_code)]
 
-use astro_float::{BigFloat, Consts, Radix, RoundingMode as AfRm};
 use core::cmp::Ordering;
+
+use astro_float::{BigFloat, Consts};
 use ferrodec::{Decimal128, RoundingMode, Status};
+use ferrodec_test_support::transcend_oracle::{self, FaithfulFormat, SpecRounding};
+
+/// Newtype carrier so the foreign [`FaithfulFormat`] trait can be
+/// implemented for the foreign `Decimal128` from this test crate
+/// without tripping the orphan rule. Every method forwards to the
+/// format's own IEEE behaviour, so the bracket logic in
+/// `transcend_oracle` reasons over the exact same values it did when
+/// the machinery lived in this file.
+#[derive(Clone, Copy, Debug)]
+pub struct D128(pub Decimal128);
+
+impl FaithfulFormat for D128 {
+    type Rounding = RoundingMode;
+    type Status = Status;
+
+    /// The five IEEE 754-2019 rounding directions, asserted for every
+    /// transcendental input so the directional faithful-rounding
+    /// contract is exercised on each mode rather than only
+    /// round-to-nearest-even.
+    const MODES: &'static [RoundingMode] = &[
+        RoundingMode::NearestEven,
+        RoundingMode::NearestAway,
+        RoundingMode::TowardZero,
+        RoundingMode::TowardPositive,
+        RoundingMode::TowardNegative,
+    ];
+
+    fn parse_nearest_even(s: &str) -> Self {
+        D128(
+            Decimal128::parse_str(s, RoundingMode::NearestEven)
+                .unwrap()
+                .0,
+        )
+    }
+
+    fn sci(self) -> String {
+        let d = self.0;
+        format!("{d:e}")
+    }
+
+    fn next_up(self) -> Self {
+        D128(self.0.next_up().0)
+    }
+
+    fn next_down(self) -> Self {
+        D128(self.0.next_down().0)
+    }
+
+    fn is_finite(self) -> bool {
+        self.0.is_finite()
+    }
+
+    fn raised_invalid(st: Status) -> bool {
+        st.invalid()
+    }
+
+    fn raised_inexact(st: Status) -> bool {
+        st.inexact()
+    }
+
+    /// Map `ferrodec`'s concrete `RoundingMode` onto the harness's
+    /// format-independent [`SpecRounding`] classification. The two
+    /// to-nearest modes collapse to `Nearest` (faithful, not correctly
+    /// rounded, per ADR-0021); only the three directed modes pin a
+    /// side.
+    fn spec_rounding(rm: RoundingMode) -> SpecRounding {
+        match rm {
+            RoundingMode::NearestEven | RoundingMode::NearestAway => SpecRounding::Nearest,
+            RoundingMode::TowardPositive => SpecRounding::TowardPositive,
+            RoundingMode::TowardNegative => SpecRounding::TowardNegative,
+            RoundingMode::TowardZero => SpecRounding::TowardZero,
+        }
+    }
+}
 
 /// The five IEEE 754-2019 rounding directions, asserted for every
 /// transcendental input so the directional faithful-rounding contract
 /// is exercised on each mode rather than only round-to-nearest-even.
-pub const MODES: &[RoundingMode] = &[
-    RoundingMode::NearestEven,
-    RoundingMode::NearestAway,
-    RoundingMode::TowardZero,
-    RoundingMode::TowardPositive,
-    RoundingMode::TowardNegative,
-];
-
-/// Precision for the internal `Decimal128 → BigFloat` conversions used
-/// to compare `got` and its neighbours against the oracle. A
-/// `Decimal128` carries ≤ 34 significant digits, so 256 bits (≈ 77
-/// digits) holds every converted value exactly.
-const P_CMP: usize = 256;
+/// Re-exported under the historical name and concrete element type so
+/// every `tests/property_*.rs` keeps its `use common::MODES` line and
+/// `for &rm in MODES` loop unchanged.
+pub const MODES: &[RoundingMode] = <D128 as FaithfulFormat>::MODES;
 
 /// Parse a decimal literal at round-half-even, panicking on invalid
 /// input. The shape every property test wants for hand-curated
-/// reference values.
+/// reference values. Concrete `Decimal128` signature so consumers stay
+/// byte-unchanged.
 pub fn parse(s: &str) -> Decimal128 {
-    Decimal128::parse_str(s, RoundingMode::NearestEven)
-        .unwrap()
-        .0
-}
-
-/// Exact conversion of a finite `Decimal128` to a `BigFloat`. Uses the
-/// forced-scientific `{:e}` form (never `Display`), which preserves the
-/// exact significand digits and exponent.
-fn to_bf(d: Decimal128, cc: &mut Consts) -> BigFloat {
-    BigFloat::parse(&format!("{d:e}"), Radix::Dec, P_CMP, AfRm::None, cc)
-}
-
-/// Sign of `a - b` with a relative dead-band that swallows astro-float's
-/// sub-ULP function-approximation error: values within `|b|·10^-40`
-/// (or `10^-300` absolute when `b ≈ 0`) are reported `Equal`. The
-/// dead-band is ~30 orders of magnitude below one `Decimal128` ULP, so
-/// it never merges two distinct representable values; it only absorbs
-/// the oracle's own noise so an exactly-correct result is not spuriously
-/// judged "on the wrong side" of a true value it actually equals.
-fn cmp_approx(a: &BigFloat, b: &BigFloat, cc: &mut Consts) -> Ordering {
-    let diff = a.sub(b, P_CMP, AfRm::None);
-    let e40 = BigFloat::parse("1e-40", Radix::Dec, P_CMP, AfRm::None, cc);
-    let floor = BigFloat::parse("1e-300", Radix::Dec, P_CMP, AfRm::None, cc);
-    let mut tol = b.mul(&e40, P_CMP, AfRm::None);
-    if tol.abs_cmp(&floor).expect("finite tol") < 0 {
-        tol = floor;
-    }
-    if diff.abs_cmp(&tol).expect("finite diff") <= 0 {
-        Ordering::Equal
-    } else if diff.is_negative() {
-        Ordering::Less
-    } else {
-        Ordering::Greater
-    }
+    transcend_oracle::parse::<D128>(s).0
 }
 
 /// `true` iff `got` is faithfully rounded with respect to the true
 /// value `oracle`: no representable `Decimal128` lies strictly between
-/// `got` and the true result. Equivalent to "`got` is one of the two
-/// representable values adjacent to the true value".
+/// `got` and the true result. Concrete-`Decimal128` wrapper around the
+/// generic harness; semantics unchanged.
 pub fn within_faithful_ulp(got: Decimal128, oracle: &BigFloat, cc: &mut Consts) -> bool {
-    let up = to_bf(got.next_up().0, cc);
-    let down = to_bf(got.next_down().0, cc);
-    // Not faithful iff a representable value sits strictly between
-    // `got` and the true value: that happens exactly when `next_up`
-    // is still strictly below the true value (so `next_up` itself lies
-    // between `got` and `true`), or `next_down` is still strictly above
-    // it.
-    !(cmp_approx(&up, oracle, cc) == Ordering::Less
-        || cmp_approx(&down, oracle, cc) == Ordering::Greater)
+    transcend_oracle::within_faithful_ulp(D128(got), oracle, cc)
 }
 
 /// `true` iff `got` is on the spec-mandated side of the true value for
-/// rounding mode `rm`:
-///
-/// * `TowardPositive` — the representable value `≥ true`.
-/// * `TowardNegative` — the representable value `≤ true`.
-/// * `TowardZero` — the adjacent value of smaller magnitude (toward
-///   `−true` sign): floor for a positive result, ceil for a negative.
-/// * the two to-nearest modes — either adjacent value (faithful, not
-///   correctly rounded, per ADR-0021: §9.2 does not require the kernel
-///   to resolve the tie the way an exact oracle would).
+/// rounding mode `rm`. Concrete-`Decimal128` wrapper around the generic
+/// harness; semantics unchanged.
 pub fn faithful_side_ok(
     got: Decimal128,
     oracle: &BigFloat,
     cc: &mut Consts,
     rm: RoundingMode,
 ) -> bool {
-    if !within_faithful_ulp(got, oracle, cc) {
-        return false;
-    }
-    let g = to_bf(got, cc);
-    let side = cmp_approx(&g, oracle, cc);
-    if side == Ordering::Equal {
-        // `got` equals the true value (within the oracle dead-band):
-        // exact, hence correct for every rounding direction.
-        return true;
-    }
-    let is_floor = side == Ordering::Less; // got < true
-    match rm {
-        RoundingMode::NearestEven | RoundingMode::NearestAway => true,
-        RoundingMode::TowardPositive => !is_floor,
-        RoundingMode::TowardNegative => is_floor,
-        RoundingMode::TowardZero => {
-            // Smaller magnitude. The true value's sign equals `got`'s
-            // here (they bracket each other within one ULP), so toward
-            // zero is floor for a positive result and ceil for a
-            // negative one.
-            if oracle.is_negative() {
-                !is_floor
-            } else {
-                is_floor
-            }
-        }
-    }
+    transcend_oracle::faithful_side_ok(D128(got), oracle, cc, rm)
 }
 
 /// Assert the full faithful-rounding contract for one transcendental
-/// evaluation: `got` / `status` is what `ferrodec` returned for rounding
-/// mode `rm`, and `oracle` is the true value computed by the caller at
-/// `≥ 256`-bit precision. Panics with a diagnostic naming the operation
-/// if the value is not faithfully rounded, is on the wrong side for a
-/// directed mode, signals `INVALID` for an in-domain input, or fails to
-/// flag `INEXACT` when the result is provably inexact.
+/// evaluation. Concrete-`Decimal128` wrapper around the generic
+/// harness; the panic conditions (non-finite, not faithfully rounded,
+/// in-domain `INVALID`, inexact-without-`INEXACT`) are identical.
 pub fn assert_faithful(
     got: Decimal128,
     status: Status,
@@ -175,27 +181,7 @@ pub fn assert_faithful(
     rm: RoundingMode,
     ctx: &str,
 ) {
-    assert!(got.is_finite(), "{ctx} rm={rm:?}: got non-finite {got:?}");
-    assert!(
-        faithful_side_ok(got, oracle, cc, rm),
-        "{ctx} rm={rm:?}: got {got:e} not faithfully rounded for this mode"
-    );
-    assert!(
-        !status.invalid(),
-        "{ctx} rm={rm:?}: in-domain input raised INVALID"
-    );
-    // `got` differs from the true value ⇒ the result is inexact ⇒
-    // INEXACT is mandatory. When `got` equals the true value (within
-    // the oracle dead-band) exactness cannot be proven from the oracle
-    // alone, so INEXACT is not asserted.
-    let g = to_bf(got, cc);
-    let exact = cmp_approx(&g, oracle, cc) == Ordering::Equal;
-    if !exact {
-        assert!(
-            status.inexact(),
-            "{ctx} rm={rm:?}: inexact result did not raise INEXACT"
-        );
-    }
+    transcend_oracle::assert_faithful(D128(got), status, oracle, cc, rm, ctx);
 }
 
 /// Relative-tolerance closeness for **algebraic identity cross-checks
@@ -207,6 +193,11 @@ pub fn assert_faithful(
 /// that cannot be mistaken for the spec claim. `true` if `got` is
 /// within `ulps · 10^-33` relative of `want`, or within `ulps · 10^-30`
 /// absolute when `want` is zero.
+///
+/// Kept in this `Decimal128` adapter rather than the generic harness:
+/// it does decimal arithmetic (`sub` / `div` / `partial_cmp`) on the
+/// format itself, so it is an identity cross-check helper, not part of
+/// the faithful contract the shared module owns.
 pub fn within_rel_ulps(got: Decimal128, want: Decimal128, ulps: u32) -> bool {
     let (diff, _) = got.sub(want, RoundingMode::NearestEven);
     let diff = diff.abs();

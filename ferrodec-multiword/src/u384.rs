@@ -13,30 +13,30 @@
 //! addsub kernel: `add`, `sub`, `cmp`, `mul10`, `mul_pow10`, `div_rem10`,
 //! `decimal_digit_count`, `is_zero`. The one extra is
 //! [`U384::shift_right_to_u256`] — when the combined coefficient must be
-//! handed to [`round_and_pack_finite`], we shift low-order digits into a
-//! sticky bit until the residue fits in a `U256`.
+//! handed to the caller's round-and-pack step, we shift low-order
+//! digits into a sticky bit until the residue fits in a `U256`.
 
-use crate::multiword::U256;
+use crate::U256;
 use core::cmp::Ordering;
 
 /// 384-bit unsigned integer, little-endian limbs.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
-pub(crate) struct U384 {
-    pub(crate) lo: u128,
-    pub(crate) mid: u128,
-    pub(crate) hi: u128,
+pub struct U384 {
+    pub lo: u128,
+    pub mid: u128,
+    pub hi: u128,
 }
 
 impl U384 {
     #[allow(dead_code)] // symmetric with U256::ZERO; used by future helpers
-    pub(crate) const ZERO: Self = Self {
+    pub const ZERO: Self = Self {
         lo: 0,
         mid: 0,
         hi: 0,
     };
 
     #[inline]
-    pub(crate) const fn from_u128(x: u128) -> Self {
+    pub const fn from_u128(x: u128) -> Self {
         Self {
             lo: x,
             mid: 0,
@@ -45,7 +45,7 @@ impl U384 {
     }
 
     #[inline]
-    pub(crate) const fn from_u256(u: U256) -> Self {
+    pub const fn from_u256(u: U256) -> Self {
         Self {
             lo: u.lo,
             mid: u.hi,
@@ -54,12 +54,12 @@ impl U384 {
     }
 
     #[inline]
-    pub(crate) const fn is_zero(self) -> bool {
+    pub const fn is_zero(self) -> bool {
         self.lo == 0 && self.mid == 0 && self.hi == 0
     }
 
     #[inline]
-    pub(crate) fn cmp(self, other: Self) -> Ordering {
+    pub fn cmp(self, other: Self) -> Ordering {
         match self.hi.cmp(&other.hi) {
             Ordering::Equal => match self.mid.cmp(&other.mid) {
                 Ordering::Equal => self.lo.cmp(&other.lo),
@@ -72,7 +72,8 @@ impl U384 {
     /// Wrapping `self + other`. Caller is responsible for ensuring the
     /// true sum fits in 384 bits.
     #[inline]
-    pub(crate) const fn add(self, other: Self) -> Self {
+    #[must_use]
+    pub const fn add(self, other: Self) -> Self {
         let (lo, c0) = self.lo.overflowing_add(other.lo);
         let (mid_a, c1) = self.mid.overflowing_add(other.mid);
         let (mid, c2) = mid_a.overflowing_add(c0 as u128);
@@ -86,7 +87,8 @@ impl U384 {
 
     /// `self - other`. Pre-condition: `self >= other`.
     #[inline]
-    pub(crate) const fn sub(self, other: Self) -> Self {
+    #[must_use]
+    pub const fn sub(self, other: Self) -> Self {
         let (lo, b0) = self.lo.overflowing_sub(other.lo);
         let (mid_a, b1) = self.mid.overflowing_sub(other.mid);
         let (mid, b2) = mid_a.overflowing_sub(b0 as u128);
@@ -100,7 +102,8 @@ impl U384 {
 
     /// `self * 10`. Pre-condition: result fits in 384 bits.
     #[inline]
-    pub(crate) fn mul10(self) -> Self {
+    #[must_use]
+    pub fn mul10(self) -> Self {
         // Multiply each limb by 10, propagate carries upward.
         let (lo_hi, lo_lo) = widening_mul_u128_by_10(self.lo);
         let (mid_hi, mid_lo) = widening_mul_u128_by_10(self.mid);
@@ -114,7 +117,8 @@ impl U384 {
     }
 
     /// `self * 10^k`. Bounded loop; caller keeps `k` within the buffer.
-    pub(crate) fn mul_pow10(mut self, k: u32) -> Self {
+    #[must_use]
+    pub fn mul_pow10(mut self, k: u32) -> Self {
         let mut i = 0;
         while i < k {
             self = self.mul10();
@@ -124,7 +128,7 @@ impl U384 {
     }
 
     /// `self / 10` returning `(quotient, remainder_digit)`.
-    pub(crate) fn div_rem10(self) -> (Self, u32) {
+    pub fn div_rem10(self) -> (Self, u32) {
         // Long division top-down: divide each limb feeding the
         // remainder of the higher limb into the next.
         let (q_hi, r_after_hi) = div_rem_u128_by_10(self.hi);
@@ -143,7 +147,7 @@ impl U384 {
     /// Number of significant decimal digits in `self`. Returns `1` for
     /// zero. Bounded by ⌈384·log10(2)⌉ = 116 iterations.
     #[allow(dead_code)] // currently only the unit tests; future shrink path will use it
-    pub(crate) fn decimal_digit_count(self) -> u32 {
+    pub fn decimal_digit_count(self) -> u32 {
         if self.is_zero() {
             return 1;
         }
@@ -171,7 +175,7 @@ impl U384 {
     /// pipeline still receives enough digits for its own round-digit
     /// extraction; the sticky bit tracked here only covers digits below
     /// the round position.
-    pub(crate) fn shift_right_to_u256(mut self, pre_sticky: bool) -> (U256, u32, bool) {
+    pub fn shift_right_to_u256(mut self, pre_sticky: bool) -> (U256, u32, bool) {
         let mut sticky = pre_sticky;
         let mut shift = 0u32;
         // Loop until self fits in 256 bits. We test by checking that the
@@ -248,7 +252,7 @@ fn div_rem_u128_with_carry_in_by_10(n: u128, carry_in: u32) -> (u128, u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::multiword::u256::widening_mul_u128;
+    use crate::u256::widening_mul_u128;
 
     #[test]
     fn add_no_carry() {

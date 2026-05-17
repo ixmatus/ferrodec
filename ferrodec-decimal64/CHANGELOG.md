@@ -7,6 +7,119 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `Decimal64::exp` and `Decimal64::ln` are now faithfully rounded
+  (≤ 1 ULP at 16 digits, every IEEE 754-2019 rounding direction) via
+  the shared `ferrodec-transcend` Extended-precision kernel, replacing
+  the lossy `f64` / `libm` detour that capped precision at ~10⁻¹⁵
+  relative. The kernel is the same verified implementation the
+  `ferrodec` (Decimal128) parent uses, instantiated at
+  `F = Decimal64` through the `DecimalFormat` seam. The rewrite also
+  reaches `Decimal64`'s true domain: `exp(800)` is now finite where
+  the `f64` path saturated near `x ≈ 709`, and `ln` is faithful
+  across the full positive range down to `~10⁻³⁹⁸` and up to
+  `~10³⁸⁴`. This is behaviour-improving, not a bug fix: previously
+  wrong-by-rounding results become correctly faithful, and previously
+  saturated inputs now return their true finite value. Special-value
+  semantics (NaN / infinity / zero / negative) and the ADR-0016 Kani
+  shims are byte-identical to before. The faithful contract is proven
+  by the new `tests/property_exp.rs` and `tests/property_ln.rs`
+  suites. New dependencies on the `ferrodec-transcend` and
+  `ferrodec-multiword` workspace crates (pulled by `exp-log`) change
+  the published dependency graph.
+
+- `Decimal64::sin`, `cos`, `tan`, `asin`, `acos`, `atan`, and
+  `atan2` are now faithfully rounded (≤ 1 ULP at 16 digits, every
+  IEEE 754-2019 rounding direction) via the shared
+  `ferrodec-transcend` Extended-precision kernel, replacing the lossy
+  `f64` / `libm` detour. The forward functions use the Payne-Hanek
+  argument reduction, so the pre-fd-r0l `|x| < 2^53` accuracy
+  limitation (the f64 round-trip lost the low digits before
+  reduction began) is lifted: `sin` / `cos` / `tan` are now faithful
+  across the full `Decimal64` magnitude range. Behaviour-improving,
+  not a bug fix. The `asin` / `acos` `|x| > 1` domain INVALID is now
+  decided at Extended precision rather than on a rounded f64 value;
+  special-value semantics and the ADR-0016 Kani shims are
+  byte-identical to before. The faithful contract is proven by the
+  new `tests/property_sincos.rs`, `tests/property_sincos_large.rs`,
+  and `tests/property_inverse_trig.rs` suites. The `trig` feature now
+  pulls the `ferrodec-transcend` / `ferrodec-multiword` workspace
+  crates (already in the graph via `exp-log`).
+
+- `Decimal64::sinh`, `cosh`, `tanh`, `asinh`, `acosh`, and `atanh`
+  are now faithfully rounded (≤ 1 ULP at 16 digits, every IEEE
+  754-2019 rounding direction) via the shared `ferrodec-transcend`
+  Extended-precision kernel (built on the already-faithful `exp` /
+  `ln` primitives), replacing the lossy `f64` / `libm` detour, at
+  exact parity with the Decimal128 parent. The pre-fd-r0l `sinh` /
+  `cosh` f64-overflow cap at `|x| ≳ 710` is lifted: the kernel
+  computes `eˣ` at Extended precision and saturates only at the
+  format's own overflow boundary, so the hyperbolic family is
+  faithful across the full `Decimal64` magnitude range.
+  Behaviour-improving, not a bug fix. The `acosh` `x < 1` domain
+  INVALID and `acosh(1) = 0`, and the `atanh` `|x| == 1` pole
+  (`±∞ + DIV_BY_ZERO`) and `|x| > 1` domain INVALID, are now decided
+  at Extended precision rather than on a rounded f64 value;
+  special-value semantics and the ADR-0016 Kani shims are
+  byte-identical to before. The faithful contract is proven by the
+  new `tests/property_hyperbolic.rs` suite. The `hyperbolic` feature
+  now forwards `ferrodec-transcend/hyperbolic` (the
+  `ferrodec-transcend` / `ferrodec-multiword` crates were already in
+  the graph via `exp-log`). `hyper.rs` was the last functional
+  caller of the internal `f64`-routed `ops/f64_bridge.rs` adapter
+  (trig left it in the P3 phase; `pow` used `libm::pow` directly), so
+  the now-dead `f64_bridge` shim was removed in the same change.
+
+- `Decimal64::pow` is now faithfully rounded (≤ 1 ULP at 16 digits,
+  every IEEE 754-2019 rounding direction) via the shared
+  `ferrodec-transcend` Extended-precision kernel, replacing the lossy
+  `f64` / `libm::pow` detour that capped precision at ~10⁻¹⁵
+  relative. `pow(x, y)` evaluates `exp(y · ln(|x|))` entirely at
+  Extended precision (with the bit-exact integer-exponent fast path),
+  at exact parity with the Decimal128 parent through the
+  `DecimalFormat` seam. Behaviour-improving, not a bug fix: the
+  negative-base / non-integer-exponent INVALID and the `pow(±0, y)` /
+  `pow(±∞, y)` / `pow(x, ±∞)` rules are now decided at Extended
+  precision rather than on a rounded f64 exponent. The `pow_special_-
+  cases` short-circuit and the ADR-0016 Kani shim are byte-identical
+  to before. The faithful contract is proven by the new
+  `tests/property_pow.rs` and `tests/property_pow_specials.rs`
+  suites. The `pow` feature now forwards `ferrodec-transcend/pow`
+  (the workspace crates were already in the graph via `exp-log`).
+
+- `libm` is no longer a dependency of this crate. It had been
+  retained only for the pre-fd-r0l f64 transcendental detour; with
+  `pow` now on the shared kernel, no `src/` code makes any
+  functional `libm` call, so `dep:libm` was dropped from the
+  `exp-log` / `trig` feature arrays and the `libm` dependency line
+  removed. This shrinks the published dependency graph; the public
+  surface is unchanged.
+
+### Added
+
+- `Decimal64::exp2`, `Decimal64::log2`, and `Decimal64::log10`,
+  faithfully rounded (≤ 1 ULP at 16 digits, every IEEE 754-2019
+  rounding direction) via the shared `ferrodec-transcend` kernel as
+  pure delegations (the kernel resolves every special case, exactly
+  as on the `ferrodec` Decimal128 parent). They ship under the
+  existing `exp-log` feature. With these, `Decimal64::cbrt` now
+  faithfully rounded via the same kernel (below), the exp-log family
+  reaches exact capability parity with the Decimal128 parent, closing
+  the documented asymmetry. The faithful contract is proven by the
+  extended `tests/property_exp.rs` / `tests/property_ln.rs` and the
+  new `tests/property_cbrt.rs`.
+
+### Changed
+
+- `Decimal64::cbrt` is now faithfully rounded (≤ 1 ULP at 16 digits,
+  every IEEE 754-2019 rounding direction) via the shared
+  `ferrodec-transcend` kernel, replacing the `f64` / `libm::cbrt`
+  detour. Behaviour-improving, not a bug fix. The `cbrt` special-value
+  short-circuit and the ADR-0016 Kani shim are byte-identical to
+  before; only the finite non-zero result path changes. `cbrt` stays
+  under the `pow` feature.
+
 ## [1.4.0] - 2026-05-15
 
 The decimal64 correctness train. ADR-0017 carved this slice out of

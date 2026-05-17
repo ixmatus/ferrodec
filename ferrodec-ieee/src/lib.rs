@@ -14,6 +14,10 @@
 //! * [`IeeeClass`] — the IEEE 754-2019 §5.7.2 `class(x)` enum, with
 //!   the ten standard classes a decimal floating-point datum can
 //!   occupy.
+//! * [`IeeeDecodedClass`] — the decoded BID bit-pattern form (sign,
+//!   biased exponent, coefficient or NaN payload) that every
+//!   sibling's `classify_bits` produces and the shared arithmetic /
+//!   transcendental kernels consume.
 //! * [`should_round_up`] — the rounding-decision predicate every
 //!   sibling's `round_and_pack_finite` consumes. Pure function of
 //!   `(RoundingMode, sign, last_kept_lsb, round_digit, sticky)`.
@@ -34,7 +38,7 @@ mod digits;
 mod round;
 mod status;
 
-pub use classify::IeeeClass;
+pub use classify::{IeeeClass, IeeeDecodedClass};
 pub use digits::decimal_digit_count_u128;
 pub use round::should_round_up;
 pub use status::{RoundingMode, Status};

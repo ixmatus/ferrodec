@@ -18,20 +18,20 @@
 // dead-code lint at module scope.
 #![allow(dead_code)]
 
-use crate::multiword::{U256, U384};
+use crate::{U256, U384};
 use core::cmp::Ordering;
 
 /// 512-bit unsigned integer, little-endian limbs.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
-pub(crate) struct U512 {
-    pub(crate) lo: u128,
-    pub(crate) mid_lo: u128,
-    pub(crate) mid_hi: u128,
-    pub(crate) hi: u128,
+pub struct U512 {
+    pub lo: u128,
+    pub mid_lo: u128,
+    pub mid_hi: u128,
+    pub hi: u128,
 }
 
 impl U512 {
-    pub(crate) const ZERO: Self = Self {
+    pub const ZERO: Self = Self {
         lo: 0,
         mid_lo: 0,
         mid_hi: 0,
@@ -39,7 +39,7 @@ impl U512 {
     };
 
     #[inline]
-    pub(crate) const fn from_u128(x: u128) -> Self {
+    pub const fn from_u128(x: u128) -> Self {
         Self {
             lo: x,
             mid_lo: 0,
@@ -49,7 +49,7 @@ impl U512 {
     }
 
     #[inline]
-    pub(crate) const fn from_u384(u: U384) -> Self {
+    pub const fn from_u384(u: U384) -> Self {
         Self {
             lo: u.lo,
             mid_lo: u.mid,
@@ -59,12 +59,12 @@ impl U512 {
     }
 
     #[inline]
-    pub(crate) const fn is_zero(self) -> bool {
+    pub const fn is_zero(self) -> bool {
         self.lo == 0 && self.mid_lo == 0 && self.mid_hi == 0 && self.hi == 0
     }
 
     #[inline]
-    pub(crate) fn cmp(self, other: Self) -> Ordering {
+    pub fn cmp(self, other: Self) -> Ordering {
         match self.hi.cmp(&other.hi) {
             Ordering::Equal => match self.mid_hi.cmp(&other.mid_hi) {
                 Ordering::Equal => match self.mid_lo.cmp(&other.mid_lo) {
@@ -80,7 +80,8 @@ impl U512 {
     /// Wrapping `self + other`. Caller must ensure the true sum fits
     /// in 512 bits.
     #[inline]
-    pub(crate) const fn add(self, other: Self) -> Self {
+    #[must_use]
+    pub const fn add(self, other: Self) -> Self {
         let (lo, c0) = self.lo.overflowing_add(other.lo);
         let (m_lo_a, c1) = self.mid_lo.overflowing_add(other.mid_lo);
         let (mid_lo, c1b) = m_lo_a.overflowing_add(c0 as u128);
@@ -101,7 +102,8 @@ impl U512 {
 
     /// `self - other`. Pre-condition: `self >= other`.
     #[inline]
-    pub(crate) const fn sub(self, other: Self) -> Self {
+    #[must_use]
+    pub const fn sub(self, other: Self) -> Self {
         let (lo, b0) = self.lo.overflowing_sub(other.lo);
         let (m_lo_a, b1) = self.mid_lo.overflowing_sub(other.mid_lo);
         let (mid_lo, b1b) = m_lo_a.overflowing_sub(b0 as u128);
@@ -122,7 +124,8 @@ impl U512 {
 
     /// `self * 10`. Pre-condition: result fits in 512 bits.
     #[inline]
-    pub(crate) fn mul10(self) -> Self {
+    #[must_use]
+    pub fn mul10(self) -> Self {
         let (lo_hi, lo_lo) = widening_mul_u128_by_10(self.lo);
         let (m_lo_hi, m_lo_lo) = widening_mul_u128_by_10(self.mid_lo);
         let (m_hi_hi, m_hi_lo) = widening_mul_u128_by_10(self.mid_hi);
@@ -146,7 +149,8 @@ impl U512 {
     }
 
     /// `self * 10^k`. Bounded loop; caller keeps `k` within capacity.
-    pub(crate) fn mul_pow10(mut self, k: u32) -> Self {
+    #[must_use]
+    pub fn mul_pow10(mut self, k: u32) -> Self {
         let mut i = 0;
         while i < k {
             self = self.mul10();
@@ -156,7 +160,7 @@ impl U512 {
     }
 
     /// `self / 10` returning `(quotient, remainder_digit)`.
-    pub(crate) fn div_rem10(self) -> (Self, u32) {
+    pub fn div_rem10(self) -> (Self, u32) {
         let (q_hi, r_after_hi) = div_rem_u128_by_10(self.hi);
         let (q_mid_hi, r_after_mid_hi) = div_rem_u128_with_carry_in_by_10(self.mid_hi, r_after_hi);
         let (q_mid_lo, r_after_mid_lo) =
@@ -175,7 +179,7 @@ impl U512 {
 
     /// Number of significant decimal digits. Returns `1` for zero.
     #[allow(dead_code)]
-    pub(crate) fn decimal_digit_count(self) -> u32 {
+    pub fn decimal_digit_count(self) -> u32 {
         if self.is_zero() {
             return 1;
         }
@@ -196,7 +200,7 @@ impl U512 {
     /// shift is the number of digits dropped (caller adds to the
     /// quantum exponent), and sticky is set if any dropped digit was
     /// non-zero or if `pre_sticky` was set.
-    pub(crate) fn shift_right_to_u256(mut self, pre_sticky: bool) -> (U256, u32, bool) {
+    pub fn shift_right_to_u256(mut self, pre_sticky: bool) -> (U256, u32, bool) {
         let mut sticky = pre_sticky;
         let mut shift = 0u32;
         // Loop until self fits in 256 bits — i.e. mid_hi and hi are zero.

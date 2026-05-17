@@ -19,23 +19,51 @@ fmt = []
 # callers needing full Decimal64 precision should use `parse_str` /
 # `Display` instead. Pulls `fmt` for the round-trip path.
 binary-float = ["fmt"]
-# Transcendental sub-features. Each pulls in `binary-float` because the
-# kernels route through f64 via `libm` (pure Rust, no_std-compatible,
-# no FFI). The libm f64 path caps achievable precision at ~10⁻¹⁵
-# relative — one digit below Decimal64's nominal 16. v1.0 ships this
-# baseline; a follow-on can replace it with a pure-decimal Taylor /
-# Newton kernel at u128 working precision when needed (public surface
-# is drop-in compatible).
+# Transcendental sub-features. The whole transcendental surface — the
+# exp-log family (`exp` / `ln` / `exp2` / `log2` / `log10`), `cbrt`,
+# the whole trig family (`sin` / `cos` / `tan` / `asin` / `acos` /
+# `atan` / `atan2`), the whole hyperbolic family (`sinh` / `cosh` /
+# `tanh` / `asinh` / `acosh` / `atanh`), and `pow` — is faithfully
+# rounded (≤ 1 ULP at 16 digits, every IEEE 754-2019 rounding
+# direction) via the shared `ferrodec-transcend` Extended-precision
+# kernel after the fd-r0l train, at exact parity with the `ferrodec`
+# (Decimal128) parent. The trig family uses the Payne-Hanek argument
+# reduction, so its accuracy is no longer capped at the pre-fd-r0l
+# `|x| < 2^53` f64-round-trip limit; the hyperbolic family is faithful
+# across the full Decimal64 magnitude range (the pre-fd-r0l `sinh` /
+# `cosh` f64-overflow cap at `|x| ≳ 710` is lifted); and `pow`
+# evaluates `exp(y · ln(|x|))` at Extended precision rather than on
+# the pre-fd-r0l f64 round-trip. No transcendental routes through f64
+# any more, so `libm` is no longer a dependency of this crate. Each
+# sub-feature pulls in `binary-float`.
 #
-# `exp-log`     — exp, ln.
-# `trig`        — sin, cos, tan, asin, acos, atan.
-# `hyperbolic`  — sinh, cosh, tanh, asinh, acosh, atanh. Implies
+# `exp-log`     — exp, ln, exp2, log2, log10. Route through the
+#                 shared faithful `ferrodec-transcend`
+#                 Extended-precision kernel (≤ 1 ULP across the true
+#                 Decimal64 domain), not the pre-fd-r0l lossy f64 /
+#                 `libm` detour.
+# `trig`        — sin, cos, tan, asin, acos, atan, atan2. Route
+#                 through the shared faithful `ferrodec-transcend`
+#                 Extended-precision kernel with Payne-Hanek
+#                 argument reduction (≤ 1 ULP across the true
+#                 Decimal64 domain), not the pre-fd-r0l lossy f64 /
+#                 `libm` detour.
+# `hyperbolic`  — sinh, cosh, tanh, asinh, acosh, atanh. Route
+#                 through the shared faithful `ferrodec-transcend`
+#                 Extended-precision kernel (built on the
+#                 already-faithful exp / ln primitives, ≤ 1 ULP
+#                 across the true Decimal64 domain), not the
+#                 pre-fd-r0l lossy f64 / `libm` detour. Implies
 #                 `exp-log`.
-# `pow`         — pow, cbrt. Implies `exp-log`.
-exp-log = ["binary-float", "dep:libm"]
-trig = ["binary-float", "dep:libm"]
-hyperbolic = ["exp-log"]
-pow = ["exp-log"]
+# `pow`         — pow, cbrt. Route through the shared faithful
+#                 `ferrodec-transcend` Extended-precision kernel
+#                 (≤ 1 ULP across the true Decimal64 domain), not the
+#                 pre-fd-r0l lossy f64 / `libm` detour. Implies
+#                 `exp-log`.
+exp-log = ["binary-float", "dep:ferrodec-transcend", "dep:ferrodec-multiword", "ferrodec-transcend/exp-log"]
+trig = ["binary-float", "dep:ferrodec-transcend", "dep:ferrodec-multiword", "ferrodec-transcend/trig"]
+hyperbolic = ["exp-log", "dep:ferrodec-transcend", "dep:ferrodec-multiword", "ferrodec-transcend/hyperbolic"]
+pow = ["exp-log", "dep:ferrodec-transcend", "dep:ferrodec-multiword", "ferrodec-transcend/pow"]
 # Convenience meta-feature: enable every transcendental at once.
 transcendentals = ["trig", "exp-log", "hyperbolic", "pow"]
 # `core::ops` operator overloads (Add / Sub / Mul / Div / Rem and the
@@ -55,20 +83,24 @@ serde = ["fmt", "dep:serde"]
 # `Num` requires `Add + Sub + Mul + Div + Rem`, so this feature
 # auto-enables `ops`. Pulls `fmt` because `Num::from_str_radix`
 # routes through `parse_str`. Pulls `binary-float` for the
-# `ToPrimitive` f32 / f64 conversions. It no longer pulls `dep:libm`:
+# `ToPrimitive` f32 / f64 conversions. It does not pull `dep:libm`:
 # after M5 (`eca13ef`) the integer conversions are exact and
-# `num_traits_impls.rs` has no `libm` use; `libm` is still pulled
-# independently by `exp-log` / `trig` (fd-17, discovered from M5).
+# `num_traits_impls.rs` has no `libm` use. As of the fd-r0l train no
+# feature pulls `libm` at all — the whole transcendental surface
+# routes through the shared `ferrodec-transcend` kernel, so `libm`
+# was removed as a dependency (it had been retained only for the
+# pre-fd-r0l f64 transcendental detour, fd-17 / M5).
 num-traits = ["fmt", "ops", "binary-float", "dep:num-traits"]
 
 [dependencies]
 ferrodec-ieee = { path = "../ferrodec-ieee", version = "0.1.3" }
-libm = { version = "0.2", default-features = false, optional = true }
+ferrodec-multiword = { path = "../ferrodec-multiword", version = "0.1.0", optional = true }
+ferrodec-transcend = { path = "../ferrodec-transcend", version = "0.1.0", optional = true }
 num-traits = { version = "0.2", default-features = false, optional = true }
 serde = { version = "1", default-features = false, optional = true }
 
 [dev-dependencies]
-ferrodec-test-support = { path = "../ferrodec-test-support" }
+ferrodec-test-support = { path = "../ferrodec-test-support", features = ["transcend-oracle"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_test = "1"

@@ -5,21 +5,12 @@
 
 #![cfg(feature = "pow")]
 
-use astro_float::{BigFloat, Consts, Radix, RoundingMode as AfRm};
+use astro_float::Consts;
+use ferrodec_test_support::transcend_oracle::oracle;
 use proptest::prelude::*;
 
 mod common;
 use common::{assert_faithful, parse, MODES};
-
-/// Working precision for the astro-float oracle: 256 bits ≈ 77 decimal
-/// digits.
-const P: usize = 256;
-
-fn oracle_pow(x_str: &str, y_str: &str, cc: &mut Consts) -> BigFloat {
-    let x = BigFloat::parse(x_str, Radix::Dec, P, AfRm::None, cc);
-    let y = BigFloat::parse(y_str, Radix::Dec, P, AfRm::None, cc);
-    x.pow(&y, P, AfRm::None, cc)
-}
 
 fn check_pow(x_str: &str, y_str: &str) {
     let x = parse(x_str);
@@ -27,7 +18,7 @@ fn check_pow(x_str: &str, y_str: &str) {
     let exact_x = format!("{x:e}");
     let exact_y = format!("{y:e}");
     let mut cc = Consts::new().expect("init consts");
-    let oracle = oracle_pow(&exact_x, &exact_y, &mut cc);
+    let oracle = oracle::pow(&exact_x, &exact_y, &mut cc);
     for &rm in MODES {
         let (got, status) = x.pow(y, rm);
         assert_faithful(
@@ -118,7 +109,7 @@ proptest! {
         let exact_x = format!("{x:e}");
         let exact_y = format!("{y:e}");
         let mut cc = Consts::new().expect("init consts");
-        let oracle = oracle_pow(&exact_x, &exact_y, &mut cc);
+        let oracle = oracle::pow(&exact_x, &exact_y, &mut cc);
         // The kernel deliberately short-circuits OVERFLOW / UNDERFLOW
         // and a zero/non-finite result is outside the faithful-kernel
         // domain under test.
@@ -155,7 +146,7 @@ proptest! {
         let exact_x = format!("{x:e}");
         let exact_y = format!("{y:e}");
         let mut cc = Consts::new().expect("init consts");
-        let oracle = oracle_pow(&exact_x, &exact_y, &mut cc);
+        let oracle = oracle::pow(&exact_x, &exact_y, &mut cc);
         if oracle.is_inf() || oracle.is_nan() || oracle.is_zero() {
             return Ok(());
         }

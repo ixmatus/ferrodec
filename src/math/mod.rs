@@ -22,18 +22,31 @@
 //! window picks up boundary cases within ~33 digits of a multiple of
 //! π/2).
 //!
+//! ## Implementation
+//!
+//! The kernel bodies live in the shared [`ferrodec-transcend`] crate,
+//! generic over a `DecimalFormat` seam, so all three decimal siblings
+//! reuse one verified implementation rather than a per-precision copy
+//! (extracted in P0a.2). The modules here are thin: `format_impl`
+//! supplies `impl DecimalFormat for Decimal128`, and each kernel
+//! module is a delegating shim that re-exposes the public
+//! `Decimal128` method at `F = Decimal128` and retains that method's
+//! behaviour tests as the byte-identical regression gate.
+//!
 //! [`Decimal128`]: crate::Decimal128
-//! [`Extended`]: extended::Extended
+//! [`Extended`]: ferrodec_transcend::extended::Extended
+//! [`ferrodec-transcend`]: ferrodec_transcend
 
 mod consts;
-pub(crate) mod extended;
+mod extended;
+mod format_impl;
 
 #[cfg(feature = "exp-log")]
 mod cbrt;
 #[cfg(feature = "exp-log")]
-pub(crate) mod exp;
+mod exp;
 #[cfg(feature = "exp-log")]
-pub(crate) mod ln;
+mod ln;
 
 #[cfg(feature = "trig")]
 mod argred;
