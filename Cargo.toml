@@ -83,7 +83,11 @@ fmt = []
 # `hyperbolic`  — sinh, cosh, tanh, asinh, acosh, atanh. Implies
 #                 `exp-log` because the kernels delegate to exp / ln.
 # `pow`         — pow. Implies `exp-log` (`pow(x, y) = exp(y · ln x)`).
-trig = ["fmt"]
+#
+# Forwards to `ferrodec-transcend/trig` so the shared Payne-Hanek
+# argument-reduction kernel (gated there under the same name) is
+# compiled in when the core shim delegates to it.
+trig = ["fmt", "ferrodec-transcend/trig"]
 # Forwards to `ferrodec-transcend/exp-log` so the shared exp / ln /
 # cbrt kernel modules (gated there under the same name) are compiled
 # in when the core shim delegates to them.

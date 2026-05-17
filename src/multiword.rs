@@ -14,9 +14,7 @@
 
 pub(crate) use ferrodec_multiword::{u256, U256, U384};
 
-// `U512` is only used by the Payne-Hanek argument reduction in
-// `src/math/argred.rs`, which lives under the `trig` feature; keep the
-// re-export gated identically so non-`trig` builds see the same
-// surface as before the extraction.
-#[cfg(feature = "trig")]
-pub(crate) use ferrodec_multiword::U512;
+// `U512` was only used by the Payne-Hanek argument reduction, whose
+// kernel moved into `ferrodec-transcend` (P0a.2 c7). It now imports
+// `U512` straight from `ferrodec-multiword`, so the core no longer
+// needs to re-export it.

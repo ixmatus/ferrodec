@@ -32,6 +32,8 @@ pub mod consts;
 pub mod extended;
 mod format;
 
+#[cfg(feature = "trig")]
+pub mod argred;
 #[cfg(feature = "exp-log")]
 pub mod cbrt;
 #[cfg(feature = "exp-log")]
