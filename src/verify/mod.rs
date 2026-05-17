@@ -20,6 +20,7 @@ mod div;
 #[cfg(feature = "dpd")]
 mod dpd;
 mod encode;
+mod fma;
 mod integral;
 mod mul;
 mod nan_payload;
