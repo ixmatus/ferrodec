@@ -117,14 +117,15 @@ proptest! {
     /// bit-for-bit, across the full finite domain and every IEEE
     /// rounding direction.
     ///
-    /// `#[ignore]` — fd-dpg proved decimal32 carries the parent's
-    /// `fd-7nf` FMA defect family too (filed P1 **fd-9fi**:
-    /// `fma(-1e-101, 1e-101, -1e+27)` TowardNegative → `-2e27`
-    /// instead of `-1.000001e27`). The sweep is correct; the kernel is
-    /// not. Quarantined, not deleted: the `fd-9fi` fix lands by
-    /// removing this attribute. Do NOT un-ignore without the fix.
-    #[ignore = "fd-9fi: sibling fma carries the fd-7nf family; \
-                un-ignore with the kernel fix"]
+    /// fd-dpg proved decimal32 carries the parent's `fd-7nf` FMA
+    /// defect family too (P1 **fd-9fi**: `fma(-1e-101, 1e-101, -1e+27)`
+    /// TowardNegative → `-2e27` instead of `-1.000001e27`, the
+    /// dominant operand not re-cohorted before the directed round-up;
+    /// and a distinct overlap defect where the early-return discarded
+    /// a side that overlapped the dominant precision window). fd-9fi
+    /// fixed both (`fma::extend_to_u128_cap` plus the overlap
+    /// working-quantum combine); this sweep is now green and stays
+    /// active as the regression guard.
     #[test]
     fn fma_is_exactly_correctly_rounded(
         a in finite(),
