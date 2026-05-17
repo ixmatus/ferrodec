@@ -38,7 +38,27 @@ fn equals_one(d: Decimal32) -> bool {
 impl Decimal32 {
     /// IEEE 754-2019 §9.2 `pow(self, exponent)` rounded by `rm`.
     ///
-    /// Special cases (mirrors `f64::powf` semantics):
+    /// The finite non-special path routes through the shared faithful
+    /// `ferrodec-transcend` Extended-precision kernel: `pow(x, y)` is
+    /// evaluated as `exp(y · ln(|x|))` entirely at `Extended` working
+    /// precision (with the bit-exact integer-exponent fast path the
+    /// Decimal128 parent proves), rounded once at the format boundary,
+    /// giving faithfully-rounded (≤ 1 ULP at 7 digits) results
+    /// without the pre-fd-r0l lossy `f64` / `libm::pow` detour. The
+    /// kernel is the same verified implementation the `ferrodec`
+    /// (Decimal128) parent uses, instantiated at `F = Decimal32` via
+    /// the `DecimalFormat` seam; it decides the negative-base /
+    /// non-integer-exponent INVALID at `Extended` precision rather
+    /// than on a rounded `f64` exponent, so the dead f64 domain
+    /// plumbing is removed.
+    ///
+    /// The `pow_special_cases` short-circuit is kept ahead of the
+    /// kernel call so Decimal32's special-value semantics (and the
+    /// ADR-0016 Kani shim, which shares `pow_special_cases`) are
+    /// byte-identical to before; only the finite non-special result
+    /// path changes.
+    ///
+    /// Special cases (IEEE 754-2019 §9.2):
     /// * `pow(±0, +y)` for finite y > 0 → +0 (with appropriate sign
     ///   for odd-integer y).
     /// * `pow(±0, -y)` for finite y > 0 → ±∞ + `DIV_BY_ZERO`.
@@ -54,53 +74,10 @@ impl Decimal32 {
             return special;
         }
 
-        // Negative base with non-integer exponent → NaN + INVALID.
-        if self.is_sign_negative() && !self.is_zero() {
-            // Check if exponent is an integer.
-            let y_f = exponent.to_f64(RoundingMode::NearestEven).0;
-            if y_f.is_finite() && libm::trunc(y_f) != y_f {
-                return (Decimal32::NAN, Status::INVALID);
-            }
-        }
-
-        let x = self.to_f64(RoundingMode::NearestEven).0;
-        let y = exponent.to_f64(RoundingMode::NearestEven).0;
-        let r = libm::pow(x, y);
-        if r.is_nan() {
-            return (Decimal32::NAN, Status::INVALID);
-        }
-        if r.is_infinite() {
-            // Distinguish overflow from divide-by-zero pole. f64 doesn't
-            // raise the IEEE flag directly; we infer from the inputs:
-            // pow(0, negative) → ±∞ DIV_BY_ZERO.
-            if self.is_zero() && y < 0.0 {
-                return (
-                    if r > 0.0 {
-                        Decimal32::INFINITY
-                    } else {
-                        Decimal32::NEG_INFINITY
-                    },
-                    Status::DIV_BY_ZERO,
-                );
-            }
-            return (
-                if r > 0.0 {
-                    Decimal32::INFINITY
-                } else {
-                    Decimal32::NEG_INFINITY
-                },
-                Status::OVERFLOW | Status::INEXACT,
-            );
-        }
-        if r == 0.0 && !self.is_zero() && y.is_finite() {
-            // Underflow.
-            return (Decimal32::ZERO, Status::UNDERFLOW | Status::INEXACT);
-        }
-        let (val, mut status) = Decimal32::from_f64(r, rm);
-        if !val.is_zero() {
-            status |= Status::INEXACT;
-        }
-        (val, status)
+        // Finite non-special: faithful shared kernel. The kernel
+        // resolves the negative-base / non-integer-exponent INVALID
+        // and the integer-exponent fast path at Extended precision.
+        ferrodec_transcend::pow::pow_kernel::<Decimal32>(self, exponent, rm)
     }
 
     /// IEEE 754-2019 §9.2 `cbrt(self)` rounded by `rm`. Defined for
