@@ -202,6 +202,62 @@ pub fn decode_decimal128(bits: u128) -> (bool, BigUint, i32) {
     (sign, BigUint::from(coef), biased - D128_BIAS)
 }
 
+/// Decode a canonical BID-64 finite (incl. zero) bit pattern into
+/// `(sign, coefficient, quantum exponent)`. The 64-bit analogue of
+/// [`decode_decimal128`] — but, unlike decimal128, decimal64 *does*
+/// use BID **form B** (the `11`-prefixed encoding) for coefficients
+/// `≥ 2^53`: its largest coefficient `10^16 − 1 > 2^53`, whereas
+/// decimal128's `10^34 − 1 < 2^113` so form B is unreachable there.
+/// This inverts both forms of `ferrodec_decimal64`'s `pack_finite`:
+/// 50-bit trailing field, 8-bit exponent continuation, bias 398,
+/// form-B base `2^53`. The caller must ensure the value is finite.
+#[must_use]
+pub fn decode_decimal64(bits: u64) -> (bool, BigUint, i32) {
+    const BIAS: i32 = 398;
+    const T_BITS: u32 = 50;
+    const EC_BITS: u32 = 8;
+    let sign = (bits >> 63) & 1 == 1;
+    let type_bits = (bits >> 58) & 0b1_1111;
+    let ec = (bits >> 50) & ((1u64 << EC_BITS) - 1);
+    let t = bits & ((1u64 << T_BITS) - 1);
+    let (exp_high2, coef) = if type_bits >> 3 == 0b11 {
+        // Form B: type bits = `11 ee d`, coefficient = 2^53 + d·2^50 + t.
+        let d = type_bits & 0b1;
+        ((type_bits >> 1) & 0b11, (1u64 << 53) | (d << T_BITS) | t)
+    } else {
+        // Form A: type bits = `ee ccc`, coefficient = ccc·2^50 + t.
+        ((type_bits >> 3) & 0b11, (type_bits & 0b111) << T_BITS | t)
+    };
+    let biased = ((exp_high2 << EC_BITS) | ec) as i32;
+    (sign, BigUint::from(coef), biased - BIAS)
+}
+
+/// Decode a canonical BID-32 finite (incl. zero) bit pattern into
+/// `(sign, coefficient, quantum exponent)`. As with decimal64,
+/// decimal32 uses BID form B for coefficients `≥ 2^23`
+/// (`10^7 − 1 > 2^23`). Inverts both forms of
+/// `ferrodec_decimal32`'s `pack_finite`: 20-bit trailing field, 6-bit
+/// exponent continuation, bias 101, form-B base `2^23`. The caller
+/// must ensure the value is finite.
+#[must_use]
+pub fn decode_decimal32(bits: u32) -> (bool, BigUint, i32) {
+    const BIAS: i32 = 101;
+    const T_BITS: u32 = 20;
+    const EC_BITS: u32 = 6;
+    let sign = (bits >> 31) & 1 == 1;
+    let type_bits = (bits >> 26) & 0b1_1111;
+    let ec = (bits >> 20) & ((1u32 << EC_BITS) - 1);
+    let t = bits & ((1u32 << T_BITS) - 1);
+    let (exp_high2, coef) = if type_bits >> 3 == 0b11 {
+        let d = type_bits & 0b1;
+        ((type_bits >> 1) & 0b11, (1u32 << 23) | (d << T_BITS) | t)
+    } else {
+        ((type_bits >> 3) & 0b11, (type_bits & 0b111) << T_BITS | t)
+    };
+    let biased = ((exp_high2 << EC_BITS) | ec) as i32;
+    (sign, BigUint::from(coef), biased - BIAS)
+}
+
 // ---------------------------------------------------------------------------
 // Expected result
 
