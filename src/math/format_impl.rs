@@ -53,6 +53,10 @@ impl DecimalFormat for Decimal128 {
         Decimal128::abs(self)
     }
 
+    fn neg(self) -> Self {
+        Decimal128::neg(self)
+    }
+
     fn partial_cmp_fmt(self, other: Self) -> (Option<core::cmp::Ordering>, Status) {
         self.partial_cmp(other)
     }

@@ -1,53 +1,16 @@
-//! `cbrt(x)` — cube root, defined for all real `x`.
-//!
-//! `cbrt(x) = sign(x) · |x|^(1/3)`, computed via `pow` at the
-//! `Extended`-precision pipeline so the result is faithfully rounded
-//! (≤ 1 ULP) for typical inputs.
+//! Delegating shim: the cbrt kernel moved to ferrodec-transcend
+//! (P0a.2 c6). The public `Decimal128::cbrt` wrapper and its
+//! behaviour tests stay here as the byte-identical regression gate.
 
-use crate::bid::{classify_bits, Class};
 use crate::decimal::Decimal128;
-use crate::math::exp::exp_from_extended;
-use crate::math::ln::ln_extended;
-use crate::ops::nan_from;
-use crate::status::{RoundingMode, Status};
+use ferrodec_ieee::{RoundingMode, Status};
 
 impl Decimal128 {
     /// Cube root. Defined for all real `self`:
     /// `cbrt(0) = 0`, `cbrt(-x) = -cbrt(x)`.
     #[must_use]
     pub fn cbrt(self, rm: RoundingMode) -> (Self, Status) {
-        match classify_bits(self.to_bits()) {
-            Class::SignalingNaN { .. } => return (nan_from(self), Status::INVALID),
-            Class::QuietNaN { .. } => return (self, Status::OK),
-            Class::Infinity { .. } => return (self, Status::OK),
-            Class::Zero { .. } => return (self, Status::OK),
-            Class::Finite { .. } => {}
-        }
-        // cbrt(x) = sign(x) · exp(ln(|x|) / 3) — the negative-argument
-        // case where `pow` would return NaN (non-integer exponent on
-        // negative base) is handled here by working on |x| and
-        // re-applying the sign.
-        let sign_neg = self.is_sign_negative();
-        let abs_x = self.abs();
-
-        // ln(|x|) at extended precision.
-        let ln_x_ext = ln_extended(abs_x);
-        // Divide by 3 at extended precision.
-        let one_third_ln_x = ln_x_ext.div_u32(3);
-        // exp(...) → Decimal128, threading OVERFLOW / UNDERFLOW. For a
-        // negative argument the magnitude is rounded and then negated,
-        // so the rounding direction must be reflected first: rounding
-        // `|cbrt(x)|` toward `+∞` and negating yields `cbrt(x)` rounded
-        // toward `−∞` (and vice versa). Without this, the two directed
-        // modes round a negative cube root the wrong way by up to one
-        // ULP (fd-r5m, found by the S5 faithful-rounding oracle).
-        let eff_rm = if sign_neg { rm.for_negation() } else { rm };
-        let (mut result, mut status) = exp_from_extended(one_third_ln_x, eff_rm);
-        if sign_neg {
-            result = result.neg();
-        }
-        status |= Status::INEXACT;
-        (result, status)
+        ferrodec_transcend::cbrt::cbrt_kernel::<Decimal128>(self, rm)
     }
 }
 

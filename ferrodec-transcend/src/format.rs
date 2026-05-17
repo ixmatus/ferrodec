@@ -80,6 +80,11 @@ pub trait DecimalFormat: Copy + Sized {
     /// Absolute value (clears the sign bit; NaN stays NaN).
     #[must_use]
     fn abs(self) -> Self;
+    /// Negation (flips the sign bit; NaN stays NaN). Used by the odd
+    /// transcendental kernels (`cbrt`) that evaluate on `|x|` and
+    /// re-apply the sign.
+    #[must_use]
+    fn neg(self) -> Self;
     /// IEEE 754 partial comparison. `None` iff either operand is NaN;
     /// the `Status` carries `INVALID` on a signaling-NaN operand.
     fn partial_cmp_fmt(self, other: Self) -> (Option<Ordering>, Status);

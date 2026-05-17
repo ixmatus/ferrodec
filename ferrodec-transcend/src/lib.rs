@@ -31,6 +31,12 @@
 pub mod consts;
 pub mod extended;
 mod format;
+
+#[cfg(feature = "exp-log")]
+pub mod cbrt;
+#[cfg(feature = "exp-log")]
+pub mod exp;
+#[cfg(feature = "exp-log")]
 pub mod ln;
 
 pub use format::DecimalFormat;
