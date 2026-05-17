@@ -65,17 +65,42 @@ pub(crate) fn round_and_pack_finite(
     // we don't re-walk the U256 with `decimal_digit_count` on the
     // post-rounding overflow check or the preferred-quantum pad.
     let digits = coef.decimal_digit_count();
-    let (kept, kept_exp, round_digit, sticky) = if digits > PRECISION {
-        let excess = digits - PRECISION;
-        drop_excess_digits(coef, excess, pre_sticky, unbiased_exp)
-    } else {
-        // No excess to drop; pre-sticky still feeds the round logic.
+    // Single-rounding subnormal fix (fd-42l): drop to the wider of the
+    // precision and subnormal-quantum requirements in ONE rounding.
+    let qmin = -(BIAS as i32);
+    let precision_excess = digits.saturating_sub(PRECISION);
+    let subnormal_excess = u32::try_from((qmin - unbiased_exp).max(0)).unwrap_or(u32::MAX);
+    let excess = precision_excess.max(subnormal_excess);
+    let (kept, kept_exp, round_digit, sticky) = if excess == 0 {
         (coef, unbiased_exp, 0u32, pre_sticky)
+    } else if excess >= digits {
+        let (rd, st) = round_digit_for_full_drop(coef, excess, digits);
+        (
+            U256::from_u128(0),
+            unbiased_exp + excess as i32,
+            rd,
+            st || pre_sticky,
+        )
+    } else {
+        drop_excess_digits(coef, excess, pre_sticky, unbiased_exp)
     };
-    let mut kept_digits = digits.min(PRECISION);
+    let mut kept_digits = digits.saturating_sub(excess).clamp(1, PRECISION);
 
     if round_digit != 0 || sticky {
         status |= Status::INEXACT;
+    }
+    // IEEE 754-2019 §7.5 / GDA: UNDERFLOW signals on a result that is
+    // *tiny and inexact*, with tininess detected on the **pre-rounding**
+    // value (the convention decTest pins, cf. fd-99f). The single-step
+    // subnormal drop here makes `finalize_finite`'s `biased_exp < 0`
+    // branch unreachable for non-zero results, and its post-rounding
+    // tininess check keys on the *rounded* digit count — which misses a
+    // subnormal value that rounding lifts to the Emin boundary
+    // (dqfma2908 / dqmul908). Decide tininess from the original
+    // coefficient's adjusted exponent instead.
+    let tiny_pre = digits as i32 + unbiased_exp - 1 < E_MIN;
+    if tiny_pre && status.inexact() {
+        status |= Status::UNDERFLOW;
     }
 
     // Step 2: apply rounding direction.
@@ -122,9 +147,10 @@ pub(crate) fn round_and_pack_finite(
     //   Used to strip trailing zeros from exact results so divisions
     //   like `1/1 → 1` don't appear as `1.0000…000`.
     if !rounded.is_zero() {
-        if exp_after > q_preferred {
+        let down_target = q_preferred.max(qmin);
+        if exp_after > down_target {
             let max_shift = PRECISION as i32 - kept_digits as i32;
-            let want_shift = exp_after - q_preferred;
+            let want_shift = exp_after - down_target;
             let shift = want_shift.min(max_shift);
             if shift > 0 {
                 rounded = rounded.mul_pow10(shift as u32);
