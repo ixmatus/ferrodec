@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `Decimal64::rem_near`: the IEEE 754-2019 §5.3.1 nearest-even
+  remainder (`r = a − n·b` with `n` the round-half-even integer
+  quotient, `|r| ≤ |b|/2`, always exact), the sibling analogue of
+  `Decimal128::rem`. The existing `Decimal64::rem` is the *truncated*
+  remainder and is unchanged; the two names previously had no
+  nearest-even counterpart on this format, a documented API hazard
+  (ADR-0027). Validated bit-for-bit against the exact integer oracle
+  over the full finite encoding domain and against the decTest
+  `remaindernear` conformance vectors (now dispatched, 527 of 529, 0
+  failures; `remainder` 503 of 505). Additive and non-breaking;
+  ADR-0027 records the 2.0 plan to retire the ambiguous bare `rem`
+  and `%` spellings.
+
 ## [1.5.0] - 2026-05-17
 
 ### Changed
