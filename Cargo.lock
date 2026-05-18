@@ -248,7 +248,7 @@ dependencies = [
 
 [[package]]
 name = "ferrodec-decimal32"
-version = "1.5.0"
+version = "1.6.0"
 dependencies = [
  "ferrodec-decimal64",
  "ferrodec-ieee",
@@ -264,7 +264,7 @@ dependencies = [
 
 [[package]]
 name = "ferrodec-decimal64"
-version = "1.5.0"
+version = "1.6.0"
 dependencies = [
  "astro-float",
  "ferrodec-ieee",
