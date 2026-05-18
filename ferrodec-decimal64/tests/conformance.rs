@@ -99,6 +99,15 @@ const fn expected_per_file() -> &'static [(&'static str, usize)] {
         ("ddFMA.decTest", 1318),
         ("ddMultiply.decTest", 444),
         ("ddQuantize.decTest", 606),
+        // fd-pvu (ADR-0027): `remainder` (truncating, `Decimal64::rem`)
+        // and `remaindernear` (IEEE §5.3.1 nearest-even, the new
+        // `Decimal64::rem_near`) wired; both were `Skip` before. Zero
+        // failures: `ddRemainder` 503 of 505, `ddRemainderNear` 527 of
+        // 529 (2 `#`-hex BID-interchange skips each, never failures).
+        // Counts pinned exactly from the run per ADR-0010 /
+        // feedback_regression_guard_exact_match.
+        ("ddRemainder.decTest", 503),
+        ("ddRemainderNear.decTest", 527),
         ("ddSameQuantum.decTest", 333),
         ("ddSubtract.decTest", 514),
         // fd-hnx: `tointegral` / `tointegralx` (IEEE 754-2019 §5.9
@@ -123,6 +132,13 @@ fn run_case(case: &TestCase, ctx: &Context) -> Outcome {
         // the longer alias too for robustness.
         "comparetotmag" | "comparetotalmag" => run_total(case, ctx, true),
         "samequantum" => run_samequantum(case, ctx),
+        // decTest `remainder` is the *truncating* remainder
+        // (`Decimal64::rem`); `remaindernear` is the IEEE 754-2019
+        // §5.3.1 round-half-even-quotient remainder, the new
+        // `Decimal64::rem_near` (ADR-0027, fd-pvu). Before rem_near
+        // both routed to `Skip`.
+        "remainder" => run_rem(case, ctx, false),
+        "remaindernear" => run_rem(case, ctx, true),
         "quantize" => run_quantize(case, ctx),
         "tointegral" => run_integral(case, ctx, false),
         "tointegralx" => run_integral(case, ctx, true),
@@ -276,6 +292,29 @@ fn run_quantize(case: &TestCase, ctx: &Context) -> Outcome {
         _ => return Outcome::Skip,
     };
     let (result, status) = a.quantize(b, rm);
+    check(result, status, case)
+}
+
+/// `remainder` (truncating, `Decimal64::rem`) / `remaindernear`
+/// (IEEE 754-2019 §5.3.1 nearest-even, `Decimal64::rem_near`). Both
+/// return `(Decimal64, Status)`; same comparison shape and
+/// skip-not-fail policy as `run_quantize` (ADR-0027, fd-pvu).
+fn run_rem(case: &TestCase, ctx: &Context, near: bool) -> Outcome {
+    if case.operands.len() != 2 || case.expected.starts_with('#') {
+        return Outcome::Skip;
+    }
+    let rm = match map_rounding(&ctx.rounding) {
+        Some(r) => r,
+        None => return Outcome::Skip,
+    };
+    let (a, b) = match (
+        parse_operand(&case.operands[0], rm),
+        parse_operand(&case.operands[1], rm),
+    ) {
+        (Some(a), Some(b)) => (a, b),
+        _ => return Outcome::Skip,
+    };
+    let (result, status) = if near { a.rem_near(b) } else { a.rem(b, rm) };
     check(result, status, case)
 }
 
