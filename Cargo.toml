@@ -109,10 +109,16 @@ binary-float = ["fmt"]
 # `sub` / `mul` / `div` / `rem` methods. See the README's "Why no
 # core::ops" section for the design rationale.
 ops = []
-# Opt-in, local-only Python/libmpdec differential test (Track 3, plan
-# 2026-05-17). Gates `tests/differential.rs` so the Python subprocess
-# never runs in a default `cargo test` or CI; no extra dependency.
-differential = []
+# Opt-in, local-only Python/libmpdec + mpmath differential test
+# (Track 3, plan 2026-05-17; special-function surface extended under
+# ADR-0026). Gates `tests/differential.rs` so the Python subprocess
+# never runs in a default `cargo test` or CI. Implies
+# `transcendentals` because the differential sweep exercises the whole
+# transcendental surface (it always required those methods to compile;
+# this makes a single `--features differential` self-contained). Still
+# no extra *external* dependency; the mpmath path degrades to
+# skip-with-diagnostic when mpmath is not importable.
+differential = ["transcendentals"]
 # Serde Serialize / Deserialize for Decimal128. Round-trips through the
 # canonical decimal string by default; the `serde_bid` helper module is
 # provided for callers that prefer to serialize the raw 128-bit BID
