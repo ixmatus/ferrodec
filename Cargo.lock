@@ -228,6 +228,7 @@ version = "1.16.0"
 dependencies = [
  "astro-float",
  "criterion",
+ "ferrodec-decimal64",
  "ferrodec-ieee",
  "ferrodec-multiword",
  "ferrodec-test-support",

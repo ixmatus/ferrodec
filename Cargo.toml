@@ -109,6 +109,10 @@ binary-float = ["fmt"]
 # `sub` / `mul` / `div` / `rem` methods. See the README's "Why no
 # core::ops" section for the design rationale.
 ops = []
+# Opt-in, local-only Python/libmpdec differential test (Track 3, plan
+# 2026-05-17). Gates `tests/differential.rs` so the Python subprocess
+# never runs in a default `cargo test` or CI; no extra dependency.
+differential = []
 # Serde Serialize / Deserialize for Decimal128. Round-trips through the
 # canonical decimal string by default; the `serde_bid` helper module is
 # provided for callers that prefer to serialize the raw 128-bit BID
@@ -143,6 +147,11 @@ num-traits = { version = "0.2", default-features = false, optional = true }
 [dev-dependencies]
 proptest = "1"
 astro-float = "0.9"
+# Independent sibling (ADR-0011), dev-only: the `d128_crosscheck`
+# cross-precision oracle widens finite `Decimal64` operands into
+# `Decimal128` through the exact decimal string. No normal-build edge
+# and no cycle (decimal64 does not depend on this crate).
+ferrodec-decimal64 = { path = "ferrodec-decimal64" }
 ferrodec-test-support = { path = "ferrodec-test-support", features = ["transcend-oracle"] }
 criterion = { version = "0.5", default-features = false, features = ["cargo_bench_support"] }
 serde_json = "1"

@@ -184,6 +184,15 @@ pub fn assert_faithful(
     transcend_oracle::assert_faithful(D128(got), status, oracle, cc, rm, ctx);
 }
 
+/// `true` iff `got` lies within `n_ulps` representable steps of `want`
+/// (`|got − want| ≤ n_ulps · ulp(want)`). The structural band for
+/// **metamorphic identity cross-checks** (ADR-0025): the caller derives
+/// `n_ulps` per identity from the analytic condition number. Concrete-
+/// `Decimal128` wrapper around the generic harness; semantics unchanged.
+pub fn within_n_ulp_band(got: Decimal128, want: Decimal128, n_ulps: u32, cc: &mut Consts) -> bool {
+    transcend_oracle::within_n_ulp_band(D128(got), D128(want), n_ulps, cc)
+}
+
 /// Relative-tolerance closeness for **algebraic identity cross-checks
 /// only** (e.g. `sin²x + cos²x ≈ 1`), *not* the IEEE faithfulness
 /// contract. An identity composed from several rounded operations

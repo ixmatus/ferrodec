@@ -202,6 +202,63 @@ pub fn within_faithful_ulp<F: FaithfulFormat>(got: F, oracle: &BigFloat, cc: &mu
         || cmp_approx(&down, oracle, cc) == Ordering::Greater)
 }
 
+/// The wider of the two adjacent representable gaps at `v`
+/// (`|bf(next_up(v)) − bf(v)|` versus `|bf(v) − bf(next_down(v))|`), as a
+/// `BigFloat`. The max of the one-sided gaps is conservative across a
+/// power-of-ten cohort boundary, where the up-gap and the down-gap
+/// differ by a factor of ten; taking the larger never makes an
+/// identity band falsely tight.
+fn ulp_at<F: FaithfulFormat>(v: F, cc: &mut Consts) -> BigFloat {
+    let c = to_bf(v, cc);
+    let up = to_bf(v.next_up(), cc);
+    let dn = to_bf(v.next_down(), cc);
+    let gap_up = up.sub(&c, P_CMP, AfRm::None).abs();
+    let gap_dn = c.sub(&dn, P_CMP, AfRm::None).abs();
+    if gap_up.abs_cmp(&gap_dn).expect("finite gaps") >= 0 {
+        gap_up
+    } else {
+        gap_dn
+    }
+}
+
+/// `true` iff `got` lies within `n_ulps` representable steps of `want`,
+/// i.e. `|got − want| ≤ n_ulps · ulp(want)`.
+///
+/// This is the structural band for **algebraic identity cross-checks**
+/// (metamorphic tests), *not* the IEEE faithful-rounding contract
+/// ([`within_faithful_ulp`]). A composed identity accumulates more than
+/// one ULP by construction, and an ill-conditioned composition
+/// accumulates a condition-number multiple of a ULP. The caller derives
+/// `n_ulps` per identity from the analytic condition number evaluated at
+/// the test point (see ADR-0025); this routine only enforces the band
+/// the caller specifies.
+///
+/// `want` is an exact representable value (the identity's right-hand
+/// side), so the comparison carries no oracle noise: [`to_bf`] is exact
+/// and the [`cmp_approx`] dead-band is deliberately kept off this path.
+///
+/// O(1) in `n_ulps`: the gap is computed once and scaled, never walked
+/// `n` times. A condition-amplified `n_ulps` can be `~10^5`, so walking
+/// would be both slow and pointless.
+pub fn within_n_ulp_band<F: FaithfulFormat>(got: F, want: F, n_ulps: u32, cc: &mut Consts) -> bool {
+    if !got.is_finite() || !want.is_finite() {
+        return false;
+    }
+    let g = to_bf(got, cc);
+    let w = to_bf(want, cc);
+    let diff = g.sub(&w, P_CMP, AfRm::None).abs();
+    let ulp = ulp_at(want, cc);
+    let n = BigFloat::parse(
+        &n_ulps.max(1).to_string(),
+        Radix::Dec,
+        P_CMP,
+        AfRm::None,
+        cc,
+    );
+    let tol = ulp.mul(&n, P_CMP, AfRm::None);
+    diff.abs_cmp(&tol).expect("finite diff/tol") <= 0
+}
+
 /// `true` iff `got` is on the spec-mandated side of the true value for
 /// rounding mode `rm`:
 ///
