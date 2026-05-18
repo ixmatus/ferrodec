@@ -16,10 +16,15 @@ fmt = []
 # f64 conversions (Decimal32 ↔ f64). No alloc; routes via the canonical
 # decimal-string round-trip.
 binary-float = ["fmt"]
-# Opt-in, local-only Python/libmpdec differential test (Track 3, plan
-# 2026-05-17). Gates `tests/differential.rs`; no extra dependency, and
-# the Python subprocess never runs in a default `cargo test` or CI.
-differential = ["fmt"]
+# Opt-in, local-only Python/libmpdec + mpmath differential test
+# (Track 3, plan 2026-05-17; special-function surface extended under
+# ADR-0026). Gates `tests/differential.rs`; the Python subprocess
+# never runs in a default `cargo test` or CI. Implies
+# `transcendentals` so a single `--features differential` is
+# self-contained (the sweep always needed those methods to compile);
+# still no extra *external* dependency, and the mpmath path degrades
+# to skip-with-diagnostic when mpmath is not importable.
+differential = ["transcendentals"]
 # Transcendental sub-features. The whole transcendental surface — the
 # exp-log family (`exp` / `ln` / `exp2` / `log2` / `log10`), `cbrt`,
 # the whole trig family (`sin` / `cos` / `tan` / `asin` / `acos` /

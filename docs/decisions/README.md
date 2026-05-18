@@ -51,3 +51,4 @@ The ADRs in number order:
 - [0023 — decimal64 / decimal32 roundToIntegral (§5.9 completion)](0023-sibling-round-to-integral.md)
 - [0024 — Faithful sibling transcendentals on one shared Extended kernel](0024-faithful-transcendentals-shared-kernel.md)
 - [0025 — Metamorphic identity tests with condition-number-derived bounds](0025-metamorphic-identity-tests.md)
+- [0026 — Independent transcendental oracles (Arb frozen vectors, MPFR gate, mpmath differential)](0026-independent-transcendental-oracles.md)

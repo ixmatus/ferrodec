@@ -234,8 +234,8 @@ fn ulp_at<F: FaithfulFormat>(v: F, cc: &mut Consts) -> BigFloat {
 /// the caller specifies.
 ///
 /// `want` is an exact representable value (the identity's right-hand
-/// side), so the comparison carries no oracle noise: [`to_bf`] is exact
-/// and the [`cmp_approx`] dead-band is deliberately kept off this path.
+/// side), so the comparison carries no oracle noise: `to_bf` is exact
+/// and the `cmp_approx` dead-band is deliberately kept off this path.
 ///
 /// O(1) in `n_ulps`: the gap is computed once and scaled, never walked
 /// `n` times. A condition-amplified `n_ulps` can be `~10^5`, so walking
