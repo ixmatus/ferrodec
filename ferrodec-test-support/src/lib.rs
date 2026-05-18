@@ -16,6 +16,13 @@
 pub mod conformance;
 pub mod oracle;
 
+/// Process-and-protocol harness for the Python/libmpdec differential
+/// (Track 3, plan 2026-05-17). Always compiles (std-only, no extra
+/// dependency); the Python subprocess is reached only from the
+/// `differential`-feature test binaries, so a default `cargo test`
+/// never spawns it.
+pub mod differential;
+
 /// Generic faithful-rounding oracle harness for the transcendental
 /// property suites (ADR-0021). Gated behind the `transcend-oracle`
 /// feature so `astro-float` is compiled only for the dev-dependents

@@ -16,6 +16,10 @@ fmt = []
 # f64 conversions (Decimal32 ↔ f64). No alloc; routes via the canonical
 # decimal-string round-trip.
 binary-float = ["fmt"]
+# Opt-in, local-only Python/libmpdec differential test (Track 3, plan
+# 2026-05-17). Gates `tests/differential.rs`; no extra dependency, and
+# the Python subprocess never runs in a default `cargo test` or CI.
+differential = ["fmt"]
 # Transcendental sub-features. The whole transcendental surface — the
 # exp-log family (`exp` / `ln` / `exp2` / `log2` / `log10`), `cbrt`,
 # the whole trig family (`sin` / `cos` / `tan` / `asin` / `acos` /
