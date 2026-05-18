@@ -176,6 +176,10 @@ both compile when `ops` is on.
 | 34-digit precision, IEEE 754 Decimal128 surface | [`ferrodec`](https://crates.io/crates/ferrodec) |
 | Variable / arbitrary precision, no IEEE 754 conformance needed | [`rust_decimal`](https://crates.io/crates/rust_decimal) |
 
+## Porting between the ferrodec formats
+
+The numeric value is portable across `ferrodec` (Decimal128), `ferrodec-decimal64`, and `ferrodec-decimal32`; the surface around it is not. Bare `rem` and `%` are the truncated remainder here but the nearest-even remainder on Decimal128, so use the explicit `rem_near` / `rem_trunc` (ADR-0027; a 2.0 rename is planned). The cohort exponent, the `Display` rendering (ADR-0014), and the transcendental feature gating also differ per format. Pin what you serialize or compare with `quantize`. The [`ferrodec`](https://crates.io/crates/ferrodec) crate README carries the full cross-format table.
+
 ## Internals worth knowing
 
 - The Decimal64 BID layout: 1 sign bit + 5-bit type field + 8-bit

@@ -39,6 +39,24 @@
 //!   boundary; ADR-0014 records the rationale and the v2.0
 //!   harmonization plan.
 //!
+//! # Cohort stability
+//!
+//! A finite decimal value has many encodings: `1.5`, `1.50`, and
+//! `1.500` are one number at different exponents, its *cohort*.
+//! `ferrodec-decimal32` preserves the numeric value of every
+//! operation exactly as IEEE 754-2019 and the General Decimal
+//! Arithmetic specify, and that value is stable across the ferrodec
+//! formats and against any conforming GDA implementation. The
+//! exponent selected within the cohort is not guaranteed to match
+//! another implementation, and a future version may select a
+//! different member. Code that serializes or renders the encoding
+//! (quantize-then-serialize, fixed-point money display, golden-file
+//! comparison) must pin the exponent with `quantize` rather than
+//! rely on the default. The same principle, a stable value behind a
+//! divergent surface, drives the `rem` / `%` asymmetry across the
+//! family (ADR-0027): ferrodec names its divergences rather than
+//! hiding them.
+//!
 //! # Companion crates
 //!
 //! - [`ferrodec`](https://crates.io/crates/ferrodec): Decimal128.
@@ -46,6 +64,17 @@
 //!   Decimal64.
 //! - [`ferrodec-ieee`](https://crates.io/crates/ferrodec-ieee):
 //!   the shared IEEE 754 metadata types.
+//!
+//! # Porting between the formats
+//!
+//! The numeric value is portable across the three formats; the
+//! surface is not. Bare `rem` / `%` are the truncated remainder here
+//! but the nearest-even remainder on Decimal128, so use the explicit
+//! `rem_near` / `rem_trunc`; the cohort exponent, `Display`, and the
+//! transcendental feature gating also differ per format. Pin what
+//! you serialize or compare with `quantize`. ADR-0027 and ADR-0014
+//! give the rationale; the `ferrodec` crate README carries the full
+//! cross-format table.
 
 #![no_std]
 

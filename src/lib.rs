@@ -25,6 +25,24 @@
 //! operators for users who accept the trade-off (default
 //! `NearestEven`, `Status` discarded).
 //!
+//! # Cohort stability
+//!
+//! A finite decimal value has many encodings: `1.5`, `1.50`, and
+//! `1.500` are one number at different exponents, its *cohort*.
+//! ferrodec preserves the numeric value of every operation exactly
+//! as IEEE 754-2019 and the General Decimal Arithmetic specify, and
+//! that value is stable across the ferrodec formats and against any
+//! conforming GDA implementation. The exponent ferrodec selects
+//! within the cohort is not guaranteed to match another
+//! implementation, and a future ferrodec version may select a
+//! different member. Code that serializes or renders the encoding
+//! (quantize-then-serialize, fixed-point money display, golden-file
+//! comparison) must pin the exponent with `quantize` rather than
+//! rely on the default. The same principle, a stable value behind a
+//! divergent surface, drives the `rem` / `%` asymmetry across the
+//! family (ADR-0027): ferrodec names its divergences rather than
+//! hiding them.
+//!
 //! # Quick start
 //!
 //! ```toml

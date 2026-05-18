@@ -269,6 +269,20 @@ The same reasoning leads us to implement `Eq` and `PartialEq` as bitwise equalit
 
 **Pick `rust_decimal` when**: you need fast, well-trodden, ecosystem-rich decimal arithmetic for typical money math; you're happy with 28 digits and banker's rounding; you want operators by default without thinking about it.
 
+## Porting between the ferrodec formats
+
+`ferrodec` (Decimal128), `ferrodec-decimal64`, and `ferrodec-decimal32` share an API shape but diverge in a few places a maintainer would otherwise rediscover the hard way. Every divergence is named here and in an architecture decision record rather than left implicit.
+
+| Aspect | Decimal128 (`ferrodec`) | Decimal64 / Decimal32 siblings | Write portable code by |
+| --- | --- | --- | --- |
+| `rem` / `%` | `rem` is the IEEE 754-2019 §5.3.1 nearest-even remainder | bare `rem` is the truncated remainder; the nearest-even one is the separate `rem_near` | calling the explicit `rem_near` or `rem_trunc`, never relying on bare `rem` or `%` (ADR-0027; a 2.0 rename is planned) |
+| Cohort exponent | selected per the IEEE / GDA cohort rules | identical numeric value, but the cohort member is not guaranteed to match across formats or other GDA implementations | pinning the exponent with `quantize` before serializing, rendering, or comparing as a string |
+| `Display` | `f64::Display`-style boundary | General Decimal Arithmetic `toSci` rule | comparing by numeric value, not by formatted string (a v2.0 harmonization is planned, ADR-0014) |
+| Transcendentals | always available | gated behind the `exp-log` / `trig` / `hyperbolic` / `pow` sub-features | enabling the sub-features explicitly, not assuming a method exists without its feature |
+| Precision and range | 34 digits, exponent 10⁻⁶¹⁴³ … 10⁺⁶¹⁴⁴ | 16 digits (Decimal64), 7 digits (Decimal32), narrower exponent ranges | widening through the decimal string: a value exact in a narrower format is exact in a wider one, never the reverse |
+
+The numeric value an operation produces is stable across all three formats and against any conforming GDA implementation. What is not stable is the surface around the value: the cohort member, the `Display` rendering, the spelling of the remainder. Pin what you serialize or compare; the architecture decision records carry the rationale and the v2.0 plans.
+
 ## Internals worth knowing
 
 Code that uses ferrodec rarely needs to know what is inside, but two pieces show up in error messages and benchmark output.
