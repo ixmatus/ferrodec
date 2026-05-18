@@ -15,16 +15,27 @@
 use std::fs;
 use std::path::PathBuf;
 
-/// One frozen vector: `func(input)` correctly rounds to `output` at
-/// the format precision the caller filtered on.
+/// Corpus file stems that carry binary `func(input, input2)` vectors
+/// (fd-97a); every other stem is unary.
+pub const BINARY_FUNCS: &[&str] = &["pow", "atan2"];
+
+/// One frozen vector: `func(input[, input2])` correctly rounds to
+/// `output` at the filtered format precision under `mode`.
 #[derive(Debug, Clone)]
 pub struct FrozenVec {
     /// Function name (the corpus file stem, e.g. `exp`, `sin`).
     pub func: String,
+    /// Rounding mode the proven `output` was rounded under
+    /// (`NearestEven`, `TowardZero`, `TowardPositive`,
+    /// `TowardNegative`, `NearestAway`).
+    pub mode: String,
     /// Exact decimal input (`coef e exp`, parseable by `parse_str`).
     pub input: String,
-    /// Proven correctly-rounded (`NearestEven`) value at `prec`
-    /// significant digits.
+    /// Second operand for the binary functions (`pow`, `atan2`);
+    /// `None` for the unary functions.
+    pub input2: Option<String>,
+    /// Proven correctly-rounded value at the format precision under
+    /// `mode`.
     pub output: String,
 }
 
@@ -55,32 +66,53 @@ pub fn load(prec: u32) -> Vec<FrozenVec> {
         .filter(|p| p.extension().and_then(|s| s.to_str()) == Some("txt"))
         .collect();
     files.sort();
-    let pfx = format!("{prec} ");
+    let want = prec.to_string();
     for path in files {
         let func = path
             .file_stem()
             .and_then(|s| s.to_str())
             .expect("corpus file stem")
             .to_string();
+        let binary = BINARY_FUNCS.contains(&func.as_str());
         let text = fs::read_to_string(&path).expect("read corpus file");
         for line in text.lines() {
             if line.starts_with('#') || line.is_empty() {
                 continue;
             }
-            // `<prec> <input> <output>`
-            if let Some(rest) = line.strip_prefix(&pfx) {
-                let mut it = rest.split_whitespace();
-                let (Some(input), Some(output), None) = (it.next(), it.next(), it.next()) else {
-                    panic!("malformed frozen line in {}: {line:?}", path.display());
-                };
-                out.push(FrozenVec {
-                    func: func.clone(),
-                    input: input.to_string(),
-                    output: output.to_string(),
-                });
+            // Unary: `<prec> <mode> <input> <output>`
+            // Binary: `<prec> <mode> <input1> <input2> <output>`
+            let mut it = line.split_whitespace();
+            let Some(p) = it.next() else { continue };
+            if p != want {
+                continue;
             }
+            let rest: Vec<&str> = it.collect();
+            let (mode, input, input2, output) = match (binary, rest.as_slice()) {
+                (false, [mode, input, output]) => (
+                    (*mode).to_string(),
+                    (*input).to_string(),
+                    None,
+                    (*output).to_string(),
+                ),
+                (true, [mode, input, input2, output]) => (
+                    (*mode).to_string(),
+                    (*input).to_string(),
+                    Some((*input2).to_string()),
+                    (*output).to_string(),
+                ),
+                _ => panic!("malformed frozen line in {}: {line:?}", path.display()),
+            };
+            out.push(FrozenVec {
+                func: func.clone(),
+                mode,
+                input,
+                input2,
+                output,
+            });
         }
     }
-    out.sort_by(|a, b| (&a.func, &a.input).cmp(&(&b.func, &b.input)));
+    out.sort_by(|a, b| {
+        (&a.func, &a.mode, &a.input, &a.input2).cmp(&(&b.func, &b.mode, &b.input, &b.input2))
+    });
     out
 }

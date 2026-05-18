@@ -25,9 +25,23 @@
 use std::cmp::Ordering;
 
 use ferrodec_test_support::frozen;
-use ferrodec_test_support::round_dec::{decimal_magnitude, parse_dec, round_sig, same_value};
+use ferrodec_test_support::round_dec::{
+    decimal_magnitude, parse_dec, round_directed_sig, same_value, Round as DecRound,
+};
 use rug::float::Round;
+use rug::ops::PowAssignRound;
 use rug::Float;
+
+fn dec_round(mode: &str) -> DecRound {
+    match mode {
+        "NearestEven" => DecRound::NearestEven,
+        "NearestAway" => DecRound::NearestAway,
+        "TowardZero" => DecRound::TowardZero,
+        "TowardPositive" => DecRound::TowardPositive,
+        "TowardNegative" => DecRound::TowardNegative,
+        other => panic!("frozen corpus has an unknown rounding mode {other:?}"),
+    }
+}
 
 /// MPFR working precision (bits): generous headroom over the format
 /// precision plus, for the trig family, ~3.34 bits per decimal digit
@@ -43,8 +57,38 @@ fn work_bits(prec: usize, mag: i64, trig: bool) -> u32 {
     (base + extra).min(1 << 20) as u32
 }
 
-fn eval(func: &str, x: Float) -> (Float, Ordering) {
+fn eval(fv: &frozen::FrozenVec, p: u32) -> (Float, Ordering) {
+    let x = Float::with_val(
+        p,
+        Float::parse(&fv.input).expect("frozen input parses in MPFR"),
+    );
+    // Binary: input1 = x, input2 = y. `pow(x, y)`;
+    // `atan2(y, x)` (the proven value is atan2 of the second operand
+    // over the first, matching ferrodec's `self = y`).
+    match fv.func.as_str() {
+        "pow" => {
+            let y = Float::with_val(
+                p,
+                Float::parse(fv.input2.as_deref().expect("pow input2"))
+                    .expect("frozen input2 parses in MPFR"),
+            );
+            let mut v = x;
+            let ord = v.pow_assign_round(&y, Round::Nearest);
+            return (v, ord);
+        }
+        "atan2" => {
+            let mut y = Float::with_val(
+                p,
+                Float::parse(fv.input2.as_deref().expect("atan2 input2"))
+                    .expect("frozen input2 parses in MPFR"),
+            );
+            let ord = y.atan2_round(&x, Round::Nearest);
+            return (y, ord);
+        }
+        _ => {}
+    }
     let mut v = x;
+    let func = fv.func.as_str();
     let ord = match func {
         "exp" => v.exp_round(Round::Nearest),
         "ln" => v.ln_round(Round::Nearest),
@@ -69,7 +113,7 @@ fn eval(func: &str, x: Float) -> (Float, Ordering) {
     (v, ord)
 }
 
-const TRIG: &[&str] = &["sin", "cos", "tan"];
+const TRIG: &[&str] = &["sin", "cos", "tan", "atan2"];
 
 #[test]
 fn mpfr_cross_validates_arb_corpus() {
@@ -79,36 +123,47 @@ fn mpfr_cross_validates_arb_corpus() {
 
     for &prec in &[7u32, 16, 34] {
         for v in frozen::load(prec) {
-            let inp = parse_dec(&v.input);
-            let mag = decimal_magnitude(&inp);
+            let mut mag = decimal_magnitude(&parse_dec(&v.input)).unsigned_abs() as i64;
+            if let Some(y2) = v.input2.as_deref() {
+                mag += decimal_magnitude(&parse_dec(y2)).unsigned_abs() as i64;
+            }
             let p = work_bits(prec as usize, mag, TRIG.contains(&v.func.as_str()));
 
-            let parsed = Float::parse(&v.input).expect("frozen input parses in MPFR");
-            let x = Float::with_val(p, parsed);
-            let (y, ternary) = eval(&v.func, x);
+            // MPFR at Round::Nearest with generous precision is the
+            // exact reference; the directed decimal rounding for the
+            // line's mode is done on our side (no double rounding, and
+            // no dependence on rug exposing every MPFR mode).
+            let (y, ternary) = eval(&v, p);
             match ternary {
                 Ordering::Less => below += 1,
                 Ordering::Equal => exactish += 1,
                 Ordering::Greater => above += 1,
             }
 
-            // Decimal rounding on our side: take generous guard
-            // digits from MPFR, round to `prec` significant digits
-            // ourselves, compare to the Arb-proven output.
+            let dr = dec_round(&v.mode);
             let guard = prec as usize + 15;
-            let mpfr_dec = round_sig(
+            let mpfr_dec = round_directed_sig(
                 &parse_dec(&y.to_string_radix(10, Some(guard))),
                 prec as usize,
+                dr,
             );
-            let arb_dec = round_sig(&parse_dec(&v.output), prec as usize);
+            let arb_dec = round_directed_sig(&parse_dec(&v.output), prec as usize, dr);
             checked += 1;
             if !same_value(&mpfr_dec, &arb_dec) {
                 disagree += 1;
                 first_disagreement.get_or_insert_with(|| {
                     format!(
-                        "Arb/MPFR disagree (corpus-accept rule, \
-                         ADR-0026): {}({}) p{prec} -> Arb {} | MPFR {}",
-                        v.func, v.input, v.output, y
+                        "Arb/MPFR disagree (corpus-accept rule, ADR-0026): \
+                         {} {}({}{}) p{prec} -> Arb {} | MPFR {}",
+                        v.mode,
+                        v.func,
+                        v.input,
+                        v.input2
+                            .as_deref()
+                            .map(|s| format!(", {s}"))
+                            .unwrap_or_default(),
+                        v.output,
+                        y
                     )
                 });
             }
