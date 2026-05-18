@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 889ea21b47bdd67091b4e0df1080bfb929870cae7238039d4ad287d963d5a1e4 # shrinks to a = Decimal64(0x3239FCA53F784B5B = Finite{sign:false, biased_exp:398, coefficient:5062861268732763}), b = Decimal64(0xAA1A915E3C9F225A = Finite{sign:true, biased_exp:390, coefficient:2974583697121882}), rmi = 0
+cc 0dcfae2da8383c1a5dd07e86fe7e0d46bcfdba9bc372ba478693ecc8a359bea1 # shrinks to a = Decimal64(0x6E40000000000000 = Zero{sign:false, biased_exp:400}), b = Decimal64(0xA23C000000000001 = Finite{sign:true, biased_exp:399, coefficient:1}), rmi = 0
