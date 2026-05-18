@@ -15,13 +15,27 @@
 use std::fs;
 use std::path::PathBuf;
 
-use ferrodec_test_support::round_dec::{parse_dec, round_sig, same_value};
+use ferrodec_test_support::round_dec::{
+    parse_dec, round_directed_sig, round_sig, same_value, Round,
+};
 
 struct Case {
     prec: usize,
+    mode: Round,
     input: String,
     expected: String,
     name: String,
+}
+
+fn parse_mode(s: &str) -> Round {
+    match s {
+        "NearestEven" => Round::NearestEven,
+        "NearestAway" => Round::NearestAway,
+        "TowardZero" => Round::TowardZero,
+        "TowardPositive" => Round::TowardPositive,
+        "TowardNegative" => Round::TowardNegative,
+        other => panic!("unknown rounding mode in case table: {other:?}"),
+    }
 }
 
 /// `<ws>/tests/vectors/round_half_even/cases.txt`, via the same `../`
@@ -45,13 +59,19 @@ fn load_cases() -> Vec<Case> {
             continue;
         }
         let mut it = line.split_whitespace();
-        let (Some(prec), Some(input), Some(expected), Some(name), None) =
-            (it.next(), it.next(), it.next(), it.next(), it.next())
-        else {
+        let (Some(prec), Some(mode), Some(input), Some(expected), Some(name), None) = (
+            it.next(),
+            it.next(),
+            it.next(),
+            it.next(),
+            it.next(),
+            it.next(),
+        ) else {
             panic!("malformed case line in {}: {line:?}", path.display());
         };
         out.push(Case {
             prec: prec.parse().expect("prec is a usize"),
+            mode: parse_mode(mode),
             input: input.to_string(),
             expected: expected.to_string(),
             name: name.to_string(),
@@ -61,23 +81,25 @@ fn load_cases() -> Vec<Case> {
 }
 
 #[test]
-fn round_sig_matches_shared_case_table() {
+fn round_dec_matches_shared_case_table() {
     let cases = load_cases();
     assert!(
-        cases.len() >= 14,
-        "expected the full shared case table, loaded {}",
+        cases.len() >= 28,
+        "expected the full shared case table (NearestEven + directed), loaded {}",
         cases.len()
     );
     for c in &cases {
-        let got = round_sig(&parse_dec(&c.input), c.prec);
+        let got = round_directed_sig(&parse_dec(&c.input), c.prec, c.mode);
         let want = parse_dec(&c.expected);
         assert!(
             same_value(&got, &want),
-            "round_sig lockstep failure [{}]: round_sig(parse_dec({:?}), {}) = {:?}, \
+            "round_directed_sig lockstep failure [{}]: \
+             round_directed_sig(parse_dec({:?}), {}, {:?}) = {:?}, \
              expected value of {:?} = {:?}",
             c.name,
             c.input,
             c.prec,
+            c.mode,
             got,
             c.expected,
             want

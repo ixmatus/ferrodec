@@ -1,52 +1,87 @@
-# Shared round-half-even significant-digit case table (fd-tgg).
+# Shared significant-digit rounding case table (fd-tgg + fd-97a).
 #
 # The Arb frozen corpus proof tier (fd-cb6, ADR-0026) rounds a
-# high-precision result to `prec` significant digits, ties to even,
-# in TWO independent implementations that must stay in lockstep:
-#   * Rust  round_sig          (ferrodec-test-support/src/round_dec.rs)
-#   * Python round_half_even_sig (tools/gen_transcend_vectors.py)
+# high-precision result to `prec` significant digits under a rounding
+# mode, in TWO independent implementations that must stay in lockstep:
+#   * Rust  round_sig / round_directed_sig
+#       (ferrodec-test-support/src/round_dec.rs)
+#   * Python round_half_even_sig / round_directed_sig
+#       (tools/gen_transcend_vectors.py)
 # Both run this table: Rust via ferrodec-test-support/tests/round_dec.rs
 # (default-on, no rug), Python via `python3 tools/gen_transcend_vectors.py
 # --selftest` (no pip). Each asserts the rounded VALUE equals `expected`
-# (the two impls differ in representation: round_sig leaves a short
-# value unpadded and strips trailing zeros, round_half_even_sig always
-# returns exactly `prec` digits; only the decimal value is the contract).
+# (the two impls differ in representation: the Rust side leaves a short
+# value unpadded and strips trailing zeros, the Python side always
+# returns exactly `prec` digits; only the decimal value is the
+# contract).
 #
-# Columns, whitespace-separated:  <prec> <input> <expected> <name>
-# `input` and `expected` are plain decimal strings (no exponent
-# notation, so Python's Fraction parses them directly). `name` is a
-# kebab-case tag; the two near-misses fixed during fd-cb6 are named
-# regression guards.
+# Columns, whitespace-separated:
+#   <prec> <mode> <input> <expected> <name>
+# `mode` is one of NearestEven NearestAway TowardZero TowardPositive
+# TowardNegative. `input` and `expected` are plain decimal strings (no
+# exponent notation, so Python's Fraction parses them directly). `name`
+# is a kebab-case tag; the two near-misses fixed during fd-cb6 are
+# named regression guards.
+
+# === NearestEven surface (fd-tgg) ===
 
 # --- no rounding needed (len <= prec; len == prec) ---
-7 1234567 1234567 len-eq-prec-identity
-5 0 0 zero
-3 -7 -7 negative-integer-identity
+7 NearestEven 1234567 1234567 len-eq-prec-identity
+5 NearestEven 0 0 zero
+3 NearestEven -7 -7 negative-integer-identity
 
 # --- len == prec + 1, round by the next digit ---
-7 12345678 12345680 len-prec-plus-one-roundup
+7 NearestEven 12345678 12345680 len-prec-plus-one-roundup
 
 # --- len far greater than prec ---
-3 123456789 123000000 far-gt-prec-roundeddown
-3 987654321 988000000 far-gt-prec-roundedup
+3 NearestEven 123456789 123000000 far-gt-prec-roundeddown
+3 NearestEven 987654321 988000000 far-gt-prec-roundedup
 
-# --- exact-half tie to even ---
-2 1.25 1.2 tie-even-stays-down
-2 1.35 1.4 tie-odd-rounds-up
-2 1.2501 1.3 not-a-tie-sticky-rounds-up
+# --- exact-half tie to even / sticky non-tie ---
+2 NearestEven 1.25 1.2 tie-even-stays-down
+2 NearestEven 1.35 1.4 tie-odd-rounds-up
+2 NearestEven 1.2501 1.3 not-a-tie-sticky-rounds-up
 
 # --- sub-1 / leading zeros, negative value, negative exponent ---
-5 0.0012345678 0.0012346 sub-one-leading-zeros-roundup
-2 -0.0625 -0.062 negative-value-negative-exponent-tie-even
+5 NearestEven 0.0012345678 0.0012346 sub-one-leading-zeros-roundup
+2 NearestEven -0.0625 -0.062 negative-value-negative-exponent-tie-even
 
 # --- trailing-zero canonicalisation ---
-7 1.200 1.2 trailing-zero-canonical
+7 NearestEven 1.200 1.2 trailing-zero-canonical
 
 # --- carry into a new decade (not all-nines) ---
-2 9.96 10 carry-new-decade
+2 NearestEven 9.96 10 carry-new-decade
 
 # --- NAMED regression guard: the round_sig all-nines carry-exponent
 # bug (fd-cb6). cos(1e-4) = 0.999999995 must round to 1 at p7; the
 # `exp += 1` belongs only on the re-trim pop, not the leading-digit
 # insert. ---
-7 0.999999995 1 cos1e-4-allnines-carry
+7 NearestEven 0.999999995 1 cos1e-4-allnines-carry
+
+# === Directed + nearest-away surface (fd-97a) ===
+
+# --- positive value, all four non-NE modes; next=5 with sticky ---
+4 TowardZero 1.2345678 1.234 trunc-pos
+4 TowardPositive 1.2345678 1.235 ceil-pos
+4 TowardNegative 1.2345678 1.234 floor-pos-truncates
+4 NearestAway 1.2345678 1.235 nearaway-pos
+
+# --- negative value: ceiling truncates, floor rounds the magnitude ---
+4 TowardZero -1.2345678 -1.234 trunc-neg
+4 TowardPositive -1.2345678 -1.234 ceil-neg-truncates
+4 TowardNegative -1.2345678 -1.235 floor-neg
+4 NearestAway -1.2345678 -1.235 nearaway-neg
+
+# --- exact tie: nearest-away goes up where nearest-even stays ---
+3 NearestAway 1.245 1.25 nearaway-tie-up
+3 NearestEven 1.245 1.24 neareven-tie-even-control
+
+# --- a tiny remainder still trips ceiling; truncation ignores a big
+# next digit ---
+3 TowardPositive 1.2300001 1.24 ceil-tiny-remainder
+3 TowardZero 1.2399999 1.23 trunc-ignores-big-next
+
+# --- directed carry into a new decade (all-nines via a directed
+# decision) ---
+3 TowardPositive 9.999 10 ceil-carry-new-decade
+3 TowardNegative -9.999 -10 floor-neg-carry-new-decade

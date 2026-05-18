@@ -136,6 +136,74 @@ def round_half_even_sig(v, p):
     return None
 
 
+def round_directed_sig(v, p, mode):
+    """Round Fraction `v` to `p` significant decimal digits under
+    `mode` (NearestEven NearestAway TowardZero TowardPositive
+    TowardNegative). Returns (sign, digits:int with exactly p digits,
+    exp10) or None for zero. The directed modes round on the
+    sign-aware magnitude: ceiling rounds a positive remainder up but
+    truncates a negative one, floor mirrors it, truncation never
+    increments, nearest-away sends an exact half away from zero. The
+    Rust round_directed_sig runs the same shared case table."""
+    if v == 0:
+        return None
+    sign = -1 if v < 0 else 1
+    a = -v if v < 0 else v
+    E = len(str(a.numerator)) - len(str(a.denominator)) - (p - 1)
+    for _ in range(4):
+        scaled = a / (Fraction(10) ** E) if E >= 0 else a * (Fraction(10) ** (-E))
+        n, d = scaled.numerator, scaled.denominator
+        q, r = divmod(n, d)
+        if q >= 10 ** p:
+            E += 1
+            continue
+        if q < 10 ** (p - 1):
+            E -= 1
+            continue
+        two_r = 2 * r
+        if mode == "NearestEven":
+            up = two_r > d or (two_r == d and q % 2 == 1)
+        elif mode == "NearestAway":
+            up = two_r >= d
+        elif mode == "TowardZero":
+            up = False
+        elif mode == "TowardPositive":
+            up = sign > 0 and r != 0
+        elif mode == "TowardNegative":
+            up = sign < 0 and r != 0
+        else:
+            raise ValueError("unknown rounding mode %r" % (mode,))
+        if up:
+            q += 1
+            if q == 10 ** p:
+                q //= 10
+                E += 1
+        return (sign, q, E)
+    return None
+
+
+def directed_margin(v, p):
+    """Distance (in fractional ULP) of `v` from the nearest p-digit
+    *grid point* (a representable boundary). Small ⇒ the directed
+    Table-Maker's-Dilemma worst case: the enclosure straddles an
+    integer boundary, so a directed decision flips with its sign,
+    unlike the half-ULP tie that `tie_margin` targets."""
+    a = -v if v < 0 else v
+    E = len(str(a.numerator)) - len(str(a.denominator)) - (p - 1)
+    for _ in range(4):
+        scaled = a / (Fraction(10) ** E) if E >= 0 else a * (Fraction(10) ** (-E))
+        q = scaled.numerator // scaled.denominator
+        if q >= 10 ** p:
+            E += 1
+            continue
+        if q < 10 ** (p - 1):
+            E -= 1
+            continue
+        frac = scaled - q
+        return float(min(frac, 1 - frac))
+    return 0.5
+
+
 def tie_margin(v, p):
     """Distance (in fractional ULP) of `v` from the nearest decimal
     half-ULP tie of the p-digit grid. Small ⇒ pathologically hard to
@@ -465,12 +533,20 @@ def _selftest():
         if not line or line.startswith("#"):
             continue
         parts = line.split()
-        assert len(parts) == 4, "malformed case line: %r" % line
+        assert len(parts) == 5, "malformed case line: %r" % line
         prec = int(parts[0])
-        value = Fraction(parts[1])
-        expected = Fraction(parts[2])
-        name = parts[3]
-        r = round_half_even_sig(value, prec)
+        mode = parts[1]
+        value = Fraction(parts[2])
+        expected = Fraction(parts[3])
+        name = parts[4]
+        # NearestEven exercises round_half_even_sig (the keystone the
+        # generator's TMD decisiveness uses); the directed modes
+        # exercise round_directed_sig. The Rust side runs the same
+        # rows through round_directed_sig.
+        if mode == "NearestEven":
+            r = round_half_even_sig(value, prec)
+        else:
+            r = round_directed_sig(value, prec, mode)
         if r is None:
             assert expected == 0, "[%s] None result but expected %s" % (
                 name,
@@ -488,7 +564,10 @@ def _selftest():
                 "contract is exactly prec=%d" % (name, len(str(q)), prec)
             )
         n += 1
-    assert n >= 14, "expected the full shared case table, ran %d" % n
+    assert n >= 28, (
+        "expected the full shared case table (NearestEven + directed), "
+        "ran %d" % n
+    )
 
     # Named regression guard: the round_sig all-nines carry-exponent
     # bug. cos(1e-4) = 0.999999995 must round to the value 1 at p7.

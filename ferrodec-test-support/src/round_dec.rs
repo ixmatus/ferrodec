@@ -76,27 +76,30 @@ pub fn parse_dec(s: &str) -> Dec {
     Dec { neg, digits, exp }
 }
 
-/// Round `d` to at most `prec` significant digits, ties to even,
-/// returned in the same canonical (trailing-zero-stripped) form so
-/// two equal values compare equal.
-#[must_use]
-pub fn round_sig(d: &Dec, prec: usize) -> Dec {
-    if d.digits.len() <= prec {
-        return Dec {
-            neg: d.neg,
-            digits: d.digits.clone(),
-            exp: d.exp,
-        };
-    }
-    let mut kept: Vec<u8> = d.digits[..prec].to_vec();
-    let dropped_exp = d.exp + (d.digits.len() - prec) as i64;
-    let next = d.digits[prec];
-    let sticky = d.digits[prec + 1..].iter().any(|&x| x != 0);
-    // Round half to even: up if the next digit exceeds 5, or it is
-    // exactly 5 with anything nonzero after it, or it is an exact 5
-    // tie and the last kept digit is odd.
-    let round_up = next > 5 || (next == 5 && (sticky || kept.last().is_some_and(|&l| l % 2 == 1)));
-    let mut exp = dropped_exp;
+/// IEEE 754-2019 §4.3 rounding direction. A local mirror of the
+/// kernel's `RoundingMode` so this module stays a self-contained
+/// tested unit with no crate coupling; consumers map their
+/// `RoundingMode` onto it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Round {
+    /// To nearest, ties to even (the corpus's historical default).
+    NearestEven,
+    /// To nearest, ties away from zero.
+    NearestAway,
+    /// Toward zero (truncate the discarded digits).
+    TowardZero,
+    /// Toward positive infinity (ceiling).
+    TowardPositive,
+    /// Toward negative infinity (floor).
+    TowardNegative,
+}
+
+/// Apply the rounding decision to `kept` and re-canonicalise: handle
+/// the all-nines carry, strip trailing zeros (raising `exp`), and
+/// collapse an all-zero result to canonical zero. The carry branch is
+/// the bug-prone part the fd-tgg case table pins, so both `round_sig`
+/// and `round_directed_sig` share this one implementation of it.
+fn finish(neg: bool, mut kept: Vec<u8>, mut exp: i64, round_up: bool, prec: usize) -> Dec {
     if round_up {
         let mut i = kept.len();
         loop {
@@ -134,10 +137,55 @@ pub fn round_sig(d: &Dec, prec: usize) -> Dec {
         };
     }
     Dec {
-        neg: d.neg,
+        neg,
         digits: kept,
         exp,
     }
+}
+
+/// Round `d` to at most `prec` significant digits, ties to even,
+/// returned in the same canonical (trailing-zero-stripped) form so
+/// two equal values compare equal. Thin wrapper over
+/// [`round_directed_sig`] with [`Round::NearestEven`]; kept as the
+/// named keystone the proof tier and the fd-tgg meta-test reference.
+#[must_use]
+pub fn round_sig(d: &Dec, prec: usize) -> Dec {
+    round_directed_sig(d, prec, Round::NearestEven)
+}
+
+/// Round `d` to at most `prec` significant digits under `mode`,
+/// returned in canonical (trailing-zero-stripped) form. The directed
+/// modes round on the *sign-aware magnitude*: ceiling rounds a
+/// positive value's discarded remainder up but truncates a negative
+/// one, and floor is its mirror; truncation never increments;
+/// nearest-away rounds an exact half away from zero. A value already
+/// exact at `prec` significant digits is returned unchanged for every
+/// mode.
+#[must_use]
+pub fn round_directed_sig(d: &Dec, prec: usize, mode: Round) -> Dec {
+    if d.digits.len() <= prec {
+        return Dec {
+            neg: d.neg,
+            digits: d.digits.clone(),
+            exp: d.exp,
+        };
+    }
+    let kept: Vec<u8> = d.digits[..prec].to_vec();
+    let dropped_exp = d.exp + (d.digits.len() - prec) as i64;
+    let next = d.digits[prec];
+    let sticky = d.digits[prec + 1..].iter().any(|&x| x != 0);
+    // Any discarded value at all (the directed predicate); a tie is
+    // `next == 5 && !sticky`.
+    let has_rem = next != 0 || sticky;
+    let last_odd = kept.last().is_some_and(|&l| l % 2 == 1);
+    let round_up = match mode {
+        Round::NearestEven => next > 5 || (next == 5 && (sticky || last_odd)),
+        Round::NearestAway => next >= 5,
+        Round::TowardZero => false,
+        Round::TowardPositive => !d.neg && has_rem,
+        Round::TowardNegative => d.neg && has_rem,
+    };
+    finish(d.neg, kept, dropped_exp, round_up, prec)
 }
 
 /// Cohort-insensitive value equality: same sign, same significant
