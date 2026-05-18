@@ -66,6 +66,16 @@ impl Decimal128 {
     ///
     /// Distinct from [`Decimal128::rem_trunc`], which uses a
     /// truncating-quotient (C99 `fmod`-style) rule.
+    ///
+    /// Cross-format hazard: this `Decimal128::rem` is the nearest-even
+    /// remainder, but the sibling `ferrodec_decimal64::Decimal64::rem`
+    /// and `ferrodec_decimal32::Decimal32::rem` name the *truncated*
+    /// remainder, a different operation; the siblings expose the
+    /// nearest-even op explicitly as `rem_near`. Generic or ported
+    /// code must not assume `.rem()` agrees across the ferrodec
+    /// formats. ADR-0027 records the asymmetry and the 2.0 plan to
+    /// retire the bare, ambiguous spelling in favour of explicit
+    /// `rem_near` / `rem_trunc`.
     #[must_use]
     pub fn rem(self, rhs: Self) -> (Self, Status) {
         if let Some(early) = rem_special_cases(self, rhs) {
@@ -83,6 +93,12 @@ impl Decimal128 {
     ///
     /// Distinct from [`Decimal128::rem`], which uses the IEEE 754
     /// round-half-to-even quotient rule.
+    ///
+    /// Cross-format note: this matches the sibling
+    /// `ferrodec_decimal64::Decimal64::rem` and
+    /// `ferrodec_decimal32::Decimal32::rem` (both truncated), not the
+    /// siblings' `rem_near` and not `Decimal128::rem` (both
+    /// nearest-even). ADR-0027 maps the spellings across the family.
     ///
     /// # Examples
     ///
