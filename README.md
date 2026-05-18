@@ -207,7 +207,7 @@ ferrodec compiles for any target Rust 1.84 supports. Three targets exercise on e
 
 ## Verification
 
-ferrodec leans on four overlapping verification stacks.
+ferrodec leans on five overlapping verification stacks.
 
 1. **Unit tests** (`cargo test`). 376 tests in the library plus per module integration suites and a doctest set on the public API.
 2. **Property tests** (proptest). Twelve files cover add/sub/mul/div/sqrt/rem, exp, ln, sincos, the inverse and hyperbolic functions, pow, the binary float conversions, and the addsub alignment edge case. Each cross checks against `astro-float`, a pure Rust arbitrary precision oracle, at the documented per function envelope.
