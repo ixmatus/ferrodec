@@ -435,5 +435,94 @@ def solve(name, fn, coef, exp, neg, fmt):
     return None
 
 
+CASES_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "..",
+    "tests",
+    "vectors",
+    "round_half_even",
+    "cases.txt",
+)
+
+
+def _selftest():
+    """No-pip lockstep self-test of the rounding keystone (fd-tgg).
+
+    Runs the shared committed case table
+    (`tests/vectors/round_half_even/cases.txt`) through
+    `round_half_even_sig`, asserting the rounded VALUE equals the
+    table's `expected` (the Rust `round_sig` runs the same table in
+    `ferrodec-test-support/tests/round_dec.rs`, so the two stay in
+    lockstep). Also guards `representable`, the input-exactness check
+    whose absence caused the fd-cb6 d32 `acos` finding. Plain
+    `assert`; needs neither python-flint nor any pip package."""
+    with open(CASES_PATH) as fh:
+        lines = fh.read().splitlines()
+
+    n = 0
+    for line in lines:
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split()
+        assert len(parts) == 4, "malformed case line: %r" % line
+        prec = int(parts[0])
+        value = Fraction(parts[1])
+        expected = Fraction(parts[2])
+        name = parts[3]
+        r = round_half_even_sig(value, prec)
+        if r is None:
+            assert expected == 0, "[%s] None result but expected %s" % (
+                name,
+                parts[2],
+            )
+        else:
+            sign, q, E = r
+            got = sign * Fraction(q) * (Fraction(10) ** E)
+            assert got == expected, (
+                "[%s] round_half_even_sig(%s, %d) value = %s, expected %s"
+                % (name, parts[1], prec, got, expected)
+            )
+            assert len(str(q)) == prec, (
+                "[%s] round_half_even_sig returned %d significant digits, "
+                "contract is exactly prec=%d" % (name, len(str(q)), prec)
+            )
+        n += 1
+    assert n >= 14, "expected the full shared case table, ran %d" % n
+
+    # Named regression guard: the round_sig all-nines carry-exponent
+    # bug. cos(1e-4) = 0.999999995 must round to the value 1 at p7.
+    guard = round_half_even_sig(Fraction("0.999999995"), 7)
+    assert guard is not None
+    gs, gq, gE = guard
+    assert gs * Fraction(gq) * (Fraction(10) ** gE) == 1, (
+        "all-nines carry regression: round_half_even_sig(0.999999995, 7) "
+        "= %r, must be the value 1" % (guard,)
+    )
+
+    # Named regression guard: the fd-cb6 d32 acos finding. The argument
+    # 99860965e-8 has 8 significant digits, so it is not exact in
+    # decimal32 (prec 7); `representable` must reject it, else
+    # `parse_str` re-rounds the argument out from under the proven
+    # output. Controls: a 7-digit coefficient is representable, and
+    # trailing zeros do not count toward the significand.
+    assert representable(99860965, -8, FORMATS["d32"]) is False, (
+        "d32-acos-nonrepresentable: 8-digit coef must be rejected at "
+        "decimal32 prec 7"
+    )
+    assert representable(1234567, -6, FORMATS["d32"]) is True
+    assert representable(12300000, -2, FORMATS["d32"]) is True  # -> 123
+    assert representable(1, 200, FORMATS["d32"]) is False  # out of range
+
+    sys.stderr.write(
+        "round-half-even self-test: %d shared cases + 2 named regression "
+        "guards (cos1e-4 all-nines carry, d32 acos non-representable) "
+        "OK\n" % n
+    )
+
+
 if __name__ == "__main__":
-    emit()
+    if "--selftest" in sys.argv[1:]:
+        _selftest()
+    else:
+        emit()

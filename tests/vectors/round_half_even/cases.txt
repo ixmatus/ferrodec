@@ -1,0 +1,52 @@
+# Shared round-half-even significant-digit case table (fd-tgg).
+#
+# The Arb frozen corpus proof tier (fd-cb6, ADR-0026) rounds a
+# high-precision result to `prec` significant digits, ties to even,
+# in TWO independent implementations that must stay in lockstep:
+#   * Rust  round_sig          (ferrodec-test-support/src/round_dec.rs)
+#   * Python round_half_even_sig (tools/gen_transcend_vectors.py)
+# Both run this table: Rust via ferrodec-test-support/tests/round_dec.rs
+# (default-on, no rug), Python via `python3 tools/gen_transcend_vectors.py
+# --selftest` (no pip). Each asserts the rounded VALUE equals `expected`
+# (the two impls differ in representation: round_sig leaves a short
+# value unpadded and strips trailing zeros, round_half_even_sig always
+# returns exactly `prec` digits; only the decimal value is the contract).
+#
+# Columns, whitespace-separated:  <prec> <input> <expected> <name>
+# `input` and `expected` are plain decimal strings (no exponent
+# notation, so Python's Fraction parses them directly). `name` is a
+# kebab-case tag; the two near-misses fixed during fd-cb6 are named
+# regression guards.
+
+# --- no rounding needed (len <= prec; len == prec) ---
+7 1234567 1234567 len-eq-prec-identity
+5 0 0 zero
+3 -7 -7 negative-integer-identity
+
+# --- len == prec + 1, round by the next digit ---
+7 12345678 12345680 len-prec-plus-one-roundup
+
+# --- len far greater than prec ---
+3 123456789 123000000 far-gt-prec-roundeddown
+3 987654321 988000000 far-gt-prec-roundedup
+
+# --- exact-half tie to even ---
+2 1.25 1.2 tie-even-stays-down
+2 1.35 1.4 tie-odd-rounds-up
+2 1.2501 1.3 not-a-tie-sticky-rounds-up
+
+# --- sub-1 / leading zeros, negative value, negative exponent ---
+5 0.0012345678 0.0012346 sub-one-leading-zeros-roundup
+2 -0.0625 -0.062 negative-value-negative-exponent-tie-even
+
+# --- trailing-zero canonicalisation ---
+7 1.200 1.2 trailing-zero-canonical
+
+# --- carry into a new decade (not all-nines) ---
+2 9.96 10 carry-new-decade
+
+# --- NAMED regression guard: the round_sig all-nines carry-exponent
+# bug (fd-cb6). cos(1e-4) = 0.999999995 must round to 1 at p7; the
+# `exp += 1` belongs only on the re-trim pop, not the leading-digit
+# insert. ---
+7 0.999999995 1 cos1e-4-allnines-carry
