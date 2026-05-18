@@ -50,3 +50,4 @@ The ADRs in number order:
 - [0022 — decimal64 / decimal32 FMA exact-oracle remediation](0022-sibling-fma-exact-oracle-remediation.md)
 - [0023 — decimal64 / decimal32 roundToIntegral (§5.9 completion)](0023-sibling-round-to-integral.md)
 - [0024 — Faithful sibling transcendentals on one shared Extended kernel](0024-faithful-transcendentals-shared-kernel.md)
+- [0025 — Metamorphic identity tests with condition-number-derived bounds](0025-metamorphic-identity-tests.md)
