@@ -191,5 +191,12 @@ beyond the actual claim.
   ADR-0009 (DPD interchange's totality proof model). Builds on
   the `feedback_kani_strategy.md` and `feedback_close_known_issues.md`
   conventions in author memory.
+- Forward pointer: ADR-0025 extends the property-test doctrine this
+  ADR introduced. It adds metamorphic identity tests, tolerance
+  bounds derived from the condition number rather than a fixed ULP
+  envelope, and a tautology-audit discipline that rejects assertions
+  an implementation bug cannot fail. Read ADR-0025 as the current
+  statement of the testing strategy; this entry remains the rationale
+  for its per-file-conformance and surface-property foundations.
 - KNOWN_ISSUES.md: unchanged; the 99 GDA-only rounding-mode skips
   remain the only open backlog category.
