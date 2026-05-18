@@ -39,13 +39,34 @@
 //!   rule. This diverges from Decimal128's `f64::Display`-style
 //!   boundary; ADR-0014 records the rationale and the v2.0
 //!   harmonization plan.
-//! - §9.2 transcendentals (`exp`, `ln`, trig, hyperbolic, pow, cbrt)
-//!   route through `f64` via `libm`. Decimal64 carries 16 digits
-//!   while `f64` carries ~15.95, so the f64 round-trip caps achievable
-//!   precision at ~10⁻¹⁵ relative — one digit below Decimal64's
-//!   nominal 16. v1.x ships this baseline; a future pure-decimal
-//!   kernel will close the gap (the public surface is drop-in
-//!   compatible).
+//! - §9.2 transcendentals (`exp` / `ln` / `exp2` / `log2` / `log10`,
+//!   `cbrt`, the trig and hyperbolic families, `pow`) are faithfully
+//!   rounded (≤ 1 ULP at 16 digits, every IEEE 754-2019 rounding
+//!   direction) through the shared `ferrodec-transcend`
+//!   Extended-precision kernel, at exact parity with the `ferrodec`
+//!   (Decimal128) parent. No transcendental routes through `f64`, so
+//!   `libm` is not a dependency. They ship under the transcendental
+//!   sub-features (`exp-log` / `trig` / `hyperbolic` / `pow`); the
+//!   1.5.0 CHANGELOG records the change from the pre-1.5.0 `f64` /
+//!   `libm` baseline (ADR-0024).
+//!
+//! # Cohort stability
+//!
+//! A finite decimal value has many encodings: `1.5`, `1.50`, and
+//! `1.500` are one number at different exponents, its *cohort*.
+//! `ferrodec-decimal64` preserves the numeric value of every
+//! operation exactly as IEEE 754-2019 and the General Decimal
+//! Arithmetic specify, and that value is stable across the ferrodec
+//! formats and against any conforming GDA implementation. The
+//! exponent selected within the cohort is not guaranteed to match
+//! another implementation, and a future version may select a
+//! different member. Code that serializes or renders the encoding
+//! (quantize-then-serialize, fixed-point money display, golden-file
+//! comparison) must pin the exponent with `quantize` rather than
+//! rely on the default. The same principle, a stable value behind a
+//! divergent surface, drives the `rem` / `%` asymmetry across the
+//! family (ADR-0027): ferrodec names its divergences rather than
+//! hiding them.
 //!
 //! # Companion crates
 //!
