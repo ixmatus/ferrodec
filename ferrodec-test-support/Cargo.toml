@@ -21,12 +21,30 @@ num-bigint = "0.4"
 # pull astro-float. Same std/RustCrypto-orbit, dev-only rationale as
 # num-bigint above; never reaches a shipped artifact (publish = false).
 astro-float = { version = "0.9", optional = true }
+# MPFR (C, LGPL) via `rug`: the optional gated correctly-rounded
+# cross-validator for the Arb frozen corpus (ADR-0026, Phase 3).
+# Because it is C-FFI and LGPL it is optional, off by default, never
+# in CI, never in the no_std build, and lives only in this
+# `publish = false` crate — the same containment already granted to
+# `astro-float` above, so no shipped or embedded artifact ever links
+# it. The earlier rug/MPFR rejection (feedback_oracle_choice,
+# ADR-0025) was scoped to the *arithmetic* differential and
+# explicitly does not transfer to transcendentals (ADR-0026): a
+# transcendental's true value is radix-independent and the decimal
+# rounding is performed on our side.
+rug = { version = "1", optional = true }
 
 [features]
 # Compile the generic `transcend_oracle` faithful-rounding harness.
 # Enabled by the decimal crates' dev-dependency on this crate when they
 # run the transcendental property suites.
 transcend-oracle = ["dep:astro-float"]
+# Independently recompute the Arb frozen corpus with MPFR and assert
+# the two gold references agree (ADR-0026, Phase 3, the
+# Arb-decisive-AND-MPFR-agrees accept rule). Local opt-in only; never
+# default, never CI, never no_std. A nightly lane is a deferred
+# follow-up, the same status the differential harness carries.
+mpfr-gate = ["dep:rug"]
 
 [lints]
 workspace = true
