@@ -40,19 +40,29 @@ from fractions import Fraction
 
 # Endpoint Fractions carry binary denominators up to 2^CAP_BITS
 # (~19.7k digits); the decimal-exponent bracketing stringifies them.
-# Lift CPython's 4300-digit int→str guard well past that.
-sys.set_int_max_str_digits(200_000)
+# Lift CPython's 4300-digit int→str guard well past that. The guard
+# (and this call) exist only on CPython >= 3.11; the no-pip self-test
+# runs on older interpreters too and never builds those huge ints.
+if hasattr(sys, "set_int_max_str_digits"):
+    sys.set_int_max_str_digits(200_000)
 
-try:
-    from flint import arb, ctx, fmpq
-except Exception as exc:  # pragma: no cover - offline tool
-    sys.stderr.write(
-        "python-flint (FLINT 3 / Arb) is required: %s\n"
-        "This is an offline build tool; install python-flint to "
-        "regenerate the frozen corpus. The checked-in vectors do not "
-        "need it.\n" % exc
-    )
-    sys.exit(2)
+def _require_flint():
+    """Import python-flint (FLINT 3 / Arb) lazily and bind the symbols
+    the generator uses as module globals. Deferred so the no-pip
+    `--selftest` path runs on a bare interpreter: only corpus
+    *generation* needs Arb, the checked-in vectors do not."""
+    global arb, ctx, fmpq
+    try:
+        from flint import arb as _arb, ctx as _ctx, fmpq as _fmpq
+    except Exception as exc:  # pragma: no cover - offline tool
+        sys.stderr.write(
+            "python-flint (FLINT 3 / Arb) is required: %s\n"
+            "This is an offline build tool; install python-flint to "
+            "regenerate the frozen corpus. The checked-in vectors do "
+            "not need it.\n" % exc
+        )
+        sys.exit(2)
+    arb, ctx, fmpq = _arb, _ctx, _fmpq
 
 OUT_DIR = os.path.join(
     os.path.dirname(os.path.abspath(__file__)),
@@ -276,6 +286,7 @@ def decades(name, fmt):
 
 
 def emit():
+    _require_flint()
     os.makedirs(OUT_DIR, exist_ok=True)
     rng = random.Random(SEED)
     for name, fn in FUNCS.items():
