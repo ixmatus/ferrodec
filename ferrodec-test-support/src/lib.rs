@@ -21,6 +21,13 @@ pub mod conformance;
 /// frozen-vector tests are default-on and run in standard CI.
 pub mod frozen;
 
+/// Exact decimal significant-digit rounding shared by the Arb frozen
+/// corpus consumers (fd-cb6, ADR-0026). Pure std, no `rug`/MPFR and no
+/// C-FFI in the path: hoisted out of the `mpfr-gate` test so the
+/// default-on `round_dec` meta-test can exercise the proof-tier
+/// rounding keystone in lockstep with the Python generator.
+pub mod round_dec;
+
 pub mod oracle;
 
 /// Process-and-protocol harness for the Python/libmpdec differential

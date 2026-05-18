@@ -1,31 +1,38 @@
 //! Arb/FLINT frozen hard-to-round vector gate for `Decimal128`
-//! (Phase 2 of fd-cb6, ADR-0026).
+//! (Phase 2 of fd-cb6, ADR-0026; directed modes + binary `pow`/`atan2`
+//! fd-97a).
 //!
 //! The corpus (`tests/vectors/transcend/`) is committed data: the
-//! *proven* `NearestEven` correctly-rounded value of each transcendental
-//! at a chosen argument, including a decimal Table-Maker's-Dilemma
-//! worst-case search. Arb's certified ball enclosure makes each value
-//! a proof, not a sample: where the enclosure does not straddle a
-//! decimal half-ULP the correctly-rounded result is established. There
-//! is no oracle and no C-FFI in this test's path — it parses checked-in
+//! *proven* correctly-rounded value of each transcendental at a chosen
+//! argument under a rounding mode, including a decimal
+//! Table-Maker's-Dilemma worst-case search (the half-ULP tie for
+//! `NearestEven`, the grid-point boundary for the directed modes).
+//! Arb's certified ball enclosure makes each value a proof, not a
+//! sample: where the enclosure does not straddle the mode's rounding
+//! boundary the correctly-rounded result is established. There is no
+//! oracle and no C-FFI in this test's path — it parses checked-in
 //! text — so it is default-on and runs in standard CI under
-//! `--features transcendentals`, unlike the gated astro-float / mpmath
-//! / MPFR references.
+//! `--features transcendentals`, unlike the gated astro-float /
+//! mpmath / MPFR references.
 //!
 //! Contract. `ferrodec` promises *faithful* rounding (≤1 ULP,
 //! ADR-0021), not correct rounding (a decimal CRlibm-class research
-//! problem; ADR-0024). So the gate is: the kernel result is within one
-//! representable step of the proven correctly-rounded value (value,
-//! not cohort — the fd-61r preferred-exponent policy can legitimately
-//! differ, so equality is the cohort-insensitive IEEE `compare`). The
-//! exact-vs-one-step split is reported: it is the honest evidence for
-//! how often the faithful kernel happens to be correctly rounded, the
-//! quantity ADR-0026's honest-level statement and the Phase 3
-//! ternary-flag probe speak to. `pow`/`atan2` are absent from the
-//! corpus (binary; `pow` is already cross-checked correctly-rounded
-//! against decimal-native libmpdec in the Phase 1 differential).
+//! problem; ADR-0024). So the gate is, per rounding direction: the
+//! kernel result is within one representable step of the proven
+//! correctly-rounded value (value, not cohort — the fd-61r
+//! preferred-exponent policy can legitimately differ, so equality is
+//! the cohort-insensitive IEEE `compare`). The exact-vs-one-step split
+//! is reported per mode: it is the honest evidence for how often the
+//! faithful kernel happens to be correctly rounded, the quantity
+//! ADR-0026's honest-level statement and the Phase 3 ternary-flag
+//! probe speak to.
 
-#![cfg(all(feature = "exp-log", feature = "trig", feature = "hyperbolic"))]
+#![cfg(all(
+    feature = "exp-log",
+    feature = "trig",
+    feature = "hyperbolic",
+    feature = "pow"
+))]
 
 use core::cmp::Ordering;
 
@@ -40,9 +47,28 @@ fn parse(s: &str) -> Decimal128 {
         .0
 }
 
-fn kernel(func: &str, x: Decimal128) -> Decimal128 {
-    let rm = RoundingMode::NearestEven;
-    match func {
+fn mode(s: &str) -> RoundingMode {
+    match s {
+        "NearestEven" => RoundingMode::NearestEven,
+        "NearestAway" => RoundingMode::NearestAway,
+        "TowardZero" => RoundingMode::TowardZero,
+        "TowardPositive" => RoundingMode::TowardPositive,
+        "TowardNegative" => RoundingMode::TowardNegative,
+        other => panic!("frozen corpus has an unknown rounding mode {other:?}"),
+    }
+}
+
+fn kernel(v: &frozen::FrozenVec, rm: RoundingMode) -> Decimal128 {
+    let x = parse(&v.input);
+    match v.func.as_str() {
+        // Binary: input1 = x, input2 = y. `pow(x, y)`,
+        // `atan2(y, x)` (ferrodec's `atan2` is `self = y`).
+        "pow" => x.pow(parse(v.input2.as_deref().expect("pow input2")), rm).0,
+        "atan2" => {
+            parse(v.input2.as_deref().expect("atan2 input2"))
+                .atan2(x, rm)
+                .0
+        }
         "exp" => x.exp(rm).0,
         "ln" => x.ln(rm).0,
         "log2" => x.log2(rm).0,
@@ -67,7 +93,8 @@ fn kernel(func: &str, x: Decimal128) -> Decimal128 {
 
 /// `0` ⇒ exactly the correctly-rounded value; `1` ⇒ one representable
 /// step away (still faithful, ADR-0021); `None` ⇒ outside the faithful
-/// contract (a real defect). Value, not cohort.
+/// contract (a real defect). Value, not cohort. Mode-agnostic: the
+/// proven value already encodes the rounding direction.
 fn step_distance(got: Decimal128, cr: Decimal128) -> Option<u8> {
     if got.partial_cmp(cr).0 == Some(Ordering::Equal) {
         return Some(0);
@@ -91,26 +118,43 @@ fn frozen_arb_vectors_faithful() {
         vectors.len()
     );
 
-    let (mut exact, mut one_step) = (0usize, 0usize);
+    // (exact, one_step) tallied per rounding mode for the honest split.
+    let mut by_mode: std::collections::BTreeMap<String, (usize, usize)> =
+        std::collections::BTreeMap::new();
     for v in &vectors {
-        let x = parse(&v.input);
+        let rm = mode(&v.mode);
         let cr = parse(&v.output);
-        let got = kernel(&v.func, x);
+        let got = kernel(v, rm);
+        let slot = by_mode.entry(v.mode.clone()).or_insert((0, 0));
         match step_distance(got, cr) {
-            Some(0) => exact += 1,
-            Some(_) => one_step += 1,
+            Some(0) => slot.0 += 1,
+            Some(_) => slot.1 += 1,
             None => panic!(
-                "faithful contract violated: {}({}) -> ferrodec {} | \
+                "faithful contract violated [{}]: {}({}{}) -> ferrodec {} | \
                  proven correctly-rounded {} (ADR-0021/0026)",
-                v.func, v.input, got, cr
+                v.mode,
+                v.func,
+                v.input,
+                v.input2
+                    .as_deref()
+                    .map(|y| format!(", {y}"))
+                    .unwrap_or_default(),
+                got,
+                cr
             ),
         }
     }
-    let total = exact + one_step;
+    let (mut exact, mut one_step) = (0usize, 0usize);
+    for (e, o) in by_mode.values() {
+        exact += e;
+        one_step += o;
+    }
     eprintln!(
-        "frozen Arb vectors (Decimal128, p{PREC}): {total} checked, \
-         {exact} exactly correctly-rounded, {one_step} faithful at one \
-         step. Proven against Arb certified enclosures (ADR-0026); \
-         MPFR cross-validates the same corpus in Phase 3."
+        "frozen Arb vectors (Decimal128, p{PREC}): {} checked, {exact} exactly \
+         correctly-rounded, {one_step} faithful at one step. Per mode \
+         (exact/one-step): {by_mode:?}. Proven against Arb certified \
+         enclosures (ADR-0026); MPFR cross-validates the same corpus in \
+         Phase 3.",
+        exact + one_step
     );
 }

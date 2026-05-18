@@ -1,245 +1,248 @@
-# Enclosure provenance for `log2.txt` (ADR-0026). P = Arb working
-# precision (bits) at which the enclosure became decisive; rad = ball
-# radius; margin = fractional-ULP distance of the true value from the
-# nearest decimal half-ULP tie (small ⇒ hard to round, the TMD worst
-# case). `decisive` ⇒ the correctly-rounded value is established, not sampled.
-7 271828e-86 P=80 rad=1.090e-21 margin=3.162e-01 decisive
-7 271828e-54 P=80 rad=5.826e-22 margin=3.258e-01 decisive
-7 271828e-24 P=80 rad=2.140e-22 margin=4.732e-01 decisive
-7 271828e-14 P=80 rad=1.045e-22 margin=3.784e-01 decisive
-7 271828e-10 P=80 rad=5.403e-23 margin=1.404e-01 decisive
-7 271828e-9 P=80 rad=5.038e-23 margin=3.309e-01 decisive
-7 271828e-6 P=80 rad=8.759e-24 margin=4.756e-01 decisive
-7 887009e-6 P=80 rad=1.934e-24 margin=2.041e-02 decisive
-7 999999e-6 P=80 rad=1.193e-24 margin=2.622e-01 decisive
-7 1000001e-6 P=80 rad=2.387e-24 margin=1.805e-01 decisive
-7 1234567e-6 P=80 rad=3.053e-24 margin=1.628e-01 decisive
-7 2254675e-6 P=80 rad=6.540e-24 margin=8.728e-03 decisive
-7 2718281e-6 P=80 rad=6.541e-24 margin=1.012e-01 decisive
-7 5934015e-6 P=80 rad=1.075e-23 margin=7.367e-02 decisive
-7 314159e-5 P=80 rad=7.778e-24 margin=4.109e-01 decisive
-7 365573e-5 P=80 rad=7.858e-24 margin=2.170e-02 decisive
-7 3325138e-4 P=80 rad=3.587e-23 margin=9.359e-02 decisive
-7 6307163e-4 P=80 rad=3.721e-23 margin=9.205e-02 decisive
-7 1e-3 P=80 rad=3.849e-23 margin=2.153e-01 decisive
-7 271828e-3 P=80 rad=3.589e-23 margin=2.398e-01 decisive
-7 314159e-3 P=80 rad=3.586e-23 margin=3.993e-01 decisive
-7 2880804e-3 P=80 rad=3.991e-23 margin=7.925e-02 decisive
-7 5199494e-3 P=80 rad=5.078e-23 margin=5.158e-02 decisive
-7 7216705e-3 P=80 rad=5.089e-23 margin=4.330e-02 decisive
-7 2297832e-2 P=80 rad=5.348e-23 margin=7.025e-02 decisive
-7 3035980e-2 P=80 rad=5.361e-23 margin=3.336e-02 decisive
-7 4825578e-2 P=80 rad=5.484e-23 margin=8.640e-02 decisive
-7 8662371e-2 P=80 rad=6.939e-23 margin=6.577e-02 decisive
-7 9999197e-2 P=80 rad=6.943e-23 margin=3.786e-02 decisive
-7 5e-1 P=80 rad=2.685e-24 margin=5.000e-01 decisive
-7 15e-1 P=80 rad=2.209e-24 margin=4.928e-01 decisive
-7 916054e-1 P=80 rad=6.940e-23 margin=2.507e-03 decisive
-7 2838943e-1 P=80 rad=7.209e-23 margin=6.425e-02 decisive
-7 3158797e-1 P=80 rad=7.207e-23 margin=6.997e-02 decisive
-7 8160600e-1 P=80 rad=7.200e-23 margin=7.033e-02 decisive
-7 2e0 P=80 rad=2.685e-24 margin=5.000e-01 decisive
-7 3e0 P=80 rad=6.169e-24 margin=7.212e-04 decisive
-7 5e0 P=80 rad=8.813e-24 margin=4.051e-01 decisive
-7 7e0 P=80 rad=9.465e-24 margin=4.221e-01 decisive
-7 271828e0 P=80 rad=6.980e-23 margin=4.551e-02 decisive
-7 314159e0 P=80 rad=7.008e-23 margin=3.853e-02 decisive
-7 3952311e0 P=80 rad=7.499e-23 margin=4.370e-03 decisive
-7 7557955e0 P=80 rad=7.624e-23 margin=5.018e-02 decisive
-7 1e1 P=80 rad=1.254e-23 margin=4.051e-01 decisive
-7 2097045e1 P=80 rad=9.739e-23 margin=5.156e-02 decisive
-7 3495864e1 P=80 rad=9.830e-23 margin=7.248e-02 decisive
-7 6285808e1 P=80 rad=9.944e-23 margin=1.301e-02 decisive
-7 8108466e1 P=80 rad=9.993e-23 margin=6.682e-02 decisive
-7 1e2 P=80 rad=2.508e-23 margin=3.102e-01 decisive
-7 1252326e2 P=80 rad=1.008e-22 margin=7.371e-03 decisive
-7 8315142e2 P=80 rad=1.044e-22 margin=6.601e-02 decisive
-7 1e3 P=80 rad=3.616e-23 margin=2.153e-01 decisive
-7 271828e3 P=80 rad=1.023e-22 margin=3.830e-01 decisive
-7 314159e3 P=80 rad=1.026e-22 margin=4.670e-01 decisive
-7 8600928e3 P=80 rad=1.354e-22 margin=1.823e-02 decisive
-7 8677753e3 P=80 rad=1.355e-22 margin=6.236e-02 decisive
-7 1690107e4 P=80 rad=1.368e-22 margin=5.347e-02 decisive
-7 7086846e4 P=80 rad=1.395e-22 margin=3.521e-02 decisive
-7 8048972e4 P=80 rad=1.398e-22 margin=4.855e-02 decisive
-7 9546976e4 P=80 rad=1.401e-22 margin=2.186e-02 decisive
-7 9995396e4 P=80 rad=1.402e-22 margin=3.260e-02 decisive
-7 271828e5 P=80 rad=1.377e-22 margin=1.933e-03 decisive
-7 3403636e5 P=80 rad=1.426e-22 margin=8.008e-02 decisive
-7 6868982e5 P=80 rad=1.439e-22 margin=3.477e-02 decisive
-7 9681741e5 P=80 rad=1.446e-22 margin=5.444e-02 decisive
-7 9983434e5 P=80 rad=1.446e-22 margin=1.882e-02 decisive
-7 314159e6 P=80 rad=1.424e-22 margin=1.045e-01 decisive
-7 1837123e6 P=80 rad=1.458e-22 margin=3.604e-02 decisive
-7 5637349e6 P=80 rad=1.480e-22 margin=9.760e-02 decisive
-7 7677884e6 P=80 rad=1.486e-22 margin=9.023e-02 decisive
-7 314159e9 P=80 rad=1.940e-22 margin=3.239e-01 decisive
-7 314159e10 P=80 rad=1.984e-22 margin=1.334e-01 decisive
-7 314159e14 P=80 rad=2.692e-22 margin=3.714e-01 decisive
-7 314159e24 P=80 rad=3.903e-22 margin=4.663e-01 decisive
-7 314159e54 P=80 rad=7.841e-22 margin=2.509e-02 decisive
-7 314159e86 P=80 rad=1.138e-21 margin=1.546e-02 decisive
-16 271828e-294 P=80 rad=3.358e-21 margin=4.562e-01 decisive
-16 271828e-234 P=80 rad=3.090e-21 margin=4.749e-02 decisive
-16 271828e-174 P=80 rad=2.212e-21 margin=3.612e-01 decisive
-16 271828e-114 P=80 rad=1.215e-21 margin=2.301e-01 decisive
-16 271828e-54 P=80 rad=5.826e-22 margin=1.787e-01 decisive
-16 271828e-24 P=80 rad=2.140e-22 margin=3.303e-01 decisive
-16 271828e-14 P=80 rad=1.045e-22 margin=3.218e-01 decisive
-16 271828e-10 P=80 rad=5.403e-23 margin=3.827e-01 decisive
-16 271828e-9 P=80 rad=5.038e-23 margin=1.479e-01 decisive
-16 271828e-6 P=80 rad=8.759e-24 margin=6.496e-02 decisive
-16 999999e-6 P=80 rad=1.193e-24 margin=2.521e-01 decisive
-16 1000001e-6 P=80 rad=2.387e-24 margin=3.576e-01 decisive
-16 1234567e-6 P=80 rad=3.053e-24 margin=3.530e-01 decisive
-16 2718281e-6 P=80 rad=6.541e-24 margin=2.144e-01 decisive
-16 20347067e-6 P=80 rad=1.910e-23 margin=2.709e-03 decisive
-16 28358354e-6 P=80 rad=1.922e-23 margin=4.270e-02 decisive
-16 31959937e-6 P=80 rad=1.930e-23 margin=4.232e-02 decisive
-16 314159e-5 P=80 rad=7.778e-24 margin=3.011e-01 decisive
-16 5085976e-5 P=80 rad=2.050e-23 margin=1.140e-02 decisive
-16 30826479e-5 P=80 rad=3.587e-23 margin=2.781e-02 decisive
-16 43595583e-5 P=80 rad=3.596e-23 margin=5.670e-03 decisive
-16 53516983e-4 P=80 rad=5.078e-23 margin=2.639e-02 decisive
-16 75605340e-4 P=80 rad=5.092e-23 margin=3.689e-02 decisive
-16 1e-3 P=80 rad=3.849e-23 margin=4.564e-01 decisive
-16 271828e-3 P=80 rad=3.589e-23 margin=1.086e-01 decisive
-16 314159e-3 P=80 rad=3.586e-23 margin=3.207e-03 decisive
-16 17608640e-3 P=80 rad=5.349e-23 margin=3.141e-02 decisive
-16 4900700e-2 P=80 rad=5.332e-23 margin=2.578e-02 decisive
-16 73036716e-2 P=80 rad=7.343e-23 margin=4.891e-02 decisive
-16 5e-1 P=80 rad=2.685e-24 margin=5.000e-01 decisive
-16 15e-1 P=80 rad=2.209e-24 margin=3.145e-01 decisive
-16 6318878e-1 P=80 rad=7.341e-23 margin=1.179e-02 decisive
-16 9334311e-1 P=80 rad=7.353e-23 margin=2.785e-02 decisive
-16 47392864e-1 P=80 rad=7.745e-23 margin=1.311e-02 decisive
-16 2e0 P=80 rad=2.685e-24 margin=5.000e-01 decisive
-16 3e0 P=80 rad=6.169e-24 margin=3.185e-01 decisive
-16 5e0 P=80 rad=8.813e-24 margin=1.521e-01 decisive
-16 7e0 P=80 rad=9.465e-24 margin=3.926e-01 decisive
-16 271828e0 P=80 rad=6.980e-23 margin=3.478e-02 decisive
-16 314159e0 P=80 rad=7.008e-23 margin=1.540e-01 decisive
-16 359316e0 P=80 rad=7.034e-23 margin=3.348e-02 decisive
-16 36734711e0 P=80 rad=9.840e-23 margin=2.854e-02 decisive
-16 54204438e0 P=80 rad=9.915e-23 margin=4.569e-02 decisive
-16 1e1 P=80 rad=1.254e-23 margin=1.521e-01 decisive
-16 36232238e1 P=80 rad=1.029e-22 margin=1.424e-02 decisive
-16 41905106e1 P=80 rad=1.031e-22 margin=2.009e-02 decisive
-16 56079249e1 P=80 rad=1.037e-22 margin=9.653e-03 decisive
-16 62943664e1 P=80 rad=1.039e-22 margin=1.908e-02 decisive
-16 63584159e1 P=80 rad=1.039e-22 margin=2.391e-02 decisive
-16 77563591e1 P=80 rad=1.043e-22 margin=1.770e-02 decisive
-16 97748704e1 P=80 rad=1.048e-22 margin=3.959e-02 decisive
-16 1e2 P=80 rad=2.508e-23 margin=1.957e-01 decisive
-16 83022478e2 P=80 rad=1.354e-22 margin=5.047e-02 decisive
-16 84915088e2 P=80 rad=1.354e-22 margin=2.980e-02 decisive
-16 87756024e2 P=80 rad=1.355e-22 margin=2.499e-02 decisive
-16 1e3 P=80 rad=3.616e-23 margin=4.564e-01 decisive
-16 271828e3 P=80 rad=1.023e-22 margin=3.304e-01 decisive
-16 314159e3 P=80 rad=1.026e-22 margin=1.416e-01 decisive
-16 44892925e3 P=80 rad=1.386e-22 margin=5.445e-03 decisive
-16 63390032e3 P=80 rad=1.394e-22 margin=4.038e-02 decisive
-16 95943161e3 P=80 rad=1.402e-22 margin=3.777e-02 decisive
-16 45336130e4 P=80 rad=1.431e-22 margin=3.313e-03 decisive
-16 55910705e4 P=80 rad=1.435e-22 margin=9.194e-03 decisive
-16 271828e5 P=80 rad=1.377e-22 margin=1.392e-01 decisive
-16 9018746e5 P=80 rad=1.445e-22 margin=3.060e-02 decisive
-16 10127471e5 P=80 rad=1.447e-22 margin=4.418e-02 decisive
-16 31538050e5 P=80 rad=1.469e-22 margin=9.325e-03 decisive
-16 46835782e5 P=80 rad=1.476e-22 margin=2.691e-02 decisive
-16 99934268e5 P=80 rad=1.491e-22 margin=1.306e-02 decisive
-16 314159e6 P=80 rad=1.424e-22 margin=4.372e-01 decisive
-16 2491830e6 P=80 rad=1.464e-22 margin=4.789e-02 decisive
-16 51315587e6 P=80 rad=1.523e-22 margin=1.298e-02 decisive
-16 64146272e6 P=80 rad=1.527e-22 margin=5.498e-02 decisive
-16 314159e9 P=80 rad=1.940e-22 margin=2.671e-01 decisive
-16 314159e10 P=80 rad=1.984e-22 margin=4.981e-01 decisive
-16 314159e14 P=80 rad=2.692e-22 margin=4.411e-01 decisive
-16 314159e24 P=80 rad=3.903e-22 margin=2.111e-01 decisive
-16 314159e54 P=80 rad=7.841e-22 margin=3.667e-01 decisive
-16 314159e114 P=80 rad=1.569e-21 margin=4.198e-02 decisive
-16 314159e174 P=80 rad=2.261e-21 margin=4.507e-01 decisive
-16 314159e234 P=80 rad=3.139e-21 margin=1.406e-01 decisive
-16 314159e294 P=80 rad=3.406e-21 margin=2.681e-01 decisive
-34 271828e-294 P=160 rad=2.778e-45 margin=4.451e-01 decisive
-34 271828e-234 P=160 rad=2.556e-45 margin=4.493e-01 decisive
-34 271828e-174 P=160 rad=1.830e-45 margin=3.438e-01 decisive
-34 271828e-114 P=160 rad=1.005e-45 margin=2.383e-01 decisive
-34 271828e-54 P=160 rad=4.820e-46 margin=1.328e-01 decisive
-34 271828e-24 P=160 rad=1.771e-46 margin=3.002e-01 decisive
-34 271828e-14 P=160 rad=8.644e-47 margin=1.243e-01 decisive
-34 271828e-10 P=160 rad=4.476e-47 margin=5.395e-02 decisive
-34 271828e-9 P=160 rad=4.173e-47 margin=3.637e-02 decisive
-34 271828e-6 P=160 rad=7.307e-48 margin=3.361e-01 decisive
-34 999999e-6 P=160 rad=9.872e-49 margin=7.439e-02 decisive
-34 1000001e-6 P=160 rad=1.974e-48 margin=3.217e-01 decisive
-34 1234567e-6 P=160 rad=2.526e-48 margin=1.048e-01 decisive
-34 2718281e-6 P=160 rad=5.472e-48 margin=1.493e-01 decisive
-34 23692926e-6 P=160 rad=1.583e-47 margin=3.393e-02 decisive
-34 314159e-5 P=160 rad=6.435e-48 margin=1.049e-01 decisive
-34 36855732e-5 P=160 rad=2.975e-47 margin=6.164e-02 decisive
-34 65413439e-5 P=160 rad=3.084e-47 margin=7.556e-02 decisive
-34 75113370e-5 P=160 rad=3.086e-47 margin=1.364e-02 decisive
-34 37523957e-4 P=160 rad=4.107e-47 margin=6.075e-02 decisive
-34 49678575e-4 P=160 rad=4.207e-47 margin=5.985e-02 decisive
-34 61567857e-4 P=160 rad=4.203e-47 margin=5.915e-02 decisive
-34 1e-3 P=160 rad=3.184e-47 margin=2.759e-02 decisive
-34 271828e-3 P=160 rad=2.975e-47 margin=1.915e-01 decisive
-34 314159e-3 P=160 rad=2.967e-47 margin=2.468e-01 decisive
-34 25784147e-3 P=160 rad=4.433e-47 margin=1.511e-02 decisive
-34 27484511e-2 P=160 rad=5.970e-47 margin=7.241e-02 decisive
-34 58467841e-2 P=160 rad=6.080e-47 margin=3.804e-03 decisive
-34 73713191e-2 P=160 rad=6.074e-47 margin=2.089e-03 decisive
-34 92615788e-2 P=160 rad=6.082e-47 margin=2.022e-02 decisive
-34 5e-1 P=160 rad=2.221e-48 margin=5.000e-01 decisive
-34 15e-1 P=160 rad=1.827e-48 margin=4.124e-01 decisive
-34 26082581e-1 P=160 rad=6.295e-47 margin=1.952e-03 decisive
-34 61260567e-1 P=160 rad=6.414e-47 margin=2.510e-02 decisive
-34 2e0 P=160 rad=2.221e-48 margin=5.000e-01 decisive
-34 3e0 P=160 rad=5.103e-48 margin=8.760e-03 decisive
-34 5e0 P=160 rad=7.290e-48 margin=3.241e-01 decisive
-34 7e0 P=160 rad=7.829e-48 margin=3.086e-01 decisive
-34 271828e0 P=160 rad=5.774e-47 margin=1.219e-01 decisive
-34 314159e0 P=160 rad=5.803e-47 margin=1.726e-01 decisive
-34 22737476e0 P=160 rad=8.069e-47 margin=7.110e-02 decisive
-34 45536661e0 P=160 rad=8.174e-47 margin=8.820e-05 decisive
-34 55478272e0 P=160 rad=8.205e-47 margin=3.851e-02 decisive
-34 84342313e0 P=160 rad=8.272e-47 margin=8.161e-03 decisive
-34 98057562e0 P=160 rad=8.303e-47 margin=5.311e-02 decisive
-34 1e1 P=160 rad=1.037e-47 margin=3.241e-01 decisive
-34 43165154e1 P=160 rad=8.534e-47 margin=6.796e-02 decisive
-34 44487646e1 P=160 rad=8.539e-47 margin=6.073e-02 decisive
-34 46700278e1 P=160 rad=8.547e-47 margin=7.290e-03 decisive
-34 58157775e1 P=160 rad=8.582e-47 margin=1.321e-02 decisive
-34 1e2 P=160 rad=2.075e-47 margin=1.483e-01 decisive
-34 72134619e2 P=160 rad=1.118e-46 margin=9.888e-03 decisive
-34 74254532e2 P=160 rad=1.119e-46 margin=1.597e-03 decisive
-34 1e3 P=160 rad=2.991e-47 margin=2.759e-02 decisive
-34 271828e3 P=160 rad=8.460e-47 margin=1.747e-01 decisive
-34 314159e3 P=160 rad=8.483e-47 margin=1.198e-01 decisive
-34 30181873e3 P=160 rad=1.141e-46 margin=2.659e-02 decisive
-34 59888031e3 P=160 rad=1.151e-46 margin=7.575e-02 decisive
-34 8361964e4 P=160 rad=1.157e-46 margin=1.317e-02 decisive
-34 9789956e4 P=160 rad=1.160e-46 margin=5.049e-02 decisive
-34 41229548e4 P=160 rad=1.183e-46 margin=2.059e-02 decisive
-34 47392424e4 P=160 rad=1.185e-46 margin=5.702e-02 decisive
-34 47684389e4 P=160 rad=1.185e-46 margin=1.533e-02 decisive
-34 86704338e4 P=160 rad=1.194e-46 margin=4.003e-02 decisive
-34 271828e5 P=160 rad=1.139e-46 margin=2.098e-01 decisive
-34 6251215e5 P=160 rad=1.190e-46 margin=1.023e-02 decisive
-34 8162060e5 P=160 rad=1.193e-46 margin=7.407e-02 decisive
-34 99063074e5 P=160 rad=1.234e-46 margin=6.149e-02 decisive
-34 314159e6 P=160 rad=1.179e-46 margin=6.704e-02 decisive
-34 34126271e6 P=160 rad=1.254e-46 margin=4.280e-02 decisive
-34 53457051e6 P=160 rad=1.260e-46 margin=7.018e-02 decisive
-34 54860863e6 P=160 rad=1.261e-46 margin=3.325e-02 decisive
-34 58405139e6 P=160 rad=1.262e-46 margin=2.029e-03 decisive
-34 314159e9 P=160 rad=1.605e-46 margin=1.428e-02 decisive
-34 314159e10 P=160 rad=1.641e-46 margin=3.309e-03 decisive
-34 314159e14 P=160 rad=2.227e-46 margin=7.365e-02 decisive
-34 314159e24 P=160 rad=3.228e-46 margin=2.495e-01 decisive
-34 314159e54 P=160 rad=6.474e-46 margin=1.723e-01 decisive
-34 314159e114 P=160 rad=1.298e-45 margin=6.677e-02 decisive
-34 314159e174 P=160 rad=1.870e-45 margin=3.875e-02 decisive
-34 314159e234 P=160 rad=2.596e-45 margin=1.443e-01 decisive
-34 314159e294 P=160 rad=2.817e-45 margin=2.498e-01 decisive
+# Enclosure provenance for `log2.txt` (ADR-0026, fd-97a). P = Arb
+# working precision (bits) at which the enclosure became decisive;
+# rad = ball radius. For NearestEven, margin = fractional-ULP
+# distance of the true value from the nearest half-ULP tie; for the
+# directed modes, boundary = distance from the nearest p-digit grid
+# point (the directed Table-Maker's-Dilemma worst case). small ⇒ hard
+# to round. `decisive` ⇒ the correctly-rounded value is established,
+# not sampled.
+7 NearestEven 271828e-86 P=80 rad=1.090e-21 margin=3.162e-01 decisive
+7 NearestEven 271828e-54 P=80 rad=5.826e-22 margin=3.258e-01 decisive
+7 NearestEven 271828e-24 P=80 rad=2.140e-22 margin=4.732e-01 decisive
+7 NearestEven 271828e-14 P=80 rad=1.045e-22 margin=3.784e-01 decisive
+7 NearestEven 271828e-10 P=80 rad=5.403e-23 margin=1.404e-01 decisive
+7 NearestEven 271828e-9 P=80 rad=5.038e-23 margin=3.309e-01 decisive
+7 NearestEven 271828e-6 P=80 rad=8.759e-24 margin=4.756e-01 decisive
+7 NearestEven 887009e-6 P=80 rad=1.934e-24 margin=2.041e-02 decisive
+7 NearestEven 999999e-6 P=80 rad=1.193e-24 margin=2.622e-01 decisive
+7 NearestEven 1000001e-6 P=80 rad=2.387e-24 margin=1.805e-01 decisive
+7 NearestEven 1234567e-6 P=80 rad=3.053e-24 margin=1.628e-01 decisive
+7 NearestEven 2254675e-6 P=80 rad=6.540e-24 margin=8.728e-03 decisive
+7 NearestEven 2718281e-6 P=80 rad=6.541e-24 margin=1.012e-01 decisive
+7 NearestEven 5934015e-6 P=80 rad=1.075e-23 margin=7.367e-02 decisive
+7 NearestEven 314159e-5 P=80 rad=7.778e-24 margin=4.109e-01 decisive
+7 NearestEven 365573e-5 P=80 rad=7.858e-24 margin=2.170e-02 decisive
+7 NearestEven 3325138e-4 P=80 rad=3.587e-23 margin=9.359e-02 decisive
+7 NearestEven 6307163e-4 P=80 rad=3.721e-23 margin=9.205e-02 decisive
+7 NearestEven 1e-3 P=80 rad=3.849e-23 margin=2.153e-01 decisive
+7 NearestEven 271828e-3 P=80 rad=3.589e-23 margin=2.398e-01 decisive
+7 NearestEven 314159e-3 P=80 rad=3.586e-23 margin=3.993e-01 decisive
+7 NearestEven 2880804e-3 P=80 rad=3.991e-23 margin=7.925e-02 decisive
+7 NearestEven 5199494e-3 P=80 rad=5.078e-23 margin=5.158e-02 decisive
+7 NearestEven 7216705e-3 P=80 rad=5.089e-23 margin=4.330e-02 decisive
+7 NearestEven 2297832e-2 P=80 rad=5.348e-23 margin=7.025e-02 decisive
+7 NearestEven 3035980e-2 P=80 rad=5.361e-23 margin=3.336e-02 decisive
+7 NearestEven 4825578e-2 P=80 rad=5.484e-23 margin=8.640e-02 decisive
+7 NearestEven 8662371e-2 P=80 rad=6.939e-23 margin=6.577e-02 decisive
+7 NearestEven 9999197e-2 P=80 rad=6.943e-23 margin=3.786e-02 decisive
+7 NearestEven 5e-1 P=80 rad=2.685e-24 margin=5.000e-01 decisive
+7 NearestEven 15e-1 P=80 rad=2.209e-24 margin=4.928e-01 decisive
+7 NearestEven 916054e-1 P=80 rad=6.940e-23 margin=2.507e-03 decisive
+7 NearestEven 2838943e-1 P=80 rad=7.209e-23 margin=6.425e-02 decisive
+7 NearestEven 3158797e-1 P=80 rad=7.207e-23 margin=6.997e-02 decisive
+7 NearestEven 8160600e-1 P=80 rad=7.200e-23 margin=7.033e-02 decisive
+7 NearestEven 2e0 P=80 rad=2.685e-24 margin=5.000e-01 decisive
+7 NearestEven 3e0 P=80 rad=6.169e-24 margin=7.212e-04 decisive
+7 NearestEven 5e0 P=80 rad=8.813e-24 margin=4.051e-01 decisive
+7 NearestEven 7e0 P=80 rad=9.465e-24 margin=4.221e-01 decisive
+7 NearestEven 271828e0 P=80 rad=6.980e-23 margin=4.551e-02 decisive
+7 NearestEven 314159e0 P=80 rad=7.008e-23 margin=3.853e-02 decisive
+7 NearestEven 3952311e0 P=80 rad=7.499e-23 margin=4.370e-03 decisive
+7 NearestEven 7557955e0 P=80 rad=7.624e-23 margin=5.018e-02 decisive
+7 NearestEven 1e1 P=80 rad=1.254e-23 margin=4.051e-01 decisive
+7 NearestEven 2097045e1 P=80 rad=9.739e-23 margin=5.156e-02 decisive
+7 NearestEven 3495864e1 P=80 rad=9.830e-23 margin=7.248e-02 decisive
+7 NearestEven 6285808e1 P=80 rad=9.944e-23 margin=1.301e-02 decisive
+7 NearestEven 8108466e1 P=80 rad=9.993e-23 margin=6.682e-02 decisive
+7 NearestEven 1e2 P=80 rad=2.508e-23 margin=3.102e-01 decisive
+7 NearestEven 1252326e2 P=80 rad=1.008e-22 margin=7.371e-03 decisive
+7 NearestEven 8315142e2 P=80 rad=1.044e-22 margin=6.601e-02 decisive
+7 NearestEven 1e3 P=80 rad=3.616e-23 margin=2.153e-01 decisive
+7 NearestEven 271828e3 P=80 rad=1.023e-22 margin=3.830e-01 decisive
+7 NearestEven 314159e3 P=80 rad=1.026e-22 margin=4.670e-01 decisive
+7 NearestEven 8600928e3 P=80 rad=1.354e-22 margin=1.823e-02 decisive
+7 NearestEven 8677753e3 P=80 rad=1.355e-22 margin=6.236e-02 decisive
+7 NearestEven 1690107e4 P=80 rad=1.368e-22 margin=5.347e-02 decisive
+7 NearestEven 7086846e4 P=80 rad=1.395e-22 margin=3.521e-02 decisive
+7 NearestEven 8048972e4 P=80 rad=1.398e-22 margin=4.855e-02 decisive
+7 NearestEven 9546976e4 P=80 rad=1.401e-22 margin=2.186e-02 decisive
+7 NearestEven 9995396e4 P=80 rad=1.402e-22 margin=3.260e-02 decisive
+7 NearestEven 271828e5 P=80 rad=1.377e-22 margin=1.933e-03 decisive
+7 NearestEven 3403636e5 P=80 rad=1.426e-22 margin=8.008e-02 decisive
+7 NearestEven 6868982e5 P=80 rad=1.439e-22 margin=3.477e-02 decisive
+7 NearestEven 9681741e5 P=80 rad=1.446e-22 margin=5.444e-02 decisive
+7 NearestEven 9983434e5 P=80 rad=1.446e-22 margin=1.882e-02 decisive
+7 NearestEven 314159e6 P=80 rad=1.424e-22 margin=1.045e-01 decisive
+7 NearestEven 1837123e6 P=80 rad=1.458e-22 margin=3.604e-02 decisive
+7 NearestEven 5637349e6 P=80 rad=1.480e-22 margin=9.760e-02 decisive
+7 NearestEven 7677884e6 P=80 rad=1.486e-22 margin=9.023e-02 decisive
+7 NearestEven 314159e9 P=80 rad=1.940e-22 margin=3.239e-01 decisive
+7 NearestEven 314159e10 P=80 rad=1.984e-22 margin=1.334e-01 decisive
+7 NearestEven 314159e14 P=80 rad=2.692e-22 margin=3.714e-01 decisive
+7 NearestEven 314159e24 P=80 rad=3.903e-22 margin=4.663e-01 decisive
+7 NearestEven 314159e54 P=80 rad=7.841e-22 margin=2.509e-02 decisive
+7 NearestEven 314159e86 P=80 rad=1.138e-21 margin=1.546e-02 decisive
+16 NearestEven 271828e-294 P=80 rad=3.358e-21 margin=4.562e-01 decisive
+16 NearestEven 271828e-234 P=80 rad=3.090e-21 margin=4.749e-02 decisive
+16 NearestEven 271828e-174 P=80 rad=2.212e-21 margin=3.612e-01 decisive
+16 NearestEven 271828e-114 P=80 rad=1.215e-21 margin=2.301e-01 decisive
+16 NearestEven 271828e-54 P=80 rad=5.826e-22 margin=1.787e-01 decisive
+16 NearestEven 271828e-24 P=80 rad=2.140e-22 margin=3.303e-01 decisive
+16 NearestEven 271828e-14 P=80 rad=1.045e-22 margin=3.218e-01 decisive
+16 NearestEven 271828e-10 P=80 rad=5.403e-23 margin=3.827e-01 decisive
+16 NearestEven 271828e-9 P=80 rad=5.038e-23 margin=1.479e-01 decisive
+16 NearestEven 271828e-6 P=80 rad=8.759e-24 margin=6.496e-02 decisive
+16 NearestEven 999999e-6 P=80 rad=1.193e-24 margin=2.521e-01 decisive
+16 NearestEven 1000001e-6 P=80 rad=2.387e-24 margin=3.576e-01 decisive
+16 NearestEven 1234567e-6 P=80 rad=3.053e-24 margin=3.530e-01 decisive
+16 NearestEven 2718281e-6 P=80 rad=6.541e-24 margin=2.144e-01 decisive
+16 NearestEven 20347067e-6 P=80 rad=1.910e-23 margin=2.709e-03 decisive
+16 NearestEven 28358354e-6 P=80 rad=1.922e-23 margin=4.270e-02 decisive
+16 NearestEven 31959937e-6 P=80 rad=1.930e-23 margin=4.232e-02 decisive
+16 NearestEven 314159e-5 P=80 rad=7.778e-24 margin=3.011e-01 decisive
+16 NearestEven 5085976e-5 P=80 rad=2.050e-23 margin=1.140e-02 decisive
+16 NearestEven 30826479e-5 P=80 rad=3.587e-23 margin=2.781e-02 decisive
+16 NearestEven 43595583e-5 P=80 rad=3.596e-23 margin=5.670e-03 decisive
+16 NearestEven 53516983e-4 P=80 rad=5.078e-23 margin=2.639e-02 decisive
+16 NearestEven 75605340e-4 P=80 rad=5.092e-23 margin=3.689e-02 decisive
+16 NearestEven 1e-3 P=80 rad=3.849e-23 margin=4.564e-01 decisive
+16 NearestEven 271828e-3 P=80 rad=3.589e-23 margin=1.086e-01 decisive
+16 NearestEven 314159e-3 P=80 rad=3.586e-23 margin=3.207e-03 decisive
+16 NearestEven 17608640e-3 P=80 rad=5.349e-23 margin=3.141e-02 decisive
+16 NearestEven 4900700e-2 P=80 rad=5.332e-23 margin=2.578e-02 decisive
+16 NearestEven 73036716e-2 P=80 rad=7.343e-23 margin=4.891e-02 decisive
+16 NearestEven 5e-1 P=80 rad=2.685e-24 margin=5.000e-01 decisive
+16 NearestEven 15e-1 P=80 rad=2.209e-24 margin=3.145e-01 decisive
+16 NearestEven 6318878e-1 P=80 rad=7.341e-23 margin=1.179e-02 decisive
+16 NearestEven 9334311e-1 P=80 rad=7.353e-23 margin=2.785e-02 decisive
+16 NearestEven 47392864e-1 P=80 rad=7.745e-23 margin=1.311e-02 decisive
+16 NearestEven 2e0 P=80 rad=2.685e-24 margin=5.000e-01 decisive
+16 NearestEven 3e0 P=80 rad=6.169e-24 margin=3.185e-01 decisive
+16 NearestEven 5e0 P=80 rad=8.813e-24 margin=1.521e-01 decisive
+16 NearestEven 7e0 P=80 rad=9.465e-24 margin=3.926e-01 decisive
+16 NearestEven 271828e0 P=80 rad=6.980e-23 margin=3.478e-02 decisive
+16 NearestEven 314159e0 P=80 rad=7.008e-23 margin=1.540e-01 decisive
+16 NearestEven 359316e0 P=80 rad=7.034e-23 margin=3.348e-02 decisive
+16 NearestEven 36734711e0 P=80 rad=9.840e-23 margin=2.854e-02 decisive
+16 NearestEven 54204438e0 P=80 rad=9.915e-23 margin=4.569e-02 decisive
+16 NearestEven 1e1 P=80 rad=1.254e-23 margin=1.521e-01 decisive
+16 NearestEven 36232238e1 P=80 rad=1.029e-22 margin=1.424e-02 decisive
+16 NearestEven 41905106e1 P=80 rad=1.031e-22 margin=2.009e-02 decisive
+16 NearestEven 56079249e1 P=80 rad=1.037e-22 margin=9.653e-03 decisive
+16 NearestEven 62943664e1 P=80 rad=1.039e-22 margin=1.908e-02 decisive
+16 NearestEven 63584159e1 P=80 rad=1.039e-22 margin=2.391e-02 decisive
+16 NearestEven 77563591e1 P=80 rad=1.043e-22 margin=1.770e-02 decisive
+16 NearestEven 97748704e1 P=80 rad=1.048e-22 margin=3.959e-02 decisive
+16 NearestEven 1e2 P=80 rad=2.508e-23 margin=1.957e-01 decisive
+16 NearestEven 83022478e2 P=80 rad=1.354e-22 margin=5.047e-02 decisive
+16 NearestEven 84915088e2 P=80 rad=1.354e-22 margin=2.980e-02 decisive
+16 NearestEven 87756024e2 P=80 rad=1.355e-22 margin=2.499e-02 decisive
+16 NearestEven 1e3 P=80 rad=3.616e-23 margin=4.564e-01 decisive
+16 NearestEven 271828e3 P=80 rad=1.023e-22 margin=3.304e-01 decisive
+16 NearestEven 314159e3 P=80 rad=1.026e-22 margin=1.416e-01 decisive
+16 NearestEven 44892925e3 P=80 rad=1.386e-22 margin=5.445e-03 decisive
+16 NearestEven 63390032e3 P=80 rad=1.394e-22 margin=4.038e-02 decisive
+16 NearestEven 95943161e3 P=80 rad=1.402e-22 margin=3.777e-02 decisive
+16 NearestEven 45336130e4 P=80 rad=1.431e-22 margin=3.313e-03 decisive
+16 NearestEven 55910705e4 P=80 rad=1.435e-22 margin=9.194e-03 decisive
+16 NearestEven 271828e5 P=80 rad=1.377e-22 margin=1.392e-01 decisive
+16 NearestEven 9018746e5 P=80 rad=1.445e-22 margin=3.060e-02 decisive
+16 NearestEven 10127471e5 P=80 rad=1.447e-22 margin=4.418e-02 decisive
+16 NearestEven 31538050e5 P=80 rad=1.469e-22 margin=9.325e-03 decisive
+16 NearestEven 46835782e5 P=80 rad=1.476e-22 margin=2.691e-02 decisive
+16 NearestEven 99934268e5 P=80 rad=1.491e-22 margin=1.306e-02 decisive
+16 NearestEven 314159e6 P=80 rad=1.424e-22 margin=4.372e-01 decisive
+16 NearestEven 2491830e6 P=80 rad=1.464e-22 margin=4.789e-02 decisive
+16 NearestEven 51315587e6 P=80 rad=1.523e-22 margin=1.298e-02 decisive
+16 NearestEven 64146272e6 P=80 rad=1.527e-22 margin=5.498e-02 decisive
+16 NearestEven 314159e9 P=80 rad=1.940e-22 margin=2.671e-01 decisive
+16 NearestEven 314159e10 P=80 rad=1.984e-22 margin=4.981e-01 decisive
+16 NearestEven 314159e14 P=80 rad=2.692e-22 margin=4.411e-01 decisive
+16 NearestEven 314159e24 P=80 rad=3.903e-22 margin=2.111e-01 decisive
+16 NearestEven 314159e54 P=80 rad=7.841e-22 margin=3.667e-01 decisive
+16 NearestEven 314159e114 P=80 rad=1.569e-21 margin=4.198e-02 decisive
+16 NearestEven 314159e174 P=80 rad=2.261e-21 margin=4.507e-01 decisive
+16 NearestEven 314159e234 P=80 rad=3.139e-21 margin=1.406e-01 decisive
+16 NearestEven 314159e294 P=80 rad=3.406e-21 margin=2.681e-01 decisive
+34 NearestEven 271828e-294 P=160 rad=2.778e-45 margin=4.451e-01 decisive
+34 NearestEven 271828e-234 P=160 rad=2.556e-45 margin=4.493e-01 decisive
+34 NearestEven 271828e-174 P=160 rad=1.830e-45 margin=3.438e-01 decisive
+34 NearestEven 271828e-114 P=160 rad=1.005e-45 margin=2.383e-01 decisive
+34 NearestEven 271828e-54 P=160 rad=4.820e-46 margin=1.328e-01 decisive
+34 NearestEven 271828e-24 P=160 rad=1.771e-46 margin=3.002e-01 decisive
+34 NearestEven 271828e-14 P=160 rad=8.644e-47 margin=1.243e-01 decisive
+34 NearestEven 271828e-10 P=160 rad=4.476e-47 margin=5.395e-02 decisive
+34 NearestEven 271828e-9 P=160 rad=4.173e-47 margin=3.637e-02 decisive
+34 NearestEven 271828e-6 P=160 rad=7.307e-48 margin=3.361e-01 decisive
+34 NearestEven 999999e-6 P=160 rad=9.872e-49 margin=7.439e-02 decisive
+34 NearestEven 1000001e-6 P=160 rad=1.974e-48 margin=3.217e-01 decisive
+34 NearestEven 1234567e-6 P=160 rad=2.526e-48 margin=1.048e-01 decisive
+34 NearestEven 2718281e-6 P=160 rad=5.472e-48 margin=1.493e-01 decisive
+34 NearestEven 23692926e-6 P=160 rad=1.583e-47 margin=3.393e-02 decisive
+34 NearestEven 314159e-5 P=160 rad=6.435e-48 margin=1.049e-01 decisive
+34 NearestEven 36855732e-5 P=160 rad=2.975e-47 margin=6.164e-02 decisive
+34 NearestEven 65413439e-5 P=160 rad=3.084e-47 margin=7.556e-02 decisive
+34 NearestEven 75113370e-5 P=160 rad=3.086e-47 margin=1.364e-02 decisive
+34 NearestEven 37523957e-4 P=160 rad=4.107e-47 margin=6.075e-02 decisive
+34 NearestEven 49678575e-4 P=160 rad=4.207e-47 margin=5.985e-02 decisive
+34 NearestEven 61567857e-4 P=160 rad=4.203e-47 margin=5.915e-02 decisive
+34 NearestEven 1e-3 P=160 rad=3.184e-47 margin=2.759e-02 decisive
+34 NearestEven 271828e-3 P=160 rad=2.975e-47 margin=1.915e-01 decisive
+34 NearestEven 314159e-3 P=160 rad=2.967e-47 margin=2.468e-01 decisive
+34 NearestEven 25784147e-3 P=160 rad=4.433e-47 margin=1.511e-02 decisive
+34 NearestEven 27484511e-2 P=160 rad=5.970e-47 margin=7.241e-02 decisive
+34 NearestEven 58467841e-2 P=160 rad=6.080e-47 margin=3.804e-03 decisive
+34 NearestEven 73713191e-2 P=160 rad=6.074e-47 margin=2.089e-03 decisive
+34 NearestEven 92615788e-2 P=160 rad=6.082e-47 margin=2.022e-02 decisive
+34 NearestEven 5e-1 P=160 rad=2.221e-48 margin=5.000e-01 decisive
+34 NearestEven 15e-1 P=160 rad=1.827e-48 margin=4.124e-01 decisive
+34 NearestEven 26082581e-1 P=160 rad=6.295e-47 margin=1.952e-03 decisive
+34 NearestEven 61260567e-1 P=160 rad=6.414e-47 margin=2.510e-02 decisive
+34 NearestEven 2e0 P=160 rad=2.221e-48 margin=5.000e-01 decisive
+34 NearestEven 3e0 P=160 rad=5.103e-48 margin=8.760e-03 decisive
+34 NearestEven 5e0 P=160 rad=7.290e-48 margin=3.241e-01 decisive
+34 NearestEven 7e0 P=160 rad=7.829e-48 margin=3.086e-01 decisive
+34 NearestEven 271828e0 P=160 rad=5.774e-47 margin=1.219e-01 decisive
+34 NearestEven 314159e0 P=160 rad=5.803e-47 margin=1.726e-01 decisive
+34 NearestEven 22737476e0 P=160 rad=8.069e-47 margin=7.110e-02 decisive
+34 NearestEven 45536661e0 P=160 rad=8.174e-47 margin=8.820e-05 decisive
+34 NearestEven 55478272e0 P=160 rad=8.205e-47 margin=3.851e-02 decisive
+34 NearestEven 84342313e0 P=160 rad=8.272e-47 margin=8.161e-03 decisive
+34 NearestEven 98057562e0 P=160 rad=8.303e-47 margin=5.311e-02 decisive
+34 NearestEven 1e1 P=160 rad=1.037e-47 margin=3.241e-01 decisive
+34 NearestEven 43165154e1 P=160 rad=8.534e-47 margin=6.796e-02 decisive
+34 NearestEven 44487646e1 P=160 rad=8.539e-47 margin=6.073e-02 decisive
+34 NearestEven 46700278e1 P=160 rad=8.547e-47 margin=7.290e-03 decisive
+34 NearestEven 58157775e1 P=160 rad=8.582e-47 margin=1.321e-02 decisive
+34 NearestEven 1e2 P=160 rad=2.075e-47 margin=1.483e-01 decisive
+34 NearestEven 72134619e2 P=160 rad=1.118e-46 margin=9.888e-03 decisive
+34 NearestEven 74254532e2 P=160 rad=1.119e-46 margin=1.597e-03 decisive
+34 NearestEven 1e3 P=160 rad=2.991e-47 margin=2.759e-02 decisive
+34 NearestEven 271828e3 P=160 rad=8.460e-47 margin=1.747e-01 decisive
+34 NearestEven 314159e3 P=160 rad=8.483e-47 margin=1.198e-01 decisive
+34 NearestEven 30181873e3 P=160 rad=1.141e-46 margin=2.659e-02 decisive
+34 NearestEven 59888031e3 P=160 rad=1.151e-46 margin=7.575e-02 decisive
+34 NearestEven 8361964e4 P=160 rad=1.157e-46 margin=1.317e-02 decisive
+34 NearestEven 9789956e4 P=160 rad=1.160e-46 margin=5.049e-02 decisive
+34 NearestEven 41229548e4 P=160 rad=1.183e-46 margin=2.059e-02 decisive
+34 NearestEven 47392424e4 P=160 rad=1.185e-46 margin=5.702e-02 decisive
+34 NearestEven 47684389e4 P=160 rad=1.185e-46 margin=1.533e-02 decisive
+34 NearestEven 86704338e4 P=160 rad=1.194e-46 margin=4.003e-02 decisive
+34 NearestEven 271828e5 P=160 rad=1.139e-46 margin=2.098e-01 decisive
+34 NearestEven 6251215e5 P=160 rad=1.190e-46 margin=1.023e-02 decisive
+34 NearestEven 8162060e5 P=160 rad=1.193e-46 margin=7.407e-02 decisive
+34 NearestEven 99063074e5 P=160 rad=1.234e-46 margin=6.149e-02 decisive
+34 NearestEven 314159e6 P=160 rad=1.179e-46 margin=6.704e-02 decisive
+34 NearestEven 34126271e6 P=160 rad=1.254e-46 margin=4.280e-02 decisive
+34 NearestEven 53457051e6 P=160 rad=1.260e-46 margin=7.018e-02 decisive
+34 NearestEven 54860863e6 P=160 rad=1.261e-46 margin=3.325e-02 decisive
+34 NearestEven 58405139e6 P=160 rad=1.262e-46 margin=2.029e-03 decisive
+34 NearestEven 314159e9 P=160 rad=1.605e-46 margin=1.428e-02 decisive
+34 NearestEven 314159e10 P=160 rad=1.641e-46 margin=3.309e-03 decisive
+34 NearestEven 314159e14 P=160 rad=2.227e-46 margin=7.365e-02 decisive
+34 NearestEven 314159e24 P=160 rad=3.228e-46 margin=2.495e-01 decisive
+34 NearestEven 314159e54 P=160 rad=6.474e-46 margin=1.723e-01 decisive
+34 NearestEven 314159e114 P=160 rad=1.298e-45 margin=6.677e-02 decisive
+34 NearestEven 314159e174 P=160 rad=1.870e-45 margin=3.875e-02 decisive
+34 NearestEven 314159e234 P=160 rad=2.596e-45 margin=1.443e-01 decisive
+34 NearestEven 314159e294 P=160 rad=2.817e-45 margin=2.498e-01 decisive

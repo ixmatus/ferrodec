@@ -239,6 +239,54 @@ limit is recorded for the future maintainer:
   testing-surface overview) will cite. Those docs are written after the
   engagement lands, reflecting what shipped, not this hypothesis.
 
+## Addendum (fd-97a, 2026-05-18): directed modes and binary pow/atan2
+
+The frozen corpus shipped `NearestEven`-only and unary-only. Two gaps were
+filed and closed. `fd-tgg` first made the decimal rounding step a
+lockstep-tested shared unit: the round-half-even keystone moved into
+`ferrodec-test-support` `round_dec` and is exercised, against a committed
+case table, by both a default-on Rust test and a no-pip Python self-test in
+the generator, with the two fd-cb6 near-misses (the all-nines carry exponent
+and the `decimal32` input non-representability) pinned as named regression
+guards. `fd-97a` then extended the proof tier on that now-trusted
+foundation.
+
+The corpus line schema is now uniform and mode-tagged:
+`<prec> <mode> <input> [<input2>] <output>`, the loader infers arity from
+the file stem. The directed worst case sits at a different place from the
+half-ULP tie: a directed decision flips where the enclosure straddles a
+representable grid point, not the midpoint, so the directed
+Table-Maker's-Dilemma search targets the grid-point boundary
+(`directed_margin`), recorded in the provenance as `boundary=` rather than
+`margin=`. Directed coverage is bounded to the kernel primitives plus the
+widest-blast-radius derived functions (`exp`, `ln`, `sin`, `cos`, `atan`,
+`cbrt`, `log10`); the correlated-failure argument says a primitive bias
+propagates, so the directed boundary matters most there, and the remaining
+unary functions stay `NearestEven` in this tier while keeping their
+metamorphic and differential coverage. `pow` and `atan2` enter the proof
+tier as binary vectors over `NearestEven` and the four directed modes, found
+by a two-dimensional argument search; `pow`'s hard-to-round structure lives
+in `y·ln x`, so each is one certified Arb call and the working precision is
+raised by both operands' magnitudes. Determinism is preserved by three
+independent rng streams seeded from the one `SEED`, so the `NearestEven`
+content stays byte-stable under the added token and a regeneration is
+byte-identical. MPFR cross-validation applies the directed decimal rounding
+on our side, so it does not depend on the binding exposing every MPFR mode,
+and the no-double-rounding contract stays with us.
+
+The honest-level statement is unchanged and was written to survive this:
+strongly corroborated faithful rounding plus a frozen worst-case set whose
+correctly-rounded values are established at the committed arguments, now
+across the directed and binary surface as well. It remains not a coverage
+proof and not proven correct rounding of the functions. The empirical
+result is recorded in the test output and commits, not frozen into this
+prose (state versus durable capture): every committed vector across all
+formats, modes, and the binary surface was computed exactly correctly
+rounded by the faithful kernel, and MPFR independently reproduced the whole
+extended corpus with zero disagreements, so the
+Arb-decisive-and-MPFR-agrees accept rule holds for the directed and binary
+vectors as it did for the original NearestEven set.
+
 ## Related
 
 - Plan: `plans/2026-05-17-independent-transcendental-correctness.md`
