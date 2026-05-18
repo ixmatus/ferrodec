@@ -64,6 +64,17 @@
 //!   Decimal64.
 //! - [`ferrodec-ieee`](https://crates.io/crates/ferrodec-ieee):
 //!   the shared IEEE 754 metadata types.
+//!
+//! # Porting between the formats
+//!
+//! The numeric value is portable across the three formats; the
+//! surface is not. Bare `rem` / `%` are the truncated remainder here
+//! but the nearest-even remainder on Decimal128, so use the explicit
+//! `rem_near` / `rem_trunc`; the cohort exponent, `Display`, and the
+//! transcendental feature gating also differ per format. Pin what
+//! you serialize or compare with `quantize`. ADR-0027 and ADR-0014
+//! give the rationale; the `ferrodec` crate README carries the full
+//! cross-format table.
 
 #![no_std]
 
