@@ -305,6 +305,44 @@ feature, recomputes the entire frozen corpus with MPFR through `rug`
   containment granted to astro-float. It corroborates the frozen
   corpus; it is not a continuous gate.
 
+### The frozen corpus does not retire decTest
+
+A natural question, once the Arb corpus proves correctly rounded
+values: are the decTest conformance vectors still useful? They are,
+and the two barely overlap. They sit on three different axes, and the
+frozen corpus subsumes the conformance vectors on none of them.
+
+- **Operations.** The vendored decTest corpus is the General Decimal
+  Arithmetic surface (arithmetic, comparison, quantum, round to
+  integral, copy and bitwise, encode and decode, class, total order)
+  and has no transcendentals. The frozen corpus is only the
+  transcendentals. The function sets are disjoint: the frozen corpus
+  fills decTest's transcendental blind spot, and decTest covers the
+  entire surface the frozen corpus never touches.
+- **Property.** The frozen corpus proves a value: the correctly
+  rounded magnitude of `f(x)`, deliberately value not cohort, with no
+  status flags and no special values. decTest tests specification
+  conformance: the value and the cohort member (the §7.4 preferred
+  exponent), the exact status flag set, NaN payload, signaling NaN,
+  signed zero and infinity propagation, exponent clamping, and the non
+  IEEE rounding directives. That behavioural dimension is most of what
+  the standard mandates, and a value oracle cannot see it. It is the
+  same reason a binary reference is rejected for the arithmetic
+  differential but accepted for transcendentals (ADR-0025, ADR-0026).
+- **Authority.** decTest is the canonical conformance suite authored
+  by the specification's author. For a library whose completeness
+  argument is measured against an external standard, that external
+  attestation is load bearing; a corpus generated in house, however
+  rigorous, cannot stand in for "passes the standard's own
+  testcases."
+
+The two are complementary by construction, the same disjoint blind
+spot principle as the rest of the stack: the frozen corpus
+strengthened the weakest layer, the transcendental value inside the
+oracle skip region, and changed nothing about the
+arithmetic conformance layer, where decTest remains the irreplaceable
+authority.
+
 ### Reading the stack as a whole
 
 The arithmetic surface is closed tightly by the exact integer oracle
