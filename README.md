@@ -215,6 +215,12 @@ ferrodec leans on four overlapping verification stacks.
 4. **Formal verification** (Kani, behind `--features=kani`). 66 harnesses prove NaN propagation, sign rules, special value invariants, encode/decode round trips (BID and, with `--features=dpd`, DPD totality plus the special-value DPD round-trip), basic arithmetic identities for the IEEE special case dispatch paths, the IEEE 754:2019 §5.7.2 / §5.4.2 canonical predicates as a projection (`is_canonical` ⇔ `canonicalize`-fixed-point, idempotence), the §5.10 total-magnitude reflexivity / antisymmetry, `try_new`'s in-range / out-of-range dispatch, and `total_cmp` antisymmetry on the same-cohort same-sign finite-finite domain. The arithmetic-pipeline harnesses use bounded operand shims (`*_special_only_for_kani`) so CBMC need not reason about the alignment and rounding loops.
 5. **Fuzz harness** (`fuzz/`, via `cargo install cargo-fuzz` and a nightly toolchain). Six libFuzzer targets: `parse` feeds arbitrary byte sequences through `Decimal128::parse_str` and asserts no panic plus a Display-then-parse round-trip; `arith` exercises `add` / `sub` / `mul` / `div` on arbitrary `(u128, u128)` pairs and asserts `a + 0 == a`, `a * 1 == a`, `a - a == 0` for finite `a`; `transcendentals` runs every transcendental kernel (`exp`, `ln`, `sin`, `cos`, `tan`, `pow`, `atan2`, the inverse and hyperbolic families, `sqrt`, `cbrt`) for panic-freedom on arbitrary inputs; `integral` checks idempotence and integer-ness of `floor`/`ceil`/`trunc`/`round`/`round_ties_even`/`round_to_integral`; `total_cmp` asserts reflexivity and antisymmetry of the §5.10 totalOrder predicate and `compare_total_magnitude` over arbitrary bit pairs; `encode` asserts `is_canonical` ↔ `canonicalize` fixed-point, idempotence, and classification stability across canonicalize. Run with `cargo +nightly fuzz run <target>` from the `fuzz/` directory.
 
+For the transcendentals specifically, `docs/testing.md` is the
+conceptual map: it explains the correlated failure surface that the
+shared Extended kernel creates, why a structurally independent oracle
+is the only mitigation, and what each verification layer proves and
+does not prove. Read it before trusting or extending a transcendental.
+
 ## Performance
 
 A tight feedback loop matters more than chasing microseconds, but the criterion benches in `benches/` exist so regressions surface quickly. Representative numbers from `cargo bench --bench core_ops` on a 2025-era Apple Silicon host (rustc 1.95.0 stable, release profile with thin LTO and one codegen unit):
