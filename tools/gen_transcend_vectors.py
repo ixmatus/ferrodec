@@ -33,6 +33,7 @@ Deterministic: a fixed seed and fixed counts, outputs sorted, so a
 re-run reproduces the corpus byte-for-byte (the Phase 2 verification).
 """
 
+import math
 import os
 import random
 import sys
@@ -82,7 +83,33 @@ FORMATS = {
 SEED = 0x_F_D_C_B_6
 CAP_BITS = 1 << 16  # 65536-bit ceiling before declaring a case TMD-hard
 TMD_SCAN = 300      # candidate args per (function, format) in the search
-TMD_KEEP = 40       # hardest decisive cases kept from the scan
+TMD_KEEP = 40       # hardest decisive cases kept from the scan (NE)
+TMD_SCAN_DIRECTED = 200   # scan per (func, format, directed mode)
+TMD_KEEP_DIRECTED = 12    # hardest decisive directed cases kept
+TMD_SCAN_BINARY = 240     # 2-D (x, y) scan per (binary func, fmt, mode)
+TMD_KEEP_BINARY = 14      # hardest decisive binary cases kept
+
+# fd-97a. The four directed IEEE modes; NearestEven is the historical
+# corpus default and stays unary-and-everything. The directed scan is
+# bounded to the kernel primitives plus the widest-blast-radius derived
+# (the correlated-failure argument: a primitive bias propagates, so the
+# directed boundary matters most there); the other unary functions stay
+# NearestEven-only in the proof tier (still covered by metamorphic +
+# differential). pow/atan2 are binary and carry NearestEven + directed.
+DIRECTED_MODES = (
+    "TowardZero",
+    "TowardPositive",
+    "TowardNegative",
+    "NearestAway",
+)
+MODES_ALL = ("NearestEven",) + DIRECTED_MODES
+DIRECTED_FUNCS = ("exp", "ln", "sin", "cos", "atan", "cbrt", "log10")
+BINARY = ("atan2", "pow")
+# Independent rng streams so the NearestEven corpus content is
+# byte-stable (the directed/binary passes do not perturb its sequence);
+# all three are seeded deterministically off the one SEED.
+SEED_DIRECTED = SEED ^ 0xD1EC7ED
+SEED_BINARY = SEED ^ 0xB17A12
 
 
 def frac10(coef, exp):
@@ -353,106 +380,62 @@ def decades(name, fmt):
     return out
 
 
-def emit():
-    _require_flint()
-    os.makedirs(OUT_DIR, exist_ok=True)
-    rng = random.Random(SEED)
-    for name, fn in FUNCS.items():
-        vec_lines = []
-        prov_lines = []
-        for fkey, fmt in FORMATS.items():
-            p = fmt["prec"]
-            cand = []
-            for (coef, exp, neg) in representative(name) + decades(name, fmt):
-                cand.append((coef, exp, neg, False))
-            # Table-Maker's-Dilemma scan: random arguments, keep the
-            # ones whose true value lands pathologically near a
-            # decimal half-ULP.
-            scanned = []
-            for _ in range(TMD_SCAN):
-                # ≤ p significant digits ⇒ exactly representable in
-                # the format (capped for generation speed); solve()
-                # also enforces representability defensively.
-                coef = rng.randrange(1, 10 ** min(p, 8))
-                if name in UNIT:
-                    exp = -(len(str(coef)))  # |x| < 1
-                    neg = (name == "atanh") and (rng.random() < 0.5)
-                elif name in GE_ONE:
-                    exp = rng.randrange(0, 6)
-                    neg = False
-                elif name in POSITIVE:
-                    exp = rng.randrange(-6, 7)
-                    neg = False
-                elif name in ("exp", "exp2", "sinh", "cosh"):
-                    exp = rng.randrange(-4, 4)
-                    neg = rng.random() < 0.5
-                else:
-                    exp = rng.randrange(-6, 9)
-                    neg = rng.random() < 0.5
-                r = solve(name, fn, coef, exp, neg, fmt)
-                if r is not None:
-                    scanned.append((r[3], coef, exp, neg))  # r[3] = margin
-            scanned.sort(key=lambda t: (t[0], t[1], t[2], t[3]))
-            for (_m, coef, exp, neg) in scanned[:TMD_KEEP]:
-                cand.append((coef, exp, neg, True))
-
-            seen = set()
-            rows = []
-            for (coef, exp, neg, _tmd) in cand:
-                key = (coef, exp, neg)
-                if key in seen:
-                    continue
-                seen.add(key)
-                r = solve(name, fn, coef, exp, neg, fmt)
-                if r is None:
-                    continue
-                out_s, P, rad, margin = r
-                in_s = "%s%de%d" % ("-" if neg else "", coef, exp)
-                rows.append((exp, coef, neg, in_s, out_s, P, rad, margin))
-            rows.sort()
-            for (_e, _c, _n, in_s, out_s, P, rad, margin) in rows:
-                vec_lines.append("%d %s %s" % (p, in_s, out_s))
-                prov_lines.append(
-                    "%d %s P=%d rad=%.3e margin=%.3e decisive"
-                    % (p, in_s, P, rad, margin)
-                )
-
-        with open(os.path.join(OUT_DIR, name + ".txt"), "w") as f:
-            f.write(
-                "# Arb/FLINT certified frozen vectors for `%s` "
-                "(ADR-0026, fd-cb6).\n"
-                "# Each line: <prec> <input> <correctly-rounded-output>.\n"
-                "# Output is the proven NearestEven correctly-rounded "
-                "value at <prec>\n# significant digits; see %s.prov for "
-                "the enclosure provenance.\n"
-                "# Mathematical fact, not copyrightable expression; "
-                "MPFR cross-validates\n# the same values (Phase 3). "
-                "Regenerate: tools/gen_transcend_vectors.py\n"
-                % (name, name)
-            )
-            f.write("\n".join(vec_lines))
-            f.write("\n")
-        with open(os.path.join(OUT_DIR, name + ".prov"), "w") as f:
-            f.write(
-                "# Enclosure provenance for `%s.txt` (ADR-0026). "
-                "P = Arb working\n# precision (bits) at which the "
-                "enclosure became decisive; rad = ball\n# radius; "
-                "margin = fractional-ULP distance of the true value "
-                "from the\n# nearest decimal half-ULP tie (small ⇒ "
-                "hard to round, the TMD worst\n# case). `decisive` ⇒ "
-                "the correctly-rounded value is established, not "
-                "sampled.\n" % name
-            )
-            f.write("\n".join(prov_lines))
-            f.write("\n")
-        sys.stderr.write("%-7s %d vectors\n" % (name, len(vec_lines)))
+def _round_mode(v, p, mode):
+    """Round endpoint `v` to `p` significant digits under `mode`. NE is
+    the keystone round_half_even_sig; the directed modes go through
+    round_directed_sig (both lockstep-tested by fd-tgg)."""
+    if mode == "NearestEven":
+        return round_half_even_sig(v, p)
+    return round_directed_sig(v, p, mode)
 
 
-def solve(name, fn, coef, exp, neg, fmt):
+def _margin_mode(v, p, mode):
+    """TMD proximity under `mode`: distance to the nearest half-ULP tie
+    (NE) or the nearest grid point (directed); small ⇒ hard to round."""
+    if mode == "NearestEven":
+        return tie_margin(v, p)
+    return directed_margin(v, p)
+
+
+def _decisive(b, fmt, mode):
+    """If the Arb ball `b` rounds its lower and upper endpoints to the
+    SAME value under `mode`, the correctly-rounded result is
+    established (monotone rounding ⇒ every real in the enclosure, and
+    so the true value, rounds there). Returns
+    (out_s, rad, margin) or None (straddles a boundary, not finite, or
+    the result is out of the format's range)."""
+    p = fmt["prec"]
+    lo = frac_of_point(b.lower())
+    hi = frac_of_point(b.upper())
+    if lo is None or hi is None:
+        return None
+    rl = _round_mode(lo, p, mode)
+    rh = _round_mode(hi, p, mode)
+    if rl is None or rl != rh:
+        return None
+    sign, q, E = rl
+    ds = str(q)
+    adj = E + (len(ds) - 1)
+    # The correctly-rounded result must itself be in the format's
+    # range; an overflow/underflow has no single representable value
+    # to freeze.
+    if not (fmt["emin"] <= adj <= fmt["emax"]):
+        return None
+    out_s = "%s%s.%se%d" % ("-" if sign < 0 else "", ds[0], ds[1:], adj)
+    try:
+        rad = float(b.rad()) if hasattr(b, "rad") else float(hi - lo)
+    except Exception:
+        rad = float(hi - lo)
+    return (out_s, rad, _margin_mode(lo, p, mode))
+
+
+def solve(name, fn, coef, exp, neg, fmt, mode="NearestEven"):
     """Smallest Arb precision at which f(coef·10^exp) is decisive at
-    the format precision. Returns (output_str, P_bits, radius, margin)
-    or None (out of domain, input not exactly representable, result
-    out of the format's range, or TMD-hard past the cap)."""
+    the format precision under `mode`. Returns
+    (output_str, P_bits, radius, margin) or None (out of domain, input
+    not exactly representable, result out of range, or TMD-hard past
+    the cap). The NearestEven path is numerically identical to the
+    fd-cb6 generator."""
     p = fmt["prec"]
     if not in_domain(name, coef, exp, neg):
         return None
@@ -478,29 +461,325 @@ def solve(name, fn, coef, exp, neg, fmt):
                 b = fn(arb(x))
         except Exception:
             return None
-        lo = frac_of_point(b.lower())
-        hi = frac_of_point(b.upper())
-        if lo is None or hi is None:
+        d = _decisive(b, fmt, mode)
+        if d is not None:
+            out_s, rad, margin = d
+            return (out_s, P, rad, margin)
+        if frac_of_point(b.lower()) is None or frac_of_point(b.upper()) is None:
             return None
-        rl = round_half_even_sig(lo, p)
-        rh = round_half_even_sig(hi, p)
-        if rl is not None and rl == rh:
-            sign, q, E = rl
-            ds = str(q)
-            adj = E + (len(ds) - 1)
-            # The correctly-rounded result must itself be in the
-            # format's range; an overflow/underflow has no single
-            # representable value to freeze.
-            if not (fmt["emin"] <= adj <= fmt["emax"]):
-                return None
-            out_s = "%s%s.%se%d" % ("-" if sign < 0 else "", ds[0], ds[1:], adj)
-            try:
-                rad = float(b.rad()) if hasattr(b, "rad") else float(hi - lo)
-            except Exception:
-                rad = float(hi - lo)
-            return (out_s, P, rad, tie_margin(lo, p))
         P *= 2
     return None
+
+
+# --- binary surface: pow(x, y) and atan2(y, x) (fd-97a) ---
+#
+# pow's hard-to-round structure is in y·ln x, so its working precision
+# is boosted by the magnitudes of *both* operands; atan2 cancels near
+# the axes, the same way trig argument reduction does. Each is one
+# certified Arb call (no composed reconstruction that would inject
+# extra rounding into the proof).
+BIN_FUNCS = {
+    "pow": lambda ax, ay: ax ** ay,
+    "atan2": lambda ax, ay: arb.atan2(ay, ax),  # atan2(s=y, t=x)
+}
+
+
+def bin_in_domain(name, xt, yt):
+    (xc, _xe, xn) = xt
+    if name == "pow":
+        # Real pow needs a positive base (x > 0); the scan/representor
+        # only ever offers x ≥ 0, this rejects a zero coefficient.
+        return (not xn) and xc != 0
+    # atan2 is defined everywhere except (0, 0); coefficients are ≥ 1,
+    # so the pair is never the origin.
+    return True
+
+
+def solve_binary(name, fn2, xt, yt, fmt, mode):
+    """Smallest Arb precision at which f(x, y) is decisive under
+    `mode`. Returns (output_str, P_bits, radius, margin) or None."""
+    (xc, xe, xn) = xt
+    (yc, ye, yn) = yt
+    if not bin_in_domain(name, xt, yt):
+        return None
+    if not (representable(xc, xe, fmt) and representable(yc, ye, fmt)):
+        return None
+    if name == "pow":
+        # Reject wildly out-of-range scan samples *before* any Arb
+        # call: pow(x, y) ≈ 10^(y·log10 x), and an enormous result
+        # would build a multi-million-digit exact Fraction endpoint
+        # that the rounding helper cannot stringify. The Arb loop and
+        # _decisive still enforce exact in-range representability.
+        rx = (-1 if xn else 1) * xc * (10.0 ** xe)
+        ry = (-1 if yn else 1) * yc * (10.0 ** ye)
+        if rx <= 0:
+            return None
+        approx = ry * math.log10(rx)
+        if abs(approx) > fmt["emax"] + 8:
+            return None
+    x = frac10(xc, xe)
+    if xn:
+        x = -x
+    y = frac10(yc, ye)
+    if yn:
+        y = -y
+    xmag = abs(decimal_magnitude(xc, xe))
+    ymag = abs(decimal_magnitude(yc, ye))
+    # pow: error ~ enters through y·ln x; atan2: axis cancellation.
+    extra = int((xmag + ymag) * 3.34) + 32
+    P = 64 + extra
+    while P <= CAP_BITS:
+        ctx.prec = P
+        try:
+            b = fn2(arb(x), arb(y))
+        except Exception:
+            return None
+        d = _decisive(b, fmt, mode)
+        if d is not None:
+            out_s, rad, margin = d
+            return (out_s, P, rad, margin)
+        if frac_of_point(b.lower()) is None or frac_of_point(b.upper()) is None:
+            return None
+        P *= 2
+    return None
+
+
+def binary_representative(name):
+    """Fixed decimal-exact (x_triple, y_triple) anchor pairs (≤ 7
+    significant digits ⇒ exact in every format; solve_binary also
+    enforces representability)."""
+    if name == "pow":
+        xs = [
+            (2, 0, False), (3, 0, False), (15, -1, False),
+            (5, -1, False), (125, -2, False), (1_234_567, -6, False),
+        ]
+        ys = [
+            (2, 0, False), (3, 0, False), (5, -1, False),
+            (15, -1, False), (1, 0, True), (25, -1, False),
+        ]
+        return [(x, y) for x in xs for y in ys]
+    pts = [
+        (1, 0, False), (1, 0, True), (2, 0, False),
+        (5, -1, False), (15, -1, False), (1_234_567, -6, False),
+    ]
+    return [(a, b) for a in pts for b in pts]
+
+
+def _scan_arg(rng, p, lo, hi, signed):
+    coef = rng.randrange(1, 10 ** min(p, 8))
+    exp = rng.randrange(lo, hi)
+    neg = signed and (rng.random() < 0.5)
+    return (coef, exp, neg)
+
+
+def emit():
+    _require_flint()
+    os.makedirs(OUT_DIR, exist_ok=True)
+    # name -> list of entry tuples
+    #   (fmt_idx, mode_idx, sortkey, prec, mode, in_s, in2_s, out, P,
+    #    rad, margin)
+    # in2_s is None for the unary functions.
+    acc = {name: [] for name in list(FUNCS) + list(BINARY)}
+    fmt_order = {k: i for i, k in enumerate(FORMATS)}
+    mode_idx = {m: i for i, m in enumerate(MODES_ALL)}
+
+    # --- Pass 1: NearestEven, unary. The legacy candidate/scan path
+    # with the legacy rng, so the NE corpus content is byte-stable
+    # (only the new mode token and the headers differ); the directed
+    # and binary passes draw from independent streams below so they
+    # cannot perturb this one. ---
+    rng = random.Random(SEED)
+    for name, fn in FUNCS.items():
+        for fkey, fmt in FORMATS.items():
+            p = fmt["prec"]
+            cand = []
+            for (coef, exp, neg) in representative(name) + decades(name, fmt):
+                cand.append((coef, exp, neg))
+            scanned = []
+            for _ in range(TMD_SCAN):
+                coef = rng.randrange(1, 10 ** min(p, 8))
+                if name in UNIT:
+                    exp = -(len(str(coef)))  # |x| < 1
+                    neg = (name == "atanh") and (rng.random() < 0.5)
+                elif name in GE_ONE:
+                    exp = rng.randrange(0, 6)
+                    neg = False
+                elif name in POSITIVE:
+                    exp = rng.randrange(-6, 7)
+                    neg = False
+                elif name in ("exp", "exp2", "sinh", "cosh"):
+                    exp = rng.randrange(-4, 4)
+                    neg = rng.random() < 0.5
+                else:
+                    exp = rng.randrange(-6, 9)
+                    neg = rng.random() < 0.5
+                r = solve(name, fn, coef, exp, neg, fmt)
+                if r is not None:
+                    scanned.append((r[3], coef, exp, neg))
+            scanned.sort(key=lambda t: (t[0], t[1], t[2], t[3]))
+            for (_m, coef, exp, neg) in scanned[:TMD_KEEP]:
+                cand.append((coef, exp, neg))
+
+            seen = set()
+            for (coef, exp, neg) in cand:
+                key = (coef, exp, neg)
+                if key in seen:
+                    continue
+                seen.add(key)
+                r = solve(name, fn, coef, exp, neg, fmt)
+                if r is None:
+                    continue
+                out_s, P, rad, margin = r
+                in_s = "%s%de%d" % ("-" if neg else "", coef, exp)
+                acc[name].append((
+                    fmt_order[fkey], mode_idx["NearestEven"],
+                    (exp, coef, neg), p, "NearestEven", in_s, None,
+                    out_s, P, rad, margin,
+                ))
+
+    # --- Pass 2: directed modes, the bounded unary subset. ---
+    rng_d = random.Random(SEED_DIRECTED)
+    for name in DIRECTED_FUNCS:
+        fn = FUNCS[name]
+        for mode in DIRECTED_MODES:
+            for fkey, fmt in FORMATS.items():
+                p = fmt["prec"]
+                cand = []
+                for (coef, exp, neg) in representative(name) + decades(name, fmt):
+                    cand.append((coef, exp, neg))
+                scanned = []
+                for _ in range(TMD_SCAN_DIRECTED):
+                    coef = rng_d.randrange(1, 10 ** min(p, 8))
+                    if name in POSITIVE:
+                        exp = rng_d.randrange(-6, 7)
+                        neg = False
+                    elif name == "exp":
+                        exp = rng_d.randrange(-4, 4)
+                        neg = rng_d.random() < 0.5
+                    else:
+                        exp = rng_d.randrange(-6, 9)
+                        neg = rng_d.random() < 0.5
+                    r = solve(name, fn, coef, exp, neg, fmt, mode)
+                    if r is not None:
+                        scanned.append((r[3], coef, exp, neg))
+                scanned.sort(key=lambda t: (t[0], t[1], t[2], t[3]))
+                for (_m, coef, exp, neg) in scanned[:TMD_KEEP_DIRECTED]:
+                    cand.append((coef, exp, neg))
+
+                seen = set()
+                for (coef, exp, neg) in cand:
+                    key = (coef, exp, neg)
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    r = solve(name, fn, coef, exp, neg, fmt, mode)
+                    if r is None:
+                        continue
+                    out_s, P, rad, margin = r
+                    in_s = "%s%de%d" % ("-" if neg else "", coef, exp)
+                    acc[name].append((
+                        fmt_order[fkey], mode_idx[mode],
+                        (exp, coef, neg), p, mode, in_s, None,
+                        out_s, P, rad, margin,
+                    ))
+
+    # --- Pass 3: binary pow/atan2, NearestEven + directed, 2-D TMD. ---
+    rng_b = random.Random(SEED_BINARY)
+    for name in BINARY:
+        fn2 = BIN_FUNCS[name]
+        for mode in MODES_ALL:
+            for fkey, fmt in FORMATS.items():
+                p = fmt["prec"]
+                cand = list(binary_representative(name))
+                scanned = []
+                for _ in range(TMD_SCAN_BINARY):
+                    if name == "pow":
+                        xt = _scan_arg(rng_b, p, -3, 4, False)
+                        yt = _scan_arg(rng_b, p, -2, 3, True)
+                    else:
+                        xt = _scan_arg(rng_b, p, -6, 7, True)
+                        yt = _scan_arg(rng_b, p, -6, 7, True)
+                    r = solve_binary(name, fn2, xt, yt, fmt, mode)
+                    if r is not None:
+                        scanned.append((r[3], xt, yt))
+                scanned.sort(key=lambda t: (t[0], t[1], t[2]))
+                for (_m, xt, yt) in scanned[:TMD_KEEP_BINARY]:
+                    cand.append((xt, yt))
+
+                seen = set()
+                for (xt, yt) in cand:
+                    if (xt, yt) in seen:
+                        continue
+                    seen.add((xt, yt))
+                    r = solve_binary(name, fn2, xt, yt, fmt, mode)
+                    if r is None:
+                        continue
+                    out_s, P, rad, margin = r
+                    (xc, xe, xn) = xt
+                    (yc, ye, yn) = yt
+                    in_s = "%s%de%d" % ("-" if xn else "", xc, xe)
+                    in2_s = "%s%de%d" % ("-" if yn else "", yc, ye)
+                    acc[name].append((
+                        fmt_order[fkey], mode_idx[mode],
+                        (xe, xc, xn, ye, yc, yn), p, mode, in_s,
+                        in2_s, out_s, P, rad, margin,
+                    ))
+
+    for name in list(FUNCS) + list(BINARY):
+        entries = sorted(acc[name], key=lambda e: (e[0], e[1], e[2]))
+        vec_lines = []
+        prov_lines = []
+        for (_fi, _mi, _sk, p, mode, in_s, in2_s, out_s, P, rad, margin) in entries:
+            label = "margin" if mode == "NearestEven" else "boundary"
+            if in2_s is None:
+                vec_lines.append("%d %s %s %s" % (p, mode, in_s, out_s))
+                prov_lines.append(
+                    "%d %s %s P=%d rad=%.3e %s=%.3e decisive"
+                    % (p, mode, in_s, P, rad, label, margin)
+                )
+            else:
+                vec_lines.append(
+                    "%d %s %s %s %s" % (p, mode, in_s, in2_s, out_s)
+                )
+                prov_lines.append(
+                    "%d %s %s %s P=%d rad=%.3e %s=%.3e decisive"
+                    % (p, mode, in_s, in2_s, P, rad, label, margin)
+                )
+
+        with open(os.path.join(OUT_DIR, name + ".txt"), "w") as f:
+            f.write(
+                "# Arb/FLINT certified frozen vectors for `%s` "
+                "(ADR-0026, fd-cb6; directed + binary fd-97a).\n"
+                "# Unary line: <prec> <mode> <input> "
+                "<correctly-rounded-output>.\n"
+                "# Binary line (pow, atan2): <prec> <mode> <input1> "
+                "<input2> <output>.\n"
+                "# Output is the proven correctly-rounded value under "
+                "<mode> at <prec>\n# significant digits; see %s.prov "
+                "for the enclosure provenance.\n"
+                "# Mathematical fact, not copyrightable expression; "
+                "MPFR cross-validates\n# the same values (Phase 3). "
+                "Regenerate: tools/gen_transcend_vectors.py\n"
+                % (name, name)
+            )
+            f.write("\n".join(vec_lines))
+            f.write("\n")
+        with open(os.path.join(OUT_DIR, name + ".prov"), "w") as f:
+            f.write(
+                "# Enclosure provenance for `%s.txt` (ADR-0026, "
+                "fd-97a). P = Arb\n# working precision (bits) at which "
+                "the enclosure became decisive;\n# rad = ball radius. "
+                "For NearestEven, margin = fractional-ULP\n# distance "
+                "of the true value from the nearest half-ULP tie; for "
+                "the\n# directed modes, boundary = distance from the "
+                "nearest p-digit grid\n# point (the directed "
+                "Table-Maker's-Dilemma worst case). small ⇒ hard\n# to "
+                "round. `decisive` ⇒ the correctly-rounded value is "
+                "established,\n# not sampled.\n" % name
+            )
+            f.write("\n".join(prov_lines))
+            f.write("\n")
+        sys.stderr.write("%-7s %d vectors\n" % (name, len(vec_lines)))
 
 
 CASES_PATH = os.path.join(
