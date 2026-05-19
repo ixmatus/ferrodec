@@ -21,6 +21,12 @@
 //! the original IEEE 754-2008 `minNum` / `maxNum` both defined the
 //! NaN-as-missing-value semantics, and that is what callers expect.
 //! `−0 < +0` for the cohort tie-break.
+//!
+//! [`Decimal128::min_magnitude`] and [`Decimal128::max_magnitude`]
+//! are the §9.6 `minimumMagnitudeNumber` / `maximumMagnitudeNumber`
+//! operations: the operand of smaller (respectively larger)
+//! *numeric* magnitude, deferring to `min` / `max` on an
+//! equal-magnitude tie so the sign and cohort rules stay identical.
 
 use core::cmp::Ordering;
 
@@ -197,6 +203,78 @@ impl Decimal128 {
             Ordering::Less => other,
         };
         (result, Status::OK)
+    }
+
+    /// `minimumMagnitude(x, y)` per IEEE 754-2019 §9.6, the
+    /// `minimumMagnitudeNumber` (NaN-as-missing-value) variant
+    /// consistent with [`Decimal128::min`] = `minimumNumber`.
+    ///
+    /// The operand of smaller magnitude wins: `|x|` and `|y|` are
+    /// compared *numerically*, so cohort does not matter
+    /// (`minMagnitude(1.0, 1.00)` is a magnitude tie, not an
+    /// ordering). On equal magnitude the result falls back to
+    /// [`Decimal128::min`], so the sign and cohort tie-break match
+    /// `minimum` exactly (`minMagnitude(-2, 2) = -2`). NaN handling
+    /// is identical to `min`: a signaling NaN poisons the result
+    /// with `INVALID` (first-sNaN wins, payload preserved per
+    /// §6.2.3); a quiet NaN is the missing value and yields the
+    /// other operand; two quiet NaNs yield NaN.
+    #[inline]
+    #[must_use]
+    pub fn min_magnitude(self, other: Self) -> (Self, Status) {
+        if self.is_signaling_nan() {
+            return (nan_from(self), Status::INVALID);
+        }
+        if other.is_signaling_nan() {
+            return (nan_from(other), Status::INVALID);
+        }
+        if self.is_nan() && other.is_nan() {
+            return (Self::NAN, Status::OK);
+        }
+        if self.is_nan() {
+            return (other, Status::OK);
+        }
+        if other.is_nan() {
+            return (self, Status::OK);
+        }
+        match numeric_cmp(self.abs(), other.abs()) {
+            Ordering::Less => (self, Status::OK),
+            Ordering::Greater => (other, Status::OK),
+            // Magnitudes numerically equal: defer to `minimum`, which
+            // applies the totalOrder sign / cohort tie-break (and is
+            // already conformance-validated).
+            Ordering::Equal => self.min(other),
+        }
+    }
+
+    /// `maximumMagnitude(x, y)` per IEEE 754-2019 §9.6, the
+    /// `maximumMagnitudeNumber` variant; symmetric to
+    /// [`Decimal128::min_magnitude`] and falling back to
+    /// [`Decimal128::max`] on an equal-magnitude tie
+    /// (`maxMagnitude(-2, 2) = 2`).
+    #[inline]
+    #[must_use]
+    pub fn max_magnitude(self, other: Self) -> (Self, Status) {
+        if self.is_signaling_nan() {
+            return (nan_from(self), Status::INVALID);
+        }
+        if other.is_signaling_nan() {
+            return (nan_from(other), Status::INVALID);
+        }
+        if self.is_nan() && other.is_nan() {
+            return (Self::NAN, Status::OK);
+        }
+        if self.is_nan() {
+            return (other, Status::OK);
+        }
+        if other.is_nan() {
+            return (self, Status::OK);
+        }
+        match numeric_cmp(self.abs(), other.abs()) {
+            Ordering::Greater => (self, Status::OK),
+            Ordering::Less => (other, Status::OK),
+            Ordering::Equal => self.max(other),
+        }
     }
 }
 
@@ -634,6 +712,50 @@ mod tests {
         let (r, st) = lhs_snan.min(rhs_snan);
         assert!(st.invalid());
         assert_eq!(r.to_bits() & T_MASK, 0xAAAA);
+    }
+
+    #[test]
+    fn min_max_magnitude_basic() {
+        // decTest ddMaxMag/ddMinMag semantics: smaller / larger
+        // numeric magnitude, equal magnitude defers to min / max.
+        let two = Decimal128::try_new(2, 0).unwrap();
+        let neg_two = two.neg();
+        let one = Decimal128::ONE;
+
+        // |−2| > |1| → minMagnitude picks 1, maxMagnitude picks −2.
+        let (lo, st) = neg_two.min_magnitude(one);
+        assert!(st.is_ok());
+        assert_eq!(lo.to_bits(), one.to_bits());
+        let (hi, st) = neg_two.max_magnitude(one);
+        assert!(st.is_ok());
+        assert_eq!(hi.to_bits(), neg_two.to_bits());
+
+        // |−2| == |2| → tie defers to min / max: minimum(−2,2) = −2,
+        // maximum(−2,2) = 2.
+        assert_eq!(neg_two.min_magnitude(two).0.to_bits(), neg_two.to_bits());
+        assert_eq!(two.max_magnitude(neg_two).0.to_bits(), two.to_bits());
+
+        // Cohort tie (1.0 vs 1.00): magnitudes numerically equal, so
+        // the result is whatever min / max yields, never a panic or a
+        // wrong-cohort pick.
+        let a = Decimal128::try_new(10, -1).unwrap(); // 1.0
+        let b = Decimal128::try_new(100, -2).unwrap(); // 1.00
+        let (m, st) = a.min_magnitude(b);
+        assert!(st.is_ok());
+        assert_eq!(m.to_bits(), a.min(b).0.to_bits());
+    }
+
+    #[test]
+    fn min_max_magnitude_nan() {
+        // qNaN is the missing value; sNaN poisons with INVALID.
+        let (r, st) = Decimal128::ONE.min_magnitude(Decimal128::NAN);
+        assert_eq!(r.to_bits(), Decimal128::ONE.to_bits());
+        assert!(st.is_ok());
+        let (r, st) = Decimal128::ONE.max_magnitude(Decimal128::SIGNALING_NAN);
+        assert!(r.is_nan());
+        assert!(st.invalid());
+        let (r, _) = Decimal128::NAN.min_magnitude(Decimal128::NAN);
+        assert!(r.is_nan());
     }
 
     #[test]
