@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `Decimal64::fma` / `Decimal32::fma`: subnormal results are now
+  single-rounded. The funnel rounded the exact product to the
+  format's normal precision and then re-rounded into the subnormal
+  quantum; a residue straddling the two rounding boundaries was
+  collapsed into an exact tie and carried the wrong way (e.g. d64
+  `fma(2.064141013983096e-361, 8.386823222860694e-24, +0e+113)`
+  ended `…326` for the correctly-rounded `…327`). Both siblings now
+  drop to the wider of the precision and subnormal-quantum
+  requirements in one rounding, the IEEE 754-2019 single-rounding
+  contract, matching the parent `Decimal128`. Surfaced by the
+  standing fd-dpg exact-oracle sweep; ADR-0030.
+
 ## [1.17.0] - 2026-05-18
 
 ### Added
