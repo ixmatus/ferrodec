@@ -85,6 +85,16 @@ const fn expected_per_file() -> &'static [(&'static str, usize)] {
         // fd-37z: copy family wired. Non-signaling bit ops; the
         // files have no `#`-hex or non-IEEE-rounding cases, so every
         // case dispatches and passes.
+        // fd-37z: `ddCanonical.decTest` is wholly DPD-hex encoded
+        // (every operand and expected is a `#…` DPD pattern, both
+        // the `apply` and `canonical` cases). Decimal64 has no DPD
+        // codec and no `dpd` feature, so every case Skips on the
+        // `#`-hex guard and none reaches `canonicalize`. The
+        // `canonical` dispatch arm is correct and forward-useful;
+        // this file stays at 0 until a Decimal64 DPD codec lands
+        // (fd-bef). Pinned at 0 as a regression guard: it will trip
+        // and demand a re-pin when that codec arrives.
+        ("ddCanonical.decTest", 0),
         ("ddCopy.decTest", 43),
         ("ddCopyAbs.decTest", 43),
         ("ddCopyNegate.decTest", 43),
@@ -165,6 +175,13 @@ fn run_case(case: &TestCase, ctx: &Context) -> Outcome {
         // bit. The degenerate copy-family member; never raises a
         // flag.
         "copy" => run_copy_unary(case, ctx, |d| d),
+        // decTest `canonical`: ferrodec stores BID, which is always
+        // canonical, so `Decimal64::canonicalize` is effectively the
+        // identity, but route through it for fidelity. Never raises
+        // a flag. `ddCanonical.decTest` is a mixed-op file; its
+        // count is cumulative over every arm above (the `comparesig`
+        // cases remain Skip, no `compare_signaling` yet).
+        "canonical" => run_copy_unary(case, ctx, Decimal64::canonicalize),
         _ => Outcome::Skip,
     }
 }
