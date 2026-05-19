@@ -54,7 +54,7 @@ assert!(s.inexact()); // exp(1) is irrational; rounded to 16 digits.
 | Encoding (arithmetic) | BID (binary integer significand) |
 
 Form A (coefficient < 2⁵³) and Form B (coefficient ∈ [2⁵³, 10¹⁶))
-are both canonical for BID-64 — unlike BID-128 where Form B is
+are both canonical for BID-64, unlike BID-128, where Form B is
 non-canonical. Form B encodings of coefficients ≥ 10¹⁶ canonicalise
 to ±0 with the encoded sign and biased exponent, per IEEE 754-2019
 §3.5.2.
@@ -90,7 +90,11 @@ narrower exponent range rarely triggers it.
   `INFINITY`, `NEG_INFINITY`, `NAN`, `SIGNALING_NAN`.
 - **§5 arithmetic**: `add`, `sub`, `mul`, `div`, `rem`, `sqrt`, `fma`.
 - **§5 comparison**: `partial_cmp`, `total_cmp`,
-  `compare_total_magnitude`, `min`, `max`.
+  `compare_total_magnitude`.
+- **§9.6 selection**: `min`, `max` (`minimumNumber` /
+  `maximumNumber`), `min_magnitude`, `max_magnitude` (the magnitude
+  variants, deferring to `min` / `max` on an equal-magnitude tie;
+  ADR-0028).
 - **§5 quantum**: `quantize`, `scaleb`, `logb`, `next_up`, `next_down`.
 - **§5 classification**: `is_nan`, `is_infinite`, `is_finite`,
   `is_zero`, `is_normal`, `is_subnormal`, `is_sign_positive`,
@@ -136,7 +140,7 @@ Tested in CI on:
 
 - Linux x86_64 (Ubuntu)
 - macOS aarch64 (M-series)
-- `thumbv6m-none-eabi` (Cortex-M0+ floor) — cross-compiled with
+- `thumbv6m-none-eabi` (Cortex-M0+ floor), cross-compiled with
   `--no-default-features` through `--all-features`.
 
 `#![no_std]`, no allocation. Embeddable on any target Rust supports.
@@ -146,17 +150,17 @@ MSRV: Rust 1.84.
 
 | Pillar | Coverage |
 | --- | --- |
-| Conformance vectors | 712 of 14,428 IBM decTest cases pass for the toSci / parse / format / classify surface in v1.0; additional dispatch arms light up the remaining 13,716 skips as later commits wire them in. 0 fail. |
-| Unit tests | 208 tests covering hand-derived expected values for every operation, special cases, sign rules, and rounding boundaries. |
+| Conformance vectors | The runner consumes every `dd*.decTest` file from the IBM / Speleotrove suite. Pass and skip counts move as dispatch arms are wired in (add/sub/mul/div/fma, the comparison and quantum surface, `rem` / `rem_near`, roundToIntegral, the copy family, and the §9.6 magnitude operations are dispatched); the invariant is zero failures. |
+| Unit tests | Hand-derived expected values for every operation, special cases, sign rules, and rounding boundaries. |
 | Property tests | Round-trip `parse_str → Display`. |
-| Kani harnesses | Six modules (addsub, mul, div, sqrt, fma, cmp) prove no-panic and IEEE 754 special-case propagation across a 10-constant operand set. Run via `cargo kani --package ferrodec-decimal64 --features=transcendentals`. |
+| Kani harnesses | Per-operation modules (addsub, mul, div, sqrt, fma, cmp) prove no-panic and IEEE 754 special-case propagation over a bounded operand set. Run via `cargo kani --package ferrodec-decimal64 --features=transcendentals`. |
 | Fuzz | Four cargo-fuzz targets (parse, arith, transcendentals, total_cmp) covering panic-freedom and algebraic-identity invariants over arbitrary u64 bit patterns. |
 
 ## Why no `core::ops` (and how to opt in)
 
 By default, `Decimal64` does *not* implement `+`, `-`, `*`, `/`, `%`.
 Every operation in IEEE 754 has a *rounding mode* and a *status flag
-set* — values arithmetic operators don't carry. The explicit method
+set*. Values arithmetic operators don't carry. The explicit method
 form (`a.add(b, rm)` returning `(Decimal64, Status)`) makes both
 visible at the call site.
 
@@ -164,7 +168,7 @@ For callers migrating from `f64` or `rust_decimal` who prefer the
 operator surface, enable the `ops` feature: it implements `Add`,
 `Sub`, `Mul`, `Div`, `Rem`, `Neg`, and the `*Assign` variants.
 Default rounding is `NearestEven`; the `Status` is dropped. Mix and
-match — `let (sum, st) = a.add(b, mode);` and `let sum = a + b;`
+match: `let (sum, st) = a.add(b, mode);` and `let sum = a + b;`
 both compile when `ops` is on.
 
 ## Choosing between ferrodec / ferrodec-decimal64 / `rust_decimal`
@@ -187,7 +191,7 @@ The numeric value is portable across `ferrodec` (Decimal128), `ferrodec-decimal6
   Form B both carry canonical values; the canonicalisation rules
   are documented in `src/bid.rs`.
 - All arithmetic routes through `round_and_pack_finite` in
-  `src/ops/round.rs` — a single source of truth for digit drop with
+  `src/ops/round.rs`: a single source of truth for digit drop with
   guard / sticky tracking, IEEE 754 rounding-direction application,
   IEEE 754-2019 §6.3 exponent clamping, and `INEXACT` / `OVERFLOW` /
   `UNDERFLOW` flag emission.

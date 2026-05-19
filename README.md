@@ -9,14 +9,14 @@ An IEEE 754 (2019) Decimal128 library for Rust, designed for two audiences: embe
 
 This repository hosts the ferrodec family of canonical pure-Rust IEEE 754 decimal types:
 
-- **[`ferrodec`](https://crates.io/crates/ferrodec)** — Decimal128 (this README's subject). 34-digit precision, exponent range `10⁻⁶¹⁴³..=10⁺⁶¹⁴⁴`. The reference implementation; production-ready.
-- **[`ferrodec-decimal32`](ferrodec-decimal32/)** — Decimal32. 7-digit precision, exponent range `10⁻¹⁰¹..=10⁹⁶`. Sized for embedded telemetry, small-ledger reporting, and footprint-sensitive applications.
-- **[`ferrodec-decimal64`](ferrodec-decimal64/)** — Decimal64. 16-digit precision, exponent range `10⁻³⁸³..=10⁺³⁸⁴`. The natural sweet spot for financial general-ledger arithmetic and scientific aggregates that outgrow Decimal32's 7 digits without needing Decimal128's 128 bits.
+- **[`ferrodec`](https://crates.io/crates/ferrodec)**: Decimal128 (this README's subject). 34-digit precision, exponent range `10⁻⁶¹⁴³..=10⁺⁶¹⁴⁴`. The reference implementation; production-ready.
+- **[`ferrodec-decimal32`](ferrodec-decimal32/)**: Decimal32. 7-digit precision, exponent range `10⁻¹⁰¹..=10⁹⁶`. Sized for embedded telemetry, small-ledger reporting, and footprint-sensitive applications.
+- **[`ferrodec-decimal64`](ferrodec-decimal64/)**: Decimal64. 16-digit precision, exponent range `10⁻³⁸³..=10⁺³⁸⁴`. The natural sweet spot for financial general-ledger arithmetic and scientific aggregates that outgrow Decimal32's 7 digits without needing Decimal128's 128 bits.
 
 Plus two workspace-internal crates that the three public crates share:
 
-- **[`ferrodec-ieee`](ferrodec-ieee/)** — the shared IEEE 754-2019 metadata types (`Status`, `RoundingMode`, `IeeeClass`). All three sibling crates re-export from here, so values flow across precisions without conversion. See [ADR-0012](docs/decisions/0012-extract-ferrodec-ieee.md).
-- **[`ferrodec-test-support`](ferrodec-test-support/)** — the IBM decTest harness scaffolding (parser, directive accumulator, expectation guard, run-suite driver). Workspace-internal only (`publish = false`); not part of any consumer's published surface. See [ADR-0013](docs/decisions/0013-conformance-harness-consolidation.md).
+- **[`ferrodec-ieee`](ferrodec-ieee/)**: the shared IEEE 754-2019 metadata types (`Status`, `RoundingMode`, `IeeeClass`). All three sibling crates re-export from here, so values flow across precisions without conversion. See [ADR-0012](docs/decisions/0012-extract-ferrodec-ieee.md).
+- **[`ferrodec-test-support`](ferrodec-test-support/)**: the IBM decTest harness scaffolding (parser, directive accumulator, expectation guard, run-suite driver). Workspace-internal only (`publish = false`); not part of any consumer's published surface. See [ADR-0013](docs/decisions/0013-conformance-harness-consolidation.md).
 
 Each public sibling stands alone on crates.io with its own version cadence. They share the verification methodology documented in `docs/decisions/` and the workspace-level lint / MSRV / license discipline.
 
@@ -52,7 +52,8 @@ conformance counts change as the project evolves. Significant decisions are reco
 blocks carry a written justification at the call site.
 
 **Scope.** ferrodec is a personal project consisting of a core crate and the ferrodec-decimal32, ferrodec-decimal64,
-and ferrodec-ieee member crates in the same workspace; this disclosure covers all of them. The lead consumer is
+ferrodec-ieee, ferrodec-transcend, and ferrodec-multiword member crates in the same workspace, together with the
+dev-only ferrodec-test-support crate; this disclosure covers all of them. The lead consumer is
 Parnell's own embedded calculator firmware on STM32U class hardware; durability and quality are goals, but this is not
 a funded library with a maintenance team behind it. The published versions on crates.io are yanked; the repository
 remains public for users who want to read or fork the work.
@@ -161,7 +162,7 @@ The named constants: `Decimal128::ZERO`, `NEG_ZERO`, `ONE`, `NEG_ONE`, `TEN`, `M
 
 ### Sign and ordering
 
-`abs`, `neg`, `copysign`, `signum`. For ordering, `partial_cmp` provides numeric comparison and returns `(Option<Ordering>, Status)`; `total_cmp` provides the IEEE 754:2019 totalOrder predicate over all bit patterns, including NaN payloads. `compare_total_magnitude(other)` does the same on `|self|` and `|other|`.
+`abs`, `neg`, `copysign`, `signum`. For ordering, `partial_cmp` provides numeric comparison and returns `(Option<Ordering>, Status)`; `total_cmp` provides the IEEE 754:2019 totalOrder predicate over all bit patterns, including NaN payloads. `compare_total_magnitude(other)` does the same on `|self|` and `|other|`. The IEEE 754:2019 §9.6 selection operations are `min` and `max` (the `minimumNumber` / `maximumNumber` variant: a quiet NaN is the missing value, a signaling NaN raises `INVALID`) and `min_magnitude` / `max_magnitude` (the same decision on `|self|` versus `|other|`, deferring to `min` / `max` on an equal-magnitude tie; ADR-0028).
 
 ### Arithmetic
 
@@ -209,10 +210,10 @@ ferrodec compiles for any target Rust 1.84 supports. Three targets exercise on e
 
 ferrodec leans on five overlapping verification stacks.
 
-1. **Unit tests** (`cargo test`). 376 tests in the library plus per module integration suites and a doctest set on the public API.
-2. **Property tests** (proptest). Twelve files cover add/sub/mul/div/sqrt/rem, exp, ln, sincos, the inverse and hyperbolic functions, pow, the binary float conversions, and the addsub alignment edge case. Each cross checks against `astro-float`, a pure Rust arbitrary precision oracle, at the documented per function envelope.
-3. **Conformance vectors** (`tests/conformance.rs`). The runner consumes every `dq*.decTest` file from Mike Cowlishaw's [General Decimal Arithmetic Testcases](https://speleotrove.com/decimal/dectest.html). At the `--features=transcendentals` baseline ferrodec passes **8 622 / 0 / 99** across 8 721 cases; the 99 residual skips are all under non-IEEE rounding directives (`half_down`, `05up` — the will-not-fix category from [ADR-0005](docs/decisions/0005-half-down-05up-wontfix.md)). Adding `--features=dpd` enables the DPD-encoded `dqEncode.decTest` (368 cases) and `dqCanonical.decTest` (244 cases) and the runner climbs to **9 080 / 0 / 253**, again with zero failures; the additional skips are GDA bit-level operations (`copy`, `invert`, `and`/`or`/`xor`, `rotate`, `shift`, `comparesig`, …) outside ferrodec's current dispatch surface and outside the DPD-interchange scope.
-4. **Formal verification** (Kani, behind `--features=kani`). 66 harnesses prove NaN propagation, sign rules, special value invariants, encode/decode round trips (BID and, with `--features=dpd`, DPD totality plus the special-value DPD round-trip), basic arithmetic identities for the IEEE special case dispatch paths, the IEEE 754:2019 §5.7.2 / §5.4.2 canonical predicates as a projection (`is_canonical` ⇔ `canonicalize`-fixed-point, idempotence), the §5.10 total-magnitude reflexivity / antisymmetry, `try_new`'s in-range / out-of-range dispatch, and `total_cmp` antisymmetry on the same-cohort same-sign finite-finite domain. The arithmetic-pipeline harnesses use bounded operand shims (`*_special_only_for_kani`) so CBMC need not reason about the alignment and rounding loops.
+1. **Unit tests** (`cargo test`). The in-library unit suite plus per module integration suites and a doctest set on the public API. Counts move as the surface grows; the invariant is a green suite.
+2. **Property tests** (proptest). The property files cover add/sub/mul/div/sqrt/rem, exp, ln, sincos, the inverse and hyperbolic functions, pow, the binary float conversions, and the addsub alignment edge case. Each cross checks against `astro-float`, a pure Rust arbitrary precision oracle, at the documented per function envelope.
+3. **Conformance vectors** (`tests/conformance.rs`). The runner consumes every `dq*.decTest` file from Mike Cowlishaw's [General Decimal Arithmetic Testcases](https://speleotrove.com/decimal/dectest.html); the sibling crates do the same for their `dd*` / `ds*` files. Pass and skip counts move as dispatch arms are wired in; the invariant is zero failures. Two residual skip categories are by design. The non-IEEE rounding directives (`half_down`, `05up`) are the will-not-fix category from [ADR-0005](docs/decisions/0005-half-down-05up-wontfix.md). The General Decimal Arithmetic extension operations outside the IEEE 754-2019 mandatory set (`and` / `or` / `xor` / `invert`, `rotate`, `shift`, `reduce`, `divideInteger`, `compareSignaling`, `nextToward`) are the stated incremental path recorded in [ADR-0028](docs/decisions/0028-section-9-6-magnitude-min-max.md); the copy family and the §9.6 magnitude operations are dispatched. The `--features=dpd` build additionally exercises the DPD-encoded `dqEncode` / `dqCanonical` vectors.
+4. **Formal verification** (Kani, behind `--features=kani`). The harnesses prove NaN propagation, sign rules, special value invariants, encode/decode round trips (BID and, with `--features=dpd`, DPD totality plus the special-value DPD round-trip), basic arithmetic identities for the IEEE special case dispatch paths, the IEEE 754:2019 §5.7.2 / §5.4.2 canonical predicates as a projection (`is_canonical` ⇔ `canonicalize`-fixed-point, idempotence), the §5.10 total-magnitude reflexivity / antisymmetry, `try_new`'s in-range / out-of-range dispatch, and `total_cmp` antisymmetry on the same-cohort same-sign finite-finite domain. The arithmetic-pipeline harnesses use bounded operand shims (`*_special_only_for_kani`) so CBMC need not reason about the alignment and rounding loops.
 5. **Fuzz harness** (`fuzz/`, via `cargo install cargo-fuzz` and a nightly toolchain). Six libFuzzer targets: `parse` feeds arbitrary byte sequences through `Decimal128::parse_str` and asserts no panic plus a Display-then-parse round-trip; `arith` exercises `add` / `sub` / `mul` / `div` on arbitrary `(u128, u128)` pairs and asserts `a + 0 == a`, `a * 1 == a`, `a - a == 0` for finite `a`; `transcendentals` runs every transcendental kernel (`exp`, `ln`, `sin`, `cos`, `tan`, `pow`, `atan2`, the inverse and hyperbolic families, `sqrt`, `cbrt`) for panic-freedom on arbitrary inputs; `integral` checks idempotence and integer-ness of `floor`/`ceil`/`trunc`/`round`/`round_ties_even`/`round_to_integral`; `total_cmp` asserts reflexivity and antisymmetry of the §5.10 totalOrder predicate and `compare_total_magnitude` over arbitrary bit pairs; `encode` asserts `is_canonical` ↔ `canonicalize` fixed-point, idempotence, and classification stability across canonicalize. Run with `cargo +nightly fuzz run <target>` from the `fuzz/` directory.
 
 For the transcendentals specifically, `docs/testing.md` is the
@@ -232,7 +233,7 @@ A tight feedback loop matters more than chasing microseconds, but the criterion 
 * `sqrt`: 20 µs over five inputs (4.1 µs per call).
 * `fma`: 415 µs across a 6×6×6 matrix (1.9 µs per call).
 
-The `1.11.0` perf pass moved the headline operations 23 % to 27 % faster than `1.10.1` — see [`docs/decisions/0008-perf-results.md`](docs/decisions/0008-perf-results.md) for the per-bench delta and the full ADR-recorded methodology.
+The `1.11.0` perf pass moved the headline operations 23 % to 27 % faster than `1.10.1`. See [`docs/decisions/0008-perf-results.md`](docs/decisions/0008-perf-results.md) for the per-bench delta and the full ADR-recorded methodology.
 
 Run `cargo bench --features=transcendentals --bench transcendentals` for the math kernels, `cargo bench --features=fmt --bench conversions` for parse and format throughput, and `cargo bench --features=fmt --bench comparison` for `partial_cmp` / `total_cmp` shapes.
 
@@ -257,13 +258,13 @@ The same reasoning leads us to implement `Eq` and `PartialEq` as bitwise equalit
 | Format | IEEE 754:2019 BID-128 | 96-bit fixed-point |
 | Precision | 34 decimal digits | 28 decimal digits |
 | Exponent range | 10⁻⁶¹⁴³ … 10⁺⁶¹⁴⁴ | 10⁻²⁸ … 10⁺²⁸ |
-| Conformance | Full IEEE 754:2019 (NaN, ±∞, signaling NaN, all five rounding modes, total order, quantum ops, faithful-rounded transcendentals) | None — different model, no NaN/Inf, single banker's-rounding mode |
-| Formal verification | 50 Kani harnesses + ≈ 8 700 conformance vectors | None |
+| Conformance | Full IEEE 754:2019 (NaN, ±∞, signaling NaN, all five rounding modes, total order, quantum ops, faithful-rounded transcendentals) | None: different model, no NaN/Inf, single banker's-rounding mode |
+| Formal verification | Kani harnesses plus the full Speleotrove decTest conformance suite | None |
 | `no_std` | Real (forbid unsafe, no alloc, fixed-size buffers) | Available with feature flag |
 | Default API | Explicit `RoundingMode` + `(value, Status)` return | `core::ops` operators, banker's rounding |
 | Ergonomic operators | Opt-in via `ops` feature (`NearestEven`, `Status` discarded) | Built-in |
 | `serde` / `num-traits` | Behind feature flags | Built-in / via feature |
-| Maturity | Younger; v1.x as of 2026 | Established, millions of downloads |
+| Maturity | Younger; 1.x | Established, millions of downloads |
 
 **Pick ferrodec when**: you need 34-digit precision, IEEE 754 conformance (NaN handling, multiple rounding modes, transcendentals), formal verification, or hard `no_std`. Financial systems with regulatory requirements; scientific calculators; embedded targets.
 
