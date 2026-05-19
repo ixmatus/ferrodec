@@ -82,9 +82,10 @@ const fn expected_per_file() -> &'static [(&'static str, usize)] {
         ("ddCompare.decTest", 647),
         ("ddCompareTotal.decTest", 611),
         ("ddCompareTotalMag.decTest", 611),
-        // fd-37z: copy family wired. `copynegate` is the
-        // non-signaling sign flip; the file has no `#`-hex or
-        // non-IEEE-rounding cases, so all 43 dispatch and pass.
+        // fd-37z: copy family wired. Non-signaling bit ops; the
+        // files have no `#`-hex or non-IEEE-rounding cases, so every
+        // case dispatches and passes.
+        ("ddCopyAbs.decTest", 43),
         ("ddCopyNegate.decTest", 43),
         // F2: `multiply` / `divide` wired. No correctness bug
         // surfaced (the H3 typed-BiasedExp work already made them
@@ -151,6 +152,10 @@ fn run_case(case: &TestCase, ctx: &Context) -> Outcome {
         // arithmetic negation that signals on sNaN. Never raises a
         // flag (the non-arithmetic copy family; fd-37z).
         "copynegate" => run_copy_unary(case, ctx, Decimal64::neg),
+        // decTest `copyabs`: the non-signaling absolute value
+        // (`Decimal64::abs`), distinct from `abs`/`plus`-style
+        // arithmetic that signals on sNaN. Never raises a flag.
+        "copyabs" => run_copy_unary(case, ctx, Decimal64::abs),
         _ => Outcome::Skip,
     }
 }
