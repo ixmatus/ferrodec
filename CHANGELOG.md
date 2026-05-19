@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.17.0] - 2026-05-18
+
 ### Added
 
 - `Decimal128::min_magnitude` / `Decimal128::max_magnitude`: the
