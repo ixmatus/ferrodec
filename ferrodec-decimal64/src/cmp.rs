@@ -11,6 +11,10 @@
 //!   `|b|`.
 //! * [`Decimal64::min`] / [`Decimal64::max`] — §5.3.1 minimum and
 //!   maximum operations. NaN propagates per the §6.2.3 rule.
+//! * [`Decimal64::min_magnitude`] / [`Decimal64::max_magnitude`] —
+//!   §9.6 minimumMagnitudeNumber / maximumMagnitudeNumber: the
+//!   operand of smaller / larger numeric magnitude, deferring to
+//!   `min` / `max` on an equal-magnitude tie.
 
 use core::cmp::Ordering;
 
@@ -145,6 +149,75 @@ impl Decimal64 {
             Ordering::Less => other,
         };
         (result, Status::OK)
+    }
+
+    /// `minimumMagnitude(x, y)` per IEEE 754-2019 §9.6, the
+    /// `minimumMagnitudeNumber` (NaN-as-missing-value) variant
+    /// consistent with [`Decimal64::min`] = `minimumNumber`.
+    ///
+    /// The operand of smaller magnitude wins, `|x|` and `|y|`
+    /// compared *numerically* (cohort is irrelevant). On an
+    /// equal-magnitude tie the result defers to [`Decimal64::min`],
+    /// so the sign and cohort tie-break match `minimum` exactly
+    /// (`minMagnitude(-2, 2) = -2`). NaN handling is identical to
+    /// `min`. Matches the parent crate's `Decimal128::min_magnitude`
+    /// so values flow across precisions without semantic drift.
+    #[inline]
+    #[must_use]
+    pub fn min_magnitude(self, other: Self) -> (Self, Status) {
+        if self.is_signaling_nan() {
+            return (quieten_snan(self), Status::INVALID);
+        }
+        if other.is_signaling_nan() {
+            return (quieten_snan(other), Status::INVALID);
+        }
+        if self.is_nan() && other.is_nan() {
+            return (Self::NAN, Status::OK);
+        }
+        if self.is_nan() {
+            return (other, Status::OK);
+        }
+        if other.is_nan() {
+            return (self, Status::OK);
+        }
+        // Neither operand is NaN, so the abs values are non-NaN and
+        // `partial_cmp` (the §5.11 numeric comparison) yields `Some`.
+        match self.abs().partial_cmp(other.abs()).0 {
+            Some(Ordering::Less) => (self, Status::OK),
+            Some(Ordering::Greater) => (other, Status::OK),
+            // Magnitudes numerically equal: defer to `minimum` for
+            // the totalOrder sign / cohort tie-break.
+            _ => self.min(other),
+        }
+    }
+
+    /// `maximumMagnitude(x, y)` per IEEE 754-2019 §9.6, the
+    /// `maximumMagnitudeNumber` variant; symmetric to
+    /// [`Decimal64::min_magnitude`], deferring to [`Decimal64::max`]
+    /// on an equal-magnitude tie (`maxMagnitude(-2, 2) = 2`).
+    #[inline]
+    #[must_use]
+    pub fn max_magnitude(self, other: Self) -> (Self, Status) {
+        if self.is_signaling_nan() {
+            return (quieten_snan(self), Status::INVALID);
+        }
+        if other.is_signaling_nan() {
+            return (quieten_snan(other), Status::INVALID);
+        }
+        if self.is_nan() && other.is_nan() {
+            return (Self::NAN, Status::OK);
+        }
+        if self.is_nan() {
+            return (other, Status::OK);
+        }
+        if other.is_nan() {
+            return (self, Status::OK);
+        }
+        match self.abs().partial_cmp(other.abs()).0 {
+            Some(Ordering::Greater) => (self, Status::OK),
+            Some(Ordering::Less) => (other, Status::OK),
+            _ => self.max(other),
+        }
     }
 }
 
@@ -565,6 +638,41 @@ mod tests {
         let (r, s) = lhs.min(rhs);
         assert!(s.invalid());
         assert_eq!(r.to_bits() & T_MASK, 0xAAAA);
+    }
+
+    #[test]
+    fn min_max_magnitude() {
+        let two = Decimal64::try_new(2, 0).unwrap();
+        let neg_two = two.neg();
+        let one = Decimal64::ONE;
+
+        // |−2| > |1|: minMagnitude → 1, maxMagnitude → −2.
+        let (lo, st) = neg_two.min_magnitude(one);
+        assert!(st.is_ok());
+        assert_eq!(lo.to_bits(), one.to_bits());
+        let (hi, st) = neg_two.max_magnitude(one);
+        assert!(st.is_ok());
+        assert_eq!(hi.to_bits(), neg_two.to_bits());
+
+        // |−2| == |2|: tie defers to min / max.
+        assert_eq!(neg_two.min_magnitude(two).0.to_bits(), neg_two.to_bits());
+        assert_eq!(two.max_magnitude(neg_two).0.to_bits(), two.to_bits());
+
+        // Cohort tie (1.0 vs 1.00): numerically equal magnitude, so
+        // the result matches `min` (no panic, correct cohort).
+        let a = Decimal64::try_new(10, -1).unwrap();
+        let b = Decimal64::try_new(100, -2).unwrap();
+        let (m, st) = a.min_magnitude(b);
+        assert!(st.is_ok());
+        assert_eq!(m.to_bits(), a.min(b).0.to_bits());
+
+        // qNaN missing-value; sNaN poisons.
+        let (r, st) = Decimal64::ONE.min_magnitude(Decimal64::NAN);
+        assert_eq!(r.to_bits(), Decimal64::ONE.to_bits());
+        assert!(st.is_ok());
+        let (r, st) = Decimal64::ONE.max_magnitude(Decimal64::SIGNALING_NAN);
+        assert!(r.is_nan());
+        assert!(st.invalid());
     }
 
     #[test]
