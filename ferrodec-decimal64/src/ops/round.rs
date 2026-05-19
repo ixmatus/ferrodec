@@ -82,16 +82,43 @@ pub(crate) fn round_and_pack_finite(
     }
 
     let digits = digit_count_u64(coef);
-    let (kept, kept_exp, round_digit, sticky) = if digits > PRECISION {
-        let excess = digits - PRECISION;
-        drop_excess_digits(coef, excess, pre_sticky, unbiased_exp)
-    } else {
+    // Single-rounding subnormal fix (fd-dc6): the old code rounded to
+    // PRECISION here and then `finalise_finite`'s `biased < 0` arm
+    // rounded a *second* time into the subnormal quantum. A residue
+    // that landed strictly above the subnormal tie but below the
+    // PRECISION tie was collapsed by the first rounding, so the second
+    // saw an exact tie and rounded the wrong way (e.g.
+    // `fma(2.064141013983096e-361, 8.386823222860694e-24, +0e+113)`
+    // produced a coefficient ending `326` instead of `327`). Drop to
+    // the wider of the PRECISION and subnormal-quantum requirements in
+    // ONE rounding, the sibling analogue of the parent `Decimal128`
+    // fd-42l fix. This leaves `finalise_finite`'s `biased < 0` arm
+    // unreachable for non-zero results.
+    let qmin = -(BIAS as i32);
+    let precision_excess = digits.saturating_sub(PRECISION);
+    let subnormal_excess = u32::try_from((qmin - unbiased_exp).max(0)).unwrap_or(u32::MAX);
+    let excess = precision_excess.max(subnormal_excess);
+    let (kept, kept_exp, round_digit, sticky) = if excess == 0 {
         (coef, unbiased_exp, 0u32, pre_sticky)
+    } else {
+        drop_excess_digits(coef, excess, pre_sticky, unbiased_exp)
     };
-    let mut kept_digits = digits.min(PRECISION);
+    let mut kept_digits = digits.saturating_sub(excess).clamp(1, PRECISION);
 
     if round_digit != 0 || sticky {
         status |= Status::INEXACT;
+    }
+    // IEEE 754-2019 §7.5: UNDERFLOW signals on a result that is tiny
+    // and inexact, with tininess detected on the *pre-rounding* value
+    // (the convention decTest pins). The single-step subnormal drop
+    // above makes `finalise_finite`'s `biased < 0` branch unreachable
+    // for non-zero results, and its post-rounding tininess check keys
+    // on the *rounded* digit count, which misses a subnormal value
+    // that rounding lifts to the Emin boundary. Decide tininess from
+    // the original coefficient's adjusted exponent instead.
+    let tiny_pre = digits as i32 + unbiased_exp - 1 < E_MIN;
+    if tiny_pre && status.inexact() {
+        status |= Status::UNDERFLOW;
     }
 
     let last_kept_lsb = (kept % 10) as u32;
@@ -122,9 +149,13 @@ pub(crate) fn round_and_pack_finite(
     }
 
     if rounded != 0 {
-        if exp_after > q_preferred {
+        // IEEE 754-2019 §6.3: the down-shift target is
+        // MAX(q_preferred, qmin); padding toward a quantum below qmin
+        // is not representable. (fd-dc6, matching the parent fd-42l.)
+        let down_target = q_preferred.max(qmin);
+        if exp_after > down_target {
             let max_shift = PRECISION as i32 - kept_digits as i32;
-            let want_shift = exp_after - q_preferred;
+            let want_shift = exp_after - down_target;
             let shift = want_shift.min(max_shift);
             if shift > 0 {
                 rounded *= POW10_U64[shift as usize];

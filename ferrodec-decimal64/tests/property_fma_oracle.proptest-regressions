@@ -5,3 +5,4 @@
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
 cc 58f6f4bb51cb7ef29ffa7b3253339b9e8fad5258a25172dd6ba2b8cb192ebcba # shrinks to a = Decimal64(0x6A48000000000000 = Finite{sign:false, biased_exp:402, coefficient:9007199254740992}), b = Decimal64(0x177C000000000000 = Finite{sign:false, biased_exp:223, coefficient:5629499534213120}), c = Decimal64(0x3400000000000000 = Finite{sign:false, biased_exp:256, coefficient:5629499534213120}), rm_idx = 0
+cc da417ba907982231288b52a4aa73fbb4804c7047fcf0075855962aa74947f2e2 # shrinks to a = Decimal64(0x045B555347E79F78 = Finite{sign:false, biased_exp:22, coefficient:2064141013983096}), b = Decimal64(0x3D9DCBC572FE1B96 = Finite{sign:false, biased_exp:359, coefficient:8386823222860694}), c = Decimal64(0x6BFF86F26FC10000 = Zero{sign:false, biased_exp:511}), rm_idx = 0

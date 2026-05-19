@@ -5,3 +5,4 @@
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
 cc 9f640985772b2fc1ebad28432ab3cffc4aa3d4dc1c92fcaa4066bd422083bc3a # shrinks to a = Decimal32(0x97579197 = Finite { sign: true, biased_exp: 53, coefficient: 5738903 }), b = Decimal32(0x1683B9B0 = Finite { sign: false, biased_exp: 40, coefficient: 5487024 }), c = Decimal32(0xE4089680 = Zero { sign: true, biased_exp: 0 }), rm_idx = 0
+cc 2fd3a1fc1923b22410f0c4f1173ca2378c4117446c89d110358b2c8dac36710b # shrinks to a = Decimal32(0x28EFF292 = Finite { sign: false, biased_exp: 78, coefficient: 3142290 }), b = Decimal32(0x851F062C = Finite { sign: true, biased_exp: 17, coefficient: 2033196 }), c = Decimal32(0x0018390A = Finite { sign: false, biased_exp: 1, coefficient: 538890 }), rm_idx = 0
