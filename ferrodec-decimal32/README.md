@@ -81,7 +81,11 @@ to ±0 with the encoded sign and biased exponent, per IEEE 754-2019
   `INFINITY`, `NEG_INFINITY`, `NAN`, `SIGNALING_NAN`.
 - **§5 arithmetic**: `add`, `sub`, `mul`, `div`, `rem`, `sqrt`, `fma`.
 - **§5 comparison**: `partial_cmp`, `total_cmp`,
-  `compare_total_magnitude`, `min`, `max`.
+  `compare_total_magnitude`.
+- **§9.6 selection**: `min`, `max` (`minimumNumber` /
+  `maximumNumber`), `min_magnitude`, `max_magnitude` (the magnitude
+  variants, deferring to `min` / `max` on an equal-magnitude tie;
+  ADR-0028).
 - **§5 quantum**: `quantize`, `scaleb`, `logb`, `next_up`, `next_down`.
 - **§5 classification**: `is_nan`, `is_infinite`, `is_finite`,
   `is_zero`, `is_normal`, `is_subnormal`, `is_sign_positive`,

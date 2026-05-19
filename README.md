@@ -161,7 +161,7 @@ The named constants: `Decimal128::ZERO`, `NEG_ZERO`, `ONE`, `NEG_ONE`, `TEN`, `M
 
 ### Sign and ordering
 
-`abs`, `neg`, `copysign`, `signum`. For ordering, `partial_cmp` provides numeric comparison and returns `(Option<Ordering>, Status)`; `total_cmp` provides the IEEE 754:2019 totalOrder predicate over all bit patterns, including NaN payloads. `compare_total_magnitude(other)` does the same on `|self|` and `|other|`.
+`abs`, `neg`, `copysign`, `signum`. For ordering, `partial_cmp` provides numeric comparison and returns `(Option<Ordering>, Status)`; `total_cmp` provides the IEEE 754:2019 totalOrder predicate over all bit patterns, including NaN payloads. `compare_total_magnitude(other)` does the same on `|self|` and `|other|`. The IEEE 754:2019 §9.6 selection operations are `min` and `max` (the `minimumNumber` / `maximumNumber` variant: a quiet NaN is the missing value, a signaling NaN raises `INVALID`) and `min_magnitude` / `max_magnitude` (the same decision on `|self|` versus `|other|`, deferring to `min` / `max` on an equal-magnitude tie; ADR-0028).
 
 ### Arithmetic
 
