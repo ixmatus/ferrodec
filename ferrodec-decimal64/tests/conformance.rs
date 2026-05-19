@@ -85,6 +85,7 @@ const fn expected_per_file() -> &'static [(&'static str, usize)] {
         // fd-37z: copy family wired. Non-signaling bit ops; the
         // files have no `#`-hex or non-IEEE-rounding cases, so every
         // case dispatches and passes.
+        ("ddCopy.decTest", 43),
         ("ddCopyAbs.decTest", 43),
         ("ddCopyNegate.decTest", 43),
         ("ddCopySign.decTest", 107),
@@ -160,6 +161,10 @@ fn run_case(case: &TestCase, ctx: &Context) -> Outcome {
         // decTest `copysign`: magnitude of operand 1, sign of
         // operand 2. Binary; never raises a flag.
         "copysign" => run_copy_sign(case, ctx),
+        // decTest `copy`: returns the operand unchanged, bit for
+        // bit. The degenerate copy-family member; never raises a
+        // flag.
+        "copy" => run_copy_unary(case, ctx, |d| d),
         _ => Outcome::Skip,
     }
 }
