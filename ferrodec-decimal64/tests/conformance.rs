@@ -82,6 +82,23 @@ const fn expected_per_file() -> &'static [(&'static str, usize)] {
         ("ddCompare.decTest", 647),
         ("ddCompareTotal.decTest", 611),
         ("ddCompareTotalMag.decTest", 611),
+        // fd-37z: copy family wired. Non-signaling bit ops; the
+        // files have no `#`-hex or non-IEEE-rounding cases, so every
+        // case dispatches and passes.
+        // fd-37z: `ddCanonical.decTest` is wholly DPD-hex encoded
+        // (every operand and expected is a `#…` DPD pattern, both
+        // the `apply` and `canonical` cases). Decimal64 has no DPD
+        // codec and no `dpd` feature, so every case Skips on the
+        // `#`-hex guard and none reaches `canonicalize`. The
+        // `canonical` dispatch arm is correct and forward-useful;
+        // this file stays at 0 until a Decimal64 DPD codec lands
+        // (fd-bef). Pinned at 0 as a regression guard: it will trip
+        // and demand a re-pin when that codec arrives.
+        ("ddCanonical.decTest", 0),
+        ("ddCopy.decTest", 43),
+        ("ddCopyAbs.decTest", 43),
+        ("ddCopyNegate.decTest", 43),
+        ("ddCopySign.decTest", 107),
         // F2: `multiply` / `divide` wired. No correctness bug
         // surfaced (the H3 typed-BiasedExp work already made them
         // conformant): `ddMultiply.decTest` 444 of 446 (2 `#`-hex
@@ -142,6 +159,29 @@ fn run_case(case: &TestCase, ctx: &Context) -> Outcome {
         "quantize" => run_quantize(case, ctx),
         "tointegral" => run_integral(case, ctx, false),
         "tointegralx" => run_integral(case, ctx, true),
+        // decTest `copynegate`: the non-signaling sign flip
+        // (`Decimal64::neg`), distinct from `minus`, which is the
+        // arithmetic negation that signals on sNaN. Never raises a
+        // flag (the non-arithmetic copy family; fd-37z).
+        "copynegate" => run_copy_unary(case, ctx, Decimal64::neg),
+        // decTest `copyabs`: the non-signaling absolute value
+        // (`Decimal64::abs`), distinct from `abs`/`plus`-style
+        // arithmetic that signals on sNaN. Never raises a flag.
+        "copyabs" => run_copy_unary(case, ctx, Decimal64::abs),
+        // decTest `copysign`: magnitude of operand 1, sign of
+        // operand 2. Binary; never raises a flag.
+        "copysign" => run_copy_sign(case, ctx),
+        // decTest `copy`: returns the operand unchanged, bit for
+        // bit. The degenerate copy-family member; never raises a
+        // flag.
+        "copy" => run_copy_unary(case, ctx, |d| d),
+        // decTest `canonical`: ferrodec stores BID, which is always
+        // canonical, so `Decimal64::canonicalize` is effectively the
+        // identity, but route through it for fidelity. Never raises
+        // a flag. `ddCanonical.decTest` is a mixed-op file; its
+        // count is cumulative over every arm above (the `comparesig`
+        // cases remain Skip, no `compare_signaling` yet).
+        "canonical" => run_copy_unary(case, ctx, Decimal64::canonicalize),
         _ => Outcome::Skip,
     }
 }
@@ -247,6 +287,50 @@ fn run_total(case: &TestCase, ctx: &Context, magnitude: bool) -> Outcome {
         a.total_cmp(b)
     };
     check(ord_token(ord), Status::OK, case)
+}
+
+/// The decTest copy family (`copy`, `copyabs`, `copynegate`,
+/// `canonical`) plus `canonical`: unary, non-arithmetic bit
+/// operations. GDA defines them to never raise a flag, not even
+/// `INVALID` on a signaling NaN, so the result status is always
+/// `Status::OK` (compare the signaling `abs_with_status` /
+/// `neg_with_status`, which are *not* what these ops use). `op` is
+/// the pure transform; `Decimal64::neg` / `abs` / `canonicalize` are
+/// already the non-signaling bit forms, and `copy` is the identity.
+fn run_copy_unary(case: &TestCase, ctx: &Context, op: fn(Decimal64) -> Decimal64) -> Outcome {
+    if case.operands.len() != 1 || case.expected.starts_with('#') {
+        return Outcome::Skip;
+    }
+    let rm = match map_rounding(&ctx.rounding) {
+        Some(r) => r,
+        None => return Outcome::Skip,
+    };
+    let a = match parse_operand(&case.operands[0], rm) {
+        Some(a) => a,
+        None => return Outcome::Skip,
+    };
+    check(op(a), Status::OK, case)
+}
+
+/// `copysign`: the binary member of the copy family. Takes the
+/// magnitude of the first operand and the sign of the second
+/// (`Decimal64::copysign`). Non-arithmetic; never raises a flag.
+fn run_copy_sign(case: &TestCase, ctx: &Context) -> Outcome {
+    if case.operands.len() != 2 || case.expected.starts_with('#') {
+        return Outcome::Skip;
+    }
+    let rm = match map_rounding(&ctx.rounding) {
+        Some(r) => r,
+        None => return Outcome::Skip,
+    };
+    let (a, b) = match (
+        parse_operand(&case.operands[0], rm),
+        parse_operand(&case.operands[1], rm),
+    ) {
+        (Some(a), Some(b)) => (a, b),
+        _ => return Outcome::Skip,
+    };
+    check(a.copysign(b), Status::OK, case)
 }
 
 /// `samequantum`: §5.3.2 predicate, rendered as the decTest boolean
