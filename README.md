@@ -52,7 +52,8 @@ conformance counts change as the project evolves. Significant decisions are reco
 blocks carry a written justification at the call site.
 
 **Scope.** ferrodec is a personal project consisting of a core crate and the ferrodec-decimal32, ferrodec-decimal64,
-and ferrodec-ieee member crates in the same workspace; this disclosure covers all of them. The lead consumer is
+ferrodec-ieee, ferrodec-transcend, and ferrodec-multiword member crates in the same workspace, together with the
+dev-only ferrodec-test-support crate; this disclosure covers all of them. The lead consumer is
 Parnell's own embedded calculator firmware on STM32U class hardware; durability and quality are goals, but this is not
 a funded library with a maintenance team behind it. The published versions on crates.io are yanked; the repository
 remains public for users who want to read or fork the work.
