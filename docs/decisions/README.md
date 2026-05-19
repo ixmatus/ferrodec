@@ -54,3 +54,4 @@ The ADRs in number order:
 - [0026 — Independent transcendental oracles (Arb frozen vectors, MPFR gate, mpmath differential)](0026-independent-transcendental-oracles.md)
 - [0027 — rem / % semantic asymmetry across the decimal family (rem_near bridge, 2.0 rename)](0027-rem-semantic-asymmetry.md)
 - [0028 — IEEE 754-2019 §9.6 magnitude minimum and maximum](0028-section-9-6-magnitude-min-max.md)
+- [0029 — The ferrodec 2.0 major, a consolidated breaking-change plan](0029-ferrodec-2-0-breaking-change-plan.md)
