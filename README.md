@@ -9,14 +9,14 @@ An IEEE 754 (2019) Decimal128 library for Rust, designed for two audiences: embe
 
 This repository hosts the ferrodec family of canonical pure-Rust IEEE 754 decimal types:
 
-- **[`ferrodec`](https://crates.io/crates/ferrodec)** — Decimal128 (this README's subject). 34-digit precision, exponent range `10⁻⁶¹⁴³..=10⁺⁶¹⁴⁴`. The reference implementation; production-ready.
-- **[`ferrodec-decimal32`](ferrodec-decimal32/)** — Decimal32. 7-digit precision, exponent range `10⁻¹⁰¹..=10⁹⁶`. Sized for embedded telemetry, small-ledger reporting, and footprint-sensitive applications.
-- **[`ferrodec-decimal64`](ferrodec-decimal64/)** — Decimal64. 16-digit precision, exponent range `10⁻³⁸³..=10⁺³⁸⁴`. The natural sweet spot for financial general-ledger arithmetic and scientific aggregates that outgrow Decimal32's 7 digits without needing Decimal128's 128 bits.
+- **[`ferrodec`](https://crates.io/crates/ferrodec)**: Decimal128 (this README's subject). 34-digit precision, exponent range `10⁻⁶¹⁴³..=10⁺⁶¹⁴⁴`. The reference implementation; production-ready.
+- **[`ferrodec-decimal32`](ferrodec-decimal32/)**: Decimal32. 7-digit precision, exponent range `10⁻¹⁰¹..=10⁹⁶`. Sized for embedded telemetry, small-ledger reporting, and footprint-sensitive applications.
+- **[`ferrodec-decimal64`](ferrodec-decimal64/)**: Decimal64. 16-digit precision, exponent range `10⁻³⁸³..=10⁺³⁸⁴`. The natural sweet spot for financial general-ledger arithmetic and scientific aggregates that outgrow Decimal32's 7 digits without needing Decimal128's 128 bits.
 
 Plus two workspace-internal crates that the three public crates share:
 
-- **[`ferrodec-ieee`](ferrodec-ieee/)** — the shared IEEE 754-2019 metadata types (`Status`, `RoundingMode`, `IeeeClass`). All three sibling crates re-export from here, so values flow across precisions without conversion. See [ADR-0012](docs/decisions/0012-extract-ferrodec-ieee.md).
-- **[`ferrodec-test-support`](ferrodec-test-support/)** — the IBM decTest harness scaffolding (parser, directive accumulator, expectation guard, run-suite driver). Workspace-internal only (`publish = false`); not part of any consumer's published surface. See [ADR-0013](docs/decisions/0013-conformance-harness-consolidation.md).
+- **[`ferrodec-ieee`](ferrodec-ieee/)**: the shared IEEE 754-2019 metadata types (`Status`, `RoundingMode`, `IeeeClass`). All three sibling crates re-export from here, so values flow across precisions without conversion. See [ADR-0012](docs/decisions/0012-extract-ferrodec-ieee.md).
+- **[`ferrodec-test-support`](ferrodec-test-support/)**: the IBM decTest harness scaffolding (parser, directive accumulator, expectation guard, run-suite driver). Workspace-internal only (`publish = false`); not part of any consumer's published surface. See [ADR-0013](docs/decisions/0013-conformance-harness-consolidation.md).
 
 Each public sibling stands alone on crates.io with its own version cadence. They share the verification methodology documented in `docs/decisions/` and the workspace-level lint / MSRV / license discipline.
 
@@ -232,7 +232,7 @@ A tight feedback loop matters more than chasing microseconds, but the criterion 
 * `sqrt`: 20 µs over five inputs (4.1 µs per call).
 * `fma`: 415 µs across a 6×6×6 matrix (1.9 µs per call).
 
-The `1.11.0` perf pass moved the headline operations 23 % to 27 % faster than `1.10.1` — see [`docs/decisions/0008-perf-results.md`](docs/decisions/0008-perf-results.md) for the per-bench delta and the full ADR-recorded methodology.
+The `1.11.0` perf pass moved the headline operations 23 % to 27 % faster than `1.10.1`. See [`docs/decisions/0008-perf-results.md`](docs/decisions/0008-perf-results.md) for the per-bench delta and the full ADR-recorded methodology.
 
 Run `cargo bench --features=transcendentals --bench transcendentals` for the math kernels, `cargo bench --features=fmt --bench conversions` for parse and format throughput, and `cargo bench --features=fmt --bench comparison` for `partial_cmp` / `total_cmp` shapes.
 
@@ -257,7 +257,7 @@ The same reasoning leads us to implement `Eq` and `PartialEq` as bitwise equalit
 | Format | IEEE 754:2019 BID-128 | 96-bit fixed-point |
 | Precision | 34 decimal digits | 28 decimal digits |
 | Exponent range | 10⁻⁶¹⁴³ … 10⁺⁶¹⁴⁴ | 10⁻²⁸ … 10⁺²⁸ |
-| Conformance | Full IEEE 754:2019 (NaN, ±∞, signaling NaN, all five rounding modes, total order, quantum ops, faithful-rounded transcendentals) | None — different model, no NaN/Inf, single banker's-rounding mode |
+| Conformance | Full IEEE 754:2019 (NaN, ±∞, signaling NaN, all five rounding modes, total order, quantum ops, faithful-rounded transcendentals) | None: different model, no NaN/Inf, single banker's-rounding mode |
 | Formal verification | Kani harnesses plus the full Speleotrove decTest conformance suite | None |
 | `no_std` | Real (forbid unsafe, no alloc, fixed-size buffers) | Available with feature flag |
 | Default API | Explicit `RoundingMode` + `(value, Status)` return | `core::ops` operators, banker's rounding |

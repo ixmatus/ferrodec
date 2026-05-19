@@ -54,7 +54,7 @@ assert!(s.inexact()); // exp(1) is irrational; rounded to 16 digits.
 | Encoding (arithmetic) | BID (binary integer significand) |
 
 Form A (coefficient < 2⁵³) and Form B (coefficient ∈ [2⁵³, 10¹⁶))
-are both canonical for BID-64 — unlike BID-128 where Form B is
+are both canonical for BID-64, unlike BID-128, where Form B is
 non-canonical. Form B encodings of coefficients ≥ 10¹⁶ canonicalise
 to ±0 with the encoded sign and biased exponent, per IEEE 754-2019
 §3.5.2.
@@ -140,7 +140,7 @@ Tested in CI on:
 
 - Linux x86_64 (Ubuntu)
 - macOS aarch64 (M-series)
-- `thumbv6m-none-eabi` (Cortex-M0+ floor) — cross-compiled with
+- `thumbv6m-none-eabi` (Cortex-M0+ floor), cross-compiled with
   `--no-default-features` through `--all-features`.
 
 `#![no_std]`, no allocation. Embeddable on any target Rust supports.
@@ -160,7 +160,7 @@ MSRV: Rust 1.84.
 
 By default, `Decimal64` does *not* implement `+`, `-`, `*`, `/`, `%`.
 Every operation in IEEE 754 has a *rounding mode* and a *status flag
-set* — values arithmetic operators don't carry. The explicit method
+set*. Values arithmetic operators don't carry. The explicit method
 form (`a.add(b, rm)` returning `(Decimal64, Status)`) makes both
 visible at the call site.
 
@@ -168,7 +168,7 @@ For callers migrating from `f64` or `rust_decimal` who prefer the
 operator surface, enable the `ops` feature: it implements `Add`,
 `Sub`, `Mul`, `Div`, `Rem`, `Neg`, and the `*Assign` variants.
 Default rounding is `NearestEven`; the `Status` is dropped. Mix and
-match — `let (sum, st) = a.add(b, mode);` and `let sum = a + b;`
+match: `let (sum, st) = a.add(b, mode);` and `let sum = a + b;`
 both compile when `ops` is on.
 
 ## Choosing between ferrodec / ferrodec-decimal64 / `rust_decimal`
@@ -191,7 +191,7 @@ The numeric value is portable across `ferrodec` (Decimal128), `ferrodec-decimal6
   Form B both carry canonical values; the canonicalisation rules
   are documented in `src/bid.rs`.
 - All arithmetic routes through `round_and_pack_finite` in
-  `src/ops/round.rs` — a single source of truth for digit drop with
+  `src/ops/round.rs`: a single source of truth for digit drop with
   guard / sticky tracking, IEEE 754 rounding-direction application,
   IEEE 754-2019 §6.3 exponent clamping, and `INEXACT` / `OVERFLOW` /
   `UNDERFLOW` flag emission.
