@@ -150,10 +150,10 @@ MSRV: Rust 1.84.
 
 | Pillar | Coverage |
 | --- | --- |
-| Conformance vectors | 712 of 14,428 IBM decTest cases pass for the toSci / parse / format / classify surface in v1.0; additional dispatch arms light up the remaining 13,716 skips as later commits wire them in. 0 fail. |
-| Unit tests | 208 tests covering hand-derived expected values for every operation, special cases, sign rules, and rounding boundaries. |
+| Conformance vectors | The runner consumes every `dd*.decTest` file from the IBM / Speleotrove suite. Pass and skip counts move as dispatch arms are wired in (add/sub/mul/div/fma, the comparison and quantum surface, `rem` / `rem_near`, roundToIntegral, the copy family, and the §9.6 magnitude operations are dispatched); the invariant is zero failures. |
+| Unit tests | Hand-derived expected values for every operation, special cases, sign rules, and rounding boundaries. |
 | Property tests | Round-trip `parse_str → Display`. |
-| Kani harnesses | Six modules (addsub, mul, div, sqrt, fma, cmp) prove no-panic and IEEE 754 special-case propagation across a 10-constant operand set. Run via `cargo kani --package ferrodec-decimal64 --features=transcendentals`. |
+| Kani harnesses | Per-operation modules (addsub, mul, div, sqrt, fma, cmp) prove no-panic and IEEE 754 special-case propagation over a bounded operand set. Run via `cargo kani --package ferrodec-decimal64 --features=transcendentals`. |
 | Fuzz | Four cargo-fuzz targets (parse, arith, transcendentals, total_cmp) covering panic-freedom and algebraic-identity invariants over arbitrary u64 bit patterns. |
 
 ## Why no `core::ops` (and how to opt in)
