@@ -87,6 +87,7 @@ const fn expected_per_file() -> &'static [(&'static str, usize)] {
         // case dispatches and passes.
         ("ddCopyAbs.decTest", 43),
         ("ddCopyNegate.decTest", 43),
+        ("ddCopySign.decTest", 107),
         // F2: `multiply` / `divide` wired. No correctness bug
         // surfaced (the H3 typed-BiasedExp work already made them
         // conformant): `ddMultiply.decTest` 444 of 446 (2 `#`-hex
@@ -156,6 +157,9 @@ fn run_case(case: &TestCase, ctx: &Context) -> Outcome {
         // (`Decimal64::abs`), distinct from `abs`/`plus`-style
         // arithmetic that signals on sNaN. Never raises a flag.
         "copyabs" => run_copy_unary(case, ctx, Decimal64::abs),
+        // decTest `copysign`: magnitude of operand 1, sign of
+        // operand 2. Binary; never raises a flag.
+        "copysign" => run_copy_sign(case, ctx),
         _ => Outcome::Skip,
     }
 }
@@ -284,6 +288,27 @@ fn run_copy_unary(case: &TestCase, ctx: &Context, op: fn(Decimal64) -> Decimal64
         None => return Outcome::Skip,
     };
     check(op(a), Status::OK, case)
+}
+
+/// `copysign`: the binary member of the copy family. Takes the
+/// magnitude of the first operand and the sign of the second
+/// (`Decimal64::copysign`). Non-arithmetic; never raises a flag.
+fn run_copy_sign(case: &TestCase, ctx: &Context) -> Outcome {
+    if case.operands.len() != 2 || case.expected.starts_with('#') {
+        return Outcome::Skip;
+    }
+    let rm = match map_rounding(&ctx.rounding) {
+        Some(r) => r,
+        None => return Outcome::Skip,
+    };
+    let (a, b) = match (
+        parse_operand(&case.operands[0], rm),
+        parse_operand(&case.operands[1], rm),
+    ) {
+        (Some(a), Some(b)) => (a, b),
+        _ => return Outcome::Skip,
+    };
+    check(a.copysign(b), Status::OK, case)
 }
 
 /// `samequantum`: §5.3.2 predicate, rendered as the decTest boolean
