@@ -82,6 +82,10 @@ const fn expected_per_file() -> &'static [(&'static str, usize)] {
         ("ddCompare.decTest", 647),
         ("ddCompareTotal.decTest", 611),
         ("ddCompareTotalMag.decTest", 611),
+        // fd-37z: copy family wired. `copynegate` is the
+        // non-signaling sign flip; the file has no `#`-hex or
+        // non-IEEE-rounding cases, so all 43 dispatch and pass.
+        ("ddCopyNegate.decTest", 43),
         // F2: `multiply` / `divide` wired. No correctness bug
         // surfaced (the H3 typed-BiasedExp work already made them
         // conformant): `ddMultiply.decTest` 444 of 446 (2 `#`-hex
@@ -142,6 +146,11 @@ fn run_case(case: &TestCase, ctx: &Context) -> Outcome {
         "quantize" => run_quantize(case, ctx),
         "tointegral" => run_integral(case, ctx, false),
         "tointegralx" => run_integral(case, ctx, true),
+        // decTest `copynegate`: the non-signaling sign flip
+        // (`Decimal64::neg`), distinct from `minus`, which is the
+        // arithmetic negation that signals on sNaN. Never raises a
+        // flag (the non-arithmetic copy family; fd-37z).
+        "copynegate" => run_copy_unary(case, ctx, Decimal64::neg),
         _ => Outcome::Skip,
     }
 }
@@ -247,6 +256,29 @@ fn run_total(case: &TestCase, ctx: &Context, magnitude: bool) -> Outcome {
         a.total_cmp(b)
     };
     check(ord_token(ord), Status::OK, case)
+}
+
+/// The decTest copy family (`copy`, `copyabs`, `copynegate`,
+/// `canonical`) plus `canonical`: unary, non-arithmetic bit
+/// operations. GDA defines them to never raise a flag, not even
+/// `INVALID` on a signaling NaN, so the result status is always
+/// `Status::OK` (compare the signaling `abs_with_status` /
+/// `neg_with_status`, which are *not* what these ops use). `op` is
+/// the pure transform; `Decimal64::neg` / `abs` / `canonicalize` are
+/// already the non-signaling bit forms, and `copy` is the identity.
+fn run_copy_unary(case: &TestCase, ctx: &Context, op: fn(Decimal64) -> Decimal64) -> Outcome {
+    if case.operands.len() != 1 || case.expected.starts_with('#') {
+        return Outcome::Skip;
+    }
+    let rm = match map_rounding(&ctx.rounding) {
+        Some(r) => r,
+        None => return Outcome::Skip,
+    };
+    let a = match parse_operand(&case.operands[0], rm) {
+        Some(a) => a,
+        None => return Outcome::Skip,
+    };
+    check(op(a), Status::OK, case)
 }
 
 /// `samequantum`: §5.3.2 predicate, rendered as the decTest boolean
