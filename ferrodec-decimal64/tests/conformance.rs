@@ -114,6 +114,13 @@ const fn expected_per_file() -> &'static [(&'static str, usize)] {
         // `ddfma2504` is among the passers. 60 skips are
         // unrepresentable operands / `#`-hex.
         ("ddFMA.decTest", 1318),
+        // fd-8aq: IEEE 754-2019 §9.6 `maxmag` / `minmag`
+        // (`Decimal64::max_magnitude` / `min_magnitude`) wired; both
+        // were `Skip` before. Zero failures: `ddMaxMag` 241 of 243,
+        // `ddMinMag` 231 of 233 (2 `#`-hex BID-interchange skips
+        // each, never failures). Exact-match per ADR-0010.
+        ("ddMaxMag.decTest", 241),
+        ("ddMinMag.decTest", 231),
         ("ddMultiply.decTest", 444),
         ("ddQuantize.decTest", 606),
         // fd-pvu (ADR-0027): `remainder` (truncating, `Decimal64::rem`)
@@ -149,6 +156,10 @@ fn run_case(case: &TestCase, ctx: &Context) -> Outcome {
         // the longer alias too for robustness.
         "comparetotmag" | "comparetotalmag" => run_total(case, ctx, true),
         "samequantum" => run_samequantum(case, ctx),
+        // decTest `minmag` / `maxmag`: IEEE 754-2019 §9.6
+        // minimumMagnitudeNumber / maximumMagnitudeNumber (fd-8aq).
+        "minmag" => run_min_max_mag(case, ctx, false),
+        "maxmag" => run_min_max_mag(case, ctx, true),
         // decTest `remainder` is the *truncating* remainder
         // (`Decimal64::rem`); `remaindernear` is the IEEE 754-2019
         // §5.3.1 round-half-even-quotient remainder, the new
@@ -287,6 +298,34 @@ fn run_total(case: &TestCase, ctx: &Context, magnitude: bool) -> Outcome {
         a.total_cmp(b)
     };
     check(ord_token(ord), Status::OK, case)
+}
+
+/// `minmag` / `maxmag`: IEEE 754-2019 §9.6 minimumMagnitudeNumber /
+/// maximumMagnitudeNumber (`Decimal64::min_magnitude` /
+/// `max_magnitude`). NaN-as-missing-value; a signaling NaN raises
+/// `INVALID`. The op returns the value and the IEEE status the spec
+/// mandates.
+fn run_min_max_mag(case: &TestCase, ctx: &Context, max: bool) -> Outcome {
+    if case.operands.len() != 2 || case.expected.starts_with('#') {
+        return Outcome::Skip;
+    }
+    let rm = match map_rounding(&ctx.rounding) {
+        Some(r) => r,
+        None => return Outcome::Skip,
+    };
+    let (a, b) = match (
+        parse_operand(&case.operands[0], rm),
+        parse_operand(&case.operands[1], rm),
+    ) {
+        (Some(a), Some(b)) => (a, b),
+        _ => return Outcome::Skip,
+    };
+    let (result, status) = if max {
+        a.max_magnitude(b)
+    } else {
+        a.min_magnitude(b)
+    };
+    check(result, status, case)
 }
 
 /// The decTest copy family (`copy`, `copyabs`, `copynegate`,

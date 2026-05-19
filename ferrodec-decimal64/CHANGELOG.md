@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `Decimal64::min_magnitude` / `Decimal64::max_magnitude`: the
+  IEEE 754-2019 §9.6 `minimumMagnitudeNumber` /
+  `maximumMagnitudeNumber` operations (smaller / larger numeric
+  magnitude; an equal-magnitude tie defers to `min` / `max`; NaN
+  handling as for `min` / `max`). Conformance-validated against the
+  vendored decTest `ddMaxMag` (241 of 243) and `ddMinMag` (231 of
+  233) vectors with zero failures. Additive and non-breaking;
+  ADR-0028 records the design and the `…Number`-variant choice.
+
 ## [1.6.0] - 2026-05-18
 
 ### Added

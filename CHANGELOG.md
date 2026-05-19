@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `Decimal128::min_magnitude` / `Decimal128::max_magnitude`: the
+  IEEE 754-2019 §9.6 `minimumMagnitudeNumber` /
+  `maximumMagnitudeNumber` operations. The operand of smaller
+  (respectively larger) numeric magnitude wins; an equal-magnitude
+  tie defers to `min` / `max`, so the sign and cohort rules stay
+  identical to `minimum` / `maximum`. NaN handling matches `min` /
+  `max` (quiet NaN is the missing value; a signaling NaN raises
+  `INVALID` with the §6.2.3 payload preserved). Additive and
+  non-breaking; ADR-0028 records the design and the choice of the
+  `…Number` variant.
+
 ## [1.16.0] - 2026-05-17
 
 - Internal: the transcendental kernel (exp / ln / sin·cos / inverse
