@@ -1,14 +1,26 @@
-//! Truncated remainder for [`Decimal64`].
+//! Remainder operations for [`Decimal64`].
 //!
-//! `rem(a, b) = a − trunc(a / b) × b`. Result has sign of dividend
-//! and magnitude < |b|. Result quantum = `min(Q(a), Q(b))` per
-//! IEEE 754-2019 §5.3.1. Returns `(NaN, INVALID)` when the integer
-//! quotient would exceed `PRECISION` (= 16) digits or when an operand
-//! makes the operation undefined.
+//! * [`Decimal64::rem_trunc`] — truncated remainder (GDA / C99
+//!   `fmod`): `rem_trunc(a, b) = a − trunc(a / b) × b`. Result has
+//!   sign of dividend and magnitude `< |b|`. The decTest spelling is
+//!   `remainder`.
+//! * [`Decimal64::rem_near`] — IEEE 754-2019 §5.3.1 nearest-even
+//!   remainder: `r = a − n·b` where `n` rounds half-to-even. Result
+//!   magnitude `≤ |b|/2`. The decTest spelling is `remaindernear`.
+//!
+//! Result quantum on both is `min(Q(a), Q(b))`. Both return
+//! `(NaN, INVALID)` when the integer quotient would exceed `PRECISION`
+//! (= 16) digits or when an operand makes the operation undefined.
+//!
+//! In 1.x the truncated op was named bare `rem`, with the parent
+//! crate's bare `rem` naming the nearest-even remainder instead. 2.0
+//! retired the ambiguous spelling in favour of explicit `rem_trunc`
+//! (this module) and `rem_near`, with the explicit names available on
+//! all three formats. ADR-0027 records the destination.
 
 use crate::bid::{classify_bits, decimal_digit_count, Class, BIAS, COEFFICIENT_LIMIT};
 use crate::decimal::Decimal64;
-use ferrodec_ieee::{RoundingMode, Status};
+use ferrodec_ieee::Status;
 
 const POW10_U128: [u128; 39] = {
     let mut t = [0u128; 39];
@@ -35,7 +47,7 @@ const U128_DIGIT_CAP: u32 = 38;
 const _: () = assert!(POW10_U128.len() > U128_DIGIT_CAP as usize);
 
 impl Decimal64 {
-    /// Truncated-quotient remainder: `rem(a, b) = a − trunc(a / b) × b`.
+    /// Truncated-quotient remainder: `rem_trunc(a, b) = a − trunc(a / b) × b`.
     ///
     /// This is the GDA / C99 `fmod` remainder: the integer quotient
     /// rounds toward zero, so the result has the sign of `a` and
@@ -43,19 +55,20 @@ impl Decimal64 {
     /// truncated variant. The IEEE 754-2019 §5.3.1 nearest-even
     /// remainder (`|r| ≤ |b|/2`, decTest `remaindernear`) is a
     /// *different* operation, exposed separately as
-    /// [`Decimal64::rem_near`]; `Decimal128::rem` is the nearest-even
-    /// one while this sibling `rem` is the truncated one, a deliberate
-    /// per-format choice and a documented API hazard (ADR-0027). For
-    /// rule-stable code prefer the explicit `rem_near` / the truncated
-    /// `rem`; ADR-0027 records the 2.0 plan to retire the bare,
-    /// ambiguous spelling.
+    /// [`Decimal64::rem_near`].
     ///
-    /// `rm` is unused: a truncated remainder is exact (its magnitude
-    /// is strictly below `|b|` and it shares the dividend's quantum
-    /// floor), so no rounding ever occurs. The parameter is retained
-    /// only so the signature matches the other binary operations.
+    /// The truncated remainder is always exact (its magnitude is
+    /// strictly below `|b|` and it shares the dividend's quantum
+    /// floor), so no rounding mode is needed; the function takes no
+    /// `RoundingMode` parameter.
+    ///
+    /// In 1.x this was named bare `rem` with a trailing
+    /// `_rm: RoundingMode` parameter (always unused). 2.0 retired the
+    /// ambiguous spelling — the parent crate's bare `rem` named the
+    /// nearest-even op — in favour of explicit `rem_near` / `rem_trunc`
+    /// on all three formats (ADR-0027).
     #[must_use]
-    pub fn rem(self, other: Self, _rm: RoundingMode) -> (Self, Status) {
+    pub fn rem_trunc(self, other: Self) -> (Self, Status) {
         let ca = classify_bits(self.0);
         let cb = classify_bits(other.0);
 
@@ -176,11 +189,11 @@ impl Decimal64 {
     /// nearest integer, ties to even.
     ///
     /// Result magnitude `≤ |b| / 2`; always exact when defined; never
-    /// raises `INEXACT`. This mirrors `Decimal128::rem` (the parent's
-    /// `rem` is this nearest-even op), and is distinct from this
-    /// crate's truncated [`Decimal64::rem`]. The decTest spelling is
-    /// `remaindernear`. ADR-0027 records why both spellings exist and
-    /// the 2.0 plan to make the explicit name the only one.
+    /// raises `INEXACT`. Matches `Decimal128::rem_near` on the parent
+    /// crate, and is distinct from this crate's truncated
+    /// [`Decimal64::rem_trunc`]. The decTest spelling is
+    /// `remaindernear`. ADR-0027 records why both spellings exist on
+    /// every format.
     ///
     /// Special cases follow IEEE 754-2019 §5.3.1 exactly as the
     /// truncated `rem` does (they share `handle_specials`): NaN
@@ -304,7 +317,7 @@ impl Decimal64 {
         // The IEEE remainder is exactly representable when the
         // operands are, so any coefficient above `PRECISION` digits is
         // made of trailing zeros: shift them out, raising the quantum
-        // (mirrors `Decimal128::rem`'s re-encode normalisation).
+        // (mirrors `Decimal128::rem_near`'s re-encode normalisation).
         let result_sign = sign_a ^ sign_flip;
         let mut q_unbiased = target_q;
         while result_mag >= u128::from(COEFFICIENT_LIMIT) {
@@ -343,7 +356,7 @@ impl Decimal64 {
 /// `residue` versus `aligned_b / 2`, ties broken by the integer
 /// quotient's low bit (round half to even). Returns `true` when the
 /// truncated quotient should be rounded up by one. Mirrors the
-/// `Decimal128` `rem` half-even comparison.
+/// `Decimal128::rem_near` half-even comparison.
 fn compare_remainder_to_half(residue: u128, aligned_b: u128, quotient_lsb: u32) -> bool {
     if residue == 0 {
         return false;
@@ -434,27 +447,27 @@ mod tests {
     }
 
     #[test]
-    fn rem_basic() {
-        let (r, _) = from_int(10, 0).rem(from_int(3, 0), RoundingMode::NearestEven);
+    fn rem_trunc_basic() {
+        let (r, _) = from_int(10, 0).rem_trunc(from_int(3, 0));
         assert_eq!(r.to_bits(), from_int(1, 0).to_bits());
 
-        let (r, _) = from_int(10, 0).rem(from_int(5, 0), RoundingMode::NearestEven);
+        let (r, _) = from_int(10, 0).rem_trunc(from_int(5, 0));
         assert!(r.is_zero() && !r.is_sign_negative());
 
-        let (r, _) = from_int(-10, 0).rem(from_int(3, 0), RoundingMode::NearestEven);
+        let (r, _) = from_int(-10, 0).rem_trunc(from_int(3, 0));
         assert_eq!(r.to_bits(), from_int(-1, 0).to_bits());
     }
 
     #[test]
-    fn rem_zero_dividend() {
-        let (r, _) = Decimal64::ZERO.rem(from_int(5, 0), RoundingMode::NearestEven);
+    fn rem_trunc_zero_dividend() {
+        let (r, _) = Decimal64::ZERO.rem_trunc(from_int(5, 0));
         assert!(r.is_zero() && !r.is_sign_negative());
     }
 
     #[test]
     fn rem_near_nearest_even_quotient() {
         // 7.5 rem_near 2.0: round_half_even(3.75) = 4, 7.5 − 4·2 = -0.5
-        // (the documented Decimal128::rem example; the sibling now
+        // (the documented Decimal128::rem_near example; the sibling now
         // matches it).
         let (r, s) = from_int(75, -1).rem_near(from_int(20, -1));
         assert_eq!(r.to_bits(), from_int(-5, -1).to_bits());
@@ -516,7 +529,7 @@ mod tests {
     }
 
     #[test]
-    fn rem_h5_large_exponent_gap_quotient_in_precision() {
+    fn rem_trunc_h5_large_exponent_gap_quotient_in_precision() {
         // H5 regression (Phase 1 Agent 2 M2): `rem(1E+25, 10^16 - 1)`
         // has `shift_a = 25 > old MAX_SAFE_SHIFT = 22`, but the
         // truncated quotient (≈ 10^9, 10 digits) fits well inside
@@ -528,7 +541,7 @@ mod tests {
         // Remainder: 10^25 − 10^9 × (10^16 − 1) = 10^9.
         let a = Decimal64::try_new(1, 25).unwrap();
         let b = Decimal64::try_new(9_999_999_999_999_999, 0).unwrap();
-        let (r, status) = a.rem(b, RoundingMode::NearestEven);
+        let (r, status) = a.rem_trunc(b);
         let expected = Decimal64::try_new(1_000_000_000, 0).unwrap();
         assert_eq!(
             r.to_bits(),
@@ -543,7 +556,7 @@ mod tests {
         // Genuinely-impossible quotient (10^25 / 1 = 10^25, 26 digits)
         // still raises INVALID as expected.
         let one = Decimal64::try_new(1, 0).unwrap();
-        let (r, status) = a.rem(one, RoundingMode::NearestEven);
+        let (r, status) = a.rem_trunc(one);
         assert!(
             r.is_quiet_nan(),
             "rem(1E+25, 1) quotient has 26 digits, expected NaN"
@@ -552,42 +565,42 @@ mod tests {
     }
 
     #[test]
-    fn rem_by_zero_invalid() {
-        let (r, s) = from_int(5, 0).rem(Decimal64::ZERO, RoundingMode::NearestEven);
+    fn rem_trunc_by_zero_invalid() {
+        let (r, s) = from_int(5, 0).rem_trunc(Decimal64::ZERO);
         assert!(r.is_quiet_nan());
         assert!(s.invalid());
     }
 
     #[test]
-    fn rem_infinity() {
-        let (r, s) = Decimal64::INFINITY.rem(from_int(3, 0), RoundingMode::NearestEven);
+    fn rem_trunc_infinity() {
+        let (r, s) = Decimal64::INFINITY.rem_trunc(from_int(3, 0));
         assert!(r.is_quiet_nan());
         assert!(s.invalid());
 
-        let (r, _) = from_int(7, 0).rem(Decimal64::INFINITY, RoundingMode::NearestEven);
+        let (r, _) = from_int(7, 0).rem_trunc(Decimal64::INFINITY);
         assert_eq!(r.to_bits(), from_int(7, 0).to_bits());
     }
 
     #[test]
-    fn rem_too_large_quotient_invalid() {
-        let (r, s) = Decimal64::MAX.rem(Decimal64::MIN_POSITIVE, RoundingMode::NearestEven);
+    fn rem_trunc_too_large_quotient_invalid() {
+        let (r, s) = Decimal64::MAX.rem_trunc(Decimal64::MIN_POSITIVE);
         assert!(r.is_quiet_nan());
         assert!(s.invalid());
     }
 
     #[test]
-    fn rem_dividend_smaller_than_divisor() {
-        let (r, _) = from_int(3, 0).rem(from_int(10, 0), RoundingMode::NearestEven);
+    fn rem_trunc_dividend_smaller_than_divisor() {
+        let (r, _) = from_int(3, 0).rem_trunc(from_int(10, 0));
         assert_eq!(r.to_bits(), from_int(3, 0).to_bits());
     }
 
     #[test]
-    fn rem_nan_propagation() {
-        let (r, s) = Decimal64::NAN.rem(Decimal64::ONE, RoundingMode::NearestEven);
+    fn rem_trunc_nan_propagation() {
+        let (r, s) = Decimal64::NAN.rem_trunc(Decimal64::ONE);
         assert!(r.is_quiet_nan());
         assert!(s.is_ok());
 
-        let (r, s) = Decimal64::SIGNALING_NAN.rem(Decimal64::ONE, RoundingMode::NearestEven);
+        let (r, s) = Decimal64::SIGNALING_NAN.rem_trunc(Decimal64::ONE);
         assert!(r.is_quiet_nan());
         assert!(s.invalid());
     }

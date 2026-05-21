@@ -1,6 +1,6 @@
 //! Fuzz target: arbitrary `(u32, u32)` bit-pattern pairs through the
-//! basic arithmetic ops (add, sub, mul, div, rem). Asserts no panic
-//! plus a few algebraic identities.
+//! basic arithmetic ops (add, sub, mul, div, rem_trunc). Asserts no
+//! panic plus a few algebraic identities.
 
 #![no_main]
 
@@ -19,7 +19,7 @@ fuzz_target!(|data: (u32, u32)| {
     let _ = a.sub(b, rm);
     let _ = a.mul(b, rm);
     let _ = a.div(b, rm);
-    let _ = a.rem(b, rm);
+    let _ = a.rem_trunc(b);
 
     // a + 0 = a (numerically) for non-NaN finite a.
     if a.is_finite() && !a.is_nan() {

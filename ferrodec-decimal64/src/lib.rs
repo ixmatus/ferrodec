@@ -36,9 +36,10 @@
 //!   `maximumNumber` (quiet NaN is "missing value"), matching
 //!   Decimal128, GDA, and decTest.
 //! - Default `Display` uses the General Decimal Arithmetic `toSci`
-//!   rule. This diverges from Decimal128's `f64::Display`-style
-//!   boundary; ADR-0014 records the rationale and the v2.0
-//!   harmonization plan.
+//!   rule, matching Decimal128 (whose 1.x `f64::Display`-style boundary
+//!   was retired in 2.0 per ADR-0014). Callers that need the 1.x
+//!   integer-style rendering can wrap a value in
+//!   [`Decimal64::fixed_preferred`].
 //! - §9.2 transcendentals (`exp` / `ln` / `exp2` / `log2` / `log10`,
 //!   `cbrt`, the trig and hyperbolic families, `pow`) are faithfully
 //!   rounded (≤ 1 ULP at 16 digits, every IEEE 754-2019 rounding
@@ -64,9 +65,13 @@
 //! (quantize-then-serialize, fixed-point money display, golden-file
 //! comparison) must pin the exponent with `quantize` rather than
 //! rely on the default. The same principle, a stable value behind a
-//! divergent surface, drives the `rem` / `%` asymmetry across the
-//! family (ADR-0027): ferrodec names its divergences rather than
-//! hiding them.
+//! surface that names its divergences, applied to the 1.x bare `rem`
+//! spelling: the 2.0 release retired it in favour of explicit
+//! `rem_near` (IEEE 754-2019 §5.3.1 nearest-even) and `rem_trunc`
+//! (GDA truncated) on all three formats. The `%` operator routes to
+//! `rem_trunc` on this format (the rule the bare `rem` carried in
+//! 1.x) and to `rem_near` on the Decimal128 parent, with the
+//! per-format choice documented under ADR-0027.
 //!
 //! # Companion crates
 //!
@@ -79,12 +84,13 @@
 //! # Porting between the formats
 //!
 //! The numeric value is portable across the three formats; the
-//! surface is not. Bare `rem` / `%` are the truncated remainder here
-//! but the nearest-even remainder on Decimal128, so use the explicit
-//! `rem_near` / `rem_trunc`; the cohort exponent, `Display`, and the
-//! transcendental feature gating also differ per format. Pin what
-//! you serialize or compare with `quantize`. ADR-0027 and ADR-0014
-//! give the rationale; the `ferrodec` crate README carries the full
+//! surface is not. `%` is GDA truncated here and IEEE nearest-even on
+//! Decimal128, so prefer the explicit `rem_near` / `rem_trunc` for
+//! rule-stable code (1.x retired the ambiguous bare `rem` per
+//! ADR-0027). The cohort exponent, `Display`, and the transcendental
+//! feature gating also differ per format. Pin what you serialize or
+//! compare with `quantize`. ADR-0027 and ADR-0014 give the
+//! rationale; the `ferrodec` crate README carries the full
 //! cross-format table.
 
 #![no_std]
@@ -108,7 +114,7 @@ mod transcend_impl;
 mod verify;
 
 #[cfg(feature = "fmt")]
-pub use convert::{Engineering, ParseDecimalError};
+pub use convert::{Engineering, FixedPreferred, ParseDecimalError};
 pub use decimal::{Decimal64, Decimal64BuildError};
 pub use ferrodec_ieee::{IeeeClass, RoundingMode, Status};
 #[cfg(feature = "serde")]

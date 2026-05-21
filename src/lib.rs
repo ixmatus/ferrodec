@@ -39,15 +39,18 @@
 //! (quantize-then-serialize, fixed-point money display, golden-file
 //! comparison) must pin the exponent with `quantize` rather than
 //! rely on the default. The same principle, a stable value behind a
-//! divergent surface, drives the `rem` / `%` asymmetry across the
-//! family (ADR-0027): ferrodec names its divergences rather than
-//! hiding them.
+//! surface that names its divergences, applied to the 1.x bare `rem`
+//! spelling: the 2.0 release retired it in favour of explicit
+//! `rem_near` (IEEE 754-2019 §5.3.1 nearest-even) and `rem_trunc`
+//! (GDA truncated) on all three formats. The `%` operator survives
+//! and routes to `rem_near` on this format, `rem_trunc` on the
+//! siblings, with the per-format choice documented under ADR-0027.
 //!
 //! # Quick start
 //!
 //! ```toml
 //! [dependencies]
-//! ferrodec = "1"
+//! ferrodec = "2"
 //! ```
 //!
 //! See the [README](https://github.com/ixmatus/ferrodec) for the full
@@ -91,7 +94,7 @@ pub use decimal::{Decimal128, Decimal128BuildError};
 pub use status::{RoundingMode, Status};
 
 #[cfg(feature = "fmt")]
-pub use convert::{Engineering, ParseDecimalError};
+pub use convert::{Engineering, FixedPreferred, ParseDecimalError};
 
 #[cfg(feature = "binary-float")]
 pub use convert::Decimal128FromFloatError;

@@ -3,16 +3,19 @@
 //!
 //! Two flavors:
 //!
-//! * [`Decimal128::rem`] — IEEE 754 §5.3.1 `remainder`:
+//! * [`Decimal128::rem_near`] — IEEE 754 §5.3.1 `remainder`:
 //!   `r = x − n × y` where `n` is the nearest-even integer to `x / y`.
 //!   Result magnitude `≤ |y| / 2`. Always exact when defined; never
-//!   raises `INEXACT`.
+//!   raises `INEXACT`. decTest spelling: `remaindernear`.
 //! * [`Decimal128::rem_trunc`] — truncating-quotient remainder:
 //!   `r = x − trunc(x / y) × y` (the integer quotient rounds toward
 //!   zero). Result has sign of dividend, magnitude `< |y|`. Matches
-//!   C99 `fmod` and decTest's `remainder` op (distinct from
-//!   decTest's `remaindernear`, which is the round-half-to-even
-//!   variant `rem` implements). Always exact when defined.
+//!   C99 `fmod` and decTest's `remainder` op. Always exact when defined.
+//!
+//! The bare `rem` name shipped in 1.x with asymmetric semantics across
+//! the family (parent nearest-even, siblings truncated) and was retired
+//! in 2.0 in favour of the explicit `rem_near` / `rem_trunc`. ADR-0027
+//! records the destination.
 //!
 //! Special cases (IEEE 754-2019 §5.3.1):
 //!
@@ -62,22 +65,18 @@ impl Decimal128 {
     /// Returns `r = self − n · rhs` where `n` is the integer nearest to
     /// `self / rhs` with ties rounding to even. Result magnitude
     /// `≤ |rhs| / 2`. Always exact when defined; never raises
-    /// `INEXACT`.
+    /// `INEXACT`. decTest spelling: `remaindernear`.
     ///
     /// Distinct from [`Decimal128::rem_trunc`], which uses a
     /// truncating-quotient (C99 `fmod`-style) rule.
     ///
-    /// Cross-format hazard: this `Decimal128::rem` is the nearest-even
-    /// remainder, but the sibling `ferrodec_decimal64::Decimal64::rem`
-    /// and `ferrodec_decimal32::Decimal32::rem` name the *truncated*
-    /// remainder, a different operation; the siblings expose the
-    /// nearest-even op explicitly as `rem_near`. Generic or ported
-    /// code must not assume `.rem()` agrees across the ferrodec
-    /// formats. ADR-0027 records the asymmetry and the 2.0 plan to
-    /// retire the bare, ambiguous spelling in favour of explicit
-    /// `rem_near` / `rem_trunc`.
+    /// In 1.x this was named bare `rem`, with the sibling crates' bare
+    /// `rem` naming the truncated remainder instead. 2.0 retired the
+    /// ambiguous spelling in favour of explicit `rem_near` (this
+    /// method) and `rem_trunc`, with the explicit names available on
+    /// all three formats. ADR-0027 records the destination.
     #[must_use]
-    pub fn rem(self, rhs: Self) -> (Self, Status) {
+    pub fn rem_near(self, rhs: Self) -> (Self, Status) {
         if let Some(early) = rem_special_cases(self, rhs) {
             return early;
         }
@@ -91,14 +90,12 @@ impl Decimal128 {
     /// the dec-spec / decTest `remainder` op. Always exact when
     /// defined; never raises `INEXACT`.
     ///
-    /// Distinct from [`Decimal128::rem`], which uses the IEEE 754
-    /// round-half-to-even quotient rule.
-    ///
-    /// Cross-format note: this matches the sibling
-    /// `ferrodec_decimal64::Decimal64::rem` and
-    /// `ferrodec_decimal32::Decimal32::rem` (both truncated), not the
-    /// siblings' `rem_near` and not `Decimal128::rem` (both
-    /// nearest-even). ADR-0027 maps the spellings across the family.
+    /// Distinct from [`Decimal128::rem_near`], which uses the IEEE 754
+    /// round-half-to-even quotient rule. The sibling
+    /// `ferrodec_decimal64::Decimal64::rem_trunc` and
+    /// `ferrodec_decimal32::Decimal32::rem_trunc` are the same
+    /// operation on the narrower formats; in 1.x the siblings spelled
+    /// this `rem`, which 2.0 retired (ADR-0027).
     ///
     /// # Examples
     ///
@@ -113,10 +110,10 @@ impl Decimal128 {
     /// let (r, _) = x.rem_trunc(y);
     /// assert_eq!(r.to_bits(), Decimal128::try_new(15, -1).unwrap().to_bits());
     ///
-    /// // Compare with `rem` (round-half-to-even quotient):
+    /// // Compare with `rem_near` (round-half-to-even quotient):
     /// //   round-half-even(3.75) = 4
     /// //   7.5 − 4 × 2.0 = -0.5
-    /// let (r_ieee, _) = x.rem(y);
+    /// let (r_ieee, _) = x.rem_near(y);
     /// assert_eq!(r_ieee.to_bits(), Decimal128::try_new(-5, -1).unwrap().to_bits());
     /// ```
     #[must_use]
@@ -267,7 +264,7 @@ fn rem_finite(a: Decimal128, b: Decimal128, rounding: RemRounding) -> (Decimal12
     // coefficient fits.
     let (mut coef, mut q_unbiased) = (result_mag, q_min);
     while decimal_digit_count(coef) > 34 {
-        debug_assert!(coef % 10 == 0, "rem result not exactly representable");
+        debug_assert!(coef % 10 == 0, "rem_near result not exactly representable");
         coef /= 10;
         q_unbiased += 1;
     }
@@ -336,50 +333,50 @@ mod tests {
 
     #[test]
     fn nan_propagates() {
-        let (r, _) = Decimal128::ONE.rem(Decimal128::NAN);
+        let (r, _) = Decimal128::ONE.rem_near(Decimal128::NAN);
         assert!(r.is_nan());
-        let (r, s) = Decimal128::SIGNALING_NAN.rem(Decimal128::ONE);
+        let (r, s) = Decimal128::SIGNALING_NAN.rem_near(Decimal128::ONE);
         assert!(r.is_nan());
         assert!(s.invalid());
     }
 
     #[test]
     fn x_over_zero_is_invalid_nan() {
-        let (r, s) = Decimal128::ONE.rem(Decimal128::ZERO);
+        let (r, s) = Decimal128::ONE.rem_near(Decimal128::ZERO);
         assert!(r.is_nan());
         assert!(s.invalid());
     }
 
     #[test]
     fn inf_over_y_is_invalid_nan() {
-        let (r, s) = Decimal128::INFINITY.rem(Decimal128::ONE);
+        let (r, s) = Decimal128::INFINITY.rem_near(Decimal128::ONE);
         assert!(r.is_nan());
         assert!(s.invalid());
     }
 
     #[test]
     fn x_over_inf_is_x() {
-        let (r, _) = d_int(7).rem(Decimal128::INFINITY);
+        let (r, _) = d_int(7).rem_near(Decimal128::INFINITY);
         assert_eq!(r.to_bits(), d_int(7).to_bits());
-        let (r, _) = Decimal128::NEG_ZERO.rem(Decimal128::INFINITY);
+        let (r, _) = Decimal128::NEG_ZERO.rem_near(Decimal128::INFINITY);
         assert!(r.is_zero());
         assert!(r.is_sign_negative());
     }
 
-    /// `rem(x, ±∞)` short-circuits via `return Some((a, status))`
+    /// `rem_near(x, ±∞)` short-circuits via `return Some((a, status))`
     /// (operand verbatim), distinct from the other special arms which
     /// re-canonicalise via `pack_finite`. The 2026-05-10 review (M-2
     /// in the core-arithmetic finding) flagged this asymmetry. In
     /// practice the asymmetry is benign because `classify_bits`
     /// canonicalises non-canonical Form A (coefficient ≥ 10^34) to
-    /// `Class::Zero` at decode, so by the time `rem` reaches the
+    /// `Class::Zero` at decode, so by the time `rem_near` reaches the
     /// Infinity-divisor case the dividend has already been classified
     /// as either Zero or Finite (with coefficient < 10^34). Pin the
     /// invariant explicitly so a future refactor that touches either
     /// `classify_bits`'s canonicalisation rule or `rem_special_cases`'s
     /// short-circuit surfaces the implicit dependency.
     #[test]
-    fn rem_with_inf_divisor_preserves_non_canonical_form_a_safely() {
+    fn rem_near_with_inf_divisor_preserves_non_canonical_form_a_safely() {
         // Construct a non-canonical Form A bit pattern: coefficient
         // 10^34 + 5 (just past COEFFICIENT_LIMIT), biased_exp BIAS.
         // `classify_bits` decodes this as Class::Zero per §3.5.2.
@@ -388,17 +385,17 @@ mod tests {
         let bits = crate::bid::pack_finite(false, bias, non_canonical_coef);
         let a = Decimal128::from_bits(bits);
         // The dividend's class is Zero, not Finite — proving the
-        // classify_bits canonicalisation that makes the rem
+        // classify_bits canonicalisation that makes the rem_near
         // short-circuit safe.
         assert!(
             a.is_zero(),
             "non-canonical Form A must canonicalise to Zero on decode"
         );
 
-        // rem(non_canonical_form_a, +Inf) returns the operand
-        // verbatim per rem_special_cases line 157. Because the
-        // operand is canonicalised, the verbatim return is safe.
-        let (r, _) = a.rem(Decimal128::INFINITY);
+        // rem_near(non_canonical_form_a, +Inf) returns the operand
+        // verbatim per rem_special_cases. Because the operand is
+        // canonicalised, the verbatim return is safe.
+        let (r, _) = a.rem_near(Decimal128::INFINITY);
         assert_eq!(r.to_bits(), a.to_bits());
         assert!(r.is_zero());
     }
@@ -411,7 +408,7 @@ mod tests {
         assert_eq!(cmp, Some(core::cmp::Ordering::Equal));
         assert!(s.is_ok());
 
-        // 8 fmod 3: trunc(8/3) = 2, 8 − 2·3 = 2. (Differs from rem,
+        // 8 fmod 3: trunc(8/3) = 2, 8 − 2·3 = 2. (Differs from rem_near,
         // which gives -1 because round-half-to-even of 8/3≈2.67 is 3.)
         let (r, _) = d_int(8).rem_trunc(d_int(3));
         let (cmp, _) = r.partial_cmp(d_int(2));
@@ -429,20 +426,20 @@ mod tests {
     }
 
     #[test]
-    fn rem_trunc_diverges_from_rem_at_half_boundary() {
+    fn rem_trunc_diverges_from_rem_near_at_half_boundary() {
         // 5 fmod 2: trunc(2.5) = 2, result 1.
-        // (vs rem: round-half-to-even(2.5) = 2 → result 1. Same here.)
+        // (vs rem_near: round-half-to-even(2.5) = 2 → result 1. Same here.)
         let (r_t, _) = d_int(5).rem_trunc(d_int(2));
-        let (r_e, _) = d_int(5).rem(d_int(2));
+        let (r_e, _) = d_int(5).rem_near(d_int(2));
         let (cmp, _) = r_t.partial_cmp(d_int(1));
         assert_eq!(cmp, Some(core::cmp::Ordering::Equal));
         let (cmp, _) = r_e.partial_cmp(d_int(1));
         assert_eq!(cmp, Some(core::cmp::Ordering::Equal));
 
         // 7 fmod 2: trunc(3.5) = 3, result 1.
-        // rem: round-half-to-even(3.5) = 4, result -1. Different.
+        // rem_near: round-half-to-even(3.5) = 4, result -1. Different.
         let (r_t, _) = d_int(7).rem_trunc(d_int(2));
-        let (r_e, _) = d_int(7).rem(d_int(2));
+        let (r_e, _) = d_int(7).rem_near(d_int(2));
         let (cmp, _) = r_t.partial_cmp(d_int(1));
         assert_eq!(cmp, Some(core::cmp::Ordering::Equal));
         let (cmp, _) = r_e.partial_cmp(d_int(-1));
@@ -451,7 +448,7 @@ mod tests {
 
     #[test]
     fn rem_trunc_special_cases() {
-        // NaN propagation matches rem.
+        // NaN propagation matches rem_near.
         let (r, _) = Decimal128::ONE.rem_trunc(Decimal128::NAN);
         assert!(r.is_nan());
         let (r, s) = Decimal128::SIGNALING_NAN.rem_trunc(Decimal128::ONE);
@@ -474,66 +471,66 @@ mod tests {
     }
 
     #[test]
-    fn rem_basic_in_range() {
+    fn rem_near_basic_in_range() {
         // 7 mod 3: 7 = 2*3 + 1, |1| < 1.5, n=2, result = 1
-        let (r, s) = d_int(7).rem(d_int(3));
+        let (r, s) = d_int(7).rem_near(d_int(3));
         let (cmp, _) = r.partial_cmp(d_int(1));
         assert_eq!(cmp, Some(core::cmp::Ordering::Equal));
         assert!(s.is_ok());
 
         // 8 mod 3: 8 = 2*3 + 2, |2| > 1.5, n=3, result = -1
-        let (r, _) = d_int(8).rem(d_int(3));
+        let (r, _) = d_int(8).rem_near(d_int(3));
         let (cmp, _) = r.partial_cmp(d_int(-1));
         assert_eq!(cmp, Some(core::cmp::Ordering::Equal));
 
         // -7 mod 3: result = -1
-        let (r, _) = d_int(-7).rem(d_int(3));
+        let (r, _) = d_int(-7).rem_near(d_int(3));
         let (cmp, _) = r.partial_cmp(d_int(-1));
         assert_eq!(cmp, Some(core::cmp::Ordering::Equal));
 
         // -8 mod 3: result = +1
-        let (r, _) = d_int(-8).rem(d_int(3));
+        let (r, _) = d_int(-8).rem_near(d_int(3));
         let (cmp, _) = r.partial_cmp(d_int(1));
         assert_eq!(cmp, Some(core::cmp::Ordering::Equal));
     }
 
     #[test]
-    fn rem_round_to_even_tie() {
+    fn rem_near_round_to_even_tie() {
         // 5 mod 2: q=2 r=1, 2r=2=y_scaled tie. q parity = even, round down.
         // result = 1.
-        let (r, _) = d_int(5).rem(d_int(2));
+        let (r, _) = d_int(5).rem_near(d_int(2));
         let (cmp, _) = r.partial_cmp(d_int(1));
         assert_eq!(cmp, Some(core::cmp::Ordering::Equal));
 
         // 7 mod 2: q=3 r=1, tie. q parity = odd, round up.
         // result = -1.
-        let (r, _) = d_int(7).rem(d_int(2));
+        let (r, _) = d_int(7).rem_near(d_int(2));
         let (cmp, _) = r.partial_cmp(d_int(-1));
         assert_eq!(cmp, Some(core::cmp::Ordering::Equal));
     }
 
     #[test]
-    fn rem_zero_when_divisible() {
-        let (r, _) = d_int(12).rem(d_int(4));
+    fn rem_near_zero_when_divisible() {
+        let (r, _) = d_int(12).rem_near(d_int(4));
         assert!(r.is_zero());
-        let (r, _) = d_int(-12).rem(d_int(4));
+        let (r, _) = d_int(-12).rem_near(d_int(4));
         assert!(r.is_zero());
     }
 
     #[test]
-    fn rem_y_much_larger_returns_x() {
+    fn rem_near_y_much_larger_returns_x() {
         // x = 1, y = 1 × 10^100 (way larger). |x|/|y| → 0. n = 0.
         // Result = x.
         let huge_y = d_finite(false, BIAS + 100, 1);
-        let (r, _) = Decimal128::ONE.rem(huge_y);
+        let (r, _) = Decimal128::ONE.rem_near(huge_y);
         assert_eq!(r.to_bits(), Decimal128::ONE.to_bits());
     }
 
     #[cfg(feature = "fmt")]
     #[test]
-    fn rem_division_impossible_at_buffer_boundary() {
+    fn rem_near_division_impossible_at_buffer_boundary() {
         // Mirrors dqRemainderNear vectors dqrmn1051..1054. The aligned
-        // numerator for `1e+277 rem 1e-311` would need ≈ 589 digits,
+        // numerator for `1e+277 rem_near 1e-311` would need ≈ 589 digits,
         // far beyond U256. The integer quotient is 10^588, which is
         // well over PRECISION=34 digits, so dec-spec
         // Division_impossible applies and the early-return is the
@@ -544,14 +541,14 @@ mod tests {
         let tiny = Decimal128::parse_str("1E-311", crate::RoundingMode::NearestEven)
             .expect("parse")
             .0;
-        let (r, s) = big.rem(tiny);
+        let (r, s) = big.rem_near(tiny);
         assert!(r.is_nan(), "expected NaN, got {r}");
         assert!(s.invalid(), "expected INVALID, got {s:?}");
     }
 
     #[cfg(feature = "fmt")]
     #[test]
-    fn rem_division_impossible_in_band() {
+    fn rem_near_division_impossible_in_band() {
         // The in-band check (integer quotient too wide despite fitting
         // U256) covers the same dec-spec condition for less-extreme
         // ratios. Mirrors dqrmn772.
@@ -564,18 +561,18 @@ mod tests {
         let y = Decimal128::parse_str("0.1", crate::RoundingMode::NearestEven)
             .expect("parse")
             .0;
-        let (r, s) = x.rem(y);
+        let (r, s) = x.rem_near(y);
         assert!(r.is_nan());
         assert!(s.invalid());
     }
 
     #[test]
-    fn rem_zero_dividend_preserves_sign() {
-        let (r, _) = Decimal128::ZERO.rem(d_int(7));
+    fn rem_near_zero_dividend_preserves_sign() {
+        let (r, _) = Decimal128::ZERO.rem_near(d_int(7));
         assert!(r.is_zero());
         assert!(!r.is_sign_negative());
 
-        let (r, _) = Decimal128::NEG_ZERO.rem(d_int(7));
+        let (r, _) = Decimal128::NEG_ZERO.rem_near(d_int(7));
         assert!(r.is_zero());
         assert!(r.is_sign_negative());
     }

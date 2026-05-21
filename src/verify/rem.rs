@@ -1,4 +1,5 @@
-//! Kani harnesses for `Decimal128::rem`.
+//! Kani harnesses for `Decimal128::rem_near` (the IEEE 754-2019 §5.3.1
+//! nearest-even remainder; in 1.x this was named bare `rem`).
 
 use crate::Decimal128;
 

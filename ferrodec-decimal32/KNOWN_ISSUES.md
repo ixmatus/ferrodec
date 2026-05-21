@@ -143,7 +143,7 @@ audit trail.
   10^7. The oracle was unsound for `rem`; it has been corrected (see
   `tests/d64_crosscheck.rs`, `rem_oracle_check`) to assert the GDA
   result, and the pinned case is now a regression test asserting
-  `NaN`/`INVALID` (`rem_pinned_known_issue_h3_is_spec_invalid`).
+  `NaN`/`INVALID` (`rem_trunc_pinned_known_issue_h3_is_spec_invalid`).
 * **Genuine defect, sound witness**: `rem(1E+13, 9999999)` under any
   rounding mode. The alignment shift is `13 − 0 = 13`, past the old
   static `MAX_SAFE_SHIFT = 12`, but the true integer quotient is

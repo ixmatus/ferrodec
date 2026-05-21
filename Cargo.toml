@@ -59,7 +59,7 @@ missing_panics_doc = "allow"
 
 [package]
 name = "ferrodec"
-version = "1.18.0"
+version = "2.0.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -104,10 +104,13 @@ transcendentals = ["trig", "exp-log", "hyperbolic", "pow"]
 binary-float = ["fmt"]
 # `core::ops` operator overloads (Add / Sub / Mul / Div / Rem and the
 # *Assign variants). Opt-in: defaults to RoundingMode::NearestEven and
-# drops the per-operation Status. Users who need explicit rounding-
-# mode or status control should keep using the explicit `add` /
-# `sub` / `mul` / `div` / `rem` methods. See the README's "Why no
-# core::ops" section for the design rationale.
+# drops the per-operation Status. `%` routes to `rem_near` on Decimal128
+# (IEEE 754-2019 §5.3.1 nearest-even) and to `rem_trunc` on the
+# siblings (GDA truncated); ADR-0027 records the per-format choice.
+# Users who need explicit rounding-mode or status control should keep
+# using the explicit `add` / `sub` / `mul` / `div` / `rem_near` /
+# `rem_trunc` methods. See the README's "Why no core::ops" section for
+# the design rationale.
 ops = []
 # Opt-in, local-only Python/libmpdec + mpmath differential test
 # (Track 3, plan 2026-05-17; special-function surface extended under

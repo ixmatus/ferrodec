@@ -7,9 +7,7 @@ use ferrodec_ieee::Status;
 
 impl Decimal32 {
     /// General Decimal Arithmetic `rotate(x, n)`. See
-    /// [`Decimal128::rotate`] for the full contract.
-    ///
-    /// [`Decimal128::rotate`]: ferrodec::Decimal128::rotate
+    /// `Decimal128::rotate` on the parent crate for the full contract.
     #[must_use]
     pub fn rotate(self, rhs: Self) -> (Self, Status) {
         crate::ops::shift::digit_shift(self, rhs, /*wrap=*/ true)

@@ -41,10 +41,8 @@ impl Decimal32 {
     /// General Decimal Arithmetic `logical_invert(x)`.
     ///
     /// Digit-wise complement of a logical operand, padded to
-    /// `PRECISION = 7` digits. See [`Decimal128::logical_invert`] for
-    /// the full special-case table.
-    ///
-    /// [`Decimal128::logical_invert`]: ferrodec::Decimal128::logical_invert
+    /// `PRECISION = 7` digits. See `Decimal128::logical_invert` on the
+    /// parent crate for the full special-case table.
     #[must_use]
     pub fn logical_invert(self) -> (Self, Status) {
         // GDA logical ops reject every NaN input as INVALID; the
@@ -76,9 +74,7 @@ impl Decimal32 {
     }
 
     /// General Decimal Arithmetic `logical_and(x, y)`. See
-    /// [`Decimal128::logical_and`].
-    ///
-    /// [`Decimal128::logical_and`]: ferrodec::Decimal128::logical_and
+    /// `Decimal128::logical_and` on the parent crate.
     #[must_use]
     pub fn logical_and(self, rhs: Self) -> (Self, Status) {
         logical_binary(self, rhs, |a, b| a & b)

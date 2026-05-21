@@ -45,11 +45,9 @@ impl Decimal64 {
     /// `PRECISION = 16` digits. `logical_invert(0)` is the 16-digit
     /// all-ones integer; `logical_invert((10^16 - 1) / 9)` is zero.
     ///
-    /// See [`Decimal128::logical_invert`] for the full special-case
-    /// table; this implementation mirrors it at `PRECISION = 16` and
-    /// `u64` coefficient width.
-    ///
-    /// [`Decimal128::logical_invert`]: ferrodec::Decimal128::logical_invert
+    /// See `Decimal128::logical_invert` on the parent crate for the
+    /// full special-case table; this implementation mirrors it at
+    /// `PRECISION = 16` and `u64` coefficient width.
     #[must_use]
     pub fn logical_invert(self) -> (Self, Status) {
         // GDA logical ops reject every NaN input as INVALID; the
@@ -82,9 +80,7 @@ impl Decimal64 {
     }
 
     /// General Decimal Arithmetic `logical_and(x, y)`. See
-    /// [`Decimal128::logical_and`].
-    ///
-    /// [`Decimal128::logical_and`]: ferrodec::Decimal128::logical_and
+    /// `Decimal128::logical_and` on the parent crate.
     #[must_use]
     pub fn logical_and(self, rhs: Self) -> (Self, Status) {
         logical_binary(self, rhs, |a, b| a & b)

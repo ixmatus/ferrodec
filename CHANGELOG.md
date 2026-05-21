@@ -7,6 +7,126 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-05-21
+
+The first major-version release. Three consolidated breaking changes
+that ADR-0029 froze into the 2.0 set, shipped together across
+`ferrodec`, `ferrodec-decimal64`, and `ferrodec-decimal32`. The
+dependent ecosystem pays one major-version migration, not three. The
+shared-infrastructure crates (`ferrodec-ieee`, `ferrodec-multiword`,
+`ferrodec-transcend`, `ferrodec-test-support`) are unchanged and
+stay at their 0.1.x releases.
+
+### Breaking
+
+- **Retired the ambiguous bare `rem` method (fd-9n5, ADR-0027 (b),
+  ADR-0029 item 1).** In 1.x `Decimal128::rem` was the IEEE 754-2019
+  §5.3.1 nearest-even remainder but `Decimal64::rem` / `Decimal32::rem`
+  were the GDA / C99 `fmod` truncated remainder; the same name carried
+  different math depending on the type, with no compile-time signal.
+  - `Decimal128::rem` is removed. The IEEE nearest-even op moved in
+    place to `Decimal128::rem_near`, matching the sibling spelling
+    that shipped in 1.6.0. `Decimal128::rem_trunc` stays.
+  - `Decimal128::rem_near` is the new name for the IEEE op. The
+    `core::ops::Rem` (`%`) impl still routes through it.
+  - **Migration.** Rewrite `value.rem(other)` call sites as
+    `value.rem_near(other)`.
+
+- **`%` operator routing on all three formats.** The `core::ops::Rem`
+  and `core::ops::RemAssign` impls are retained (so `impl num_traits::Num`
+  continues to hold under the `num-traits` feature) but now route
+  through the explicit method on each format: `rem_near` on
+  Decimal128, `rem_trunc` on the siblings. The 1.x behavior of `%` is
+  unchanged on each format; the dispatch destination is documented
+  per format at the impl site and in ADR-0027.
+  - **Migration.** No source change required on the per-format `%`
+    surface. Code that wants a guaranteed rule across the family
+    should call the explicit `rem_near` / `rem_trunc` directly.
+
+- **Widened `ParseDecimalError` (fd-7f1, ADR-0018 L14, ADR-0029
+  item 2).** The 1.x enum collapsed every parse failure into four
+  coarse variants and could not distinguish a misplaced sign from a
+  generic invalid byte, or an explicit-exponent overflow from an
+  implicit coefficient-counter saturation. 2.0 widens the enum so
+  callers can match on each failure mode.
+  - New shape (byte-identical on all three crates):
+    ```text
+    #[non_exhaustive]
+    enum ParseDecimalError {
+        Empty,
+        MisplacedSign       { position: usize },
+        InvalidCharacter    { position: usize },
+        InvalidExponent     { position: usize },
+        ExponentOutOfRange,
+        CoefficientOverflow,
+    }
+    ```
+    Variants that carry a position are struct-shaped (named field)
+    rather than the 1.x tuple shape. The enum is `#[non_exhaustive]`:
+    future revisions may add variants under a minor bump.
+  - `MisplacedSign` is new: inputs like `"+-1"`, `"1+2"`, `"1e++3"`
+    now report `MisplacedSign { position: idx }` rather than
+    `InvalidCharacter(idx)`.
+  - `CoefficientOverflow` is new and sibling-only: it promotes the
+    H8 saturation guard (an adversarial run of leading fractional
+    zeros or trailing integer zeros that overflows the parser's
+    implicit-exponent counter) from `ExponentOutOfRange` to its own
+    variant. The parent never produces `CoefficientOverflow`.
+  - **Migration.** Rewrite `Err(ParseDecimalError::InvalidCharacter(n))`
+    patterns as `Err(ParseDecimalError::InvalidCharacter { position: n })`.
+    Exhaustive matches now need a wildcard arm (or an explicit
+    `MisplacedSign` / `CoefficientOverflow` arm). Sibling code that
+    pattern-matched on `ExponentOutOfRange` for the H8 saturation case
+    should match on `CoefficientOverflow` instead. Serde decode errors
+    that route through `Display` see the new wording
+    (`"misplaced sign at byte N"`, `"coefficient digit count out of range"`).
+
+- **Harmonized `Decimal128::Display` onto GDA `toSci` (ADR-0014,
+  ADR-0029 item 3).** In 1.x `Decimal128::Display` used an
+  `f64::Display`-style boundary (plain notation across roughly
+  `[1e-6, 1e21)`) that diverged from the sibling crates. 2.0 switches
+  the parent to GDA `toSci` (plain when `unbiased_exp ≤ 0 && adjusted
+  ≥ −6`, otherwise scientific), the rule the siblings already used
+  and the rule decTest, Python `decimal.Decimal`, and Java
+  `BigDecimal.toString` follow. The cohort the value was typed with
+  is now preserved on the parent too:
+  ```text
+  // 1.x (parent):   parse_str("1E+3").to_string() == "1000"
+  // 2.0 (parent):   parse_str("1E+3").to_string() == "1E+3"
+  ```
+  - **Migration.** Wrap a value in `Decimal128::fixed_preferred()` to
+    reproduce the 1.x output, or compare numerically (`partial_cmp`)
+    rather than by formatted string.
+
+### Added
+
+- `Decimal128::fixed_preferred()` returns a `FixedPreferred(Decimal128)`
+  adapter whose `Display` impl applies the 1.x parent rule (plain
+  notation preferred when the scale fits `(-6, 21]`). Available
+  alongside the existing `Engineering` adapter behind the `fmt`
+  feature.
+- `Decimal64::fixed_preferred()` and `Decimal32::fixed_preferred()`:
+  the same adapter shape on the siblings. Additive — the siblings'
+  default `Display` is unchanged in 2.0 — exposed so callers can opt
+  into the legacy parent rendering uniformly across the family.
+
+### Notes
+
+- Per ADR-0029, the shared infrastructure crates (`ferrodec-ieee`
+  0.1.4, `ferrodec-multiword` 0.1.0, `ferrodec-transcend` 0.1.0,
+  `ferrodec-test-support` unpinned) carry no breaking changes in this
+  release and stay at their pre-2.0 versions. Their public surfaces
+  are unchanged.
+- The conformance suite re-ran with zero per-bucket count drift on
+  every commit of the slice. The `rem` retirement was a source-side
+  rename (the conformance dispatch already routed via the bridge
+  methods); the `ParseDecimalError` widening did not change which
+  inputs the harness skips (`CoefficientOverflow` is mapped to the
+  same skip class as `ExponentOutOfRange` on the siblings, and the
+  parent never produces it); the Decimal128 `Display` harmonization
+  did not move conformance counts (the parent harness compares values
+  via `partial_cmp`, not strings).
+
 ## [1.18.0] - 2026-05-20
 
 ### Added

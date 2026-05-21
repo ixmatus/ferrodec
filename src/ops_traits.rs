@@ -4,8 +4,12 @@
 //! nothing by default. When enabled, each operator routes through the
 //! corresponding explicit method ([`Decimal128::add`],
 //! [`Decimal128::sub`], [`Decimal128::mul`], [`Decimal128::div`],
-//! [`Decimal128::rem`]) at [`RoundingMode::NearestEven`] and discards
-//! the per-call [`Status`](crate::status::Status).
+//! [`Decimal128::rem_near`]) at [`RoundingMode::NearestEven`] and
+//! discards the per-call [`Status`](crate::status::Status). The `%`
+//! operator routes to the IEEE 754-2019 §5.3.1 nearest-even remainder
+//! on this format; the siblings route `%` to GDA truncated
+//! ([`ferrodec_decimal64::Decimal64::rem_trunc`] and the decimal32
+//! analogue). The per-format choice is documented under ADR-0027.
 //!
 //! Users who need explicit rounding-mode or status control should keep
 //! using the explicit methods. The README's "Why no `core::ops`"
@@ -54,10 +58,13 @@ impl Div for Decimal128 {
 
 impl Rem for Decimal128 {
     type Output = Self;
-    /// IEEE 754 remainder. Exact, no rounding mode.
+    /// IEEE 754-2019 §5.3.1 nearest-even remainder. Exact, no rounding
+    /// mode. Routes to [`Decimal128::rem_near`]; the sibling formats
+    /// route `%` to their GDA truncated `rem_trunc` instead (ADR-0027
+    /// records the per-format choice).
     #[inline]
     fn rem(self, rhs: Self) -> Self {
-        Decimal128::rem(self, rhs).0
+        Decimal128::rem_near(self, rhs).0
     }
 }
 
@@ -104,7 +111,7 @@ impl DivAssign for Decimal128 {
 impl RemAssign for Decimal128 {
     #[inline]
     fn rem_assign(&mut self, rhs: Self) {
-        *self = Decimal128::rem(*self, rhs).0;
+        *self = Decimal128::rem_near(*self, rhs).0;
     }
 }
 
@@ -151,11 +158,23 @@ mod tests {
     }
 
     #[test]
-    fn rem_op_exact() {
+    fn rem_op_routes_through_rem_near() {
+        // `%` is the IEEE 754-2019 §5.3.1 nearest-even remainder on
+        // Decimal128 (the siblings route `%` to their GDA truncated
+        // `rem_trunc` instead; see ADR-0027). Pin the parent's routing
+        // contract explicitly so a future refactor that reroutes `%`
+        // surfaces here rather than silently changing user math.
         let a = d(10, 0);
         let b = d(3, 0);
         let r = a % b;
-        let want = Decimal128::rem(a, b).0;
+        let want = Decimal128::rem_near(a, b).0;
         assert_eq!(r.to_bits(), want.to_bits());
+
+        // 7 % 2 differs between the two rules: rem_near rounds the
+        // quotient half-to-even (4) and returns -1; rem_trunc would
+        // truncate (3) and return 1. Pin that the operator picks
+        // nearest-even on this format.
+        let (got, _) = d(7, 0).rem_near(d(2, 0));
+        assert_eq!((d(7, 0) % d(2, 0)).to_bits(), got.to_bits());
     }
 }

@@ -30,9 +30,7 @@ pub(crate) fn validate_shift_rhs(rhs: Decimal32) -> Option<i32> {
 
 impl Decimal32 {
     /// General Decimal Arithmetic `shift(x, n)`. See
-    /// [`Decimal128::shift`] for the full contract.
-    ///
-    /// [`Decimal128::shift`]: ferrodec::Decimal128::shift
+    /// `Decimal128::shift` on the parent crate for the full contract.
     #[must_use]
     pub fn shift(self, rhs: Self) -> (Self, Status) {
         digit_shift(self, rhs, /*wrap=*/ false)

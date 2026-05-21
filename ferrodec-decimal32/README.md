@@ -79,7 +79,7 @@ to ±0 with the encoded sign and biased exponent, per IEEE 754-2019
   `to_f64`. Distinguished constants: `ZERO`, `NEG_ZERO`, `ONE`,
   `NEG_ONE`, `TEN`, `MAX`, `MIN`, `MIN_POSITIVE`, `MIN_POSITIVE_NORMAL`,
   `INFINITY`, `NEG_INFINITY`, `NAN`, `SIGNALING_NAN`.
-- **§5 arithmetic**: `add`, `sub`, `mul`, `div`, `rem`, `sqrt`, `fma`.
+- **§5 arithmetic**: `add`, `sub`, `mul`, `div`, `rem_near` / `rem_trunc`, `sqrt`, `fma`.
 - **§5 comparison**: `partial_cmp`, `total_cmp`,
   `compare_total_magnitude`.
 - **§9.6 selection**: `min`, `max` (`minimumNumber` /
@@ -173,7 +173,7 @@ both compile when `ops` is on.
 
 ## Porting between the ferrodec formats
 
-The numeric value is portable across `ferrodec` (Decimal128), `ferrodec-decimal64`, and `ferrodec-decimal32`; the surface around it is not. Bare `rem` and `%` are the truncated remainder here but the nearest-even remainder on Decimal128, so use the explicit `rem_near` / `rem_trunc` (ADR-0027; a 2.0 rename is planned). The cohort exponent, the `Display` rendering (ADR-0014), and the transcendental feature gating also differ per format. Pin what you serialize or compare with `quantize`. The [`ferrodec`](https://crates.io/crates/ferrodec) crate README carries the full cross-format table.
+The numeric value is portable across `ferrodec` (Decimal128), `ferrodec-decimal64`, and `ferrodec-decimal32`; the surface around it is not. `%` is the truncated remainder here but the nearest-even remainder on Decimal128, so prefer the explicit `rem_near` / `rem_trunc` for rule-stable code (the 1.x bare `rem` spelling was retired in 2.0 per ADR-0027). The cohort exponent, the `Display` rendering (ADR-0014), and the transcendental feature gating also differ per format. Pin what you serialize or compare with `quantize`. The [`ferrodec`](https://crates.io/crates/ferrodec) crate README carries the full cross-format table.
 
 ## Internals worth knowing
 

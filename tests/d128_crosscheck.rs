@@ -5,9 +5,10 @@
 //! documented at their call sites: the oracle pins numeric value, not
 //! cohort (`same_value`, the fd-61r preferred-exponent policy), and the
 //! `rem` oracle is `Decimal128::rem_trunc` (the GDA truncated remainder
-//! matching `Decimal64::rem`; plain `Decimal128::rem` is the distinct
-//! IEEE round-half-even-quotient remainder). Track 2 of the
-//! testing-surface extension (plan 2026-05-17).
+//! matching `Decimal64::rem_trunc`; `Decimal128::rem_near` is the
+//! distinct IEEE round-half-even-quotient remainder). Track 2 of the
+//! testing-surface extension (plan 2026-05-17). The 1.x bare `rem`
+//! spelling was retired in 2.0 per ADR-0027.
 //!
 //! Every finite `Decimal64` value is exactly representable in
 //! `Decimal128`: 16 significand digits and an exponent range
@@ -269,7 +270,7 @@ fn quotient_exceeds_precision(ca: u128, ea: i32, cb: u128, eb: i32) -> bool {
 /// representable) remainder, for which the narrowed Decimal128
 /// remainder is the exact oracle.
 fn rem_oracle_check(a: Decimal64, b: Decimal64, rm: RoundingMode) -> Result<(), String> {
-    let (actual, _) = a.rem(b, rm);
+    let (actual, _) = a.rem_trunc(b);
     let (_, ca, ea) = decompose(a);
     let (_, cb, eb) = decompose(b);
 

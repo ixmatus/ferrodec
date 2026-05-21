@@ -1,11 +1,13 @@
-//! Property tests for `Decimal128::rem` (IEEE remainder).
+//! Property tests for `Decimal128::rem_near` (IEEE 754-2019 §5.3.1
+//! nearest-even remainder; in 1.x this was named bare `rem`, retired
+//! in 2.0 per ADR-0027).
 //!
 //! IEEE 754 remainder is *always exact* (`r = x − n·y`, a difference
-//! of scaled integers), so the **exact oracle** asserts `rem(x, y)`
-//! bit-for-bit — cohort included — with an exact status, across the
-//! full finite domain (non-zero `y`). This widens the prior
-//! `i128`-only coverage (`|x|, |y| ≤ 10^6`), kept here as a fast
-//! secondary check, plus the magnitude/sign invariants and the
+//! of scaled integers), so the **exact oracle** asserts
+//! `rem_near(x, y)` bit-for-bit — cohort included — with an exact
+//! status, across the full finite domain (non-zero `y`). This widens
+//! the prior `i128`-only coverage (`|x|, |y| ≤ 10^6`), kept here as a
+//! fast secondary check, plus the magnitude/sign invariants and the
 //! `rem_trunc` pins. See ADR-0021.
 
 use proptest::prelude::*;
@@ -75,13 +77,13 @@ fn ieee_rem_i128(x: i128, y: i128) -> i128 {
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(2048))]
 
-    /// `rem` matches the i128 reference for any pair of small operands.
+    /// `rem_near` matches the i128 reference for any pair of small operands.
     #[test]
-    fn rem_matches_i128_oracle(x in -1_000_000i64..=1_000_000, y in -1_000_000i64..=1_000_000) {
+    fn rem_near_matches_i128_oracle(x in -1_000_000i64..=1_000_000, y in -1_000_000i64..=1_000_000) {
         prop_assume!(y != 0);
         let dx = decimal_from_i128(x as i128);
         let dy = decimal_from_i128(y as i128);
-        let (got, status) = dx.rem(dy);
+        let (got, status) = dx.rem_near(dy);
         prop_assert!(!status.invalid());
 
         let truth = ieee_rem_i128(x as i128, y as i128);
@@ -90,17 +92,17 @@ proptest! {
         prop_assert_eq!(
             cmp,
             Some(core::cmp::Ordering::Equal),
-            "rem({}, {}): got {:?}, want {} ({:?})", x, y, got, truth, truth_dec
+            "rem_near({}, {}): got {:?}, want {} ({:?})", x, y, got, truth, truth_dec
         );
     }
 
-    /// `|rem(x, y)| <= |y|/2` for any finite operands with non-zero y.
+    /// `|rem_near(x, y)| <= |y|/2` for any finite operands with non-zero y.
     #[test]
-    fn rem_bounded_by_half_y(x in -10_000i64..=10_000, y in -10_000i64..=10_000) {
+    fn rem_near_bounded_by_half_y(x in -10_000i64..=10_000, y in -10_000i64..=10_000) {
         prop_assume!(y != 0);
         let dx = decimal_from_i128(x as i128);
         let dy = decimal_from_i128(y as i128);
-        let (got, _) = dx.rem(dy);
+        let (got, _) = dx.rem_near(dy);
         prop_assume!(!got.is_nan());
 
         // Compare 2*|got| ≤ |y|.
@@ -195,26 +197,26 @@ fn finite() -> impl Strategy<Value = Decimal128> {
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(2048))]
 
-    /// `rem(x, y)` is the exact IEEE 754 remainder, bit-for-bit and
-    /// status-for-status, across the full finite domain (non-zero
+    /// `rem_near(x, y)` is the exact IEEE 754 remainder, bit-for-bit
+    /// and status-for-status, across the full finite domain (non-zero
     /// `y`). The result is always exact, so the rounding mode passed
     /// to the oracle is immaterial — it only fixes the cohort, which
     /// the GDA `min(exp x, exp y)` ideal exponent already determines.
     #[test]
-    fn rem_is_exactly_correctly_rounded(x in finite(), y in finite()) {
+    fn rem_near_is_exactly_correctly_rounded(x in finite(), y in finite()) {
         prop_assume!(!y.is_zero());
-        let (got, gs) = x.rem(y);
+        let (got, gs) = x.rem_near(y);
         let dx = parse_decimal(&format!("{x:e}")).expect("finite operand");
         let dy = parse_decimal(&format!("{y:e}")).expect("finite operand");
         let r = oracle::rem(&dx, &dy, Format::DECIMAL128, RoundingMode::NearestEven);
         prop_assert!(
             rem_result_matches(got, &r.value),
-            "value rem({x:e}, {y:e}): got {got:e}, oracle {}",
+            "value rem_near({x:e}, {y:e}): got {got:e}, oracle {}",
             r.decimal_string()
         );
         prop_assert!(
             status_conformance_eq(gs, r.status),
-            "status rem({x:e}, {y:e}): got {gs:?}, oracle {:?}",
+            "status rem_near({x:e}, {y:e}): got {gs:?}, oracle {:?}",
             r.status
         );
     }

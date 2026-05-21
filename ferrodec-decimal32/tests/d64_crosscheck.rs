@@ -242,7 +242,7 @@ fn quotient_exceeds_precision(ca: u128, ea: i32, cb: u128, eb: i32) -> bool {
 ///   than `|b|`) and exactly representable; the Decimal64 remainder
 ///   rounded back to Decimal32 is then the exact oracle.
 fn rem_oracle_check(a: Decimal32, b: Decimal32, rm: RoundingMode) -> Result<(), String> {
-    let (actual, _) = a.rem(b, rm);
+    let (actual, _) = a.rem_trunc(b);
     let (_, ca, ea) = decompose(a);
     let (_, cb, eb) = decompose(b);
 
@@ -266,7 +266,7 @@ fn rem_oracle_check(a: Decimal32, b: Decimal32, rm: RoundingMode) -> Result<(), 
     // Integer quotient fits 7 digits: the exact remainder is small
     // and representable, so the Decimal64 remainder rounded back to
     // Decimal32 is the exact oracle.
-    let oracle = narrow(widen(a).rem(widen(b), rm).0, rm);
+    let oracle = narrow(widen(a).rem_trunc(widen(b)).0, rm);
     let Some(expected) = oracle else {
         return Ok(()); // out of Decimal32 range: status-range, skipped
     };

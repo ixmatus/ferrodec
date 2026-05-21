@@ -4,7 +4,13 @@
 //! The default rounding mode is [`RoundingMode::NearestEven`] and the
 //! per-operation `Status` is dropped. Callers that need explicit
 //! rounding-mode or status control should keep using the explicit
-//! `add` / `sub` / `mul` / `div` / `rem` methods.
+//! `add` / `sub` / `mul` / `div` / `rem_near` / `rem_trunc` methods.
+//!
+//! `%` routes to [`Decimal64::rem_trunc`] (the GDA truncated
+//! remainder), matching the rule the bare 1.x `rem` method named on
+//! this format. The parent crate routes `%` to its nearest-even
+//! remainder instead; the per-format choice is documented under
+//! ADR-0027. The 1.x bare `rem` spelling was retired in 2.0.
 //!
 //! See the README's "Why no `core::ops`" section for the design
 //! rationale (mirrors ferrodec/Decimal128).
@@ -52,9 +58,13 @@ impl Div for Decimal64 {
 
 impl Rem for Decimal64 {
     type Output = Self;
+    /// GDA / C99 `fmod` truncated remainder. Exact, no rounding mode.
+    /// Routes to [`Decimal64::rem_trunc`]; the parent format routes
+    /// `%` to its nearest-even `rem_near` instead (ADR-0027 records
+    /// the per-format choice).
     #[inline]
     fn rem(self, rhs: Self) -> Self {
-        self.rem(rhs, DEFAULT_RM).0
+        self.rem_trunc(rhs).0
     }
 }
 
@@ -97,7 +107,7 @@ impl DivAssign for Decimal64 {
 impl RemAssign for Decimal64 {
     #[inline]
     fn rem_assign(&mut self, rhs: Self) {
-        *self = self.rem(rhs, DEFAULT_RM).0;
+        *self = self.rem_trunc(rhs).0;
     }
 }
 

@@ -106,10 +106,12 @@ and 1.10.1 (99 skips):
   `is_subnormal` / `is_sign_negative`.
 - **`apply` op** (4 cases): identity dispatch (ferrodec is
   PRECISION=34-only, so `apply` reduces to identity-after-parse).
-- **`remainder` op (1.10.0)** (1 case): new
-  `Decimal128::rem_trunc` method implements the truncating-quotient
-  remainder (C99 `fmod` / decTest `remainder`), distinct from the
-  IEEE 754 §5.3.1 round-half-to-even `Decimal128::rem`.
+- **`remainder` op (1.10.0)** (1 case): the `Decimal128::rem_trunc`
+  method (the truncating-quotient remainder; C99 `fmod` / decTest
+  `remainder`) is distinct from the IEEE 754 §5.3.1 round-half-to-even
+  `Decimal128::rem_near` (decTest `remaindernear`). The 1.x bare `rem`
+  spelling was retired in 2.0 per ADR-0027; both ops have explicit
+  names now.
 - **Bare `#` null-operand sentinel (1.10.1)** (~30 cases): the
   runner now short-circuits cases with a bare `#` operand to the
   dec-spec answer `(NaN, Invalid_operation)` before invoking the
