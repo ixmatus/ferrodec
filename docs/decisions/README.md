@@ -56,3 +56,4 @@ The ADRs in number order:
 - [0028 — IEEE 754-2019 §9.6 magnitude minimum and maximum](0028-section-9-6-magnitude-min-max.md)
 - [0029 — The ferrodec 2.0 major, a consolidated breaking-change plan](0029-ferrodec-2-0-breaking-change-plan.md)
 - [0030 — decimal64 / decimal32 FMA subnormal single-rounding (sibling fd-42l port)](0030-sibling-fma-subnormal-single-rounding.md)
+- [0031 — GDA decNumber extension operations (1.18.0)](0031-gda-decnumber-extensions.md)
