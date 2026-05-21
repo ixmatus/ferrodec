@@ -35,9 +35,10 @@
 //!   `maximumNumber` (quiet NaN is "missing value"), matching
 //!   Decimal128, GDA, and decTest.
 //! - Default `Display` uses the General Decimal Arithmetic `toSci`
-//!   rule. This diverges from Decimal128's `f64::Display`-style
-//!   boundary; ADR-0014 records the rationale and the v2.0
-//!   harmonization plan. (Pending the 2.0 harmonization itself.)
+//!   rule, matching Decimal128 (whose 1.x `f64::Display`-style boundary
+//!   was retired in 2.0 per ADR-0014). Callers that need the 1.x
+//!   integer-style rendering can wrap a value in
+//!   [`Decimal32::fixed_preferred`].
 //!
 //! # Cohort stability
 //!
@@ -104,7 +105,7 @@ mod transcend_impl;
 mod verify;
 
 #[cfg(feature = "fmt")]
-pub use convert::{Engineering, ParseDecimalError};
+pub use convert::{Engineering, FixedPreferred, ParseDecimalError};
 pub use decimal::{Decimal32, Decimal32BuildError};
 pub use ferrodec_ieee::{IeeeClass, RoundingMode, Status};
 #[cfg(feature = "serde")]

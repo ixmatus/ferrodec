@@ -24,16 +24,33 @@ use core::fmt;
 use crate::bid::{classify_bits, decimal_digit_count, Class, BIAS};
 use crate::decimal::Decimal64;
 
+/// Lower bound on the scale (`digits + unbiased_exp`) at which the
+/// [`FixedPreferred`] rule emits plain notation. Mirrors the 1.x
+/// parent `Decimal128` `Display` boundary so the adapter renders
+/// uniformly across the family.
+const FIXED_LOWER_LOG10: i32 = -6;
+
+/// Strict upper bound on the scale at which the [`FixedPreferred`]
+/// rule emits plain notation. Above this bound the rule falls through
+/// to scientific.
+const FIXED_UPPER_LOG10: i32 = 21;
+
 /// Notation choice routed through the formatters.
 #[derive(Clone, Copy)]
 enum Notation {
-    /// Default `Display`: plain decimal vs scientific by toSci rules.
+    /// Default `Display`: plain decimal vs scientific by GDA `toSci`.
     Auto,
     /// Forced scientific with the given exponent letter.
     ScientificForced(char),
     /// Forced engineering notation (exponent multiple of 3) with the
     /// given exponent letter.
     Engineering(char),
+    /// The 1.x `Decimal128::Display` rule applied to a `Decimal64`
+    /// value (plain when the scale fits `(-6, 21]` with non-positive
+    /// quantum, or non-negative quantum with scale `≤ 21`; otherwise
+    /// scientific). Routed through [`FixedPreferred`]. Additive in
+    /// 2.0 per ADR-0014.
+    FixedPreferred,
 }
 
 /// Default `Display` for `Decimal64`.
@@ -41,11 +58,11 @@ enum Notation {
 /// Uses the General Decimal Arithmetic `toSci` rule: plain notation
 /// when `unbiased_exp ≤ 0 && adjusted_exp ≥ -6`, otherwise
 /// scientific notation. The cohort the value was typed with is
-/// preserved (`"1E+3"` displays as `"1E+3"`, not `"1000"`). This
-/// intentionally diverges from the `f64::Display`-style rule on
-/// `ferrodec` (Decimal128); see
-/// `docs/decisions/0014-display-notation-divergence.md` for the
-/// rationale and the v2.0 harmonization plan.
+/// preserved (`"1E+3"` displays as `"1E+3"`, not `"1000"`). Matches
+/// the parent `ferrodec::Decimal128::Display` (harmonized onto the
+/// same rule in 2.0; the 1.x parent rendering is available as
+/// [`Decimal64::fixed_preferred`]). ADR-0014 records the rationale;
+/// ADR-0029 item 3 records the 2.0 harmonization.
 impl fmt::Display for Decimal64 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         format_to(*self, f, Notation::Auto)
@@ -83,6 +100,50 @@ impl Decimal64 {
     #[must_use]
     pub fn engineering(self) -> Engineering {
         Engineering(self)
+    }
+
+    /// Wrap `self` in a [`FixedPreferred`] adapter that formats using
+    /// the 1.x parent `Decimal128::Display` rule (plain notation when
+    /// the scale fits `(-6, 21]` and the unbiased exponent is
+    /// non-positive, or when the unbiased exponent is non-negative
+    /// and the scale stays within `≤ 21`; otherwise scientific).
+    ///
+    /// The default `Decimal64::Display` impl follows GDA `toSci` and
+    /// preserves the cohort the value was typed with; this adapter
+    /// renders `1E+3` as `"1000"` instead. Added in 2.0 alongside the
+    /// parent's harmonization onto `toSci` so callers can opt into
+    /// the legacy preference across every format (ADR-0014, ADR-0029
+    /// item 3).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use ferrodec_decimal64::{Decimal64, RoundingMode};
+    ///
+    /// let (x, _) = Decimal64::parse_str("1E+3", RoundingMode::NearestEven).unwrap();
+    /// // Default toSci preserves the cohort:
+    /// assert_eq!(format!("{x}"), "1E+3");
+    /// // FixedPreferred prefers integer rendering when the scale fits:
+    /// assert_eq!(format!("{}", x.fixed_preferred()), "1000");
+    /// ```
+    #[must_use]
+    pub fn fixed_preferred(self) -> FixedPreferred {
+        FixedPreferred(self)
+    }
+}
+
+/// Wrapper that displays a `Decimal64` using the 1.x parent
+/// `Decimal128::Display` rule (plain notation preferred when the
+/// scale fits `(-6, 21]`).
+///
+/// Returned by [`Decimal64::fixed_preferred`]. Added in 2.0 as the
+/// cross-format companion to the parent's `FixedPreferred` (ADR-0014).
+#[derive(Clone, Copy)]
+pub struct FixedPreferred(Decimal64);
+
+impl fmt::Display for FixedPreferred {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        format_to(self.0, f, Notation::FixedPreferred)
     }
 }
 
@@ -141,6 +202,7 @@ fn format_finite(
         f.write_str("-")?;
     }
     let adjusted_exp = unbiased_exp + (digits as i32) - 1;
+    let scale = unbiased_exp + digits as i32;
     match notation {
         Notation::Auto => {
             // toSci rule: plain notation when exp ≤ 0 and adjusted ≥ -6.
@@ -155,6 +217,19 @@ fn format_finite(
         }
         Notation::Engineering(letter) => {
             write_engineering(f, coef, unbiased_exp, digits, adjusted_exp, letter)
+        }
+        Notation::FixedPreferred => {
+            // The 1.x parent `Decimal128::Display` rule applied to a
+            // Decimal64. Plain when scale fits `(-6, 21]` and quantum
+            // is non-positive, OR quantum is non-negative and scale
+            // stays within `≤ 21`. Otherwise scientific.
+            if (scale > FIXED_LOWER_LOG10 && scale <= FIXED_UPPER_LOG10 && unbiased_exp <= 0)
+                || (unbiased_exp >= 0 && scale <= FIXED_UPPER_LOG10)
+            {
+                write_plain(f, coef, unbiased_exp, digits)
+            } else {
+                write_scientific(f, coef, unbiased_exp, digits, adjusted_exp, 'E')
+            }
         }
     }
 }
@@ -189,8 +264,18 @@ fn write_plain(
     if unbiased_exp == 0 {
         return f.write_str(core::str::from_utf8(digit_slice).unwrap());
     }
-    // unbiased_exp < 0 (the > 0 case is routed to scientific by the
-    // caller's Auto rule).
+    if unbiased_exp > 0 {
+        // Positive quantum: render the digits then `unbiased_exp`
+        // trailing zeros (the `FixedPreferred` rule for the
+        // `unbiased >= 0 && scale <= 21` branch). The toSci `Auto`
+        // rule never routes here.
+        f.write_str(core::str::from_utf8(digit_slice).unwrap())?;
+        for _ in 0..unbiased_exp {
+            f.write_str("0")?;
+        }
+        return Ok(());
+    }
+    // unbiased_exp < 0.
     let frac_len = (-unbiased_exp) as u32;
     if frac_len < digits {
         // Decimal point sits inside the digit run: split at digits - frac_len.
@@ -422,5 +507,32 @@ mod tests {
             let d = parse(s);
             assert_eq!(d.to_string(), s, "round-trip failed for {s}");
         }
+    }
+
+    #[test]
+    fn fixed_preferred_basic() {
+        // Default `Display` keeps the cohort (toSci); `fixed_preferred`
+        // applies the 1.x parent `Decimal128::Display` rule and
+        // prefers integer rendering when the scale fits `(-6, 21]`.
+        // Pinning a representative subset: positive quantum, zero
+        // quantum, fractional quantum within the band, and below the
+        // lower bound.
+        assert_eq!(format!("{}", parse("1E+3")), "1E+3");
+        assert_eq!(format!("{}", parse("1E+3").fixed_preferred()), "1000");
+        assert_eq!(format!("{}", parse("100").fixed_preferred()), "100");
+        assert_eq!(format!("{}", parse("0.001").fixed_preferred()), "0.001");
+        assert_eq!(format!("{}", parse("1E-7").fixed_preferred()), "1E-7");
+        assert_eq!(
+            format!("{}", parse("1.234E+10").fixed_preferred()),
+            "12340000000"
+        );
+        // Zero cohorts use the legacy `"0E±N"` rendering when quantum
+        // is non-zero; canonical zero stays `"0"`.
+        assert_eq!(format!("{}", Decimal64::ZERO.fixed_preferred()), "0");
+        // Specials pass through identically to the default.
+        assert_eq!(
+            format!("{}", Decimal64::INFINITY.fixed_preferred()),
+            "Infinity"
+        );
     }
 }

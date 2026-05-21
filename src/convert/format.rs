@@ -1,14 +1,26 @@
 //! [`Decimal128`] → string formatting via `core::fmt::Write`. Alloc-free.
 //!
-//! `Display` produces the shortest round-trippable representation that
-//! either reads as a fixed-point or scientific decimal:
+//! `Display` follows the General Decimal Arithmetic `toSci` rule
+//! (matching the siblings, decTest, Python `decimal.Decimal`, and Java
+//! `BigDecimal.toString`): plain notation when the unbiased exponent
+//! is ≤ 0 and the adjusted exponent is ≥ −6, otherwise scientific
+//! notation. The cohort the value was typed with is preserved
+//! (`"1E+3"` displays as `"1E+3"`, not `"1000"`).
+//!
+//! In 1.x `Decimal128::Display` used an `f64::Display`-style boundary
+//! (plain notation across the comfortable range `1e-6 ≤ |x| < 1e21`,
+//! even for values like `1E+3` typed in scientific form). 2.0 retired
+//! that rule per ADR-0029 item 3 / ADR-0014; the 1.x rendering remains
+//! available through the [`FixedPreferred`] adapter for callers that
+//! need it back.
+//!
+//! Shape of the new default:
 //!
 //! * NaN → `NaN` (or `sNaN`).
 //! * `±∞` → `Infinity` / `-Infinity`.
-//! * Finite, in the "comfortable" range `1e-6 ≤ |x| < 1e21`: fixed
-//!   notation, e.g. `0.001`, `42`, `12345.6789`. The 1e-6 lower bound
-//!   matches `f64::Display` in `std`.
-//! * Otherwise: scientific, e.g. `1.234E-100`, `9.99E+6144`.
+//! * Finite, `unbiased_exp ≤ 0 && adjusted_exp ≥ −6`: plain notation,
+//!   e.g. `0.001`, `42.00`, `12345.6789`.
+//! * Otherwise: scientific, e.g. `1E+3`, `1.234E−100`, `9.99E+6144`.
 //!
 //! Format specifiers honour the standard Rust conventions:
 //!
@@ -36,34 +48,44 @@ use crate::status::RoundingMode;
 
 const MAX_DIGITS: usize = 34;
 
-/// Lower bound on `|x|` for fixed-notation output: anything below this
-/// uses scientific notation. Matches the `f64::Display` convention.
+/// Lower bound on the scale (`digits + unbiased`) at which the 1.x
+/// [`FixedPreferred`] rule emits fixed notation. Values whose scale
+/// dips below this fall through to scientific; matches the
+/// `f64::Display` convention the 1.x default used.
 const FIXED_LOWER_LOG10: i32 = -6;
 
-/// Strict upper bound on `|x|` for fixed-notation output.
+/// Strict upper bound on the scale (`digits + unbiased`) at which the
+/// 1.x [`FixedPreferred`] rule emits fixed notation. Above this bound
+/// the rule falls through to scientific.
 const FIXED_UPPER_LOG10: i32 = 21;
 
 /// Notation choice routed through the formatters.
 #[derive(Clone, Copy)]
 enum Notation {
-    /// Default `Display`: pick fixed vs scientific by magnitude.
+    /// Default `Display`: General Decimal Arithmetic `toSci` (plain
+    /// when `unbiased_exp ≤ 0 && adjusted_exp ≥ −6`, else scientific).
     Auto,
     /// Forced scientific with the given exponent letter (`'e'` or `'E'`).
     ScientificForced(char),
     /// Forced engineering notation (exponent multiple of 3) with the
     /// given exponent letter.
     Engineering(char),
+    /// The 1.x `Decimal128::Display` rule preserved through 2.0 via
+    /// the [`FixedPreferred`] adapter: plain notation when the scale
+    /// fits `(-6, 21]` and the unbiased exponent is ≤ 0, or when the
+    /// unbiased exponent is ≥ 0 and the scale fits `≤ 21`; otherwise
+    /// scientific.
+    FixedPreferred,
 }
 
 /// Default `Display` for `Decimal128`.
 ///
-/// Uses an `f64::Display`-style fixed/scientific boundary: plain
-/// notation when the magnitude is roughly in `[10⁻⁶, 10²¹)`, even
-/// when the input was typed in scientific form (`"1E+3"` displays
-/// as `"1000"`). This intentionally diverges from the GDA `toSci`
-/// rule used by `ferrodec-decimal32` / `ferrodec-decimal64`. See
-/// `docs/decisions/0014-display-notation-divergence.md` for the
-/// rationale and the v2.0 harmonization plan.
+/// Follows the General Decimal Arithmetic `toSci` rule, matching
+/// `ferrodec-decimal64` / `ferrodec-decimal32`, decTest, Python
+/// `decimal.Decimal`, and Java `BigDecimal.toString`. In 1.x this
+/// impl used an `f64::Display`-style boundary; the legacy rendering
+/// is available through [`FixedPreferred`]. ADR-0014 records the
+/// rationale; ADR-0029 froze the harmonization into the 2.0 set.
 impl fmt::Display for Decimal128 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         format_to(*self, f, Notation::Auto)
@@ -120,6 +142,52 @@ impl Decimal128 {
     #[must_use]
     pub fn engineering(self) -> Engineering {
         Engineering(self)
+    }
+
+    /// Wrap `self` in a [`FixedPreferred`] adapter that formats using
+    /// the 1.x `Decimal128::Display` rule (plain notation when the
+    /// scale fits `(-6, 21]` and the unbiased exponent is non-negative
+    /// or the scale stays above `-6`, otherwise scientific).
+    ///
+    /// 2.0 retired the 1.x rule from the default `Display` impl per
+    /// ADR-0014 in favour of the General Decimal Arithmetic `toSci`
+    /// convention the siblings already use; this adapter remains so
+    /// callers that depended on the legacy rendering can pin it
+    /// explicitly. ADR-0029 records the migration.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use ferrodec::{Decimal128, RoundingMode};
+    ///
+    /// // toSci default keeps the cohort the value was typed with:
+    /// let (x, _) = Decimal128::parse_str("1E+3", RoundingMode::NearestEven).unwrap();
+    /// assert_eq!(x.to_string(), "1E+3");
+    /// // FixedPreferred reproduces the 1.x rendering:
+    /// assert_eq!(x.fixed_preferred().to_string(), "1000");
+    /// ```
+    #[must_use]
+    pub fn fixed_preferred(self) -> FixedPreferred {
+        FixedPreferred(self)
+    }
+}
+
+/// Wrapper that displays a `Decimal128` using the 1.x `Display` rule
+/// (plain notation preferred when the scale fits `(-6, 21]`).
+///
+/// Returned by [`Decimal128::fixed_preferred`]; implements `Display`
+/// so callers can write `format!("{}", x.fixed_preferred())` or
+/// `let s = x.fixed_preferred().to_string()`.
+///
+/// In 2.0 the default `Display` impl switched to General Decimal
+/// Arithmetic `toSci` per ADR-0014; this adapter preserves the 1.x
+/// rendering for callers that depend on it.
+#[derive(Clone, Copy)]
+pub struct FixedPreferred(Decimal128);
+
+impl fmt::Display for FixedPreferred {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        format_to(self.0, f, Notation::FixedPreferred)
     }
 }
 
@@ -197,7 +265,10 @@ fn format_to(d: Decimal128, f: &mut fmt::Formatter<'_>, notation: Notation) -> f
     // Specials (NaN/Inf) ignore precision per the f64 convention.
     let d = match (notation, precision) {
         (_, None) => d,
-        (Notation::Auto, Some(p)) => quantize_to_fixed_precision(d, p),
+        // Auto and FixedPreferred both render their precision-padded
+        // shape from the fractional buffer, so quantize to fractional
+        // width once and let `format_fixed` pad the rest.
+        (Notation::Auto | Notation::FixedPreferred, Some(p)) => quantize_to_fixed_precision(d, p),
         (Notation::ScientificForced(_) | Notation::Engineering(_), Some(p)) => {
             quantize_to_scientific_precision(d, p)
         }
@@ -260,8 +331,42 @@ fn format_zero(
             write_signed_int(0, f)
         }
         Notation::Auto => {
+            // GDA `toSci` on zero: plain when `unbiased ≤ 0` (the
+            // adjusted-exponent floor is irrelevant since the value
+            // is zero), otherwise scientific. The 1.x rule rendered
+            // `0E+0` as `"0"` and `0E+N` (`N > 0`) as `"0E+N"`; the
+            // toSci rule does the same.
             if let Some(p) = precision {
-                // `{:.N}` on a zero — render as 0.000... with N zeros.
+                f.write_str("0")?;
+                if p > 0 {
+                    f.write_str(".")?;
+                    for _ in 0..p {
+                        f.write_str("0")?;
+                    }
+                }
+                Ok(())
+            } else if unbiased <= 0 {
+                if unbiased == 0 {
+                    f.write_str("0")
+                } else {
+                    // Fractional-quantum zero: render plain with
+                    // leading zeros, matching the toSci rule for
+                    // `0.000…0` cohorts.
+                    f.write_str("0.")?;
+                    for _ in 0..(-unbiased) {
+                        f.write_str("0")?;
+                    }
+                    Ok(())
+                }
+            } else {
+                f.write_str("0E")?;
+                write_signed_int(unbiased, f)
+            }
+        }
+        Notation::FixedPreferred => {
+            // The 1.x rule for zeros: precision present → padded
+            // zeros; unbiased == 0 → `"0"`; otherwise `"0E±N"`.
+            if let Some(p) = precision {
                 f.write_str("0")?;
                 if p > 0 {
                     f.write_str(".")?;
@@ -305,23 +410,48 @@ fn format_finite(
         Notation::Engineering(exp_char) => {
             return format_engineering_into(coefficient, digits, unbiased, f, exp_char, precision);
         }
-        Notation::Auto => {}
+        Notation::Auto | Notation::FixedPreferred => {}
     }
 
-    // When `{:.N}` is set with default Notation::Auto, render as fixed
-    // (which honours the precision-padded fractional width directly).
+    // `{:.N}` always renders fixed (the precision pin is fractional
+    // width), regardless of the underlying notation rule.
     if precision.is_some() {
         return format_fixed(coefficient, digits, unbiased, f, precision);
     }
 
-    // Decide fixed vs scientific.
-    if scale > FIXED_LOWER_LOG10 && scale <= FIXED_UPPER_LOG10 && unbiased <= 0 {
-        return format_fixed(coefficient, digits, unbiased, f, precision);
+    match notation {
+        Notation::FixedPreferred => {
+            // The 1.x Decimal128 rule, preserved through 2.0 via the
+            // FixedPreferred adapter (ADR-0014). Plain notation when
+            // the scale fits the comfortable `(-6, 21]` band and the
+            // unbiased exponent is non-positive, OR when the unbiased
+            // exponent is non-negative and the scale stays within the
+            // upper bound; otherwise scientific.
+            if scale > FIXED_LOWER_LOG10 && scale <= FIXED_UPPER_LOG10 && unbiased <= 0 {
+                return format_fixed(coefficient, digits, unbiased, f, precision);
+            }
+            if unbiased >= 0 && scale <= FIXED_UPPER_LOG10 {
+                return format_fixed(coefficient, digits, unbiased, f, precision);
+            }
+            format_scientific(coefficient, digits, unbiased, f, 'E', precision)
+        }
+        Notation::Auto => {
+            // GDA `toSci`: plain when `unbiased ≤ 0 && adjusted ≥ −6`,
+            // otherwise scientific. The adjusted exponent is the value
+            // the cohort identifies the number as `c × 10^adjusted`
+            // with `c` in `[1, 10)`.
+            let adjusted = unbiased + digits - 1;
+            if unbiased <= 0 && adjusted >= FIXED_LOWER_LOG10 {
+                format_fixed(coefficient, digits, unbiased, f, precision)
+            } else {
+                format_scientific(coefficient, digits, unbiased, f, 'E', precision)
+            }
+        }
+        Notation::ScientificForced(_) | Notation::Engineering(_) => {
+            // Already handled by the early-return match above.
+            unreachable!()
+        }
     }
-    if unbiased >= 0 && scale <= FIXED_UPPER_LOG10 {
-        return format_fixed(coefficient, digits, unbiased, f, precision);
-    }
-    format_scientific(coefficient, digits, unbiased, f, 'E', precision)
 }
 
 /// Fixed-point output. `unbiased` may be negative (fractional part) or
@@ -704,5 +834,64 @@ mod tests {
                 "{s} -> {formatted} -> not equal"
             );
         }
+    }
+
+    #[test]
+    fn format_tosci_harmonization() {
+        // The new GDA `toSci` rule preserves the cohort the value was
+        // typed with: any value with positive unbiased exponent
+        // renders as scientific, instead of being padded with trailing
+        // zeros into a fixed integer the way the 1.x rule did. These
+        // assertions pin the harmonization (ADR-0014, ADR-0029 item
+        // 3). The 1.x outputs are still available through
+        // `Decimal128::fixed_preferred`; see the test below.
+        assert_eq!(format!("{}", parse("1E+3")), "1E+3");
+        assert_eq!(format!("{}", parse("1E+5")), "1E+5");
+        assert_eq!(format!("{}", parse("1E+21")), "1E+21");
+        // Values with `unbiased == 0` still render as plain decimals
+        // by the toSci rule (`unbiased <= 0 && adjusted >= -6`).
+        assert_eq!(format!("{}", parse("100")), "100");
+        assert_eq!(format!("{}", parse("100.000")), "100.000");
+        // Boundary: adjusted = -6 stays plain.
+        assert_eq!(format!("{}", parse("0.000001")), "0.000001");
+        // Boundary: adjusted = -7 switches to scientific.
+        assert_eq!(format!("{}", parse("1E-7")), "1E-7");
+        // Zero cohorts follow the same rule.
+        assert_eq!(format!("{}", parse("0E+5")), "0E+5");
+        assert_eq!(format!("{}", parse("0E-3")), "0.000");
+        assert_eq!(format!("{}", Decimal128::ZERO), "0");
+    }
+
+    #[test]
+    fn fixed_preferred_reproduces_1x_output() {
+        // FixedPreferred preserves the 1.x rule. Every case the toSci
+        // rule diverges on (positive unbiased, scale ≤ 21) renders
+        // back to the 1.x integer-style output here.
+        assert_eq!(format!("{}", parse("1E+3").fixed_preferred()), "1000");
+        assert_eq!(format!("{}", parse("1E+5").fixed_preferred()), "100000");
+        // Boundary: 1.x rule's scale ≤ 21 limit lets `1E+21` (scale
+        // 22) fall through to scientific; `1E+20` (scale 21) stays
+        // fixed.
+        assert_eq!(
+            format!("{}", parse("1E+20").fixed_preferred()),
+            "100000000000000000000"
+        );
+        assert_eq!(format!("{}", parse("1E+21").fixed_preferred()), "1E+21");
+        // Values with fractional quantum render the same as the
+        // toSci default within the fixed band.
+        assert_eq!(format!("{}", parse("0.001").fixed_preferred()), "0.001");
+        assert_eq!(format!("{}", parse("100.500").fixed_preferred()), "100.500");
+        // Below the lower bound: scientific on both rules.
+        assert_eq!(format!("{}", parse("1E-7").fixed_preferred()), "1E-7");
+        // Zero cohorts use the legacy `"0E±N"` rendering.
+        assert_eq!(format!("{}", Decimal128::ZERO.fixed_preferred()), "0");
+        assert_eq!(format!("{}", parse("0E+5").fixed_preferred()), "0E+5");
+        assert_eq!(format!("{}", parse("0E-3").fixed_preferred()), "0E-3");
+        // Specials pass through both rules identically.
+        assert_eq!(
+            format!("{}", Decimal128::INFINITY.fixed_preferred()),
+            "Infinity"
+        );
+        assert_eq!(format!("{}", parse("NaN42").fixed_preferred()), "NaN42");
     }
 }

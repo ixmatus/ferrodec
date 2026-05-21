@@ -17,7 +17,7 @@ mod parse;
 mod binary;
 
 #[cfg(feature = "fmt")]
-pub use format::Engineering;
+pub use format::{Engineering, FixedPreferred};
 #[cfg(feature = "fmt")]
 pub use parse::ParseDecimalError;
 

@@ -36,9 +36,10 @@
 //!   `maximumNumber` (quiet NaN is "missing value"), matching
 //!   Decimal128, GDA, and decTest.
 //! - Default `Display` uses the General Decimal Arithmetic `toSci`
-//!   rule. This diverges from Decimal128's `f64::Display`-style
-//!   boundary; ADR-0014 records the rationale and the v2.0
-//!   harmonization plan. (Pending the 2.0 harmonization itself.)
+//!   rule, matching Decimal128 (whose 1.x `f64::Display`-style boundary
+//!   was retired in 2.0 per ADR-0014). Callers that need the 1.x
+//!   integer-style rendering can wrap a value in
+//!   [`Decimal64::fixed_preferred`].
 //! - §9.2 transcendentals (`exp` / `ln` / `exp2` / `log2` / `log10`,
 //!   `cbrt`, the trig and hyperbolic families, `pow`) are faithfully
 //!   rounded (≤ 1 ULP at 16 digits, every IEEE 754-2019 rounding
@@ -113,7 +114,7 @@ mod transcend_impl;
 mod verify;
 
 #[cfg(feature = "fmt")]
-pub use convert::{Engineering, ParseDecimalError};
+pub use convert::{Engineering, FixedPreferred, ParseDecimalError};
 pub use decimal::{Decimal64, Decimal64BuildError};
 pub use ferrodec_ieee::{IeeeClass, RoundingMode, Status};
 #[cfg(feature = "serde")]
