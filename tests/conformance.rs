@@ -623,6 +623,9 @@ enum OpKind {
     /// fd-ci0.5 (ADR-0031): General Decimal Arithmetic
     /// `divideInteger` — truncated integer quotient at exponent 0.
     DivideInteger,
+    /// fd-ci0.6 (ADR-0031): General Decimal Arithmetic
+    /// `logical_invert` — digit-wise complement of a logical operand.
+    LogicalInvert,
 }
 
 fn dispatch_op(name: &str) -> Option<OpKind> {
@@ -669,6 +672,10 @@ fn dispatch_op(name: &str) -> Option<OpKind> {
         // decTest `divideint`: General Decimal Arithmetic truncated
         // integer quotient at exponent 0 (ADR-0031).
         "divideint" => OpKind::DivideInteger,
+        // decTest `invert`: digit-wise complement of a logical operand
+        // (ADR-0031). Operand must be a non-negative integer at
+        // exponent 0 with all digits in {0, 1}.
+        "invert" => OpKind::LogicalInvert,
         _ => return None,
     })
 }
@@ -874,6 +881,11 @@ fn invoke(op: OpKind, operands: &[String], rm: RoundingMode, enc: Encoding) -> O
             let a = parse_value(&operands[0], rm, enc)?.0;
             let b = parse_value(&operands[1], rm, enc)?.0;
             let (v, s) = a.divide_integer(b);
+            Some(OpResult::Value(v, s))
+        }
+        OpKind::LogicalInvert => {
+            let a = parse_value(&operands[0], rm, enc)?.0;
+            let (v, s) = a.logical_invert();
             Some(OpResult::Value(v, s))
         }
     }
@@ -1119,6 +1131,9 @@ fn expected_per_file() -> &'static [(&'static str, usize)] {
             ("dqDivideInt.decTest", 374),
             ("dqEncode.decTest", 0),
             ("dqFMA.decTest", 1425),
+            // fd-ci0.6 (ADR-0031): `logical_invert` wired. All 193
+            // cases pass on first run after the qNaN-as-INVALID fix.
+            ("dqInvert.decTest", 193),
             ("dqLogB.decTest", 109),
             ("dqMax.decTest", 257),
             ("dqMin.decTest", 247),
@@ -1152,6 +1167,9 @@ fn expected_per_file() -> &'static [(&'static str, usize)] {
             ("dqDivideInt.decTest", 374),
             ("dqEncode.decTest", 368),
             ("dqFMA.decTest", 1425),
+            // fd-ci0.6 (ADR-0031): `logical_invert` wired. 193 cases
+            // pass; encoding-independent.
+            ("dqInvert.decTest", 193),
             ("dqLogB.decTest", 109),
             ("dqMax.decTest", 257),
             ("dqMin.decTest", 247),

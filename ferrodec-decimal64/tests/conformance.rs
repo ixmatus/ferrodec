@@ -117,6 +117,9 @@ const fn expected_per_file() -> &'static [(&'static str, usize)] {
         // `ddfma2504` is among the passers. 60 skips are
         // unrepresentable operands / `#`-hex.
         ("ddFMA.decTest", 1318),
+        // fd-ci0.6 (ADR-0031): `logical_invert` wired. All 151 cases
+        // pass on first run after the qNaN-as-INVALID fix.
+        ("ddInvert.decTest", 151),
         // fd-8aq: IEEE 754-2019 §9.6 `maxmag` / `minmag`
         // (`Decimal64::max_magnitude` / `min_magnitude`) wired; both
         // were `Skip` before. Zero failures: `ddMaxMag` 241 of 243,
@@ -177,6 +180,9 @@ fn run_case(case: &TestCase, ctx: &Context) -> Outcome {
         // decTest `divideint`: General Decimal Arithmetic truncated
         // integer quotient at exponent 0 (ADR-0031).
         "divideint" => run_divide_integer(case, ctx),
+        // decTest `invert`: digit-wise complement of a logical
+        // operand (ADR-0031).
+        "invert" => run_logical_invert(case, ctx),
         // decTest `reduce`: General Decimal Arithmetic trailing-zero
         // strip on a finite coefficient (ADR-0031). Exact; never raises
         // INEXACT. Zero of any cohort normalises to exponent 0.
@@ -459,6 +465,25 @@ fn run_rem(case: &TestCase, ctx: &Context, near: bool) -> Outcome {
 /// `tointegralx` signals `INEXACT` when a non-zero fractional part is
 /// discarded, `tointegral` never does. Same result/status comparison
 /// shape and skip-not-fail policy as `run_quantize`.
+/// `invert`: digit-wise complement of a logical operand (ADR-0031,
+/// fd-ci0.6). Single operand under the logical-operand precondition;
+/// no rounding-mode interaction.
+fn run_logical_invert(case: &TestCase, ctx: &Context) -> Outcome {
+    if case.operands.len() != 1 || case.expected.starts_with('#') {
+        return Outcome::Skip;
+    }
+    let rm = match map_rounding(&ctx.rounding) {
+        Some(r) => r,
+        None => return Outcome::Skip,
+    };
+    let a = match parse_operand(&case.operands[0], rm) {
+        Some(a) => a,
+        None => return Outcome::Skip,
+    };
+    let (result, status) = a.logical_invert();
+    check(result, status, case)
+}
+
 /// `divideint`: General Decimal Arithmetic truncated integer
 /// quotient at exponent 0 (ADR-0031, fd-ci0.5). Two operands; no
 /// rounding-mode interaction (the kernel is exact and never raises

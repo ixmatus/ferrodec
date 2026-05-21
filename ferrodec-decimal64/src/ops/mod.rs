@@ -17,6 +17,7 @@ pub(crate) mod fma;
 #[cfg(feature = "hyperbolic")]
 pub(crate) mod hyper;
 pub(crate) mod integral;
+pub(crate) mod logical;
 pub(crate) mod mul;
 #[cfg(feature = "pow")]
 pub(crate) mod pow;

@@ -9,6 +9,7 @@ mod div;
 mod divide_integer;
 mod fma;
 mod integral;
+mod logical;
 mod mul;
 pub(crate) mod nan_propagate;
 mod quantum;
