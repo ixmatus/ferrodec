@@ -74,9 +74,13 @@ pow = ["exp-log", "dep:ferrodec-transcend", "dep:ferrodec-multiword", "ferrodec-
 transcendentals = ["trig", "exp-log", "hyperbolic", "pow"]
 # `core::ops` operator overloads (Add / Sub / Mul / Div / Rem and the
 # *Assign variants, plus Neg). Opt-in: defaults to
-# RoundingMode::NearestEven and drops the per-operation Status. Users
+# RoundingMode::NearestEven and drops the per-operation Status. `%`
+# routes to `rem_trunc` on this format (GDA truncated, the rule the
+# bare 1.x `rem` carried here) and to `rem_near` on Decimal128 (IEEE
+# 754-2019 §5.3.1); ADR-0027 records the per-format choice. Users
 # who need explicit rounding-mode or status control should keep using
-# the explicit `add` / `sub` / `mul` / `div` / `rem` methods.
+# the explicit `add` / `sub` / `mul` / `div` / `rem_near` / `rem_trunc`
+# methods.
 ops = []
 # Serde Serialize / Deserialize for Decimal32. Round-trips through the
 # canonical decimal string by default; the `serde_bid` helper module is

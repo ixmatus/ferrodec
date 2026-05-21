@@ -458,10 +458,12 @@ fn run_quantize(case: &TestCase, ctx: &Context) -> Outcome {
     check(result, status, case)
 }
 
-/// `remainder` (truncating, `Decimal64::rem`) / `remaindernear`
+/// `remainder` (truncating, `Decimal64::rem_trunc`) / `remaindernear`
 /// (IEEE 754-2019 §5.3.1 nearest-even, `Decimal64::rem_near`). Both
 /// return `(Decimal64, Status)`; same comparison shape and
-/// skip-not-fail policy as `run_quantize` (ADR-0027, fd-pvu).
+/// skip-not-fail policy as `run_quantize` (ADR-0027, fd-pvu). The
+/// 1.x bare `rem` spelling was retired in 2.0; both ops have explicit
+/// names now.
 fn run_rem(case: &TestCase, ctx: &Context, near: bool) -> Outcome {
     if case.operands.len() != 2 || case.expected.starts_with('#') {
         return Outcome::Skip;
@@ -477,7 +479,7 @@ fn run_rem(case: &TestCase, ctx: &Context, near: bool) -> Outcome {
         (Some(a), Some(b)) => (a, b),
         _ => return Outcome::Skip,
     };
-    let (result, status) = if near { a.rem_near(b) } else { a.rem(b, rm) };
+    let (result, status) = if near { a.rem_near(b) } else { a.rem_trunc(b) };
     check(result, status, case)
 }
 

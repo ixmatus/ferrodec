@@ -652,8 +652,9 @@ fn dispatch_op(name: &str) -> Option<OpKind> {
         // (sign of dividend, integer quotient toward zero),
         // distinct from `remaindernear` (round-half-to-even on the
         // quotient, the IEEE 754 §5.3.1 remainder). ferrodec
-        // implements both: `Decimal128::rem` for IEEE remainder,
-        // `Decimal128::rem_trunc` for the truncating variant.
+        // implements both: `Decimal128::rem_near` for IEEE remainder,
+        // `Decimal128::rem_trunc` for the truncating variant. The
+        // 1.x bare `rem` spelling was retired in 2.0 per ADR-0027.
         "remainder" => OpKind::Remainder,
         "abs" => OpKind::Abs,
         "minus" => OpKind::Minus,
@@ -746,7 +747,7 @@ fn invoke(op: OpKind, operands: &[String], rm: RoundingMode, enc: Encoding) -> O
         OpKind::RemainderNear => {
             let a = parse_value(&operands[0], rm, enc)?.0;
             let b = parse_value(&operands[1], rm, enc)?.0;
-            let (v, s) = a.rem(b);
+            let (v, s) = a.rem_near(b);
             Some(OpResult::Value(v, s))
         }
         OpKind::Remainder => {

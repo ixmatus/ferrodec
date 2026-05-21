@@ -1,10 +1,17 @@
-//! IEEE 754-2019 remainder for [`Decimal32`].
+//! Remainder operations for [`Decimal32`].
 //!
-//! Truncated remainder: `rem(a, b) = a − trunc(a / b) * b`. The result
-//! has the sign of the dividend `a` and magnitude strictly less than
-//! `|b|`. The quantum is `min(Q(a), Q(b))` per IEEE 754-2019 §5.3.1.
+//! * [`Decimal32::rem_trunc`] — truncated remainder (GDA / C99
+//!   `fmod`): `rem_trunc(a, b) = a − trunc(a / b) × b`. Result has
+//!   sign of dividend and magnitude `< |b|`. The decTest spelling is
+//!   `remainder`.
+//! * [`Decimal32::rem_near`] — IEEE 754-2019 §5.3.1 nearest-even
+//!   remainder: `r = a − n·b` where `n` rounds half-to-even. Result
+//!   magnitude `≤ |b|/2`. The decTest spelling is `remaindernear`.
 //!
-//! Per the General Decimal Arithmetic spec, the operation raises
+//! Result quantum on both is `min(Q(a), Q(b))` per IEEE 754-2019
+//! §5.3.1.
+//!
+//! Per the General Decimal Arithmetic spec, both ops raise
 //! `Invalid_operation` (`Division_impossible`) when the truncated
 //! integer quotient `trunc(|a / b|)` would exceed `PRECISION` (= 7)
 //! digits, that is, when it is not less than `COEFFICIENT_LIMIT =
@@ -13,8 +20,13 @@
 //! belongs to §7.2). The alignment register is `u128`, and the
 //! per-side shift bound is keyed on the operand digit count, not a
 //! fixed constant, so a wide exponent gap with a small quotient (for
-//! example `rem(1E+13, 9999999)`) computes its finite remainder
+//! example `rem_trunc(1E+13, 9999999)`) computes its finite remainder
 //! instead of raising a spurious `INVALID`.
+//!
+//! In 1.x the truncated op was named bare `rem`. 2.0 retired the
+//! ambiguous spelling — the parent crate's bare `rem` named the
+//! nearest-even op — in favour of explicit `rem_trunc` / `rem_near`
+//! on all three formats (ADR-0027).
 //!
 //! # Special cases (IEEE 754-2019 §7)
 //!
@@ -27,7 +39,7 @@
 
 use crate::bid::{classify_bits, Class, BIAS, COEFFICIENT_LIMIT};
 use crate::decimal::Decimal32;
-use ferrodec_ieee::{decimal_digit_count_u128, RoundingMode, Status};
+use ferrodec_ieee::{decimal_digit_count_u128, Status};
 
 const POW10_U128: [u128; 39] = {
     let mut t = [0u128; 39];
@@ -70,18 +82,15 @@ impl Decimal32 {
     /// This is the truncated (GDA / C99 `fmod`, decTest `remainder`)
     /// rule. The IEEE 754-2019 §5.3.1 nearest-even remainder
     /// (`|r| ≤ |other|/2`, decTest `remaindernear`) is a *different*
-    /// operation, exposed separately as [`Decimal32::rem_near`];
-    /// `Decimal128::rem` is the nearest-even one while this sibling
-    /// `rem` is the truncated one, a deliberate per-format choice and
-    /// a documented API hazard (ADR-0027, which records the 2.0 plan
-    /// to retire the bare, ambiguous spelling).
+    /// operation, exposed separately as [`Decimal32::rem_near`].
     ///
-    /// The `rm` parameter is unused (`rem` is exact when defined) but
-    /// kept on the signature for parity with the other arithmetic
-    /// methods.
+    /// In 1.x this was named bare `rem` with a trailing
+    /// `rm: RoundingMode` parameter (always unused). 2.0 retired the
+    /// ambiguous spelling — the parent crate's bare `rem` named the
+    /// nearest-even op — in favour of explicit `rem_near` / `rem_trunc`
+    /// on all three formats (ADR-0027).
     #[must_use]
-    pub fn rem(self, other: Self, rm: RoundingMode) -> (Self, Status) {
-        let _ = rm; // exact operation; rm carried for API parity
+    pub fn rem_trunc(self, other: Self) -> (Self, Status) {
         let ca = classify_bits(self.0);
         let cb = classify_bits(other.0);
 
@@ -227,14 +236,14 @@ impl Decimal32 {
     /// nearest integer, ties to even.
     ///
     /// Result magnitude `≤ |b| / 2`; always exact when defined; never
-    /// raises `INEXACT`. This mirrors `Decimal128::rem` (the parent's
-    /// `rem` is this nearest-even op), and is distinct from this
-    /// crate's truncated [`Decimal32::rem`]. The decTest spelling is
-    /// `remaindernear`. ADR-0027 records why both spellings exist and
-    /// the 2.0 plan to make the explicit name the only one.
+    /// raises `INEXACT`. Matches `Decimal128::rem_near` on the parent
+    /// crate, and is distinct from this crate's truncated
+    /// [`Decimal32::rem_trunc`]. The decTest spelling is
+    /// `remaindernear`. ADR-0027 records why both spellings exist on
+    /// every format.
     ///
     /// Special cases follow IEEE 754-2019 §5.3.1 exactly as the
-    /// truncated `rem` does (they share `handle_specials`): NaN
+    /// truncated `rem_trunc` does (they share `handle_specials`): NaN
     /// propagation, sNaN → `INVALID`, `a / 0` and `±∞ / b` →
     /// `NaN + INVALID`, `a / ±∞` → `a`, `±0` → `±0` with the sign of
     /// `a`. `Division_impossible` (the truncated integer quotient
@@ -352,7 +361,7 @@ impl Decimal32 {
         // The IEEE remainder is exactly representable when the
         // operands are, so any coefficient above PRECISION digits is
         // trailing zeros: shift them out, raising the quantum (mirrors
-        // `Decimal128::rem`'s re-encode normalisation).
+        // `Decimal128::rem_near`'s re-encode normalisation).
         let result_sign = sign_a ^ sign_flip;
         let mut q_unbiased = target_q;
         while result_mag >= u128::from(COEFFICIENT_LIMIT) {
@@ -400,7 +409,7 @@ impl Decimal32 {
 /// `residue` versus `aligned_b / 2`, ties broken by the integer
 /// quotient's low bit (round half to even). Returns `true` when the
 /// truncated quotient should be rounded up by one. Mirrors the
-/// `Decimal128` `rem` half-even comparison.
+/// `Decimal128::rem_near` half-even comparison.
 fn compare_remainder_to_half(residue: u128, aligned_b: u128, quotient_lsb: u32) -> bool {
     if residue == 0 {
         return false;
@@ -498,29 +507,29 @@ mod tests {
     }
 
     #[test]
-    fn rem_basic() {
+    fn rem_trunc_basic() {
         // 10 % 3 = 1
-        let (r, s) = from_int(10, 0).rem(from_int(3, 0), RoundingMode::NearestEven);
+        let (r, s) = from_int(10, 0).rem_trunc(from_int(3, 0));
         assert_eq!(r.to_bits(), from_int(1, 0).to_bits());
         assert!(s.is_ok());
 
         // 10 % 5 = 0
-        let (r, _) = from_int(10, 0).rem(from_int(5, 0), RoundingMode::NearestEven);
+        let (r, _) = from_int(10, 0).rem_trunc(from_int(5, 0));
         assert!(r.is_zero() && !r.is_sign_negative());
 
         // 10 % -3 = 1 (sign of dividend)
-        let (r, _) = from_int(10, 0).rem(from_int(-3, 0), RoundingMode::NearestEven);
+        let (r, _) = from_int(10, 0).rem_trunc(from_int(-3, 0));
         assert_eq!(r.to_bits(), from_int(1, 0).to_bits());
 
         // -10 % 3 = -1
-        let (r, _) = from_int(-10, 0).rem(from_int(3, 0), RoundingMode::NearestEven);
+        let (r, _) = from_int(-10, 0).rem_trunc(from_int(3, 0));
         assert_eq!(r.to_bits(), from_int(-1, 0).to_bits());
     }
 
     #[test]
-    fn rem_quantum_min() {
+    fn rem_trunc_quantum_min() {
         // 1.5 % 0.5 = 0.0 at quantum -1 (min of -1 and -1).
-        let (r, _) = from_int(15, -1).rem(from_int(5, -1), RoundingMode::NearestEven);
+        let (r, _) = from_int(15, -1).rem_trunc(from_int(5, -1));
         assert!(r.is_zero());
         // The result preserves the min-quantum cohort.
         // rem doesn't strip trailing zeros: result is "0E-1" = "0.0".
@@ -528,20 +537,20 @@ mod tests {
     }
 
     #[test]
-    fn rem_zero_dividend() {
+    fn rem_trunc_zero_dividend() {
         // 0 % 5 = +0 (sign of dividend)
-        let (r, _) = Decimal32::ZERO.rem(from_int(5, 0), RoundingMode::NearestEven);
+        let (r, _) = Decimal32::ZERO.rem_trunc(from_int(5, 0));
         assert!(r.is_zero() && !r.is_sign_negative());
 
         // -0 % 5 = -0
-        let (r, _) = Decimal32::NEG_ZERO.rem(from_int(5, 0), RoundingMode::NearestEven);
+        let (r, _) = Decimal32::NEG_ZERO.rem_trunc(from_int(5, 0));
         assert!(r.is_zero() && r.is_sign_negative());
     }
 
     #[test]
     fn rem_near_nearest_even_quotient() {
         // 7.5 rem_near 2.0: round_half_even(3.75) = 4, 7.5 − 4·2 = -0.5
-        // (the documented Decimal128::rem example; the sibling now
+        // (the documented Decimal128::rem_near example; the sibling now
         // matches it).
         let (r, s) = from_int(75, -1).rem_near(from_int(20, -1));
         assert_eq!(r.to_bits(), from_int(-5, -1).to_bits());
@@ -603,31 +612,31 @@ mod tests {
     }
 
     #[test]
-    fn rem_by_zero_invalid() {
-        let (r, s) = from_int(5, 0).rem(Decimal32::ZERO, RoundingMode::NearestEven);
+    fn rem_trunc_by_zero_invalid() {
+        let (r, s) = from_int(5, 0).rem_trunc(Decimal32::ZERO);
         assert!(r.is_quiet_nan());
         assert!(s.invalid());
 
-        let (r, s) = Decimal32::ZERO.rem(Decimal32::ZERO, RoundingMode::NearestEven);
+        let (r, s) = Decimal32::ZERO.rem_trunc(Decimal32::ZERO);
         assert!(r.is_quiet_nan());
         assert!(s.invalid());
     }
 
     #[test]
-    fn rem_infinity() {
+    fn rem_trunc_infinity() {
         // ∞ % anything → NaN + INVALID
-        let (r, s) = Decimal32::INFINITY.rem(from_int(3, 0), RoundingMode::NearestEven);
+        let (r, s) = Decimal32::INFINITY.rem_trunc(from_int(3, 0));
         assert!(r.is_quiet_nan());
         assert!(s.invalid());
 
         // finite % ∞ → finite (dividend)
-        let (r, s) = from_int(7, 0).rem(Decimal32::INFINITY, RoundingMode::NearestEven);
+        let (r, s) = from_int(7, 0).rem_trunc(Decimal32::INFINITY);
         assert_eq!(r.to_bits(), from_int(7, 0).to_bits());
         assert!(s.is_ok());
     }
 
     #[test]
-    fn rem_h2_wide_gap_small_quotient_is_finite() {
+    fn rem_trunc_h2_wide_gap_small_quotient_is_finite() {
         // H2 regression. The static `MAX_SAFE_SHIFT = 12` over a u64
         // register raised a spurious `INVALID` whenever the alignment
         // shift exceeded 12, conflating register overflow with the
@@ -640,7 +649,7 @@ mod tests {
         // `(NaN, INVALID)`.
         let a = Decimal32::try_new(1, 13).unwrap();
         let b = Decimal32::try_new(9_999_999, 0).unwrap();
-        let (r, s) = a.rem(b, RoundingMode::NearestEven);
+        let (r, s) = a.rem_trunc(b);
         assert!(
             s.is_ok(),
             "rem(1E+13, 9999999) must be finite, got status {s:?}"
@@ -657,13 +666,13 @@ mod tests {
         // Quotient `2_000_000` (7 digits), remainder `0`.
         let a = Decimal32::try_new(1, 13).unwrap();
         let b = Decimal32::try_new(5_000_000, 0).unwrap();
-        let (r, s) = a.rem(b, RoundingMode::NearestEven);
+        let (r, s) = a.rem_trunc(b);
         assert!(s.is_ok(), "rem(1E+13, 5000000) must be finite, got {s:?}");
         assert!(r.is_zero() && !r.is_sign_negative());
     }
 
     #[test]
-    fn rem_pinned_known_issue_h3_is_spec_invalid() {
+    fn rem_trunc_pinned_known_issue_h3_is_spec_invalid() {
         // The 2026-05-15 KNOWN_ISSUES H3 pin
         // `rem(4.194304E+33, -3.145728E+18)` was an unsound oracle
         // false positive, not a defect: the true integer quotient
@@ -674,7 +683,7 @@ mod tests {
         // dynamic bound preserves this spec-correct `INVALID`.
         let a = Decimal32::try_new(4_194_304, 33).unwrap();
         let b = Decimal32::try_new(-3_145_728, 18).unwrap();
-        let (r, s) = a.rem(b, RoundingMode::NearestEven);
+        let (r, s) = a.rem_trunc(b);
         assert!(r.is_quiet_nan());
         assert!(
             s.invalid(),
@@ -683,34 +692,34 @@ mod tests {
     }
 
     #[test]
-    fn rem_too_large_quotient_invalid() {
+    fn rem_trunc_too_large_quotient_invalid() {
         // MAX % MIN_POSITIVE — quotient would have ~190+ digits, way
         // more than PRECISION = 7. INVALID.
-        let (r, s) = Decimal32::MAX.rem(Decimal32::MIN_POSITIVE, RoundingMode::NearestEven);
+        let (r, s) = Decimal32::MAX.rem_trunc(Decimal32::MIN_POSITIVE);
         assert!(r.is_quiet_nan());
         assert!(s.invalid());
     }
 
     #[test]
-    fn rem_dividend_smaller_than_divisor() {
+    fn rem_trunc_dividend_smaller_than_divisor() {
         // 3 % 10 = 3 (trunc(3/10) = 0)
-        let (r, _) = from_int(3, 0).rem(from_int(10, 0), RoundingMode::NearestEven);
+        let (r, _) = from_int(3, 0).rem_trunc(from_int(10, 0));
         assert_eq!(r.to_bits(), from_int(3, 0).to_bits());
 
         // 1e-100 % 1 = 1e-100 at quantum -100.
         let small = Decimal32::try_new(1, -100).unwrap();
         let one = Decimal32::ONE;
-        let (r, _) = small.rem(one, RoundingMode::NearestEven);
+        let (r, _) = small.rem_trunc(one);
         assert_eq!(r.to_bits(), small.to_bits());
     }
 
     #[test]
-    fn rem_nan_propagation() {
-        let (r, s) = Decimal32::NAN.rem(Decimal32::ONE, RoundingMode::NearestEven);
+    fn rem_trunc_nan_propagation() {
+        let (r, s) = Decimal32::NAN.rem_trunc(Decimal32::ONE);
         assert!(r.is_quiet_nan());
         assert!(s.is_ok());
 
-        let (r, s) = Decimal32::SIGNALING_NAN.rem(Decimal32::ONE, RoundingMode::NearestEven);
+        let (r, s) = Decimal32::SIGNALING_NAN.rem_trunc(Decimal32::ONE);
         assert!(r.is_quiet_nan());
         assert!(s.invalid());
     }

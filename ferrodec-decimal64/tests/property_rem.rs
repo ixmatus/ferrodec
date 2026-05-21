@@ -2,15 +2,17 @@
 //! ADR-0027).
 //!
 //! `rem_near` is the IEEE 754-2019 §5.3.1 nearest-even remainder, the
-//! sibling analogue of `Decimal128::rem`. The IEEE remainder is
+//! sibling analogue of `Decimal128::rem_near` (the parent op renamed
+//! from bare `rem` in 2.0 per ADR-0027). The IEEE remainder is
 //! *always exact* (`r = a − n·b`, a difference of scaled integers),
 //! so the exact integer oracle (`ferrodec_test_support::oracle::rem`,
 //! the same one that validates the parent) asserts `rem_near(a, b)`
 //! bit-for-bit, cohort included, with an exact IEEE 754 status,
 //! across the full finite 64-bit encoding domain (non-zero `b`). This
 //! is the `Decimal128` `tests/property_rem.rs` oracle leg ported to
-//! the 64-bit format. The parent already pins the truncated `rem`
-//! semantics; here the new nearest-even op is the unit under test.
+//! the 64-bit format. The parent already pins the truncated
+//! `rem_trunc` semantics; here the new nearest-even op is the unit
+//! under test.
 
 #![cfg(feature = "fmt")]
 
