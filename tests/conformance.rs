@@ -620,6 +620,9 @@ enum OpKind {
     /// fd-ci0.4 (ADR-0031): General Decimal Arithmetic `reduce` —
     /// strip non-significant trailing zeros from a finite coefficient.
     Reduce,
+    /// fd-ci0.5 (ADR-0031): General Decimal Arithmetic
+    /// `divideInteger` — truncated integer quotient at exponent 0.
+    DivideInteger,
 }
 
 fn dispatch_op(name: &str) -> Option<OpKind> {
@@ -663,6 +666,9 @@ fn dispatch_op(name: &str) -> Option<OpKind> {
         // strip (ADR-0031). Exact; never raises INEXACT. Zero of any
         // cohort normalises to exponent 0.
         "reduce" => OpKind::Reduce,
+        // decTest `divideint`: General Decimal Arithmetic truncated
+        // integer quotient at exponent 0 (ADR-0031).
+        "divideint" => OpKind::DivideInteger,
         _ => return None,
     })
 }
@@ -862,6 +868,12 @@ fn invoke(op: OpKind, operands: &[String], rm: RoundingMode, enc: Encoding) -> O
         OpKind::Reduce => {
             let a = parse_value(&operands[0], rm, enc)?.0;
             let (v, s) = a.reduce();
+            Some(OpResult::Value(v, s))
+        }
+        OpKind::DivideInteger => {
+            let a = parse_value(&operands[0], rm, enc)?.0;
+            let b = parse_value(&operands[1], rm, enc)?.0;
+            let (v, s) = a.divide_integer(b);
             Some(OpResult::Value(v, s))
         }
     }
@@ -1102,6 +1114,9 @@ fn expected_per_file() -> &'static [(&'static str, usize)] {
             ("dqCompareTotal.decTest", 613),
             ("dqCompareTotalMag.decTest", 613),
             ("dqDivide.decTest", 687),
+            // fd-ci0.5 (ADR-0031): `divideInteger` wired. All 374
+            // cases pass on first run.
+            ("dqDivideInt.decTest", 374),
             ("dqEncode.decTest", 0),
             ("dqFMA.decTest", 1425),
             ("dqLogB.decTest", 109),
@@ -1132,6 +1147,9 @@ fn expected_per_file() -> &'static [(&'static str, usize)] {
             ("dqCompareTotal.decTest", 613),
             ("dqCompareTotalMag.decTest", 613),
             ("dqDivide.decTest", 687),
+            // fd-ci0.5 (ADR-0031): `divideInteger` wired. All 374
+            // cases pass on first run; encoding-independent.
+            ("dqDivideInt.decTest", 374),
             ("dqEncode.decTest", 368),
             ("dqFMA.decTest", 1425),
             ("dqLogB.decTest", 109),

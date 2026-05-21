@@ -10,6 +10,7 @@
 
 pub(crate) mod addsub;
 pub(crate) mod div;
+pub(crate) mod divide_integer;
 #[cfg(feature = "exp-log")]
 pub(crate) mod exp;
 pub(crate) mod fma;

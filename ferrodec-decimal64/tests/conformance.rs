@@ -106,6 +106,9 @@ const fn expected_per_file() -> &'static [(&'static str, usize)] {
         // exponents / `#`-hex). `ddDivideInt.decTest` is a distinct
         // operation, not wired here.
         ("ddDivide.decTest", 702),
+        // fd-ci0.5 (ADR-0031): `divideInteger` wired. 371 of 373 pass;
+        // the 2 skips are the `#`-hex BID-interchange cases.
+        ("ddDivideInt.decTest", 371),
         ("ddEncode.decTest", 0),
         // F3: `fma` wired. Rises 2 → 1318 of 1378 after the fd-d47
         // FMA-side fix in `h2_borrow_and_extend` (the
@@ -171,6 +174,9 @@ fn run_case(case: &TestCase, ctx: &Context) -> Outcome {
         "remainder" => run_rem(case, ctx, false),
         "remaindernear" => run_rem(case, ctx, true),
         "quantize" => run_quantize(case, ctx),
+        // decTest `divideint`: General Decimal Arithmetic truncated
+        // integer quotient at exponent 0 (ADR-0031).
+        "divideint" => run_divide_integer(case, ctx),
         // decTest `reduce`: General Decimal Arithmetic trailing-zero
         // strip on a finite coefficient (ADR-0031). Exact; never raises
         // INEXACT. Zero of any cohort normalises to exponent 0.
@@ -453,6 +459,29 @@ fn run_rem(case: &TestCase, ctx: &Context, near: bool) -> Outcome {
 /// `tointegralx` signals `INEXACT` when a non-zero fractional part is
 /// discarded, `tointegral` never does. Same result/status comparison
 /// shape and skip-not-fail policy as `run_quantize`.
+/// `divideint`: General Decimal Arithmetic truncated integer
+/// quotient at exponent 0 (ADR-0031, fd-ci0.5). Two operands; no
+/// rounding-mode interaction (the kernel is exact and never raises
+/// `INEXACT`).
+fn run_divide_integer(case: &TestCase, ctx: &Context) -> Outcome {
+    if case.operands.len() != 2 || case.expected.starts_with('#') {
+        return Outcome::Skip;
+    }
+    let rm = match map_rounding(&ctx.rounding) {
+        Some(r) => r,
+        None => return Outcome::Skip,
+    };
+    let (a, b) = match (
+        parse_operand(&case.operands[0], rm),
+        parse_operand(&case.operands[1], rm),
+    ) {
+        (Some(a), Some(b)) => (a, b),
+        _ => return Outcome::Skip,
+    };
+    let (result, status) = a.divide_integer(b);
+    check(result, status, case)
+}
+
 /// `reduce`: General Decimal Arithmetic trailing-zero strip (ADR-0031,
 /// fd-ci0.4). Single operand, no rounding-mode interaction (the op is
 /// exact and never raises `INEXACT`). The context's rounding is still

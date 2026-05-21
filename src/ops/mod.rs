@@ -6,6 +6,7 @@
 
 mod addsub;
 mod div;
+mod divide_integer;
 mod fma;
 mod integral;
 mod mul;
