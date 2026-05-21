@@ -63,6 +63,8 @@ const fn expected_per_file() -> &'static [(&'static str, usize)] {
         // (2 `#`-hex skips). Exact-match per-file counts per ADR-0010
         // / feedback_regression_guard_exact_match.
         ("ddAdd.decTest", 973),
+        // fd-ci0.7 (ADR-0031): `logical_and`. All 287 cases pass.
+        ("ddAnd.decTest", 287),
         ("ddBase.decTest", 708),
         // F4 (S10, fd-7n8): `compare` / `comparetotal` /
         // `comparetotmag` / `samequantum` / `quantize` wired. No
@@ -128,6 +130,8 @@ const fn expected_per_file() -> &'static [(&'static str, usize)] {
         ("ddMaxMag.decTest", 241),
         ("ddMinMag.decTest", 231),
         ("ddMultiply.decTest", 444),
+        // fd-ci0.7 (ADR-0031): `logical_or`. All 237 cases pass.
+        ("ddOr.decTest", 237),
         ("ddQuantize.decTest", 606),
         // fd-ci0.4 (ADR-0031): `reduce` wired. 133 of 134 pass; the 1
         // skip is the `#`-hex BID-interchange case (`ddred901`).
@@ -143,6 +147,8 @@ const fn expected_per_file() -> &'static [(&'static str, usize)] {
         ("ddRemainderNear.decTest", 527),
         ("ddSameQuantum.decTest", 333),
         ("ddSubtract.decTest", 514),
+        // fd-ci0.7 (ADR-0031): `logical_xor`. All 278 cases pass.
+        ("ddXor.decTest", 278),
         // fd-hnx: `tointegral` / `tointegralx` (IEEE 754-2019 §5.9
         // `roundToIntegral{,Exact}`) wired. No ferrodec correctness
         // defect surfaced (0 fail): `ddToIntegral.decTest` 164 of 178,
@@ -183,6 +189,11 @@ fn run_case(case: &TestCase, ctx: &Context) -> Outcome {
         // decTest `invert`: digit-wise complement of a logical
         // operand (ADR-0031).
         "invert" => run_logical_invert(case, ctx),
+        // decTest `and` / `or` / `xor`: digit-wise truth-table ops
+        // (ADR-0031).
+        "and" => run_logical_binary(case, ctx, Decimal64::logical_and),
+        "or" => run_logical_binary(case, ctx, Decimal64::logical_or),
+        "xor" => run_logical_binary(case, ctx, Decimal64::logical_xor),
         // decTest `reduce`: General Decimal Arithmetic trailing-zero
         // strip on a finite coefficient (ADR-0031). Exact; never raises
         // INEXACT. Zero of any cohort normalises to exponent 0.
@@ -465,6 +476,32 @@ fn run_rem(case: &TestCase, ctx: &Context, near: bool) -> Outcome {
 /// `tointegralx` signals `INEXACT` when a non-zero fractional part is
 /// discarded, `tointegral` never does. Same result/status comparison
 /// shape and skip-not-fail policy as `run_quantize`.
+/// `and` / `or` / `xor`: digit-wise truth-table ops over two logical
+/// operands (ADR-0031, fd-ci0.7). The kernel selector picks one of
+/// the three methods on `Decimal64`.
+fn run_logical_binary(
+    case: &TestCase,
+    ctx: &Context,
+    op: fn(Decimal64, Decimal64) -> (Decimal64, Status),
+) -> Outcome {
+    if case.operands.len() != 2 || case.expected.starts_with('#') {
+        return Outcome::Skip;
+    }
+    let rm = match map_rounding(&ctx.rounding) {
+        Some(r) => r,
+        None => return Outcome::Skip,
+    };
+    let (a, b) = match (
+        parse_operand(&case.operands[0], rm),
+        parse_operand(&case.operands[1], rm),
+    ) {
+        (Some(a), Some(b)) => (a, b),
+        _ => return Outcome::Skip,
+    };
+    let (result, status) = op(a, b);
+    check(result, status, case)
+}
+
 /// `invert`: digit-wise complement of a logical operand (ADR-0031,
 /// fd-ci0.6). Single operand under the logical-operand precondition;
 /// no rounding-mode interaction.

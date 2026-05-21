@@ -626,6 +626,11 @@ enum OpKind {
     /// fd-ci0.6 (ADR-0031): General Decimal Arithmetic
     /// `logical_invert` — digit-wise complement of a logical operand.
     LogicalInvert,
+    /// fd-ci0.7 (ADR-0031): logical AND / OR / XOR over digit-wise
+    /// logical operands; one variant per truth table.
+    LogicalAnd,
+    LogicalOr,
+    LogicalXor,
 }
 
 fn dispatch_op(name: &str) -> Option<OpKind> {
@@ -676,6 +681,11 @@ fn dispatch_op(name: &str) -> Option<OpKind> {
         // (ADR-0031). Operand must be a non-negative integer at
         // exponent 0 with all digits in {0, 1}.
         "invert" => OpKind::LogicalInvert,
+        // decTest `and` / `or` / `xor`: digit-wise truth-table ops
+        // over two logical operands (ADR-0031).
+        "and" => OpKind::LogicalAnd,
+        "or" => OpKind::LogicalOr,
+        "xor" => OpKind::LogicalXor,
         _ => return None,
     })
 }
@@ -886,6 +896,24 @@ fn invoke(op: OpKind, operands: &[String], rm: RoundingMode, enc: Encoding) -> O
         OpKind::LogicalInvert => {
             let a = parse_value(&operands[0], rm, enc)?.0;
             let (v, s) = a.logical_invert();
+            Some(OpResult::Value(v, s))
+        }
+        OpKind::LogicalAnd => {
+            let a = parse_value(&operands[0], rm, enc)?.0;
+            let b = parse_value(&operands[1], rm, enc)?.0;
+            let (v, s) = a.logical_and(b);
+            Some(OpResult::Value(v, s))
+        }
+        OpKind::LogicalOr => {
+            let a = parse_value(&operands[0], rm, enc)?.0;
+            let b = parse_value(&operands[1], rm, enc)?.0;
+            let (v, s) = a.logical_or(b);
+            Some(OpResult::Value(v, s))
+        }
+        OpKind::LogicalXor => {
+            let a = parse_value(&operands[0], rm, enc)?.0;
+            let b = parse_value(&operands[1], rm, enc)?.0;
+            let (v, s) = a.logical_xor(b);
             Some(OpResult::Value(v, s))
         }
     }
@@ -1120,6 +1148,9 @@ fn expected_per_file() -> &'static [(&'static str, usize)] {
         &[
             ("dqAbs.decTest", 75),
             ("dqAdd.decTest", 1004),
+            // fd-ci0.7 (ADR-0031): logical and/or/xor wired. All
+            // 357/341/348 cases pass on first run.
+            ("dqAnd.decTest", 357),
             ("dqCanonical.decTest", 0),
             ("dqClass.decTest", 42),
             ("dqCompare.decTest", 659),
@@ -1141,6 +1172,8 @@ fn expected_per_file() -> &'static [(&'static str, usize)] {
             ("dqMultiply.decTest", 473),
             ("dqNextMinus.decTest", 84),
             ("dqNextPlus.decTest", 84),
+            // fd-ci0.7 (ADR-0031): `logical_or`.
+            ("dqOr.decTest", 341),
             ("dqQuantize.decTest", 622),
             // fd-ci0.4 (ADR-0031): `reduce` wired. All 134 cases pass
             // on first run; no `#`-hex skips in the dq* counterpart.
@@ -1149,6 +1182,8 @@ fn expected_per_file() -> &'static [(&'static str, usize)] {
             ("dqSameQuantum.decTest", 333),
             ("dqScaleB.decTest", 202),
             ("dqSubtract.decTest", 520),
+            // fd-ci0.7 (ADR-0031): `logical_xor`.
+            ("dqXor.decTest", 348),
         ]
     }
     #[cfg(feature = "dpd")]
@@ -1156,6 +1191,9 @@ fn expected_per_file() -> &'static [(&'static str, usize)] {
         &[
             ("dqAbs.decTest", 75),
             ("dqAdd.decTest", 1004),
+            // fd-ci0.7 (ADR-0031): logical and/or/xor wired;
+            // encoding-independent.
+            ("dqAnd.decTest", 357),
             ("dqCanonical.decTest", 90),
             ("dqClass.decTest", 42),
             ("dqCompare.decTest", 659),
@@ -1177,6 +1215,8 @@ fn expected_per_file() -> &'static [(&'static str, usize)] {
             ("dqMultiply.decTest", 473),
             ("dqNextMinus.decTest", 84),
             ("dqNextPlus.decTest", 84),
+            // fd-ci0.7 (ADR-0031): `logical_or`.
+            ("dqOr.decTest", 341),
             ("dqQuantize.decTest", 622),
             // fd-ci0.4 (ADR-0031): `reduce` wired. 134 of 134 pass on
             // first run, same as the non-dpd build (the op is encoding-
@@ -1186,6 +1226,8 @@ fn expected_per_file() -> &'static [(&'static str, usize)] {
             ("dqSameQuantum.decTest", 333),
             ("dqScaleB.decTest", 202),
             ("dqSubtract.decTest", 520),
+            // fd-ci0.7 (ADR-0031): `logical_xor`.
+            ("dqXor.decTest", 348),
         ]
     }
 }

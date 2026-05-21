@@ -95,6 +95,65 @@ impl Decimal128 {
         let coef = digits_to_coefficient(&digits);
         (Self::from_bits(pack_finite(false, BIAS, coef)), Status::OK)
     }
+
+    /// General Decimal Arithmetic `logical_and(x, y)`. Digit-wise
+    /// boolean AND over two logical operands, padded to the format's
+    /// `PRECISION = 34` digits. See [`Self::logical_invert`] for the
+    /// shared precondition and NaN-as-INVALID rule.
+    #[must_use]
+    pub fn logical_and(self, rhs: Self) -> (Self, Status) {
+        logical_binary(self, rhs, |a, b| a & b)
+    }
+
+    /// General Decimal Arithmetic `logical_or(x, y)`. Digit-wise
+    /// boolean OR.
+    #[must_use]
+    pub fn logical_or(self, rhs: Self) -> (Self, Status) {
+        logical_binary(self, rhs, |a, b| a | b)
+    }
+
+    /// General Decimal Arithmetic `logical_xor(x, y)`. Digit-wise
+    /// boolean XOR.
+    #[must_use]
+    pub fn logical_xor(self, rhs: Self) -> (Self, Status) {
+        logical_binary(self, rhs, |a, b| a ^ b)
+    }
+}
+
+/// Shared kernel for `logical_and / or / xor`. `op` is the 2-bit
+/// truth-table function applied digit-wise. Both operands must be
+/// logical operands; otherwise the result is `(NaN, INVALID)`.
+fn logical_binary(a: Decimal128, b: Decimal128, op: fn(u8, u8) -> u8) -> (Decimal128, Status) {
+    // Reject every NaN (qNaN or sNaN) on either side; sNaN quietens.
+    if a.is_signaling_nan() {
+        return (nan_from(a), Status::INVALID);
+    }
+    if b.is_signaling_nan() {
+        return (nan_from(b), Status::INVALID);
+    }
+    if a.is_nan() {
+        return (a, Status::INVALID);
+    }
+    if b.is_nan() {
+        return (b, Status::INVALID);
+    }
+    let da = match as_logical_digits(a) {
+        Some(d) => d,
+        None => return (Decimal128::NAN, Status::INVALID),
+    };
+    let db = match as_logical_digits(b) {
+        Some(d) => d,
+        None => return (Decimal128::NAN, Status::INVALID),
+    };
+    let mut out = [0u8; PRECISION as usize];
+    for i in 0..(PRECISION as usize) {
+        out[i] = op(da[i], db[i]);
+    }
+    let coef = digits_to_coefficient(&out);
+    (
+        Decimal128::from_bits(pack_finite(false, BIAS, coef)),
+        Status::OK,
+    )
 }
 
 #[cfg(test)]
@@ -180,6 +239,69 @@ mod tests {
     #[test]
     fn signaling_nan_quiets_and_raises_invalid() {
         let (r, st) = Decimal128::SIGNALING_NAN.logical_invert();
+        assert_eq!(st, Status::INVALID);
+        assert!(r.is_nan());
+        assert!(!r.is_signaling_nan());
+    }
+
+    #[test]
+    fn and_one_zero_is_zero() {
+        let one = Decimal128::ONE;
+        let zero = Decimal128::ZERO;
+        let (r, st) = one.logical_and(zero);
+        assert!(st.is_ok());
+        assert_eq!(r.to_bits(), Decimal128::ZERO.to_bits());
+    }
+
+    #[test]
+    fn and_one_one_is_one_padded() {
+        // logical_and(1, 1) = 1 padded with leading zeros to 34
+        // digits — numerically just 1, but with the canonical
+        // logical-operand exponent (BIAS).
+        let one = Decimal128::ONE;
+        let (r, st) = one.logical_and(one);
+        assert!(st.is_ok());
+        assert_eq!(r.to_bits(), one.to_bits());
+    }
+
+    #[test]
+    fn or_zero_zero_is_zero() {
+        let (r, st) = Decimal128::ZERO.logical_or(Decimal128::ZERO);
+        assert!(st.is_ok());
+        assert_eq!(r.to_bits(), Decimal128::ZERO.to_bits());
+    }
+
+    #[test]
+    fn xor_one_one_is_zero() {
+        let (r, st) = Decimal128::ONE.logical_xor(Decimal128::ONE);
+        assert!(st.is_ok());
+        assert_eq!(r.to_bits(), Decimal128::ZERO.to_bits());
+    }
+
+    #[test]
+    fn xor_one_zero_is_one() {
+        let (r, st) = Decimal128::ONE.logical_xor(Decimal128::ZERO);
+        assert!(st.is_ok());
+        assert_eq!(r.to_bits(), Decimal128::ONE.to_bits());
+    }
+
+    #[test]
+    fn binary_negative_operand_is_invalid() {
+        let neg = Decimal128::try_new(-1, 0).unwrap();
+        let (r, st) = neg.logical_and(Decimal128::ONE);
+        assert_eq!(st, Status::INVALID);
+        assert!(r.is_nan());
+        let (r, st) = Decimal128::ONE.logical_or(neg);
+        assert_eq!(st, Status::INVALID);
+        assert!(r.is_nan());
+    }
+
+    #[test]
+    fn binary_nan_raises_invalid() {
+        let (r, st) = Decimal128::NAN.logical_and(Decimal128::ONE);
+        assert_eq!(st, Status::INVALID);
+        assert!(r.is_nan());
+        let (r, st) = Decimal128::ONE.logical_xor(Decimal128::SIGNALING_NAN);
         assert_eq!(st, Status::INVALID);
         assert!(r.is_nan());
         assert!(!r.is_signaling_nan());
