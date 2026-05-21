@@ -71,8 +71,13 @@ impl Decimal128 {
     /// let zero = Decimal128::ZERO;
     /// let (r, st) = zero.logical_invert();
     /// assert!(st.is_ok());
-    /// // 10^34 - 1, 34 ones in base 10.
-    /// let all_ones = Decimal128::try_new(10i128.pow(34) - 1, 0).unwrap();
+    /// // 34 ones in base 10: each of the 34 digit slots becomes 1.
+    /// // The integer value is (10^34 - 1) / 9 = 1111111111111111111111111111111111.
+    /// let all_ones = Decimal128::try_new(
+    ///     1111111111111111111111111111111111_i128,
+    ///     0,
+    /// )
+    /// .unwrap();
     /// assert_eq!(r.to_bits(), all_ones.to_bits());
     /// ```
     #[must_use]
