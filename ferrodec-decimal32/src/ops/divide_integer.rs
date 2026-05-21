@@ -34,9 +34,9 @@ impl Decimal32 {
     /// General Decimal Arithmetic `divideInteger(x, y)`.
     ///
     /// Returns `trunc(x / y)` as an integer at exponent 0. See the
-    /// [`Decimal64`] / [`Decimal128`] counterparts for the full
-    /// special-case table; this Decimal32 implementation is
-    /// structurally identical, with PRECISION = 7.
+    /// `Decimal64` / `Decimal128` counterparts on the sibling crates
+    /// for the full special-case table; this Decimal32 implementation
+    /// is structurally identical, with PRECISION = 7.
     ///
     /// Decimal32 has no upstream `dsDivideInt.decTest`; verification
     /// rests on the hand-derived unit tests below (mirroring the
@@ -53,9 +53,6 @@ impl Decimal32 {
     /// assert!(st.is_ok());
     /// assert_eq!(q.to_bits(), Decimal32::try_new(3, 0).unwrap().to_bits());
     /// ```
-    ///
-    /// [`Decimal64`]: ferrodec_decimal64::Decimal64
-    /// [`Decimal128`]: ferrodec::Decimal128
     #[must_use]
     pub fn divide_integer(self, rhs: Self) -> (Self, Status) {
         let ca = classify_bits(self.0);
