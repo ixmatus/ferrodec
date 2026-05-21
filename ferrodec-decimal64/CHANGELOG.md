@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-05-20
+
+### Added
+
+- `Decimal64::reduce`: General Decimal Arithmetic trailing-zero
+  strip. Conformance-validated against `ddReduce` (133 of 134; the
+  one skip is the `#`-hex BID-interchange case). ADR-0031.
+- `Decimal64::divide_integer`: General Decimal Arithmetic truncated
+  integer quotient at exponent 0. `Inf / 0` returns signed Infinity
+  with no flag (infinity-arithmetic rule), while `finite_nonzero / 0`
+  returns signed Infinity with `DIV_BY_ZERO`. `Division_impossible`
+  (quotient exceeds 16 digits) raises `INVALID`. Conformance-
+  validated against `ddDivideInt` (371 of 373). ADR-0031.
+- `Decimal64::logical_invert`: digit-wise complement of a logical
+  operand, padded to 16 digits. NaN of any kind raises `INVALID`
+  (the logical-op uniform rule, unlike the rest of the GDA
+  surface). Conformance-validated against `ddInvert` (151 of 151).
+  ADR-0031.
+- `Decimal64::logical_and` / `logical_or` / `logical_xor`:
+  digit-wise truth-table ops over two logical operands.
+  Conformance-validated against `ddAnd` (287 of 287), `ddOr` (237
+  of 237), `ddXor` (278 of 278). ADR-0031.
+- `Decimal64::shift`: coefficient-digit shift inside the
+  precision-wide window with zero fill. Conformance-validated
+  against `ddShift` (212 of 212). ADR-0031.
+- `Decimal64::rotate`: coefficient-digit modular rotation inside
+  the precision-wide window. Conformance-validated against
+  `ddRotate` (212 of 212). ADR-0031.
+
+### Fixed
+
+- `Decimal64::fma`: subnormal results are now single-rounded,
+  fixing the double-rounding family the standing fd-dpg
+  exact-oracle sweep surfaced. The funnel rounded the exact product
+  to PRECISION first and then re-rounded into the subnormal
+  quantum; a residue straddling the two rounding boundaries was
+  collapsed into an exact tie and carried the wrong way. The
+  kernel now drops to the wider of the precision and
+  subnormal-quantum requirements in one rounding, the IEEE
+  754-2019 single-rounding contract, matching the parent
+  `Decimal128`. ADR-0030.
+
 ## [1.7.0] - 2026-05-18
 
 ### Added
