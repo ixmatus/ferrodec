@@ -83,6 +83,7 @@ mod classify;
 mod cmp;
 mod convert;
 mod decimal;
+mod digits;
 #[cfg(feature = "dpd")]
 mod dpd;
 #[cfg(feature = "num-traits")]

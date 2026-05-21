@@ -61,6 +61,7 @@ mod classify;
 mod cmp;
 mod convert;
 mod decimal;
+mod digits;
 #[cfg(feature = "dpd")]
 mod dpd;
 mod iter;

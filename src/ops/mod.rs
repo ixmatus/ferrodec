@@ -6,13 +6,18 @@
 
 mod addsub;
 mod div;
+mod divide_integer;
 mod fma;
 mod integral;
+mod logical;
 mod mul;
 pub(crate) mod nan_propagate;
 mod quantum;
+mod reduce;
 mod rem;
+mod rotate;
 pub(crate) mod round;
+mod shift;
 mod sqrt;
 
 pub(crate) use nan_propagate::{nan_from, propagate_nan2, propagate_nan3};

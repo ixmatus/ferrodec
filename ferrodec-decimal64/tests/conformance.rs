@@ -63,6 +63,8 @@ const fn expected_per_file() -> &'static [(&'static str, usize)] {
         // (2 `#`-hex skips). Exact-match per-file counts per ADR-0010
         // / feedback_regression_guard_exact_match.
         ("ddAdd.decTest", 973),
+        // fd-ci0.7 (ADR-0031): `logical_and`. All 287 cases pass.
+        ("ddAnd.decTest", 287),
         ("ddBase.decTest", 708),
         // F4 (S10, fd-7n8): `compare` / `comparetotal` /
         // `comparetotmag` / `samequantum` / `quantize` wired. No
@@ -106,6 +108,9 @@ const fn expected_per_file() -> &'static [(&'static str, usize)] {
         // exponents / `#`-hex). `ddDivideInt.decTest` is a distinct
         // operation, not wired here.
         ("ddDivide.decTest", 702),
+        // fd-ci0.5 (ADR-0031): `divideInteger` wired. 371 of 373 pass;
+        // the 2 skips are the `#`-hex BID-interchange cases.
+        ("ddDivideInt.decTest", 371),
         ("ddEncode.decTest", 0),
         // F3: `fma` wired. Rises 2 → 1318 of 1378 after the fd-d47
         // FMA-side fix in `h2_borrow_and_extend` (the
@@ -114,6 +119,9 @@ const fn expected_per_file() -> &'static [(&'static str, usize)] {
         // `ddfma2504` is among the passers. 60 skips are
         // unrepresentable operands / `#`-hex.
         ("ddFMA.decTest", 1318),
+        // fd-ci0.6 (ADR-0031): `logical_invert` wired. All 151 cases
+        // pass on first run after the qNaN-as-INVALID fix.
+        ("ddInvert.decTest", 151),
         // fd-8aq: IEEE 754-2019 §9.6 `maxmag` / `minmag`
         // (`Decimal64::max_magnitude` / `min_magnitude`) wired; both
         // were `Skip` before. Zero failures: `ddMaxMag` 241 of 243,
@@ -122,7 +130,12 @@ const fn expected_per_file() -> &'static [(&'static str, usize)] {
         ("ddMaxMag.decTest", 241),
         ("ddMinMag.decTest", 231),
         ("ddMultiply.decTest", 444),
+        // fd-ci0.7 (ADR-0031): `logical_or`. All 237 cases pass.
+        ("ddOr.decTest", 237),
         ("ddQuantize.decTest", 606),
+        // fd-ci0.4 (ADR-0031): `reduce` wired. 133 of 134 pass; the 1
+        // skip is the `#`-hex BID-interchange case (`ddred901`).
+        ("ddReduce.decTest", 133),
         // fd-pvu (ADR-0027): `remainder` (truncating, `Decimal64::rem`)
         // and `remaindernear` (IEEE §5.3.1 nearest-even, the new
         // `Decimal64::rem_near`) wired; both were `Skip` before. Zero
@@ -132,8 +145,14 @@ const fn expected_per_file() -> &'static [(&'static str, usize)] {
         // feedback_regression_guard_exact_match.
         ("ddRemainder.decTest", 503),
         ("ddRemainderNear.decTest", 527),
+        // fd-ci0.9 (ADR-0031): `rotate`. All 212 cases pass.
+        ("ddRotate.decTest", 212),
         ("ddSameQuantum.decTest", 333),
+        // fd-ci0.8 (ADR-0031): `shift`. All 212 cases pass.
+        ("ddShift.decTest", 212),
         ("ddSubtract.decTest", 514),
+        // fd-ci0.7 (ADR-0031): `logical_xor`. All 278 cases pass.
+        ("ddXor.decTest", 278),
         // fd-hnx: `tointegral` / `tointegralx` (IEEE 754-2019 §5.9
         // `roundToIntegral{,Exact}`) wired. No ferrodec correctness
         // defect surfaced (0 fail): `ddToIntegral.decTest` 164 of 178,
@@ -168,6 +187,27 @@ fn run_case(case: &TestCase, ctx: &Context) -> Outcome {
         "remainder" => run_rem(case, ctx, false),
         "remaindernear" => run_rem(case, ctx, true),
         "quantize" => run_quantize(case, ctx),
+        // decTest `divideint`: General Decimal Arithmetic truncated
+        // integer quotient at exponent 0 (ADR-0031).
+        "divideint" => run_divide_integer(case, ctx),
+        // decTest `invert`: digit-wise complement of a logical
+        // operand (ADR-0031).
+        "invert" => run_logical_invert(case, ctx),
+        // decTest `and` / `or` / `xor`: digit-wise truth-table ops
+        // (ADR-0031).
+        "and" => run_logical_binary(case, ctx, Decimal64::logical_and),
+        "or" => run_logical_binary(case, ctx, Decimal64::logical_or),
+        "xor" => run_logical_binary(case, ctx, Decimal64::logical_xor),
+        // decTest `shift`: digit-shift inside the precision-wide
+        // window (ADR-0031).
+        "shift" => run_logical_binary(case, ctx, Decimal64::shift),
+        // decTest `rotate`: digit-rotate inside the precision-wide
+        // window with modular wrap (ADR-0031).
+        "rotate" => run_logical_binary(case, ctx, Decimal64::rotate),
+        // decTest `reduce`: General Decimal Arithmetic trailing-zero
+        // strip on a finite coefficient (ADR-0031). Exact; never raises
+        // INEXACT. Zero of any cohort normalises to exponent 0.
+        "reduce" => run_reduce(case, ctx),
         "tointegral" => run_integral(case, ctx, false),
         "tointegralx" => run_integral(case, ctx, true),
         // decTest `copynegate`: the non-signaling sign flip
@@ -446,6 +486,95 @@ fn run_rem(case: &TestCase, ctx: &Context, near: bool) -> Outcome {
 /// `tointegralx` signals `INEXACT` when a non-zero fractional part is
 /// discarded, `tointegral` never does. Same result/status comparison
 /// shape and skip-not-fail policy as `run_quantize`.
+/// `and` / `or` / `xor`: digit-wise truth-table ops over two logical
+/// operands (ADR-0031, fd-ci0.7). The kernel selector picks one of
+/// the three methods on `Decimal64`.
+fn run_logical_binary(
+    case: &TestCase,
+    ctx: &Context,
+    op: fn(Decimal64, Decimal64) -> (Decimal64, Status),
+) -> Outcome {
+    if case.operands.len() != 2 || case.expected.starts_with('#') {
+        return Outcome::Skip;
+    }
+    let rm = match map_rounding(&ctx.rounding) {
+        Some(r) => r,
+        None => return Outcome::Skip,
+    };
+    let (a, b) = match (
+        parse_operand(&case.operands[0], rm),
+        parse_operand(&case.operands[1], rm),
+    ) {
+        (Some(a), Some(b)) => (a, b),
+        _ => return Outcome::Skip,
+    };
+    let (result, status) = op(a, b);
+    check(result, status, case)
+}
+
+/// `invert`: digit-wise complement of a logical operand (ADR-0031,
+/// fd-ci0.6). Single operand under the logical-operand precondition;
+/// no rounding-mode interaction.
+fn run_logical_invert(case: &TestCase, ctx: &Context) -> Outcome {
+    if case.operands.len() != 1 || case.expected.starts_with('#') {
+        return Outcome::Skip;
+    }
+    let rm = match map_rounding(&ctx.rounding) {
+        Some(r) => r,
+        None => return Outcome::Skip,
+    };
+    let a = match parse_operand(&case.operands[0], rm) {
+        Some(a) => a,
+        None => return Outcome::Skip,
+    };
+    let (result, status) = a.logical_invert();
+    check(result, status, case)
+}
+
+/// `divideint`: General Decimal Arithmetic truncated integer
+/// quotient at exponent 0 (ADR-0031, fd-ci0.5). Two operands; no
+/// rounding-mode interaction (the kernel is exact and never raises
+/// `INEXACT`).
+fn run_divide_integer(case: &TestCase, ctx: &Context) -> Outcome {
+    if case.operands.len() != 2 || case.expected.starts_with('#') {
+        return Outcome::Skip;
+    }
+    let rm = match map_rounding(&ctx.rounding) {
+        Some(r) => r,
+        None => return Outcome::Skip,
+    };
+    let (a, b) = match (
+        parse_operand(&case.operands[0], rm),
+        parse_operand(&case.operands[1], rm),
+    ) {
+        (Some(a), Some(b)) => (a, b),
+        _ => return Outcome::Skip,
+    };
+    let (result, status) = a.divide_integer(b);
+    check(result, status, case)
+}
+
+/// `reduce`: General Decimal Arithmetic trailing-zero strip (ADR-0031,
+/// fd-ci0.4). Single operand, no rounding-mode interaction (the op is
+/// exact and never raises `INEXACT`). The context's rounding is still
+/// consulted for operand parsing fidelity but the kernel itself
+/// ignores it.
+fn run_reduce(case: &TestCase, ctx: &Context) -> Outcome {
+    if case.operands.len() != 1 || case.expected.starts_with('#') {
+        return Outcome::Skip;
+    }
+    let rm = match map_rounding(&ctx.rounding) {
+        Some(r) => r,
+        None => return Outcome::Skip,
+    };
+    let a = match parse_operand(&case.operands[0], rm) {
+        Some(a) => a,
+        None => return Outcome::Skip,
+    };
+    let (result, status) = a.reduce();
+    check(result, status, case)
+}
+
 fn run_integral(case: &TestCase, ctx: &Context, signal_inexact: bool) -> Outcome {
     if case.operands.len() != 1 || case.expected.starts_with('#') {
         return Outcome::Skip;

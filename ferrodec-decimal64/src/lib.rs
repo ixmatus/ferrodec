@@ -94,6 +94,7 @@ mod classify;
 mod cmp;
 mod convert;
 mod decimal;
+mod digits;
 #[cfg(feature = "num-traits")]
 mod num_traits_impls;
 mod ops;

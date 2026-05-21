@@ -10,18 +10,23 @@
 
 pub(crate) mod addsub;
 pub(crate) mod div;
+pub(crate) mod divide_integer;
 #[cfg(feature = "exp-log")]
 pub(crate) mod exp;
 pub(crate) mod fma;
 #[cfg(feature = "hyperbolic")]
 pub(crate) mod hyper;
 pub(crate) mod integral;
+pub(crate) mod logical;
 pub(crate) mod mul;
 #[cfg(feature = "pow")]
 pub(crate) mod pow;
 pub(crate) mod quantum;
+pub(crate) mod reduce;
 pub(crate) mod rem;
+pub(crate) mod rotate;
 pub(crate) mod round;
+pub(crate) mod shift;
 pub(crate) mod sqrt;
 #[cfg(feature = "trig")]
 pub(crate) mod trig;
