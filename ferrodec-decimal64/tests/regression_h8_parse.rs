@@ -8,10 +8,12 @@
 //! test lives in an integration crate (std available) rather than the
 //! `no_std` in-crate unit module. Inputs past
 //! `MAX_EXPONENT_MAGNITUDE` (one million) now resolve to a clean
-//! `ExponentOutOfRange`, the identical contract the explicit-exponent
-//! path already honours (`1e-1000001`), never a panic or a wrapped
-//! exponent. The conformance harness already skips
-//! `ExponentOutOfRange`, so this is spec-consistent.
+//! `CoefficientOverflow` (the variant ADR-0029 item 2 / fd-7f1
+//! promoted from the catch-all `ExponentOutOfRange` to make the
+//! implicit-exponent-overflow case matchable separately from the
+//! explicit-exponent path). The conformance harness skips both
+//! `CoefficientOverflow` and `ExponentOutOfRange`, so this is
+//! spec-consistent.
 
 use core::cmp::Ordering;
 
@@ -25,7 +27,7 @@ fn leading_fractional_zeros_past_cap_is_clean_error() {
     let s = format!("0.{}1", "0".repeat(1_000_001));
     assert!(matches!(
         Decimal64::parse_str(&s, RoundingMode::NearestEven),
-        Err(ParseDecimalError::ExponentOutOfRange)
+        Err(ParseDecimalError::CoefficientOverflow)
     ));
 }
 
@@ -39,7 +41,7 @@ fn trailing_integer_zeros_past_cap_is_clean_error() {
     let s = format!("1{}", "0".repeat(1_100_000));
     assert!(matches!(
         Decimal64::parse_str(&s, RoundingMode::NearestEven),
-        Err(ParseDecimalError::ExponentOutOfRange)
+        Err(ParseDecimalError::CoefficientOverflow)
     ));
 }
 

@@ -642,7 +642,12 @@ fn parse_operand(s: &str, rm: ferrodec_decimal64::RoundingMode) -> Option<Decima
     }
     match Decimal64::parse_str(s, rm) {
         Ok((v, _)) => Some(v),
-        Err(ParseDecimalError::ExponentOutOfRange) => None,
+        // Skip the explicit-exponent and implicit-exponent overflow
+        // arms (both denote "input past our 1 000 000 magnitude cap");
+        // the catch-all maps every other parse failure to the
+        // `Conversion_syntax`-shape NaN+INVALID the suite expects for
+        // negative test cases.
+        Err(ParseDecimalError::ExponentOutOfRange | ParseDecimalError::CoefficientOverflow) => None,
         Err(_) => Some(Decimal64::NAN),
     }
 }
@@ -711,10 +716,16 @@ fn run_tosci(case: &TestCase, ctx: &Context) -> Outcome {
         // ExponentOutOfRange covers decTest cases like
         // `1e-999999999` that test the implementation's handling of
         // pathologically large exponents. Our parse_str rejects them
-        // at the 1 000 000 magnitude cap; the spec-conformant
-        // behaviour (saturate to ±Inf or ±0 at parse time) is a
-        // deferred design call. Skip rather than fail those cases.
-        Err(ParseDecimalError::ExponentOutOfRange) => return Outcome::Skip,
+        // at the 1 000 000 magnitude cap (via `ExponentOutOfRange` on
+        // the explicit-exponent path or `CoefficientOverflow` on the
+        // implicit-exponent / leading-zero-saturation path; the latter
+        // variant was promoted by ADR-0029 item 2 / fd-7f1); the
+        // spec-conformant behaviour (saturate to ±Inf or ±0 at parse
+        // time) is a deferred design call. Skip rather than fail those
+        // cases.
+        Err(ParseDecimalError::ExponentOutOfRange | ParseDecimalError::CoefficientOverflow) => {
+            return Outcome::Skip;
+        }
         // decTest's "negative" test cases use malformed input strings
         // (`1..2`, `+-1`, `e100`, ...) and expect a `NaN` result with
         // `Conversion_syntax` (mapped to INVALID). Translate parse

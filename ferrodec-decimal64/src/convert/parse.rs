@@ -34,28 +34,61 @@ use ferrodec_ieee::{RoundingMode, Status};
 
 /// Parse error returned by [`Decimal64::parse_str`].
 ///
-/// Includes a byte index pointing at the offending character (or the
-/// end of input for `Empty` and `InvalidExponent`) to make diagnostics
-/// usable in calculator UIs.
+/// Each variant names a distinct failure mode a caller may want to
+/// react to differently (calculator UI diagnostics, REPL highlighting,
+/// linting of decimal sources). Where a byte position is known it is
+/// reported in `position`; sites with no meaningful position (`Empty`,
+/// `ExponentOutOfRange`, `CoefficientOverflow`) omit the field.
+///
+/// The enum is `#[non_exhaustive]`: future revisions may add variants
+/// under a minor bump without breaking exhaustive matches. Callers
+/// that pattern-match exhaustively must include a wildcard arm.
+///
+/// Definition is byte-identical to the parent
+/// `ferrodec::ParseDecimalError` and the
+/// `ferrodec_decimal32::ParseDecimalError`; each crate carries its own
+/// copy because the type sits at the crate boundary.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
 pub enum ParseDecimalError {
-    /// Empty input or input consisting only of a sign.
+    /// Empty input, or input consisting only of a sign with no
+    /// trailing digits.
     Empty,
-    /// Unexpected character at the given byte position.
-    InvalidCharacter(usize),
-    /// `e`/`E` introducer not followed by valid digits.
-    InvalidExponent,
-    /// Explicit exponent magnitude exceeds the format's range.
+    /// A `+` or `-` appeared where the grammar does not permit one
+    /// (e.g. `"+-1"`, `"1+2"`, `"1e++3"`, an in-mantissa sign).
+    MisplacedSign { position: usize },
+    /// A byte outside the decimal grammar (non-digit, non-sign,
+    /// non-`.`, non-`e`/`E`), or trailing junk after a valid literal.
+    InvalidCharacter { position: usize },
+    /// An `e`/`E` introducer was present but the exponent that
+    /// followed was malformed (missing digits, sign without digits).
+    InvalidExponent { position: usize },
+    /// The explicit exponent magnitude exceeds the parser's
+    /// `MAX_EXPONENT_MAGNITUDE` (1 000 000).
     ExponentOutOfRange,
+    /// The integer-coefficient prefix or the leading-fractional-zero
+    /// run would shift the implicit exponent past the representable
+    /// range, even before the explicit exponent is considered. This is
+    /// the H8 saturation guard recorded in ADR-0018; it fires only on
+    /// the sibling parsers (Decimal64, Decimal32), never on the parent.
+    CoefficientOverflow,
 }
 
 impl core::fmt::Display for ParseDecimalError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::Empty => f.write_str("empty decimal literal"),
-            Self::InvalidCharacter(pos) => write!(f, "invalid character at byte {pos}"),
-            Self::InvalidExponent => f.write_str("malformed exponent in decimal literal"),
+            Self::MisplacedSign { position } => {
+                write!(f, "misplaced sign at byte {position}")
+            }
+            Self::InvalidCharacter { position } => {
+                write!(f, "invalid character at byte {position}")
+            }
+            Self::InvalidExponent { position } => {
+                write!(f, "malformed exponent at byte {position}")
+            }
             Self::ExponentOutOfRange => f.write_str("exponent magnitude out of range"),
+            Self::CoefficientOverflow => f.write_str("coefficient digit count out of range"),
         }
     }
 }
@@ -182,7 +215,15 @@ fn parse_str_inner(
                         // applies at `1e-1000001`.
                         digits_after_point = digits_after_point.saturating_add(1);
                         if digits_after_point > MAX_EXPONENT_MAGNITUDE {
-                            return Err(ParseDecimalError::ExponentOutOfRange);
+                            // H8 saturation guard. Distinct from
+                            // `ExponentOutOfRange` (an *explicit*
+                            // exponent past `MAX_EXPONENT_MAGNITUDE`):
+                            // here the input shifts the implicit
+                            // exponent past the cap purely through a
+                            // run of leading fractional zeros, before
+                            // any `e` introducer. ADR-0029 item 2
+                            // / fd-7f1 makes the distinction matchable.
+                            return Err(ParseDecimalError::CoefficientOverflow);
                         }
                     } else {
                         coef = coef * 10 + d;
@@ -210,10 +251,13 @@ fn parse_str_inner(
                         // to `u32::MAX`, which reinterprets as `-1`
                         // under the later `as i32` cast and silently
                         // miscomputes the exponent. Mirrors the
-                        // explicit-exponent guard.
+                        // explicit-exponent guard, but on the implicit
+                        // exponent contribution rather than the `e`
+                        // introducer; ADR-0029 item 2 / fd-7f1
+                        // promotes this to `CoefficientOverflow`.
                         extra_int_digits = extra_int_digits.saturating_add(1);
                         if extra_int_digits > MAX_EXPONENT_MAGNITUDE {
-                            return Err(ParseDecimalError::ExponentOutOfRange);
+                            return Err(ParseDecimalError::CoefficientOverflow);
                         }
                     }
                     // Sticky-only fractional digits sit *below* the
@@ -228,13 +272,14 @@ fn parse_str_inner(
             }
             b'.' => {
                 if decimal_seen {
-                    return Err(ParseDecimalError::InvalidCharacter(idx));
+                    return Err(ParseDecimalError::InvalidCharacter { position: idx });
                 }
                 decimal_seen = true;
                 idx += 1;
             }
             b'e' | b'E' => break,
-            _ => return Err(ParseDecimalError::InvalidCharacter(idx)),
+            b'+' | b'-' => return Err(ParseDecimalError::MisplacedSign { position: idx }),
+            _ => return Err(ParseDecimalError::InvalidCharacter { position: idx }),
         }
     }
 
@@ -258,14 +303,17 @@ fn parse_str_inner(
             _ => false,
         };
         if idx >= bytes.len() {
-            return Err(ParseDecimalError::InvalidExponent);
+            return Err(ParseDecimalError::InvalidExponent { position: idx });
         }
         let mut exp_val: u32 = 0;
         let mut exp_has_digit = false;
         while idx < bytes.len() {
             let c = bytes[idx];
             if !c.is_ascii_digit() {
-                return Err(ParseDecimalError::InvalidCharacter(idx));
+                return Err(match c {
+                    b'+' | b'-' => ParseDecimalError::MisplacedSign { position: idx },
+                    _ => ParseDecimalError::InvalidCharacter { position: idx },
+                });
             }
             exp_has_digit = true;
             let d = u32::from(c - b'0');
@@ -276,7 +324,7 @@ fn parse_str_inner(
             idx += 1;
         }
         if !exp_has_digit {
-            return Err(ParseDecimalError::InvalidExponent);
+            return Err(ParseDecimalError::InvalidExponent { position: idx });
         }
         exp_explicit = if exp_sign {
             -(exp_val as i32)
@@ -286,7 +334,7 @@ fn parse_str_inner(
     }
 
     if idx != bytes.len() {
-        return Err(ParseDecimalError::InvalidCharacter(idx));
+        return Err(ParseDecimalError::InvalidCharacter { position: idx });
     }
 
     // `extra_int_digits` and `digits_after_point` are each capped at
@@ -360,15 +408,21 @@ fn parse_nan_payload(
     let mut payload: u64 = 0;
     for (i, &c) in digits.iter().enumerate() {
         if !c.is_ascii_digit() {
-            return Err(ParseDecimalError::InvalidCharacter(offset + i));
+            return Err(ParseDecimalError::InvalidCharacter {
+                position: offset + i,
+            });
         }
         let d = u64::from(c - b'0');
         payload = payload
             .checked_mul(10)
             .and_then(|p| p.checked_add(d))
-            .ok_or(ParseDecimalError::InvalidCharacter(offset + i))?;
+            .ok_or(ParseDecimalError::InvalidCharacter {
+                position: offset + i,
+            })?;
         if payload > T_MASK {
-            return Err(ParseDecimalError::InvalidCharacter(offset + i));
+            return Err(ParseDecimalError::InvalidCharacter {
+                position: offset + i,
+            });
         }
     }
     let bits = if signaling {
@@ -512,7 +566,10 @@ mod tests {
         // 16 nines (9_999_999_999_999_999) exceeds the 50-bit T_MASK
         // field (= 2^50 − 1 ≈ 1.13 × 10^15).
         let res = Decimal64::parse_str("NaN9999999999999999", RoundingMode::default());
-        assert!(matches!(res, Err(ParseDecimalError::InvalidCharacter(_))));
+        assert!(matches!(
+            res,
+            Err(ParseDecimalError::InvalidCharacter { .. })
+        ));
     }
 
     #[test]
@@ -553,15 +610,35 @@ mod tests {
         ));
         assert!(matches!(
             Decimal64::parse_str("abc", RoundingMode::default()),
-            Err(ParseDecimalError::InvalidCharacter(0))
+            Err(ParseDecimalError::InvalidCharacter { position: 0 })
         ));
         assert!(matches!(
             Decimal64::parse_str("1.2.3", RoundingMode::default()),
-            Err(ParseDecimalError::InvalidCharacter(_))
+            Err(ParseDecimalError::InvalidCharacter { .. })
         ));
         assert!(matches!(
             Decimal64::parse_str("1e", RoundingMode::default()),
-            Err(ParseDecimalError::InvalidExponent)
+            Err(ParseDecimalError::InvalidExponent { .. })
+        ));
+    }
+
+    #[test]
+    fn parse_misplaced_sign_distinct_from_invalid_character() {
+        // ADR-0029 item 2 / fd-7f1: a `+` or `-` in a position the
+        // grammar does not permit is reported as MisplacedSign with
+        // the offending byte position, distinct from a generic
+        // InvalidCharacter at the same byte.
+        assert!(matches!(
+            Decimal64::parse_str("+-1", RoundingMode::default()),
+            Err(ParseDecimalError::MisplacedSign { position: 1 })
+        ));
+        assert!(matches!(
+            Decimal64::parse_str("1+2", RoundingMode::default()),
+            Err(ParseDecimalError::MisplacedSign { position: 1 })
+        ));
+        assert!(matches!(
+            Decimal64::parse_str("1e++3", RoundingMode::default()),
+            Err(ParseDecimalError::MisplacedSign { position: 3 })
         ));
     }
 

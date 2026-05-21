@@ -123,10 +123,16 @@ fn run_tosci(case: &TestCase, ctx: &Context) -> Outcome {
         // ExponentOutOfRange covers decTest cases like `1e-999999999`
         // that test the implementation's handling of pathologically
         // large exponents. Our parse_str rejects them at the
-        // 1 000 000 magnitude cap; the spec-conformant behaviour
-        // (saturate to ±Inf or ±0 at parse time) is a deferred
-        // design call. Skip rather than fail those cases.
-        Err(ParseDecimalError::ExponentOutOfRange) => return Outcome::Skip,
+        // 1 000 000 magnitude cap (via `ExponentOutOfRange` on the
+        // explicit-exponent path or `CoefficientOverflow` on the
+        // implicit-exponent / leading-zero-saturation path; the latter
+        // variant was promoted by ADR-0029 item 2 / fd-7f1); the
+        // spec-conformant behaviour (saturate to ±Inf or ±0 at parse
+        // time) is a deferred design call. Skip rather than fail those
+        // cases.
+        Err(ParseDecimalError::ExponentOutOfRange | ParseDecimalError::CoefficientOverflow) => {
+            return Outcome::Skip;
+        }
         // decTest's "negative" test cases use malformed input strings
         // (`1..2`, `+-1`, `e100`, ...) and expect a `NaN` result with
         // `Conversion_syntax` (mapped to INVALID). Translate parse
@@ -191,7 +197,9 @@ fn run_dpd_case(
         // `value -> #hex`: parse then encode.
         let parsed = match Decimal32::parse_str(input, ferrodec_ieee_nearest()) {
             Ok((v, _)) => v,
-            Err(ParseDecimalError::ExponentOutOfRange) => return Outcome::Skip,
+            Err(ParseDecimalError::ExponentOutOfRange | ParseDecimalError::CoefficientOverflow) => {
+                return Outcome::Skip;
+            }
             Err(_) => return Outcome::Skip,
         };
         let want = match parse_dpd_hex(&case.expected) {
