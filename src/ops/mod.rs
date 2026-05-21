@@ -16,6 +16,7 @@ mod quantum;
 mod reduce;
 mod rem;
 pub(crate) mod round;
+mod shift;
 mod sqrt;
 
 pub(crate) use nan_propagate::{nan_from, propagate_nan2, propagate_nan3};

@@ -146,6 +146,8 @@ const fn expected_per_file() -> &'static [(&'static str, usize)] {
         ("ddRemainder.decTest", 503),
         ("ddRemainderNear.decTest", 527),
         ("ddSameQuantum.decTest", 333),
+        // fd-ci0.8 (ADR-0031): `shift`. All 212 cases pass.
+        ("ddShift.decTest", 212),
         ("ddSubtract.decTest", 514),
         // fd-ci0.7 (ADR-0031): `logical_xor`. All 278 cases pass.
         ("ddXor.decTest", 278),
@@ -194,6 +196,9 @@ fn run_case(case: &TestCase, ctx: &Context) -> Outcome {
         "and" => run_logical_binary(case, ctx, Decimal64::logical_and),
         "or" => run_logical_binary(case, ctx, Decimal64::logical_or),
         "xor" => run_logical_binary(case, ctx, Decimal64::logical_xor),
+        // decTest `shift`: digit-shift inside the precision-wide
+        // window (ADR-0031).
+        "shift" => run_logical_binary(case, ctx, Decimal64::shift),
         // decTest `reduce`: General Decimal Arithmetic trailing-zero
         // strip on a finite coefficient (ADR-0031). Exact; never raises
         // INEXACT. Zero of any cohort normalises to exponent 0.

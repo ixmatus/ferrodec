@@ -25,6 +25,7 @@ pub(crate) mod quantum;
 pub(crate) mod reduce;
 pub(crate) mod rem;
 pub(crate) mod round;
+pub(crate) mod shift;
 pub(crate) mod sqrt;
 #[cfg(feature = "trig")]
 pub(crate) mod trig;

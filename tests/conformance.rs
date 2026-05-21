@@ -631,6 +631,9 @@ enum OpKind {
     LogicalAnd,
     LogicalOr,
     LogicalXor,
+    /// fd-ci0.8 (ADR-0031): digit-shift inside the precision-wide
+    /// window; zero-fill on the leading side.
+    Shift,
 }
 
 fn dispatch_op(name: &str) -> Option<OpKind> {
@@ -686,6 +689,9 @@ fn dispatch_op(name: &str) -> Option<OpKind> {
         "and" => OpKind::LogicalAnd,
         "or" => OpKind::LogicalOr,
         "xor" => OpKind::LogicalXor,
+        // decTest `shift`: digit-shift within the precision-wide
+        // window with zero fill (ADR-0031).
+        "shift" => OpKind::Shift,
         _ => return None,
     })
 }
@@ -914,6 +920,12 @@ fn invoke(op: OpKind, operands: &[String], rm: RoundingMode, enc: Encoding) -> O
             let a = parse_value(&operands[0], rm, enc)?.0;
             let b = parse_value(&operands[1], rm, enc)?.0;
             let (v, s) = a.logical_xor(b);
+            Some(OpResult::Value(v, s))
+        }
+        OpKind::Shift => {
+            let a = parse_value(&operands[0], rm, enc)?.0;
+            let b = parse_value(&operands[1], rm, enc)?.0;
+            let (v, s) = a.shift(b);
             Some(OpResult::Value(v, s))
         }
     }
@@ -1181,6 +1193,8 @@ fn expected_per_file() -> &'static [(&'static str, usize)] {
             ("dqRemainderNear.decTest", 530),
             ("dqSameQuantum.decTest", 333),
             ("dqScaleB.decTest", 202),
+            // fd-ci0.8 (ADR-0031): `shift`. All 248 cases pass.
+            ("dqShift.decTest", 248),
             ("dqSubtract.decTest", 520),
             // fd-ci0.7 (ADR-0031): `logical_xor`.
             ("dqXor.decTest", 348),
@@ -1225,6 +1239,8 @@ fn expected_per_file() -> &'static [(&'static str, usize)] {
             ("dqRemainderNear.decTest", 530),
             ("dqSameQuantum.decTest", 333),
             ("dqScaleB.decTest", 202),
+            // fd-ci0.8 (ADR-0031): `shift`. Encoding-independent.
+            ("dqShift.decTest", 248),
             ("dqSubtract.decTest", 520),
             // fd-ci0.7 (ADR-0031): `logical_xor`.
             ("dqXor.decTest", 348),
