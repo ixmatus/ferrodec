@@ -145,6 +145,8 @@ const fn expected_per_file() -> &'static [(&'static str, usize)] {
         // feedback_regression_guard_exact_match.
         ("ddRemainder.decTest", 503),
         ("ddRemainderNear.decTest", 527),
+        // fd-ci0.9 (ADR-0031): `rotate`. All 212 cases pass.
+        ("ddRotate.decTest", 212),
         ("ddSameQuantum.decTest", 333),
         // fd-ci0.8 (ADR-0031): `shift`. All 212 cases pass.
         ("ddShift.decTest", 212),
@@ -199,6 +201,9 @@ fn run_case(case: &TestCase, ctx: &Context) -> Outcome {
         // decTest `shift`: digit-shift inside the precision-wide
         // window (ADR-0031).
         "shift" => run_logical_binary(case, ctx, Decimal64::shift),
+        // decTest `rotate`: digit-rotate inside the precision-wide
+        // window with modular wrap (ADR-0031).
+        "rotate" => run_logical_binary(case, ctx, Decimal64::rotate),
         // decTest `reduce`: General Decimal Arithmetic trailing-zero
         // strip on a finite coefficient (ADR-0031). Exact; never raises
         // INEXACT. Zero of any cohort normalises to exponent 0.

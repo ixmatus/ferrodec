@@ -15,6 +15,7 @@ pub(crate) mod nan_propagate;
 mod quantum;
 mod reduce;
 mod rem;
+mod rotate;
 pub(crate) mod round;
 mod shift;
 mod sqrt;

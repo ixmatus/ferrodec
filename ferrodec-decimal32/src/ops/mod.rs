@@ -24,6 +24,7 @@ pub(crate) mod pow;
 pub(crate) mod quantum;
 pub(crate) mod reduce;
 pub(crate) mod rem;
+pub(crate) mod rotate;
 pub(crate) mod round;
 pub(crate) mod shift;
 pub(crate) mod sqrt;

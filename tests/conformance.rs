@@ -634,6 +634,9 @@ enum OpKind {
     /// fd-ci0.8 (ADR-0031): digit-shift inside the precision-wide
     /// window; zero-fill on the leading side.
     Shift,
+    /// fd-ci0.9 (ADR-0031): digit-rotate inside the precision-wide
+    /// window; modular wrap.
+    Rotate,
 }
 
 fn dispatch_op(name: &str) -> Option<OpKind> {
@@ -692,6 +695,9 @@ fn dispatch_op(name: &str) -> Option<OpKind> {
         // decTest `shift`: digit-shift within the precision-wide
         // window with zero fill (ADR-0031).
         "shift" => OpKind::Shift,
+        // decTest `rotate`: digit-rotate within the precision-wide
+        // window with modular wrap (ADR-0031).
+        "rotate" => OpKind::Rotate,
         _ => return None,
     })
 }
@@ -926,6 +932,12 @@ fn invoke(op: OpKind, operands: &[String], rm: RoundingMode, enc: Encoding) -> O
             let a = parse_value(&operands[0], rm, enc)?.0;
             let b = parse_value(&operands[1], rm, enc)?.0;
             let (v, s) = a.shift(b);
+            Some(OpResult::Value(v, s))
+        }
+        OpKind::Rotate => {
+            let a = parse_value(&operands[0], rm, enc)?.0;
+            let b = parse_value(&operands[1], rm, enc)?.0;
+            let (v, s) = a.rotate(b);
             Some(OpResult::Value(v, s))
         }
     }
@@ -1191,6 +1203,8 @@ fn expected_per_file() -> &'static [(&'static str, usize)] {
             // on first run; no `#`-hex skips in the dq* counterpart.
             ("dqReduce.decTest", 134),
             ("dqRemainderNear.decTest", 530),
+            // fd-ci0.9 (ADR-0031): `rotate`. All 248 cases pass.
+            ("dqRotate.decTest", 248),
             ("dqSameQuantum.decTest", 333),
             ("dqScaleB.decTest", 202),
             // fd-ci0.8 (ADR-0031): `shift`. All 248 cases pass.
@@ -1237,6 +1251,8 @@ fn expected_per_file() -> &'static [(&'static str, usize)] {
             // independent).
             ("dqReduce.decTest", 134),
             ("dqRemainderNear.decTest", 530),
+            // fd-ci0.9 (ADR-0031): `rotate`. Encoding-independent.
+            ("dqRotate.decTest", 248),
             ("dqSameQuantum.decTest", 333),
             ("dqScaleB.decTest", 202),
             // fd-ci0.8 (ADR-0031): `shift`. Encoding-independent.

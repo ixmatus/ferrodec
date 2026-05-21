@@ -40,23 +40,17 @@ impl Decimal64 {
 }
 
 pub(crate) fn digit_shift(lhs: Decimal64, rhs: Decimal64, wrap: bool) -> (Decimal64, Status) {
-    match classify_bits(lhs.0) {
-        Class::SignalingNaN { sign, payload } => {
-            return (
-                Decimal64::from_bits(pack_quiet_nan(sign, payload)),
-                Status::INVALID,
-            );
-        }
-        _ => {}
+    if let Class::SignalingNaN { sign, payload } = classify_bits(lhs.0) {
+        return (
+            Decimal64::from_bits(pack_quiet_nan(sign, payload)),
+            Status::INVALID,
+        );
     }
-    match classify_bits(rhs.0) {
-        Class::SignalingNaN { sign, payload } => {
-            return (
-                Decimal64::from_bits(pack_quiet_nan(sign, payload)),
-                Status::INVALID,
-            );
-        }
-        _ => {}
+    if let Class::SignalingNaN { sign, payload } = classify_bits(rhs.0) {
+        return (
+            Decimal64::from_bits(pack_quiet_nan(sign, payload)),
+            Status::INVALID,
+        );
     }
     if let Class::QuietNaN { .. } = classify_bits(lhs.0) {
         return (lhs, Status::OK);
@@ -99,14 +93,12 @@ pub(crate) fn digit_shift(lhs: Decimal64, rhs: Decimal64, wrap: bool) -> (Decima
         }
     } else if n > 0 {
         let n = n as usize;
-        for i in 0..(PRECISION as usize - n) {
-            out[i + n] = digits[i];
-        }
+        let len = PRECISION as usize - n;
+        out[n..n + len].copy_from_slice(&digits[..len]);
     } else if n < 0 {
         let n_abs = (-n) as usize;
-        for i in 0..(PRECISION as usize - n_abs) {
-            out[i] = digits[i + n_abs];
-        }
+        let len = PRECISION as usize - n_abs;
+        out[..len].copy_from_slice(&digits[n_abs..n_abs + len]);
     } else {
         out = digits;
     }

@@ -126,14 +126,12 @@ pub(crate) fn digit_shift(lhs: Decimal128, rhs: Decimal128, wrap: bool) -> (Deci
         }
     } else if n > 0 {
         let n = n as usize;
-        for i in 0..(PRECISION as usize - n) {
-            out[i + n] = digits[i];
-        }
+        let len = PRECISION as usize - n;
+        out[n..n + len].copy_from_slice(&digits[..len]);
     } else if n < 0 {
         let n_abs = (-n) as usize;
-        for i in 0..(PRECISION as usize - n_abs) {
-            out[i] = digits[i + n_abs];
-        }
+        let len = PRECISION as usize - n_abs;
+        out[..len].copy_from_slice(&digits[n_abs..n_abs + len]);
     } else {
         out = digits;
     }
