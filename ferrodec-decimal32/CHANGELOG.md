@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-05-20
+
+### Added
+
+- `Decimal32::reduce`: General Decimal Arithmetic trailing-zero
+  strip. No upstream `dsReduce.decTest` exists (decSingle was
+  historically storage-only); verification rests on hand-derived
+  unit tests at PRECISION = 7. ADR-0031.
+- `Decimal32::divide_integer`: General Decimal Arithmetic truncated
+  integer quotient at exponent 0. Unit-tested at PRECISION = 7;
+  10^7 / 1 is the `Division_impossible` boundary. ADR-0031.
+- `Decimal32::logical_invert`: digit-wise complement of a logical
+  operand, padded to 7 digits. NaN of any kind raises `INVALID`
+  (the logical-op uniform rule). Unit-tested. ADR-0031.
+- `Decimal32::logical_and` / `logical_or` / `logical_xor`:
+  digit-wise truth-table ops over two logical operands. Unit-tested.
+  ADR-0031.
+- `Decimal32::shift`: coefficient-digit shift inside the
+  precision-wide window with zero fill. Unit-tested at the
+  precision-7 boundary. ADR-0031.
+- `Decimal32::rotate`: coefficient-digit modular rotation inside
+  the precision-wide window. Unit-tested. ADR-0031.
+
+### Fixed
+
+- `Decimal32::fma`: subnormal results are now single-rounded,
+  fixing the double-rounding family the standing fd-dpg
+  exact-oracle sweep surfaced. The funnel rounded the exact product
+  to PRECISION first and then re-rounded into the subnormal
+  quantum; a residue straddling the two rounding boundaries was
+  collapsed into an exact tie and carried the wrong way (e.g.
+  `fma(3.142290e-17, -2.033196e-78, 5.38890e-95)` ended `…992` for
+  the correctly-rounded `…991`). The kernel now drops to the wider
+  of the precision and subnormal-quantum requirements in one
+  rounding, the IEEE 754-2019 single-rounding contract, matching
+  the parent `Decimal128`. ADR-0030.
+
 ## [1.7.0] - 2026-05-18
 
 ### Added
