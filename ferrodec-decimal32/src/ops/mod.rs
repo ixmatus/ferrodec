@@ -20,6 +20,7 @@ pub(crate) mod mul;
 #[cfg(feature = "pow")]
 pub(crate) mod pow;
 pub(crate) mod quantum;
+pub(crate) mod reduce;
 pub(crate) mod rem;
 pub(crate) mod round;
 pub(crate) mod sqrt;

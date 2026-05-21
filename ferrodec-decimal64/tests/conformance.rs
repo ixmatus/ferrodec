@@ -123,6 +123,9 @@ const fn expected_per_file() -> &'static [(&'static str, usize)] {
         ("ddMinMag.decTest", 231),
         ("ddMultiply.decTest", 444),
         ("ddQuantize.decTest", 606),
+        // fd-ci0.4 (ADR-0031): `reduce` wired. 133 of 134 pass; the 1
+        // skip is the `#`-hex BID-interchange case (`ddred901`).
+        ("ddReduce.decTest", 133),
         // fd-pvu (ADR-0027): `remainder` (truncating, `Decimal64::rem`)
         // and `remaindernear` (IEEE §5.3.1 nearest-even, the new
         // `Decimal64::rem_near`) wired; both were `Skip` before. Zero
@@ -168,6 +171,10 @@ fn run_case(case: &TestCase, ctx: &Context) -> Outcome {
         "remainder" => run_rem(case, ctx, false),
         "remaindernear" => run_rem(case, ctx, true),
         "quantize" => run_quantize(case, ctx),
+        // decTest `reduce`: General Decimal Arithmetic trailing-zero
+        // strip on a finite coefficient (ADR-0031). Exact; never raises
+        // INEXACT. Zero of any cohort normalises to exponent 0.
+        "reduce" => run_reduce(case, ctx),
         "tointegral" => run_integral(case, ctx, false),
         "tointegralx" => run_integral(case, ctx, true),
         // decTest `copynegate`: the non-signaling sign flip
@@ -446,6 +453,27 @@ fn run_rem(case: &TestCase, ctx: &Context, near: bool) -> Outcome {
 /// `tointegralx` signals `INEXACT` when a non-zero fractional part is
 /// discarded, `tointegral` never does. Same result/status comparison
 /// shape and skip-not-fail policy as `run_quantize`.
+/// `reduce`: General Decimal Arithmetic trailing-zero strip (ADR-0031,
+/// fd-ci0.4). Single operand, no rounding-mode interaction (the op is
+/// exact and never raises `INEXACT`). The context's rounding is still
+/// consulted for operand parsing fidelity but the kernel itself
+/// ignores it.
+fn run_reduce(case: &TestCase, ctx: &Context) -> Outcome {
+    if case.operands.len() != 1 || case.expected.starts_with('#') {
+        return Outcome::Skip;
+    }
+    let rm = match map_rounding(&ctx.rounding) {
+        Some(r) => r,
+        None => return Outcome::Skip,
+    };
+    let a = match parse_operand(&case.operands[0], rm) {
+        Some(a) => a,
+        None => return Outcome::Skip,
+    };
+    let (result, status) = a.reduce();
+    check(result, status, case)
+}
+
 fn run_integral(case: &TestCase, ctx: &Context, signal_inexact: bool) -> Outcome {
     if case.operands.len() != 1 || case.expected.starts_with('#') {
         return Outcome::Skip;

@@ -617,6 +617,9 @@ enum OpKind {
     LogB,
     NextPlus,
     NextMinus,
+    /// fd-ci0.4 (ADR-0031): General Decimal Arithmetic `reduce` —
+    /// strip non-significant trailing zeros from a finite coefficient.
+    Reduce,
 }
 
 fn dispatch_op(name: &str) -> Option<OpKind> {
@@ -656,6 +659,10 @@ fn dispatch_op(name: &str) -> Option<OpKind> {
         "logb" => OpKind::LogB,
         "nextplus" => OpKind::NextPlus,
         "nextminus" => OpKind::NextMinus,
+        // decTest `reduce`: General Decimal Arithmetic trailing-zero
+        // strip (ADR-0031). Exact; never raises INEXACT. Zero of any
+        // cohort normalises to exponent 0.
+        "reduce" => OpKind::Reduce,
         _ => return None,
     })
 }
@@ -851,6 +858,11 @@ fn invoke(op: OpKind, operands: &[String], rm: RoundingMode, enc: Encoding) -> O
                 core::cmp::Ordering::Greater => Decimal128::ONE,
             };
             Some(OpResult::Value(v, Status::OK))
+        }
+        OpKind::Reduce => {
+            let a = parse_value(&operands[0], rm, enc)?.0;
+            let (v, s) = a.reduce();
+            Some(OpResult::Value(v, s))
         }
     }
 }
@@ -1100,6 +1112,9 @@ fn expected_per_file() -> &'static [(&'static str, usize)] {
             ("dqNextMinus.decTest", 84),
             ("dqNextPlus.decTest", 84),
             ("dqQuantize.decTest", 622),
+            // fd-ci0.4 (ADR-0031): `reduce` wired. All 134 cases pass
+            // on first run; no `#`-hex skips in the dq* counterpart.
+            ("dqReduce.decTest", 134),
             ("dqRemainderNear.decTest", 530),
             ("dqSameQuantum.decTest", 333),
             ("dqScaleB.decTest", 202),
@@ -1127,6 +1142,10 @@ fn expected_per_file() -> &'static [(&'static str, usize)] {
             ("dqNextMinus.decTest", 84),
             ("dqNextPlus.decTest", 84),
             ("dqQuantize.decTest", 622),
+            // fd-ci0.4 (ADR-0031): `reduce` wired. 134 of 134 pass on
+            // first run, same as the non-dpd build (the op is encoding-
+            // independent).
+            ("dqReduce.decTest", 134),
             ("dqRemainderNear.decTest", 530),
             ("dqSameQuantum.decTest", 333),
             ("dqScaleB.decTest", 202),

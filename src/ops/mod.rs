@@ -11,6 +11,7 @@ mod integral;
 mod mul;
 pub(crate) mod nan_propagate;
 mod quantum;
+mod reduce;
 mod rem;
 pub(crate) mod round;
 mod sqrt;
