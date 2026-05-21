@@ -7,6 +7,99 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-05-21
+
+The first major-version release. Two consolidated breaking changes
+that ADR-0029 froze into the 2.0 set, shipped together with the
+parent `ferrodec` 2.0.0 and the `ferrodec-decimal64` 2.0.0. The
+shared-infrastructure crates (`ferrodec-ieee`, `ferrodec-multiword`,
+`ferrodec-transcend`, `ferrodec-test-support`) are unchanged.
+
+### Breaking
+
+- **Retired the ambiguous bare `rem` method (fd-9n5, ADR-0027 (b),
+  ADR-0029 item 1).** The 1.x bare `Decimal32::rem(self, other,
+  _rm: RoundingMode)` is the GDA / C99 `fmod` truncated remainder
+  (`r = a − trunc(a / b) × b`); the parent crate's bare
+  `Decimal128::rem` was the *nearest-even* remainder, so the same
+  name carried different math depending on the type. 2.0 retires
+  the ambiguous spelling.
+  - `Decimal32::rem` is renamed in place to `Decimal32::rem_trunc`.
+    The (always unused) trailing `RoundingMode` argument is dropped
+    in the rename; the new signature is
+    `pub fn rem_trunc(self, other: Self) -> (Self, Status)`.
+  - `Decimal32::rem_near` (the IEEE 754-2019 §5.3.1 nearest-even op
+    that shipped in 1.6.0) is unchanged.
+  - The `core::ops::Rem` (`%`) and `core::ops::RemAssign` impls are
+    retained (so `impl num_traits::Num` continues to hold under the
+    `num-traits` feature) but now route through `Decimal32::rem_trunc`
+    explicitly; the dispatch destination is the rule `%` already had
+    on this format in 1.x.
+  - **Migration.** Rewrite `value.rem(other, rm)` call sites as
+    `value.rem_trunc(other)`. Code that uses `%` does not change.
+
+- **Widened `ParseDecimalError` (fd-7f1, ADR-0018 L14, ADR-0029
+  item 2).** The 1.x enum collapsed every parse failure into four
+  coarse variants. 2.0 widens the enum so callers can match on each
+  failure mode.
+  - New shape (byte-identical with the parent and the decimal64
+    sibling):
+    ```text
+    #[non_exhaustive]
+    enum ParseDecimalError {
+        Empty,
+        MisplacedSign       { position: usize },
+        InvalidCharacter    { position: usize },
+        InvalidExponent     { position: usize },
+        ExponentOutOfRange,
+        CoefficientOverflow,
+    }
+    ```
+    Variants that carry a position are struct-shaped. The enum is
+    `#[non_exhaustive]`.
+  - `MisplacedSign` is new: inputs like `"+-1"`, `"1+2"`, `"1e++3"`
+    now report `MisplacedSign { position: idx }` rather than
+    `InvalidCharacter(idx)`.
+  - `CoefficientOverflow` is new and absorbs the H8 saturation cases
+    (`leading_fractional_zeros_past_cap`,
+    `trailing_integer_zeros_past_cap`) that previously routed to the
+    catch-all `ExponentOutOfRange`. Code that asserted
+    `Err(ParseDecimalError::ExponentOutOfRange)` on those inputs
+    now matches `Err(ParseDecimalError::CoefficientOverflow)`.
+  - **Migration.** Rewrite tuple-shape patterns
+    (`Err(ParseDecimalError::InvalidCharacter(n))`) as
+    `Err(ParseDecimalError::InvalidCharacter { position: n })`.
+    Exhaustive matches need a wildcard arm or a `MisplacedSign` /
+    `CoefficientOverflow` arm. Serde decode errors that route through
+    `Display` see the new wording (`"misplaced sign at byte N"`,
+    `"coefficient digit count out of range"`).
+
+### Added
+
+- `Decimal32::fixed_preferred()` returns a `FixedPreferred(Decimal32)`
+  adapter whose `Display` impl applies the 1.x parent
+  `Decimal128::Display` rule (plain notation preferred when the
+  scale fits `(-6, 21]`, otherwise scientific). Additive — the
+  default `Decimal32::Display` continues to follow GDA `toSci`, the
+  rule it always used — exposed so callers can opt into the legacy
+  parent rendering uniformly across the family alongside the
+  parent's new `Decimal128::fixed_preferred()`. ADR-0014, ADR-0029
+  item 3.
+
+### Notes
+
+- The parent `ferrodec` 2.0.0 harmonized `Decimal128::Display` onto
+  GDA `toSci`. The default `Decimal32::Display` is unchanged in
+  this release (it was already `toSci`); the cross-format
+  inconsistency in 1.x is resolved on the parent side.
+- The shared infrastructure crates (`ferrodec-ieee` 0.1.4,
+  `ferrodec-multiword` 0.1.0, `ferrodec-transcend` 0.1.0,
+  `ferrodec-test-support` unpinned) are unchanged and stay at
+  their pre-2.0 versions.
+- The conformance suite re-ran with zero per-bucket count drift.
+  The `rem` rename was source-side only; the `ParseDecimalError`
+  widening did not change which inputs the harness skips.
+
 ## [1.8.0] - 2026-05-20
 
 ### Added

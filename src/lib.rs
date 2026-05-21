@@ -50,7 +50,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! ferrodec = "1"
+//! ferrodec = "2"
 //! ```
 //!
 //! See the [README](https://github.com/ixmatus/ferrodec) for the full

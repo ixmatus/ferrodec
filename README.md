@@ -80,7 +80,7 @@ Three design choices shape the library by default.
 
 ```toml
 [dependencies]
-ferrodec = "1"
+ferrodec = "2"
 ```
 
 The headline case is decimal arithmetic that rounds the way humans do.
