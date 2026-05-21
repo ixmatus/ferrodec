@@ -7,6 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.18.0] - 2026-05-20
+
+### Added
+
+- `Decimal128::reduce`: General Decimal Arithmetic trailing-zero
+  strip. Returns a value numerically equal to the operand with
+  non-significant trailing zeros removed from its coefficient and
+  the exponent adjusted upward to compensate. Zero of any cohort
+  normalises to exponent 0 with sign preserved. Exact, never
+  INEXACT. Conformance-validated against the vendored `dqReduce`
+  decTest vectors (134 of 134). ADR-0031.
+- `Decimal128::divide_integer`: General Decimal Arithmetic
+  truncated integer quotient at exponent 0. Sign of result is the
+  xor of operand signs (so `divide_integer(-1, 4) = -0`). Raises
+  `DIV_BY_ZERO` with signed Infinity for `finite_nonzero / 0`,
+  `INVALID` for `0 / 0` and `±∞ / ±∞`, and `Division_impossible`
+  (mapped to `INVALID`) when the integer quotient would exceed 34
+  digits. Conformance-validated against `dqDivideInt` (374 of 374).
+  ADR-0031.
+- `Decimal128::logical_invert`: digit-wise complement of a logical
+  operand (positive sign, exponent zero, digits in `{0, 1}`),
+  padded to 34 digits. NaN of any kind on input raises `INVALID`,
+  unlike the rest of the GDA op surface (the logical-operand
+  precondition is uniform across sNaN and qNaN). Conformance-
+  validated against `dqInvert` (193 of 193). ADR-0031.
+- `Decimal128::logical_and` / `logical_or` / `logical_xor`:
+  digit-wise truth-table operations over two logical operands.
+  Same precondition and NaN rule as `logical_invert`; result is
+  positive, exponent zero, padded to 34 digits. Conformance-
+  validated against `dqAnd` (357), `dqOr` (341), `dqXor` (348).
+  ADR-0031.
+- `Decimal128::shift`: coefficient-digit shift within the
+  precision-wide window with zero fill. `rhs` must be a true
+  integer with `|n| <= 34`; the literal `1.0` is rejected even
+  though numerically 1. NaN propagation is the normal rule (sNaN
+  raises `INVALID` and quietens; qNaN passes through). Result's
+  sign and exponent equal the lhs's. Conformance-validated against
+  `dqShift` (248 of 248). ADR-0031.
+- `Decimal128::rotate`: coefficient-digit modular rotation within
+  the precision-wide window. Same preconditions and NaN propagation
+  as `shift`. Conformance-validated against `dqRotate` (248 of
+  248). ADR-0031.
+
 ### Fixed
 
 - `Decimal64::fma` / `Decimal32::fma`: subnormal results are now
