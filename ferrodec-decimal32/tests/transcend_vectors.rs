@@ -15,17 +15,15 @@
 //! `--features transcendentals`, unlike the gated astro-float /
 //! mpmath / MPFR references.
 //!
-//! Contract. `ferrodec` promises *faithful* rounding (≤1 ULP,
-//! ADR-0021), not correct rounding (a decimal CRlibm-class research
-//! problem; ADR-0024). So the gate is, per rounding direction: the
-//! kernel result is within one representable step of the proven
-//! correctly-rounded value (value, not cohort — the fd-61r
-//! preferred-exponent policy can legitimately differ, so equality is
-//! the cohort-insensitive IEEE `compare`). The exact-vs-one-step split
-//! is reported per mode: it is the honest evidence for how often the
-//! faithful kernel happens to be correctly rounded, the quantity
-//! ADR-0026's honest-level statement and the Phase 3 ternary-flag
-//! probe speak to.
+//! Contract. `ferrodec` promises *correctly rounded* §9.2
+//! transcendentals (ADR-0032; supersedes ADR-0024's faithful
+//! contract). The gate is, per rounding direction: the kernel result
+//! equals the proven correctly rounded value (value, not cohort, so
+//! the fd-61r preferred-exponent policy can legitimately differ;
+//! equality is the cohort insensitive IEEE `compare`). One
+//! representable step away or worse is a contract violation and
+//! panics. The per mode tally is preserved for diagnostic output;
+//! the contract requires every count to come from the exact bucket.
 
 #![cfg(all(
     feature = "exp-log",
@@ -91,10 +89,11 @@ fn kernel(v: &frozen::FrozenVec, rm: RoundingMode) -> Decimal32 {
     }
 }
 
-/// `0` ⇒ exactly the correctly-rounded value; `1` ⇒ one representable
-/// step away (still faithful, ADR-0021); `None` ⇒ outside the faithful
-/// contract (a real defect). Value, not cohort. Mode-agnostic: the
-/// proven value already encodes the rounding direction.
+/// `0` ⇒ exactly the correctly rounded value (ADR-0032); `1` ⇒ one
+/// representable step away (a contract violation under ADR-0032);
+/// `None` ⇒ multiple representable steps away (also a violation).
+/// Value, not cohort. Mode agnostic: the proven value already
+/// encodes the rounding direction.
 fn step_distance(got: Decimal32, cr: Decimal32) -> Option<u8> {
     if got.partial_cmp(cr).0 == Some(Ordering::Equal) {
         return Some(0);
@@ -110,7 +109,7 @@ fn step_distance(got: Decimal32, cr: Decimal32) -> Option<u8> {
 }
 
 #[test]
-fn frozen_arb_vectors_faithful() {
+fn frozen_arb_vectors_correctly_rounded() {
     let vectors = frozen::load(PREC);
     assert!(
         vectors.len() > 500,
@@ -118,20 +117,34 @@ fn frozen_arb_vectors_faithful() {
         vectors.len()
     );
 
-    // (exact, one_step) tallied per rounding mode for the honest split.
-    let mut by_mode: std::collections::BTreeMap<String, (usize, usize)> =
-        std::collections::BTreeMap::new();
+    // Exact bucket count tallied per rounding mode for diagnostic
+    // output. Anything other than `Some(0)` panics; ADR-0032 admits no
+    // off by one slot.
+    let mut by_mode: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
     for v in &vectors {
         let rm = mode(&v.mode);
         let cr = parse(&v.output);
         let got = kernel(v, rm);
-        let slot = by_mode.entry(v.mode.clone()).or_insert((0, 0));
         match step_distance(got, cr) {
-            Some(0) => slot.0 += 1,
-            Some(_) => slot.1 += 1,
+            Some(0) => *by_mode.entry(v.mode.clone()).or_insert(0) += 1,
+            Some(d) => panic!(
+                "correctly rounded contract violated ({d} step) [{}]: \
+                 {}({}{}) -> ferrodec {} | proven correctly rounded {} \
+                 (ADR-0032)",
+                v.mode,
+                v.func,
+                v.input,
+                v.input2
+                    .as_deref()
+                    .map(|y| format!(", {y}"))
+                    .unwrap_or_default(),
+                got,
+                cr
+            ),
             None => panic!(
-                "faithful contract violated [{}]: {}({}{}) -> ferrodec {} | \
-                 proven correctly-rounded {} (ADR-0021/0026)",
+                "correctly rounded contract violated (multi step) [{}]: \
+                 {}({}{}) -> ferrodec {} | proven correctly rounded {} \
+                 (ADR-0032)",
                 v.mode,
                 v.func,
                 v.input,
@@ -144,17 +157,11 @@ fn frozen_arb_vectors_faithful() {
             ),
         }
     }
-    let (mut exact, mut one_step) = (0usize, 0usize);
-    for (e, o) in by_mode.values() {
-        exact += e;
-        one_step += o;
-    }
+    let exact: usize = by_mode.values().sum();
     eprintln!(
-        "frozen Arb vectors (Decimal32, p{PREC}): {} checked, {exact} exactly \
-         correctly-rounded, {one_step} faithful at one step. Per mode \
-         (exact/one-step): {by_mode:?}. Proven against Arb certified \
-         enclosures (ADR-0026); MPFR cross-validates the same corpus in \
-         Phase 3.",
-        exact + one_step
+        "frozen Arb vectors (Decimal32, p{PREC}): {exact} checked, all \
+         exactly correctly rounded (ADR-0032). Per mode counts: \
+         {by_mode:?}. Proven against Arb certified enclosures \
+         (ADR-0026); MPFR cross validates the same corpus in Phase 3."
     );
 }
