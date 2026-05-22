@@ -1,4 +1,19 @@
-//! [`Decimal32`] → integer conversions.
+//! Integer ↔ [`Decimal32`] conversions.
+//!
+//! ## From-integer
+//!
+//! Decimal32's 7-digit `PRECISION` is narrower than any standard
+//! integer type (i32 / u32 already need 10 decimal digits at their
+//! limits), so every `from_*` constructor takes a [`RoundingMode`]
+//! and returns `(Decimal32, Status)`. Magnitudes below `10^7` are
+//! exact; above, the rounding mode and `INEXACT` flag describe how
+//! the low digits were dropped.
+//!
+//! No `impl From<intN>` impls are provided: lossless conversion
+//! requires the integer type to fit Decimal32's 7-digit precision
+//! envelope, which none of i32 / u32 / i64 / u64 / i128 / u128 do.
+//!
+//! ## To-integer
 //!
 //! Every conversion takes a [`RoundingMode`] and returns
 //! `(int, Status)`, following IEEE 754-2019 §5.4.1 convertToInteger:
@@ -26,7 +41,99 @@
 
 use crate::bid::{classify_bits, decimal_digit_count, Class, BIAS};
 use crate::decimal::Decimal32;
+use crate::ops::round_and_pack_finite;
 use ferrodec_ieee::{should_round_up, RoundingMode, Status};
+
+// ---------------------------------------------------------------------------
+// From-integer
+
+impl Decimal32 {
+    /// `i32` → `Decimal32`, possibly rounded.
+    ///
+    /// `|n| < 10^7` is exact. Above that, the rounding mode and
+    /// `INEXACT` flag describe how the low digits were dropped.
+    #[must_use]
+    pub fn from_i32(n: i32, rm: RoundingMode) -> (Self, Status) {
+        if n == 0 {
+            return (Self::ZERO, Status::OK);
+        }
+        let sign = n < 0;
+        let abs = (n as i64).unsigned_abs() as u128;
+        from_unsigned_with_rounding(sign, abs, rm)
+    }
+
+    /// `u32` → `Decimal32`, possibly rounded.
+    #[must_use]
+    pub fn from_u32(n: u32, rm: RoundingMode) -> (Self, Status) {
+        if n == 0 {
+            return (Self::ZERO, Status::OK);
+        }
+        from_unsigned_with_rounding(false, n as u128, rm)
+    }
+
+    /// `i64` → `Decimal32`, possibly rounded.
+    #[must_use]
+    pub fn from_i64(n: i64, rm: RoundingMode) -> (Self, Status) {
+        if n == 0 {
+            return (Self::ZERO, Status::OK);
+        }
+        let sign = n < 0;
+        // i64::MIN's absolute value doesn't fit in i64; widen to i128.
+        let abs = (n as i128).unsigned_abs();
+        from_unsigned_with_rounding(sign, abs, rm)
+    }
+
+    /// `u64` → `Decimal32`, possibly rounded.
+    #[must_use]
+    pub fn from_u64(n: u64, rm: RoundingMode) -> (Self, Status) {
+        if n == 0 {
+            return (Self::ZERO, Status::OK);
+        }
+        from_unsigned_with_rounding(false, n as u128, rm)
+    }
+
+    /// `i128` → `Decimal32`, possibly rounded.
+    #[must_use]
+    pub fn from_i128(n: i128, rm: RoundingMode) -> (Self, Status) {
+        if n == 0 {
+            return (Self::ZERO, Status::OK);
+        }
+        let sign = n < 0;
+        let abs = n.unsigned_abs();
+        from_unsigned_with_rounding(sign, abs, rm)
+    }
+
+    /// `u128` → `Decimal32`, possibly rounded.
+    #[must_use]
+    pub fn from_u128(n: u128, rm: RoundingMode) -> (Self, Status) {
+        if n == 0 {
+            return (Self::ZERO, Status::OK);
+        }
+        from_unsigned_with_rounding(false, n, rm)
+    }
+}
+
+fn from_unsigned_with_rounding(sign: bool, abs: u128, rm: RoundingMode) -> (Decimal32, Status) {
+    // Mirror of the decimal64 helper. `round_and_pack_finite` here
+    // takes a u64 coefficient and narrows it down to Decimal32's
+    // 7-digit precision; the u128 → u64 pre-drop strips just enough
+    // trailing decimal digits to fit u64 with sticky tracking, and
+    // the precision-boundary round_digit + sticky inside
+    // `round_and_pack_finite` then see correct neighbour information.
+    let mut value = abs;
+    let mut exp_offset: i32 = 0;
+    let mut sticky = false;
+    while value > u64::MAX as u128 {
+        let dropped = (value % 10) as u32;
+        if dropped != 0 {
+            sticky = true;
+        }
+        value /= 10;
+        exp_offset += 1;
+    }
+    let coef_u64 = value as u64;
+    round_and_pack_finite(coef_u64, exp_offset, 0, sign, sticky, rm, Status::OK)
+}
 
 impl Decimal32 {
     /// Convert to `i32`, rounding by `rm`. The module documentation
@@ -393,6 +500,111 @@ mod tests {
                 dec(coef, exp).to_i64(RoundingMode::NearestEven),
                 (want, Status::OK)
             );
+        }
+    }
+
+    // ---- From-integer ----------------------------------------------------
+
+    #[test]
+    fn from_int_zero() {
+        let (d, s) = Decimal32::from_i32(0, RoundingMode::NearestEven);
+        assert_eq!(d.to_bits(), Decimal32::ZERO.to_bits());
+        assert!(s.is_ok());
+        let (d, s) = Decimal32::from_u128(0, RoundingMode::NearestEven);
+        assert_eq!(d.to_bits(), Decimal32::ZERO.to_bits());
+        assert!(s.is_ok());
+    }
+
+    #[test]
+    fn from_i32_in_precision_is_exact() {
+        // |n| ≤ 9_999_999 is exactly 7 digits — fits Decimal32 precision.
+        for &v in &[1i32, -1, 9_999_999, -9_999_999, 123_456, -123_456] {
+            let (d, s) = Decimal32::from_i32(v, RoundingMode::NearestEven);
+            assert!(s.is_ok(), "v={v}: expected exact, got {s:?}");
+            let (back, s2) = d.to_i32(RoundingMode::NearestEven);
+            assert!(s2.is_ok());
+            assert_eq!(back, v);
+        }
+    }
+
+    #[test]
+    fn from_i32_above_precision_rounds_inexact() {
+        // 12_345_678 has 8 significant digits ending in `8`, so the
+        // dropped digit forces rounding regardless of mode. Exact
+        // powers of ten like 10_000_000 stay exact because the
+        // trailing zeros collapse into the exponent (1e7), not into a
+        // rounding decision.
+        let (d, s) = Decimal32::from_i32(12_345_678, RoundingMode::NearestEven);
+        assert!(d.is_finite());
+        assert!(s.inexact());
+        // i32::MAX is 10 digits — also rounded (and 2_147_483_647 has
+        // no trailing zeros, so rounding bites).
+        let (d, s) = Decimal32::from_i32(i32::MAX, RoundingMode::NearestEven);
+        assert!(d.is_finite());
+        assert!(s.inexact());
+        let (d, s) = Decimal32::from_i32(i32::MIN, RoundingMode::NearestEven);
+        assert!(d.is_finite());
+        assert!(d.is_sign_negative());
+        assert!(s.inexact());
+    }
+
+    #[test]
+    fn from_u32_max_rounds_inexact() {
+        // u32::MAX = 4_294_967_295 (10 digits) — needs rounding.
+        let (d, s) = Decimal32::from_u32(u32::MAX, RoundingMode::NearestEven);
+        assert!(d.is_finite());
+        assert!(!d.is_sign_negative());
+        assert!(s.inexact());
+    }
+
+    #[test]
+    fn from_u128_below_precision_exact() {
+        let n = 10u128.pow(7) - 1; // 9_999_999, fits 7 digits.
+        let (d, s) = Decimal32::from_u128(n, RoundingMode::NearestEven);
+        assert!(s.is_ok());
+        let (back, s2) = d.to_u128(RoundingMode::NearestEven);
+        assert!(s2.is_ok());
+        assert_eq!(back, n);
+    }
+
+    #[test]
+    fn from_u128_above_precision_rounds_inexact() {
+        let (d, s) = Decimal32::from_u128(u128::MAX, RoundingMode::NearestEven);
+        assert!(d.is_finite());
+        assert!(s.inexact());
+    }
+
+    #[test]
+    fn from_i128_round_directions() {
+        // 12_345_678 is 8 digits; needs to drop 1.
+        // The dropped digit is 8 (not a tie), so every nearest mode
+        // and TowardPositive round up; TowardZero / TowardNegative
+        // round down.
+        let n: i128 = 12_345_678;
+        let (d_ne, _) = Decimal32::from_i128(n, RoundingMode::NearestEven);
+        let (d_tz, _) = Decimal32::from_i128(n, RoundingMode::TowardZero);
+        let (d_tp, _) = Decimal32::from_i128(n, RoundingMode::TowardPositive);
+        let (d_tn, _) = Decimal32::from_i128(n, RoundingMode::TowardNegative);
+        let (ne_back, _) = d_ne.to_i128(RoundingMode::NearestEven);
+        let (tz_back, _) = d_tz.to_i128(RoundingMode::NearestEven);
+        let (tp_back, _) = d_tp.to_i128(RoundingMode::NearestEven);
+        let (tn_back, _) = d_tn.to_i128(RoundingMode::NearestEven);
+        assert_eq!(ne_back, 12_345_680);
+        assert_eq!(tz_back, 12_345_670);
+        assert_eq!(tp_back, 12_345_680);
+        assert_eq!(tn_back, 12_345_670);
+    }
+
+    #[test]
+    fn from_to_roundtrip_within_precision() {
+        // Values within 7 digits round-trip across every integer
+        // constructor + to_i64 pair.
+        for &v in &[0i64, 1, -1, 9_999_999, -9_999_999, 1_000_000, -500_000] {
+            let (d, s) = Decimal32::from_i64(v, RoundingMode::NearestEven);
+            assert!(s.is_ok(), "v={v}: expected exact, got {s:?}");
+            let (back, s2) = d.to_i64(RoundingMode::NearestEven);
+            assert!(s2.is_ok());
+            assert_eq!(back, v);
         }
     }
 }
