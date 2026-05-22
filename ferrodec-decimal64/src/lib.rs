@@ -94,6 +94,7 @@
 //! cross-format table.
 
 #![no_std]
+#![doc = include_str!("../README.md")]
 
 mod bid;
 mod classify;
