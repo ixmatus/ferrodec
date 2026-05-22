@@ -92,6 +92,20 @@ and scope gaps, not correctness defects.
   `property_pow`, `property_pow_specials`), astro-float-free
   (Design A). ADR-0021 records the faithful-rounding contract; the
   closing fd-r0l ADR records the train.
+* **Subsequently tightened (2.1.0, ADR-0032)**: Phase D tightened
+  the §9.2 surface from faithful (≤ 1 ULP) to correctly rounded
+  (the single nearest representable result at every IEEE 754-2019
+  rounding direction) across all three formats. The shared
+  `ferrodec-transcend` kernel was unchanged; the engineering
+  deliverable was the proof that the 50-digit Extended working
+  precision exceeds the smallest empirical Arb worst-case half-ULP
+  margin (`4.167e-8` for `cosh` at Decimal32) by more than thirty
+  orders of magnitude on every format, plus the strengthened corpus
+  assertion. The faithful claim above is the strictly weaker
+  invariant a correctly rounded kernel automatically satisfies; the
+  faithful-rounding astro-float gate survives as a hard-defect
+  catcher (`docs/testing.md` documents the layered oracle stack).
+  ADR-0032 wholly supersedes ADR-0024.
 
 ## Closed correctness audit trail (decimal32 1.4.0 slice)
 
