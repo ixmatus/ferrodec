@@ -30,6 +30,41 @@
 //!
 //! All routines run at [`Extended`] precision and round once at the
 //! format boundary.
+//!
+//! ## Accuracy
+//!
+//! Correctly rounded across each function's domain (ADR-0032;
+//! supersedes ADR-0024's faithful contract). The forward family
+//! (`sinh`, `cosh`, `tanh`) derives through `exp` (two evaluations
+//! at `±x` plus the combining arithmetic); the inverse family
+//! (`asinh`, `acosh`, `atanh`) derives through `ln` (plus the
+//! sqrt or fraction inside). The Arb empirical worst case half ULP
+//! margins from the per function provenance files (ADR-0026,
+//! fd-97a) are:
+//!
+//! - `sinh.prov`: `7.259e-3` at `Decimal32`, `3.166e-3` at
+//!   `Decimal64`, `1.648e-2` at `Decimal128`.
+//! - `cosh.prov`: `4.167e-8` at `Decimal32`, `4.044e-2` at
+//!   `Decimal64`, `4.372e-3` at `Decimal128`.
+//! - `tanh.prov`: `8.363e-3` at `Decimal32`, `7.198e-3` at
+//!   `Decimal64`, `2.550e-3` at `Decimal128`.
+//! - `asinh.prov`: `4.958e-4` at `Decimal32`, `8.484e-4` at
+//!   `Decimal64`, `1.752e-3` at `Decimal128`.
+//! - `acosh.prov`: `1.192e-3` at `Decimal32`, `2.755e-5` at
+//!   `Decimal64`, `1.844e-3` at `Decimal128`.
+//! - `atanh.prov`: `6.535e-5` at `Decimal32`, `1.113e-3` at
+//!   `Decimal64`, `6.005e-3` at `Decimal128`.
+//!
+//! The smallest margin in the entire transcend corpus is `cosh`'s
+//! `4.167e-8` at `Decimal32`. At 50 digit kernel working precision
+//! the cumulative error is bounded by `K · 10^(p − 50)` with `K`
+//! the operation count (under ~150 for any of these functions); at
+//! `Decimal32` (`p = 7`) this is `≤ 1.5e-41`, which clears the
+//! `cosh` margin by more than thirty orders of magnitude. The
+//! `|x| < 0.5` direct Taylor branch for `sinh` is precisely the
+//! cancellation avoidance the bound depends on. The shared error
+//! model lives in ADR-0032 §Decision; the corpus test is the
+//! standing empirical witness.
 
 use crate::exp::exp_extended;
 use crate::extended::Extended;
