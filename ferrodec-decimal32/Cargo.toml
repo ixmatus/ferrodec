@@ -25,47 +25,47 @@ binary-float = ["fmt"]
 # still no extra *external* dependency, and the mpmath path degrades
 # to skip-with-diagnostic when mpmath is not importable.
 differential = ["transcendentals"]
-# Transcendental sub-features. The whole transcendental surface — the
-# exp-log family (`exp` / `ln` / `exp2` / `log2` / `log10`), `cbrt`,
-# the whole trig family (`sin` / `cos` / `tan` / `asin` / `acos` /
-# `atan` / `atan2`), the whole hyperbolic family (`sinh` / `cosh` /
-# `tanh` / `asinh` / `acosh` / `atanh`), and `pow` — is faithfully
-# rounded (≤ 1 ULP at 7 digits, every IEEE 754-2019 rounding
-# direction) via the shared `ferrodec-transcend` Extended-precision
-# kernel after the fd-r0l train, at exact parity with the `ferrodec`
-# (Decimal128) parent and the `ferrodec-decimal64` sibling. The trig
-# family uses the Payne-Hanek argument reduction, faithful across the
-# full Decimal32 magnitude range; the hyperbolic family is faithful
-# across the full Decimal32 magnitude range up to the true overflow
-# boundary; and `pow` evaluates `exp(y · ln(|x|))` at Extended
-# precision rather than on the pre-fd-r0l f64 round-trip. No
-# transcendental routes through f64 any more, so `libm` is no longer
-# a dependency of this crate. Each sub-feature pulls in
+# Transcendental sub-features. The whole transcendental surface
+# (the exp-log family `exp` / `ln` / `exp2` / `log2` / `log10`,
+# `cbrt`, the whole trig family `sin` / `cos` / `tan` / `asin` /
+# `acos` / `atan` / `atan2`, the whole hyperbolic family `sinh` /
+# `cosh` / `tanh` / `asinh` / `acosh` / `atanh`, and `pow`) is
+# correctly rounded at every IEEE 754-2019 rounding direction via
+# the shared `ferrodec-transcend` Extended-precision kernel
+# (ADR-0032; supersedes ADR-0024's faithful contract), at exact
+# parity with the `ferrodec` (Decimal128) parent and the
+# `ferrodec-decimal64` sibling. The 50-digit Extended working
+# precision exceeds the smallest empirical Arb worst-case half-ULP
+# margin (`4.167e-8` for `cosh` at Decimal32, the binding case
+# across the family) by more than thirty orders of magnitude on
+# every format; per-function margins live in the corpus provenance
+# files (`tests/vectors/transcend/<fn>.prov`) and in ADR-0032
+# §Decision. The trig family uses Payne-Hanek argument reduction
+# (correctly rounded across the full Decimal32 magnitude range);
+# the hyperbolic family is correctly rounded across the full
+# Decimal32 magnitude range up to the true overflow boundary;
+# `pow` evaluates `exp(y · ln(|x|))` at Extended precision. No
+# transcendental routes through f64 any more, so `libm` is no
+# longer a dependency of this crate. Each sub-feature pulls in
 # `binary-float`.
 #
-# `exp-log`     — exp, ln, exp2, log2, log10. Route through the
-#                 shared faithful `ferrodec-transcend`
-#                 Extended-precision kernel (≤ 1 ULP across the true
-#                 Decimal32 domain), not the pre-fd-r0l lossy f64 /
-#                 `libm` detour.
-# `trig`        — sin, cos, tan, asin, acos, atan, atan2. Route
-#                 through the shared faithful `ferrodec-transcend`
-#                 Extended-precision kernel with Payne-Hanek
-#                 argument reduction (≤ 1 ULP across the true
-#                 Decimal32 domain), not the pre-fd-r0l lossy f64 /
-#                 `libm` detour.
-# `hyperbolic`  — sinh, cosh, tanh, asinh, acosh, atanh. Route
-#                 through the shared faithful `ferrodec-transcend`
-#                 Extended-precision kernel (built on the
-#                 already-faithful exp / ln primitives, ≤ 1 ULP
-#                 across the true Decimal32 domain), not the
-#                 pre-fd-r0l lossy f64 / `libm` detour. Implies
-#                 `exp-log`.
-# `pow`         — pow, cbrt. Route through the shared faithful
-#                 `ferrodec-transcend` Extended-precision kernel
-#                 (≤ 1 ULP across the true Decimal32 domain), not the
-#                 pre-fd-r0l lossy f64 / `libm` detour. Implies
-#                 `exp-log`.
+# `exp-log`:    exp, ln, exp2, log2, log10. Route through the shared
+#               `ferrodec-transcend` Extended-precision kernel,
+#               correctly rounded across the true Decimal32 domain
+#               (ADR-0032).
+# `trig`:       sin, cos, tan, asin, acos, atan, atan2. Route through
+#               the shared `ferrodec-transcend` Extended-precision
+#               kernel with Payne-Hanek argument reduction, correctly
+#               rounded across the true Decimal32 domain (ADR-0032).
+# `hyperbolic`: sinh, cosh, tanh, asinh, acosh, atanh. Route through
+#               the shared `ferrodec-transcend` Extended-precision
+#               kernel (built on the correctly rounded `exp` / `ln`
+#               primitives), correctly rounded across the true
+#               Decimal32 domain (ADR-0032). Implies `exp-log`.
+# `pow`:        pow, cbrt. Route through the shared
+#               `ferrodec-transcend` Extended-precision kernel,
+#               correctly rounded across the true Decimal32 domain
+#               (ADR-0032). Implies `exp-log`.
 exp-log = ["binary-float", "dep:ferrodec-transcend", "dep:ferrodec-multiword", "ferrodec-transcend/exp-log"]
 trig = ["binary-float", "dep:ferrodec-transcend", "dep:ferrodec-multiword", "ferrodec-transcend/trig"]
 hyperbolic = ["exp-log", "dep:ferrodec-transcend", "dep:ferrodec-multiword", "ferrodec-transcend/hyperbolic"]
