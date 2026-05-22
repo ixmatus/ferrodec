@@ -72,6 +72,14 @@ pub fn exp_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
 
 /// Base-2 exponential `2^x`. Computed as `exp(x · ln(2))` at extended
 /// precision.
+///
+/// Correctly rounded across the supported domain (ADR-0032). Derived
+/// from `exp` via a single composition step; the bound is the `exp`
+/// bound plus one composition rounding. The Arb empirical worst case
+/// half ULP margins from `tests/vectors/transcend/exp2.prov`
+/// (ADR-0026, fd-97a) are `1.665e-2` at `Decimal32`, `3.515e-2` at
+/// `Decimal64`, and `2.015e-2` at `Decimal128`, all cleared by the
+/// composed bound by more than thirty orders of magnitude.
 pub fn exp2_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
     match x.classify() {
         Class::SignalingNaN { .. } => return (x.nan_from(), Status::INVALID),

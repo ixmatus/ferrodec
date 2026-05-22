@@ -4,9 +4,24 @@
 //!
 //! `cbrt(x)` — cube root, defined for all real `x`.
 //!
-//! `cbrt(x) = sign(x) · |x|^(1/3)`, computed via `pow` at the
-//! [`Extended`](crate::extended::Extended)-precision pipeline so the
-//! result is faithfully rounded (≤ 1 ULP) for typical inputs.
+//! `cbrt(x) = sign(x) · |x|^(1/3)`, computed as
+//! `sign(x) · exp(ln(|x|) / 3)` at the
+//! [`Extended`](crate::extended::Extended) precision pipeline.
+//!
+//! ## Accuracy
+//!
+//! Correctly rounded across the function's domain (ADR-0032;
+//! supersedes ADR-0024's faithful contract). Derived from `exp` and
+//! `ln` via three composition steps (one `ln`, one division by 3,
+//! one `exp`); the bound is the worse of the `exp` and `ln` bounds
+//! plus the composition rounding. The Arb empirical worst case half
+//! ULP margins from `tests/vectors/transcend/cbrt.prov` (ADR-0026,
+//! fd-97a) are `3.339e-4` at `Decimal32`, `3.411e-4` at `Decimal64`,
+//! and `2.942e-4` at `Decimal128`. The 50 digit kernel clears the
+//! smallest margin by more than thirty orders of magnitude on every
+//! format. The directed mode handling at `eff_rm` reflects the
+//! rounding for negative arguments (fd-r5m); the bound holds for
+//! every IEEE 754 directed mode.
 
 use crate::exp::exp_from_extended;
 use crate::format::DecimalFormat;
