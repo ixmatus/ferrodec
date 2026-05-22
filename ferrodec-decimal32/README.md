@@ -75,8 +75,18 @@ to ±0 with the encoded sign and biased exponent, per IEEE 754-2019
 ## What you can call
 
 - **Constructors**: `parse_str(s, rm)`, `try_new(coef: i32, exp: i32)`,
-  `try_new_unsigned`, `from_bits(u32)`, `to_bits()`, `from_f64`,
-  `to_f64`. Distinguished constants: `ZERO`, `NEG_ZERO`, `ONE`,
+  `try_new_unsigned`, `from_bits(u32)`, `to_bits()`. From integers:
+  `from_i32`, `from_u32`, `from_i64`, `from_u64`, `from_i128`,
+  `from_u128`, all taking a `RoundingMode` and returning `(Decimal32,
+  Status)` because Decimal32's 7 digits are narrower than every
+  standard integer type. No `impl From<intN>` impls are provided
+  (lossless `From` requires the integer type to fit, which none do).
+  With `binary-float`: `from_f64`, `to_f64`, plus `impl TryFrom<f64>` /
+  `impl TryFrom<f32>` (NaN and ±∞ reject through
+  `Decimal32FromFloatError`; finite values flow through `from_f64`
+  with `RoundingMode::NearestEven`, and very large finite `f64`
+  magnitudes saturate to ±∞ at the decimal end of the conversion).
+  Distinguished constants: `ZERO`, `NEG_ZERO`, `ONE`,
   `NEG_ONE`, `TEN`, `MAX`, `MIN`, `MIN_POSITIVE`, `MIN_POSITIVE_NORMAL`,
   `INFINITY`, `NEG_INFINITY`, `NAN`, `SIGNALING_NAN`.
 - **§5 arithmetic**: `add`, `sub`, `mul`, `div`, `rem_near` / `rem_trunc`, `sqrt`, `fma`.
