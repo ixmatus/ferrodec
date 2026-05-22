@@ -32,6 +32,32 @@
 //!
 //! Quadrant dispatch as IEEE 754-2019 §9.2.1 specifies, plus the
 //! `atan2(±0, ±0)` corner cases.
+//!
+//! ## Accuracy
+//!
+//! Correctly rounded across each function's domain (ADR-0032;
+//! supersedes ADR-0024's faithful contract). The Arb empirical
+//! worst case half ULP margins from the per function provenance
+//! files (ADR-0026, fd-97a) are:
+//!
+//! - `atan.prov`: `1.177e-2` at `Decimal32`, `4.038e-4` at
+//!   `Decimal64`, `1.242e-3` at `Decimal128`.
+//! - `asin.prov`: `8.427e-4` at `Decimal32`, `3.553e-4` at
+//!   `Decimal64`, `1.052e-3` at `Decimal128`.
+//! - `acos.prov`: `9.306e-4` at `Decimal32`, `7.313e-4` at
+//!   `Decimal64`, `6.409e-3` at `Decimal128`.
+//! - `atan2.prov`: `1.602e-3` at `Decimal32`, `3.017e-3` at
+//!   `Decimal64`, `3.701e-3` at `Decimal128`.
+//!
+//! At 50 digit kernel working precision, the cumulative two stage
+//! argument reduction and Taylor series error (`atan`) and the
+//! composition error (`asin`, `acos`, `atan2`) clears the smallest
+//! margin by more than thirty orders of magnitude on every format.
+//! `asin` near `|x| = 1` uses the numerically stable
+//! `2 · atan(x / (1 + sqrt(1 − x²)))` form so the cancellation
+//! that would otherwise tighten the bound is structurally absent.
+//! The shared error model lives in ADR-0032 §Decision; the corpus
+//! test is the standing empirical witness.
 
 use crate::consts::{pi_ext, pi_over_four_ext, pi_over_two_ext, tan_pi_over_eight_ext};
 use crate::extended::Extended;
