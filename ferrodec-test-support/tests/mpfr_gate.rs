@@ -12,8 +12,11 @@
 //! (no double rounding — the contract stays with us, ADR-0026), and
 //! asserts the result equals the Arb-proven output. It also reports
 //! MPFR's ternary-flag distribution (the sign of MPFR's own binary
-//! rounding error), the instrument ADR-0026 names for distinguishing
-//! faithful from correctly rounded.
+//! rounding error), the instrument that confirms the corpus's
+//! correctly-rounded value bit for bit: under ADR-0032 the entire
+//! §9.2 production contract is correctly rounded across all three
+//! formats, and the MPFR gate is the bit-for-bit empirical witness
+//! at every committed vector.
 //!
 //! Local opt-in only: gated on `mpfr-gate`, so `rug`/MPFR (C-FFI,
 //! LGPL) is never built by a default `cargo test`, never in CI,

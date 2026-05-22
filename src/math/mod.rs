@@ -13,12 +13,18 @@
 //!
 //! ## Accuracy
 //!
-//! Faithfully rounded (≤ 1 ULP at 34 digits) against `astro-float`
-//! across the supported domain. Every kernel runs its inner Taylor
-//! / Newton / argument-reduction loop at [`Extended`] (50-digit U256-
-//! coefficient) precision and rounds once at the [`Decimal128`]
-//! boundary. `sin` / `cos` accuracy is uniform across the full
-//! Decimal128 magnitude range (Payne-Hanek with the wider U512
+//! Correctly rounded across the supported domain (ADR-0032;
+//! supersedes ADR-0024's faithful contract). Every kernel runs its
+//! inner Taylor / Newton / argument-reduction loop at [`Extended`]
+//! (50-digit U256-coefficient) precision and rounds once at the
+//! [`Decimal128`] boundary; the 50-digit working precision exceeds
+//! the smallest empirical Arb worst-case half-ULP margin (`4.167e-8`
+//! for `cosh` at Decimal32, the binding case across the family) by
+//! more than thirty orders of magnitude on every format. The
+//! astro-float oracle continues to gate the strictly weaker faithful
+//! (≤ 1 ULP at 34 digits) invariant as a hard-defect catcher (see
+//! `docs/testing.md`). `sin` / `cos` accuracy is uniform across the
+//! full Decimal128 magnitude range (Payne-Hanek with the wider U512
 //! window picks up boundary cases within ~33 digits of a multiple of
 //! π/2).
 //!

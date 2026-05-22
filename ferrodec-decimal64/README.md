@@ -84,10 +84,19 @@ narrower exponent range rarely triggers it.
 ## What you can call
 
 - **Constructors**: `parse_str(s, rm)`, `try_new(coef: i64, exp: i32)`,
-  `try_new_unsigned`, `from_bits(u64)`, `to_bits()`, `from_f64`,
-  `to_f64`. Distinguished constants: `ZERO`, `NEG_ZERO`, `ONE`,
-  `NEG_ONE`, `TEN`, `MAX`, `MIN`, `MIN_POSITIVE`, `MIN_POSITIVE_NORMAL`,
-  `INFINITY`, `NEG_INFINITY`, `NAN`, `SIGNALING_NAN`.
+  `try_new_unsigned`, `from_bits(u64)`, `to_bits()`. From integers:
+  `from_i32`, `from_u32` are `const` and exact (`i32` / `u32` fit
+  Decimal64's 16 digits losslessly); `from_i64`, `from_u64`,
+  `from_i128`, `from_u128` take a `RoundingMode` and return
+  `(Decimal64, Status)` because the integer range exceeds 16 digits.
+  `impl From<i32>` and `impl From<u32>` exist for the lossless cases.
+  With `binary-float`: `from_f64`, `to_f64`, plus `impl TryFrom<f64>` /
+  `impl TryFrom<f32>` (NaN and ±∞ reject through
+  `Decimal64FromFloatError`; finite values flow through `from_f64`
+  with `RoundingMode::NearestEven`). Distinguished constants:
+  `ZERO`, `NEG_ZERO`, `ONE`, `NEG_ONE`, `TEN`, `MAX`, `MIN`,
+  `MIN_POSITIVE`, `MIN_POSITIVE_NORMAL`, `INFINITY`, `NEG_INFINITY`,
+  `NAN`, `SIGNALING_NAN`.
 - **§5 arithmetic**: `add`, `sub`, `mul`, `div`, `rem_near` / `rem_trunc`, `sqrt`, `fma`.
 - **§5 comparison**: `partial_cmp`, `total_cmp`,
   `compare_total_magnitude`.

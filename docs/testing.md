@@ -6,22 +6,35 @@ surface actually proves, and where the residual frontier lies. It is
 written for a user deciding whether to trust the numbers and for a
 future maintainer extending the suite. The decisions behind these
 layers are recorded as ADRs in the repository (notably ADR-0010,
-ADR-0021, ADR-0024, ADR-0025, ADR-0026); this document is the
-conceptual map those records assume.
+ADR-0021, ADR-0024, ADR-0025, ADR-0026, ADR-0032); this document is
+the conceptual map those records assume.
 
-Two facts shape everything below. First, ferrodec promises *faithful*
-rounding for the transcendentals (the returned value is one of the two
-representable values adjacent to the true result, at most one unit in
-the last place from it), not correct rounding. Correct decimal
-rounding of every transcendental is the Table Maker's Dilemma and is a
-research programme, not an engineering deliverable; ADR-0021 and
-ADR-0024 record why the weaker, dischargeable claim is the honest one.
+Two facts shape everything below. First, the §9.2 transcendental
+surface (`exp`, `ln`, `exp2`, `log2`, `log10`, `cbrt`, the trig and
+inverse trig family with `atan2`, the hyperbolic and inverse
+hyperbolic family, and `pow`) is correctly rounded on all three
+formats: the returned value is the single nearest representable
+result at every IEEE 754-2019 rounding direction, ties to even at
+`NearestEven` and the directed grid point at the four directed
+modes. The mechanism is a 50 digit `Extended` working precision
+kernel whose error bound exceeds the smallest empirical Arb worst
+case half ULP margin (`4.167e-8` for `cosh` at Decimal32) by more
+than thirty orders of magnitude on every format; ADR-0032 records
+the per function derivation and supersedes ADR-0024's earlier
+faithful (≤ 1 ULP) contract. The corpus test
+(`tests/transcend_vectors.rs` and the sibling mirrors) is the
+standing empirical witness, with MPFR cross confirmation behind the
+optional `mpfr-gate` feature (ADR-0026).
+
 Second, the three sibling crates (`ferrodec` for Decimal128,
 `ferrodec-decimal64`, `ferrodec-decimal32`) compute every
 transcendental on one shared Extended precision kernel,
 `ferrodec-transcend`. That sharing is frugal and convivial, and it
-creates the single most important hazard the testing surface exists to
-contain.
+creates the single most important hazard the testing surface exists
+to contain. The ADR-0032 correctness proof holds on the
+implementation as written; the testing surface exists to catch every
+class of defect that could quietly invalidate that proof, including
+ones that would propagate coherently across the family.
 
 ## The correlated failure surface
 
@@ -127,27 +140,32 @@ catalogued in the next section):
 
 ### The honest residual frontier
 
-State the limit plainly so it is not rediscovered or overclaimed. The
-result the testing surface supports is strongly corroborated faithful
-rounding plus a frozen worst case vector set whose correctly rounded
-values are established at the specific committed arguments. It is not a
-coverage proof: a finite committed corpus, even one found by a worst
-case search, does not prove correct rounding over the continuum. It is
-not proven correct rounding of the functions: that needs proven
-hardest case bounds per transcendental per decimal width, which do not
-exist in the literature.
+State the limit plainly so it is not rediscovered or overclaimed.
+The result the testing surface supports is correctly rounded §9.2
+transcendentals on all three formats, proven by the 50 digit
+Extended kernel's headroom (more than thirty orders of magnitude
+over the smallest empirical Arb worst case half ULP margin) and
+corroborated at every committed Arb worst case vector with MPFR
+agreement. The per function headroom derivation lives in ADR-0032
+§Decision. The headroom is a proof envelope on the implementation
+as written; it is not a closed proof over the continuum, because
+the empirical worst case bound was found by a finite Arb search and
+not derived from proven hardest case bounds per transcendental per
+decimal width (which do not exist in the literature for every §9.2
+function).
 
-The residual frontier is therefore narrowed, not eliminated. A
-systematic sub condition number bias in the shared Extended `exp` or
-`ln` core, confined to argument decades that lie outside every frozen
-vector and outside the astro-float sound domain, is corroborated
-against by three structurally independent oracles but is not provably
-excluded. Named concretely: the exposure is a rounding bias on `exp`
-or `ln` boundary arguments that the committed corpus did not happen to
-include and that the differential sweeps did not happen to land on.
-ADR-0026 records this in the same terms; it is the frontier a future
-contributor would push by extending the corpus toward it, not a defect
-known to exist.
+The residual frontier is therefore narrowed, not eliminated. The
+exposure is a hard to round case the empirical worst case search did
+not surface, sitting inside the kernel's >30 orders of magnitude
+headroom (so the relative rounding error to the true result is
+bounded by far less than half an ULP at every input within the
+proof envelope) but not provably absent at every input across the
+continuum. The frontier is the same exposure the README disclosure
+names: rounding errors on §9.2 transcendental boundary inputs the
+Arb empirical worst case search did not happen to surface. A future
+contributor pushes the frontier by extending the corpus toward it
+and rerunning the worst case search; it is not a defect known to
+exist.
 
 ## The layered oracle stack
 
@@ -196,15 +214,24 @@ The transcendental property suites bracket each result against
 astro-float, a pure Rust arbitrary precision implementation
 (ADR-0021).
 
-- **Power.** Independent of the kernel; asserts the faithful contract
-  per rounding direction across the supported domain; pure Rust, so it
-  runs in the default test set and in CI.
+- **Power.** Independent of the kernel; asserts the faithful (≤ 1
+  ULP) contract per rounding direction across the supported domain.
+  Under the ADR-0032 correctly rounded production contract this
+  layer validates the strictly weaker invariant that any correctly
+  rounded kernel result must also satisfy: a result outside the 1
+  ULP envelope is a hard kernel defect. The layer was added before
+  ADR-0032 tightened the contract and survives the tightening
+  intact, since faithful is the weaker property a correctly rounded
+  result automatically meets. Pure Rust, so it runs in the default
+  test set and in CI.
 - **Blind spot.** One implementation at one fixed working precision.
   It has a sound magnitude domain: past a bounded argument magnitude
   it loses the digits to bracket the result and the suites skip out of
   that domain by construction (the `sin` and `cos` magnitude guard,
   the magnitude scaled large argument suite; fd-3cd, fd-dfs). In the
-  skipped decades it is silent.
+  skipped decades it is silent. It validates faithful, not correctly
+  rounded; the corpus layer (7) and the MPFR gate (8) provide the
+  bit for bit witness to the tighter contract.
 
 ### 4. Metamorphic identities
 
@@ -298,8 +325,9 @@ feature, recomputes the entire frozen corpus with MPFR through `rug`
   gold references agreeing is the strongest acceptance criterion short
   of a discharged proof, so this closes the corpus accept rule: the
   Arb enclosure is decisive and MPFR agrees. MPFR's ternary flag is
-  reported as the instrument that distinguishes faithful from
-  correctly rounded.
+  reported as the instrument that confirms the corpus's correctly
+  rounded value bit for bit, the strongest empirical attestation
+  short of a proof.
 - **Blind spot.** C binding and LGPL, so it is dev only and gated: off
   by default, never built in CI, never in the no_std build, the same
   containment granted to astro-float. It corroborates the frozen
@@ -346,20 +374,24 @@ authority.
 ### Reading the stack as a whole
 
 The arithmetic surface is closed tightly by the exact integer oracle
-and decTest. The transcendental surface has no single closed proof, by
-the nature of the problem, so it is covered by overlapping layers
-whose blind spots are disjoint: astro-float is exact within its
-magnitude domain but silent past it; the metamorphic identities keep
-teeth past it but only to a condition scaled bound; the local
-differential adds two structurally independent references but only
-when a developer runs it; the Arb corpus turns specific worst case
-arguments into checked facts inside the skip decades; and MPFR
-independently confirms those facts. The honest composite, restated
-from Part I, is strongly corroborated faithful rounding plus a frozen
-worst case set with established correctly rounded values at the
-committed arguments, with the residual frontier named rather than
-hidden. Formal proof (Kani) and the fuzz harness exist for the special
-value, encode and decode, and total order surfaces; they are
-panic and invariant guards, not transcendental value oracles, and are
-documented in the README's Verification section.
+and decTest. The transcendental surface is closed by a different
+construction: a per function correctness proof (the 50 digit Extended
+kernel's worst case error bound, ADR-0032), corroborated by
+overlapping empirical layers whose blind spots are disjoint. The
+faithful astro-float oracle is exact within its magnitude domain but
+silent past it; the metamorphic identities keep teeth past it but
+only to a condition scaled bound; the local differential adds two
+structurally independent references but only when a developer runs
+it; the Arb corpus turns specific worst case arguments into checked
+facts inside the astro-float skip decades; and MPFR independently
+confirms those facts bit for bit. The honest composite, restated
+from Part I, is correctly rounded §9.2 transcendentals on all three
+formats with the proof envelope as the load bearing claim, the
+empirical corroborators as the standing defense, and the residual
+frontier (a hard to round case the worst case search did not surface)
+named rather than hidden. Formal proof (Kani) and the fuzz harness
+exist for the special value, encode and decode, and total order
+surfaces; they are panic and invariant guards, not transcendental
+value oracles, and are documented in the README's Verification
+section.
 

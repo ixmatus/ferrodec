@@ -4,14 +4,20 @@
 //!
 //! ## Why
 //!
-//! `Decimal128`'s 34-digit envelope isn't wide enough to deliver
-//! faithfully-rounded transcendentals. Each Taylor / Newton / argument-
-//! reduction step accumulates ~0.5 ULP of error; a 30-term series
-//! evaluated at 34 digits drifts ~15 ULP relative to the true result.
+//! `Decimal128`'s 34-digit envelope is not wide enough to deliver
+//! correctly rounded transcendentals (ADR-0032). Each Taylor / Newton
+//! / argument-reduction step accumulates ~0.5 ULP of error; a 30-term
+//! series evaluated at 34 digits drifts ~15 ULP relative to the true
+//! result, far beyond even the weaker faithful (≤ 1 ULP) bound.
 //!
-//! [`Extended`] gives 50-digit working precision — 16 extra digits
-//! over `Decimal128` — which is comfortably enough for a 30-term
-//! series with a sub-ULP final error after rounding back to 34 digits.
+//! [`Extended`] gives 50-digit working precision: 16 extra digits over
+//! `Decimal128`, 34 over `Decimal64`, 43 over `Decimal32`. The
+//! resulting cumulative kernel error budget exceeds the smallest
+//! empirical Arb worst-case half-ULP margin (`4.167e-8` for `cosh` at
+//! Decimal32, the binding case across the family) by more than thirty
+//! orders of magnitude on every format, which is the proof envelope
+//! for the correctly rounded §9.2 contract; ADR-0032 §Decision records
+//! the per function derivation.
 //!
 //! ## Representation
 //!
@@ -36,10 +42,16 @@
 //!
 //! ## Status
 //!
-//! This module is the foundation for migrating `exp`, `ln`, `sincos`,
-//! and `pow` to faithful rounding. Until those migrations land, most
-//! of the surface here is exercised only by unit tests — hence the
-//! crate-level `#[allow(dead_code)]`.
+//! The Extended intermediate is the working representation for every
+//! §9.2 transcendental in this crate; the kernel modules (`exp`,
+//! `ln`, `cbrt`, `sincos`, `inverse_trig`, `hyperbolic`, `pow`) all
+//! evaluate at this width before rounding back to the format. The
+//! migrations off the pre-fd-r0l f64 / `libm` detour landed in
+//! fd-r0l; ADR-0032 (Phase D) tightened the resulting kernel's
+//! contract from faithful to correctly rounded. The
+//! `#[allow(dead_code)]` retained at the crate root reflects that
+//! some Extended helpers are exercised only by unit tests, not by
+//! every kernel path.
 
 #![allow(dead_code)]
 

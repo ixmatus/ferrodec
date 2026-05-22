@@ -201,9 +201,11 @@ pub fn pow_kernel<F: DecimalFormat>(x: F, y: F, rm: RoundingMode) -> (F, Status)
     }
 
     // General path: pow(x, y) = exp(y · ln(|x|)) evaluated entirely at
-    // Extended precision. Single round when converting back to
-    // `Decimal128`, so the final result is faithfully rounded
-    // (≤ 1 ULP) for typical inputs.
+    // Extended precision. Single round when converting back to the
+    // format, so the final result is correctly rounded per ADR-0032
+    // (the Extended pipeline's cumulative error is bounded well inside
+    // the half-ULP grid at every format precision; see the module
+    // Accuracy section and ADR-0032 §Decision).
     let abs_x = x.abs();
     let ln_x_ext = ln_extended(abs_x);
     let y_ext = Extended::from_format(y);
