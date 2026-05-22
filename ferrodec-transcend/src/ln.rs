@@ -28,8 +28,27 @@
 //!
 //! All intermediate work runs at extended precision (`Extended`, see
 //! [`Extended`]). The final rounding to the format happens
-//! once at the end via `to_format`, so the result is
-//! faithfully rounded (≤ 1 ULP) against `astro-float`.
+//! once at the end via `to_format`.
+//!
+//! ## Accuracy
+//!
+//! Correctly rounded across the function's domain (ADR-0032;
+//! supersedes ADR-0024's faithful contract). The Arb empirical worst
+//! case half ULP margin from `tests/vectors/transcend/ln.prov`
+//! (ADR-0026, fd-97a) is `3.333e-7` at `Decimal32` precision,
+//! `2.037e-3` at `Decimal64` precision, and `4.227e-4` at
+//! `Decimal128` precision. The 50 digit kernel clears the smallest
+//! margin by more than thirty orders of magnitude on every format.
+//! The shared error model lives in ADR-0032 §Decision; the corpus
+//! test is the standing empirical witness.
+//!
+//! `log10` (`log10_kernel`) and `log2` (`log2_kernel`) are derived
+//! as `ln(x) · (1 / ln(10))` and `ln(x) · (1 / ln(2))`; their bound
+//! is `ln`'s bound plus one composition rounding. The corresponding
+//! `log10.prov` and `log2.prov` margins are `7.250e-4` / `5.147e-4`
+//! and `7.212e-4` / `8.820e-5` (smallest across the three
+//! precisions), both far above the kernel error at 50 digit working
+//! precision.
 
 use crate::consts::{inv_ln10_ext, inv_ln2_ext, ln10_ext, ln2_ext};
 use crate::extended::Extended;
