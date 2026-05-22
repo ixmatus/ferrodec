@@ -7,6 +7,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-05-21
+
+Sibling-only release restoring conversion API parity with the
+`ferrodec` (Decimal128) parent and the `ferrodec-decimal64`
+sibling. The parent crate stays at 2.1.0; the change is
+sibling-only and additive, hence SemVer minor.
+
+### Added
+
+- **From-integer constructors (fd-o98).** `Decimal32::from_i32` /
+  `from_u32` / `from_i64` / `from_u64` / `from_i128` / `from_u128`,
+  all taking a `RoundingMode` and returning `(Decimal32, Status)`.
+  No constructor is exact: Decimal32's 7-digit precision is
+  narrower than any standard integer type, so every conversion
+  may round. The helper packs a `u128` absolute value down to a
+  `u64` coefficient with sticky tracking, then delegates the
+  precision-boundary round to `round_and_pack_finite` which
+  narrows the kept u64 to Decimal32's 7-digit canonical form.
+- **`impl TryFrom<f64>` / `impl TryFrom<f32>` for `Decimal32`
+  (fd-o98).** Behind the existing `binary-float` feature gate.
+  NaN rejects with `Decimal32FromFloatError::NotANumber`, ±∞
+  with `Infinite`; finite values flow through
+  `Decimal32::from_f64(value, RoundingMode::NearestEven)`. Very
+  large finite f64 magnitudes saturate to `±∞` per the standard
+  f64-to-decimal behaviour; the caller must check `is_finite` if
+  that distinction matters.
+- **`Decimal32FromFloatError`.** New public error type matching
+  the Decimal128 parent's `Decimal128FromFloatError` shape, with
+  the per-format identifier in `Display`. Behind `binary-float`.
+
+No `impl From<intN>` impls are provided. Lossless `From` requires
+the integer type to fit Decimal32's 7-digit precision envelope,
+which none of `i32` / `u32` / `i64` / `u64` / `i128` / `u128` do
+(even `i32`'s 10 decimal digits exceed 7).
+
+### Changed
+
+- **`src/lib.rs` now `include_str`s the crate `README.md`** into
+  the rustdoc, matching the parent's pattern. The docs.rs
+  Decimal32 page now renders the full README narrative after the
+  lib.rs preamble.
+- **README backtick polish for `x86_64`, `total_cmp`, `no_std`**
+  in three lines that were prose-rendered before the
+  include_str. No content change.
+
+The shared infrastructure crates stay at their current versions.
+
 ## [2.1.0] - 2026-05-21
 
 The §9.2 transcendental contract tightens from faithful (≤ 1 ULP at

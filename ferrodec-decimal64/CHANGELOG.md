@@ -7,6 +7,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-05-21
+
+Sibling-only release restoring conversion API parity with the
+`ferrodec` (Decimal128) parent. Decimal128 had a fuller surface of
+from-integer constructors and `TryFrom<f64>` / `TryFrom<f32>`
+impls since 1.x; the sibling crates kept only the to-integer
+direction plus a bare `from_f64` method. This release closes the
+gap. The parent crate stays at 2.1.0; the change is sibling-only
+and additive, hence SemVer minor.
+
+### Added
+
+- **From-integer constructors (fd-o98).** `Decimal64::from_i32` /
+  `from_u32` (const, exact, infallible — `i32` / `u32` fit
+  Decimal64's 16-digit precision losslessly) plus
+  `Decimal64::from_i64` / `from_u64` / `from_i128` / `from_u128`,
+  all four taking a `RoundingMode` and returning `(Decimal64,
+  Status)` because the integer range exceeds 16 digits. The
+  helper packs a `u128` absolute value down to the kernel's `u64`
+  coefficient width with sticky tracking, then delegates the
+  precision-boundary round to the shared `round_and_pack_finite`.
+- **`impl From<i32>` / `impl From<u32>` for `Decimal64`.** Lossless
+  conversions get the trait impl. Larger integer types do not (a
+  lossy `From` impl would misrepresent the API).
+- **`impl TryFrom<f64>` / `impl TryFrom<f32>` for `Decimal64`
+  (fd-o98).** Behind the existing `binary-float` feature gate. NaN
+  rejects with `Decimal64FromFloatError::NotANumber`, ±∞ with
+  `Infinite`; finite values flow through
+  `Decimal64::from_f64(value, RoundingMode::NearestEven)`. The
+  error enum mirrors the parent's `Decimal128FromFloatError`
+  shape with the format name folded into the variant message.
+- **`Decimal64FromFloatError`.** New public error type matching
+  the Decimal128 parent's `Decimal128FromFloatError` shape, with
+  the per-format identifier in `Display` ("cannot convert NaN to
+  Decimal64", "cannot convert ±∞ to Decimal64"). Behind
+  `binary-float`.
+
+### Changed
+
+- **`src/lib.rs` now `include_str`s the crate `README.md`** into
+  the rustdoc, matching the parent's pattern. The docs.rs
+  Decimal64 page renders the full README narrative (feature flag
+  table, target matrix, comparison table) after the lib.rs
+  preamble. Pre-fix, docs.rs visitors saw only the preamble.
+- **README backtick polish for `x86_64`, `total_cmp`, `no_std`**
+  in three lines that were prose-rendered before the
+  include_str. No content change.
+
+The shared infrastructure crates (`ferrodec-ieee`,
+`ferrodec-multiword`, `ferrodec-transcend`, `ferrodec-test-support`)
+stay at their current versions.
+
 ## [2.1.0] - 2026-05-21
 
 The §9.2 transcendental contract tightens from faithful (≤ 1 ULP at
