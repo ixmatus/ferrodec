@@ -27,7 +27,14 @@
 //! - Minimum positive normal magnitude: 1 × 10⁻⁹⁵.
 //! - Encoding: BID (binary integer significand) for arithmetic; DPD
 //!   (densely packed decimal) for IEEE byte-pattern interchange via
-//!   [`Decimal32::to_dpd_bytes`] / [`Decimal32::from_dpd_bytes`]
+#![cfg_attr(
+    feature = "dpd",
+    doc = "  [`Decimal32::to_dpd_bytes`] / [`Decimal32::from_dpd_bytes`]"
+)]
+#![cfg_attr(
+    not(feature = "dpd"),
+    doc = "  `Decimal32::to_dpd_bytes` / `Decimal32::from_dpd_bytes`"
+)]
 //!   behind the off-by-default `dpd` feature (ADR-0009).
 //!
 //! # Family-wide conventions
