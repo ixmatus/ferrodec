@@ -33,15 +33,27 @@
 //!
 //! ## Accuracy
 //!
-//! Faithfully rounded (≤ 1 ULP at 34 digits) for every finite input
-//! via the `Extended` pipeline. Integer exponents up to `±256` first
-//! try a square-and-multiply path at `Decimal128` precision; the
-//! caller falls through to `Extended` whenever any intermediate
-//! multiply rounds (i.e. the path is *only* taken when it produces
-//! a bit-exact result). Pre-1.15 the fast path was taken
-//! unconditionally for `|y| ≤ 256` and accumulated ~5 ULP for cases
-//! like `pow(3, 50)` (H1 of the 2026-05-10 six-agent correctness
-//! review).
+//! Correctly rounded for every finite input via the `Extended`
+//! pipeline (ADR-0032; supersedes ADR-0024's faithful contract).
+//! Integer exponents up to `±256` first try a square and multiply
+//! path at `Decimal128` precision; the caller falls through to
+//! `Extended` whenever any intermediate multiply rounds (i.e. the
+//! path is *only* taken when it produces a bit exact result).
+//! Pre-1.15 the fast path was taken unconditionally for `|y| ≤ 256`
+//! and accumulated ~5 ULP for cases like `pow(3, 50)` (H1 of the
+//! 2026-05-10 six agent correctness review).
+//!
+//! `pow(x, y) = exp(y · ln |x|)` couples the `exp` and `ln` bounds.
+//! The Arb empirical worst case half ULP margin from
+//! `tests/vectors/transcend/pow.prov` (ADR-0026, fd-97a; binary
+//! search over `(x, y)`) is `1.406e-2` at `Decimal32` precision,
+//! `6.849e-3` at `Decimal64` precision, and `1.020e-2` at
+//! `Decimal128` precision. The kernel's working precision exceeds
+//! the cumulative `exp` + `ln` + composition error budget by more
+//! than thirty orders of magnitude on every format, so the
+//! composed bound holds. The shared error model lives in ADR-0032
+//! §Decision; the corpus test (`tests/transcend_vectors.rs`) is the
+//! standing empirical witness.
 
 use crate::exp::exp_from_extended;
 use crate::extended::Extended;

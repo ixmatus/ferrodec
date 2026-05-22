@@ -12,6 +12,12 @@
 //! [README](https://github.com/ixmatus/ferrodec/blob/main/ferrodec-decimal32/README.md)
 //! for the full list.
 //!
+//! The §9.2 transcendentals are correctly rounded (ADR-0032;
+//! supersedes ADR-0024's faithful contract) at every IEEE 754-2019
+//! rounding direction through the shared `ferrodec-transcend`
+//! Extended precision kernel, at exact parity with the Decimal64
+//! sibling and the `ferrodec` (Decimal128) parent.
+//!
 //! # IEEE 754-2019 §3.5 Decimal32 parameters
 //!
 //! - Storage width: 32 bits.

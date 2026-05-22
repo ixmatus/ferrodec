@@ -63,10 +63,10 @@ to ±0 with the encoded sign and biased exponent, per IEEE 754-2019
 | --- | --- |
 | `fmt` (default) | `parse_str`, `Display`, `LowerExp`, `UpperExp`, `Engineering`. Alloc-free; uses `core::fmt::Write`. |
 | `binary-float` | `Decimal32::to_f64`, `Decimal32::from_f64`. Auto-enabled by every transcendental feature. |
-| `exp-log` | `exp`, `ln`, `exp2`, `log2`, `log10`. Faithfully rounded via the shared `ferrodec-transcend` Extended-precision kernel (pure Rust, no FFI). |
-| `trig` | `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`. Same shared faithful kernel, Payne-Hanek argument reduction. |
-| `hyperbolic` | `sinh`, `cosh`, `tanh`, `asinh`, `acosh`, `atanh`. Same shared faithful kernel. Auto-pulls `exp-log`. |
-| `pow` | `pow`, `cbrt`. Same shared faithful kernel. Auto-pulls `exp-log`. |
+| `exp-log` | `exp`, `ln`, `exp2`, `log2`, `log10`. Correctly rounded via the shared `ferrodec-transcend` Extended-precision kernel (ADR-0032) (pure Rust, no FFI). |
+| `trig` | `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`. Same shared correctly rounded kernel, Payne-Hanek argument reduction. |
+| `hyperbolic` | `sinh`, `cosh`, `tanh`, `asinh`, `acosh`, `atanh`. Same shared correctly rounded kernel. Auto-pulls `exp-log`. |
+| `pow` | `pow`, `cbrt`. Same shared correctly rounded kernel. Auto-pulls `exp-log`. |
 | `transcendentals` | Convenience meta-feature: enables all four clusters. No transcendental routes through `f64`; `libm` is not a dependency. |
 | `ops` | `core::ops` overloads (`Add`, `Sub`, `Mul`, `Div`, `Rem`, `Neg`, plus `*Assign`). Defaults to `RoundingMode::NearestEven`; drops `Status`. |
 | `serde` | `Serialize` / `Deserialize` via the canonical decimal string. The `serde_bid` helper module serialises the raw 32-bit BID pattern in binary formats. |
@@ -111,19 +111,23 @@ All §5 mandatory operations are correctly rounded per the active
 The whole §9.2 transcendental surface (`exp`, `ln`, `exp2`, `log2`,
 `log10`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`,
 `sinh`, `cosh`, `tanh`, `asinh`, `acosh`, `atanh`, `pow`, `cbrt`)
-is faithfully rounded (≤ 1 ULP at 7 digits, every IEEE 754-2019
-rounding direction) via the shared `ferrodec-transcend`
-Extended-precision kernel, at exact parity with the `ferrodec`
-(Decimal128) parent and the `ferrodec-decimal64` sibling. No
-transcendental routes through `f64` any more, so the pre-fd-r0l
-f64-round-trip detour is gone and `libm` is no longer a dependency.
-The forward trig functions use Payne-Hanek argument reduction
-(faithful across the full Decimal32 magnitude range); `pow`
-evaluates `exp(y · ln(|x|))` at Extended precision.
+is correctly rounded (ADR-0032; supersedes ADR-0024's faithful
+contract) at every IEEE 754-2019 rounding direction through the
+shared `ferrodec-transcend` Extended precision kernel, at exact
+parity with the `ferrodec` (Decimal128) parent and the
+`ferrodec-decimal64` sibling. No transcendental routes through
+`f64` any more, so the pre-fd-r0l f64-round-trip detour is gone and
+`libm` is no longer a dependency. The forward trig functions use
+Payne-Hanek argument reduction (correctly rounded across the full
+Decimal32 magnitude range); `pow` evaluates `exp(y · ln(|x|))` at
+Extended precision.
 
-The contract is faithful rounding (the returned value is one of the
-two representable values bracketing the exact result), not
-correct rounding (always the single nearest); ADR-0021 records it.
+The contract is correctly rounded (the returned value is the
+single nearest representable result, ties to even at
+`NearestEven` and the directed grid point at the four directed
+modes), proved on every committed Arb worst-case vector and
+empirically corroborated by MPFR with zero disagreements
+(ADR-0026, ADR-0032).
 
 ## Supported targets
 
@@ -195,8 +199,8 @@ The numeric value is portable across `ferrodec` (Decimal128), `ferrodec-decimal6
   propagation, zero / infinity boundaries, domain errors) in a
   byte-stable `*_special_cases` routine before entering the kernel,
   so the spec-mandated flags and the ADR-0016 Kani special-case
-  proofs stay byte-identical. The result is faithfully rounded
-  (≤ 1 ULP at 7 digits).
+  proofs stay byte-identical. The result is correctly rounded
+  (ADR-0032); see the accuracy note above.
 
 ## MSRV policy
 

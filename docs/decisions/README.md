@@ -49,7 +49,7 @@ The ADRs in number order:
 - [0021 — Exact correctly-rounded oracle supersedes the ULP envelope](0021-exact-oracle-supersedes-ulp-envelope.md)
 - [0022 — decimal64 / decimal32 FMA exact-oracle remediation](0022-sibling-fma-exact-oracle-remediation.md)
 - [0023 — decimal64 / decimal32 roundToIntegral (§5.9 completion)](0023-sibling-round-to-integral.md)
-- [0024 — Faithful sibling transcendentals on one shared Extended kernel](0024-faithful-transcendentals-shared-kernel.md)
+- [0024 — Faithful sibling transcendentals on one shared Extended kernel](0024-faithful-transcendentals-shared-kernel.md) *(superseded by 0032)*
 - [0025 — Metamorphic identity tests with condition-number-derived bounds](0025-metamorphic-identity-tests.md)
 - [0026 — Independent transcendental oracles (Arb frozen vectors, MPFR gate, mpmath differential)](0026-independent-transcendental-oracles.md)
 - [0027 — rem / % semantic asymmetry across the decimal family (rem_near bridge, 2.0 rename)](0027-rem-semantic-asymmetry.md)
@@ -57,3 +57,4 @@ The ADRs in number order:
 - [0029 — The ferrodec 2.0 major, a consolidated breaking-change plan](0029-ferrodec-2-0-breaking-change-plan.md)
 - [0030 — decimal64 / decimal32 FMA subnormal single-rounding (sibling fd-42l port)](0030-sibling-fma-subnormal-single-rounding.md)
 - [0031 — GDA decNumber extension operations (1.18.0)](0031-gda-decnumber-extensions.md)
+- [0032 — Correctly rounded §9.2 transcendentals via Lefèvre / Muller fixed precision bounds (2.1.0)](0032-correctly-rounded-transcendentals.md) *(supersedes 0024)*

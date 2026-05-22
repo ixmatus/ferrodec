@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-05-21
+
+The §9.2 transcendental contract tightens from faithful (≤ 1 ULP at
+16 digits, ADR-0024) to correctly rounded (the single nearest
+representable `Decimal64` value at every IEEE 754-2019 rounding
+direction, ADR-0032). The change ships lockstep with `ferrodec`
+2.1.0 and `ferrodec-decimal32` 2.1.0; the shared
+`ferrodec-transcend` Extended kernel that all three formats share
+is unchanged at 50 decimal digits of working precision, so latency
+is unchanged from 2.0.0. SemVer minor: correctly rounded is a
+strict tightening of faithful.
+
+### Changed
+
+- **§9.2 transcendentals are correctly rounded (fd-1pv, ADR-0032,
+  supersedes ADR-0024).** `exp`, `ln`, `exp2`, `log2`, `log10`,
+  `cbrt`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`,
+  `sinh`, `cosh`, `tanh`, `asinh`, `acosh`, `atanh`, and `pow` now
+  carry the correctly rounded contract across the supported domain
+  on every IEEE 754-2019 rounding mode.
+  - Evidence: the ADR-0026 frozen Arb corpus (`tests/transcend_vectors.rs`,
+    renamed to `frozen_arb_vectors_correctly_rounded`) gates exact
+    match per vector; 2413 `Decimal64` vectors across five rounding
+    modes including binary `pow` and `atan2` all land on the
+    correctly rounded value. MPFR confirms.
+  - Mechanism: Lefèvre / Muller wider fixed working precision with
+    rigorous a priori error bounds; the 50 digit kernel clears the
+    smallest empirical Arb worst case half ULP margin by more than
+    thirty orders of magnitude at `Decimal64` precision. The per
+    function derivations live in the shared `ferrodec-transcend`
+    module rustdoc.
+
+The shared infrastructure crates (`ferrodec-ieee`,
+`ferrodec-multiword`, `ferrodec-transcend`, `ferrodec-test-support`)
+stay at their current versions per ADR-0029's intent.
+
 ## [2.0.0] - 2026-05-21
 
 The first major-version release. Two consolidated breaking changes

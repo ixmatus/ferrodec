@@ -2,8 +2,9 @@
 //!
 //! ferrodec implements the BID-128 format with 34 decimal digits of
 //! precision, exponent range `10⁻⁶¹⁴³` through `10⁺⁶¹⁴⁴`, every IEEE
-//! special value, faithfully-rounded transcendentals (≤ 1 ULP), and
-//! the full §5 / §5.3 / §5.4.2 / §5.7.2 / §5.10 surface.
+//! special value, correctly rounded §9.2 transcendentals (ADR-0032;
+//! supersedes ADR-0024's faithful contract), and the full §5 / §5.3
+//! / §5.4.2 / §5.7.2 / §5.10 surface.
 //!
 //! # Two audiences
 //!

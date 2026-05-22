@@ -31,8 +31,40 @@
 //!    `sin` is odd, so `sin(x) = -sin(|x|)` when `x < 0`. `cos` is
 //!    even, so `cos(x) = cos(|x|)` regardless of sign.
 //! 4. Round once to the format at the end via
-//!    [`Extended::to_format`]. Result is faithfully rounded
-//!    (≤ 1 ULP) against `astro-float`.
+//!    [`Extended::to_format`].
+//!
+//! ## Accuracy
+//!
+//! Correctly rounded across the full `Decimal128` magnitude range
+//! (ADR-0032; supersedes ADR-0024's faithful contract). The Arb
+//! empirical worst case half ULP margins from the per function
+//! provenance files (ADR-0026, fd-97a) are:
+//!
+//! - `sin.prov`: `1.134e-4` at `Decimal32`, `1.609e-4` at
+//!   `Decimal64`, `5.056e-4` at `Decimal128`.
+//! - `cos.prov`: `2.054e-3` at `Decimal32`, `7.996e-4` at
+//!   `Decimal64`, `4.051e-4` at `Decimal128`.
+//! - `tan.prov`: `8.147e-4` at `Decimal32`, `3.177e-4` at
+//!   `Decimal64`, `2.272e-3` at `Decimal128`.
+//!
+//! At 50 digit kernel working precision the cumulative error
+//! (Payne Hanek reduction error plus Taylor series error plus
+//! format boundary round) clears the smallest of these margins by
+//! more than thirty orders of magnitude on every format.
+//!
+//! `tan(x) = sin(x) / cos(x)` discharges the per decade Payne Hanek
+//! bound across the full argument range without an ε band carve out
+//! near odd multiples of π / 2. The 6300 digit `2/π` table in
+//! [`crate::argred`] sizes the reduction so the residual `r`
+//! carries 38 to 40 fractional digits, which exceeds every format
+//! precision (7, 16, 34) by enough margin that `cos(r)` retains
+//! full relative precision even when `|cos(r)|` is small. At odd
+//! multiples of π / 2 the kernel returns `±∞` per IEEE 754 §9.2.1's
+//! asymptote convention (no `DIV_BY_ZERO`); this is itself the
+//! correctly rounded value.
+//!
+//! The shared error model lives in ADR-0032 §Decision; the corpus
+//! test is the standing empirical witness.
 
 use crate::argred;
 use crate::extended::Extended;

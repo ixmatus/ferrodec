@@ -41,15 +41,15 @@
 //!   integer-style rendering can wrap a value in
 //!   [`Decimal64::fixed_preferred`].
 //! - §9.2 transcendentals (`exp` / `ln` / `exp2` / `log2` / `log10`,
-//!   `cbrt`, the trig and hyperbolic families, `pow`) are faithfully
-//!   rounded (≤ 1 ULP at 16 digits, every IEEE 754-2019 rounding
-//!   direction) through the shared `ferrodec-transcend`
-//!   Extended-precision kernel, at exact parity with the `ferrodec`
-//!   (Decimal128) parent. No transcendental routes through `f64`, so
-//!   `libm` is not a dependency. They ship under the transcendental
-//!   sub-features (`exp-log` / `trig` / `hyperbolic` / `pow`); the
-//!   1.5.0 CHANGELOG records the change from the pre-1.5.0 `f64` /
-//!   `libm` baseline (ADR-0024).
+//!   `cbrt`, the trig and hyperbolic families, `pow`) are correctly
+//!   rounded (ADR-0032; supersedes ADR-0024's faithful contract) at
+//!   every IEEE 754-2019 rounding direction through the shared
+//!   `ferrodec-transcend` Extended precision kernel, at exact parity
+//!   with the `ferrodec` (Decimal128) parent. No transcendental
+//!   routes through `f64`, so `libm` is not a dependency. They ship
+//!   under the transcendental sub-features (`exp-log` / `trig` /
+//!   `hyperbolic` / `pow`); the 1.5.0 CHANGELOG records the change
+//!   from the pre-1.5.0 `f64` / `libm` baseline (ADR-0024).
 //!
 //! # Cohort stability
 //!

@@ -25,9 +25,21 @@
 //!
 //! ## Accuracy
 //!
-//! Faithfully rounded (≤ 1 ULP at 34 digits) against `astro-float`
-//! across the supported domain `|x| ≤ 14149`. Values past the domain
-//! short-circuit to ±∞ / ±0 with the appropriate IEEE 754 flags.
+//! Correctly rounded across the supported domain `|x| ≤ 14149`
+//! (ADR-0032; supersedes ADR-0024's faithful contract). Values past
+//! the domain short circuit to ±∞ / ±0 with the appropriate IEEE 754
+//! flags.
+//!
+//! The Arb empirical worst case half ULP margin from
+//! `tests/vectors/transcend/exp.prov` (ADR-0026, fd-97a) is
+//! `1.667e-4` at `Decimal32` precision, `5.159e-2` at `Decimal64`
+//! precision, and `3.442e-2` at `Decimal128` precision. The kernel
+//! runs at 50 decimal digits (`EXT_PRECISION` in `extended.rs`),
+//! which clears the smallest margin by more than thirty orders of
+//! magnitude on every format. The shared error model and the per
+//! format headroom derivation live in ADR-0032 §Decision; the
+//! corpus test (`tests/transcend_vectors.rs`) is the standing
+//! empirical witness.
 
 use crate::consts::{inv_ln10_ext, ln10_ext, ln2_ext};
 use crate::extended::Extended;
@@ -60,6 +72,14 @@ pub fn exp_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
 
 /// Base-2 exponential `2^x`. Computed as `exp(x · ln(2))` at extended
 /// precision.
+///
+/// Correctly rounded across the supported domain (ADR-0032). Derived
+/// from `exp` via a single composition step; the bound is the `exp`
+/// bound plus one composition rounding. The Arb empirical worst case
+/// half ULP margins from `tests/vectors/transcend/exp2.prov`
+/// (ADR-0026, fd-97a) are `1.665e-2` at `Decimal32`, `3.515e-2` at
+/// `Decimal64`, and `2.015e-2` at `Decimal128`, all cleared by the
+/// composed bound by more than thirty orders of magnitude.
 pub fn exp2_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
     match x.classify() {
         Class::SignalingNaN { .. } => return (x.nan_from(), Status::INVALID),

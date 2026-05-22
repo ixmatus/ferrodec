@@ -7,6 +7,70 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-05-21
+
+The §9.2 transcendental contract tightens from faithful (≤ 1 ULP,
+ADR-0024) to correctly rounded (the single nearest representable
+value at every IEEE 754-2019 rounding direction, ADR-0032). The
+change ships lockstep with `ferrodec-decimal64` 2.1.0 and
+`ferrodec-decimal32` 2.1.0; the kernel that backs all three (the
+shared `ferrodec-transcend` Extended pipeline) is unchanged at 50
+decimal digits of working precision, so latency is unchanged from
+2.0.0 and no feature gate is added. Correctly rounded is a strict
+tightening of faithful (every correctly rounded value is also a
+faithful value), so the contract change is backward compatible at
+the API level; the SemVer minor bump is the honest accounting for
+the contract narrowing.
+
+### Changed
+
+- **§9.2 transcendentals are correctly rounded (fd-1pv, ADR-0032,
+  supersedes ADR-0024).** `exp`, `ln`, `exp2`, `log2`, `log10`,
+  `cbrt`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`,
+  `sinh`, `cosh`, `tanh`, `asinh`, `acosh`, `atanh`, and `pow` now
+  carry the correctly rounded contract across the supported domain
+  on every IEEE 754-2019 rounding mode. The contract is exact:
+  the result is the single nearest representable value at 34
+  digits, ties to even at `NearestEven` and the directed grid
+  point at the four directed modes.
+  - Evidence: the ADR-0026 frozen Arb corpus (`tests/vectors/transcend/`,
+    7315 vectors across the three formats and five rounding
+    modes including the binary `pow` and `atan2` surface) now gates
+    exact match per vector rather than the prior `0..=1` ULP band.
+    The test (`tests/transcend_vectors.rs`, renamed to
+    `frozen_arb_vectors_correctly_rounded`) panics on any one step
+    drift. MPFR independently confirms the same corpus under
+    `--features mpfr-gate`.
+  - Mechanism: Lefèvre / Muller wider fixed working precision with
+    rigorous a priori error bounds; the 50 digit kernel clears the
+    smallest empirical Arb worst case half ULP margin (`cosh` at
+    `Decimal32`, 4.167e-8) by more than thirty orders of magnitude
+    on every format. The per function derivations live in the
+    `ferrodec-transcend` module rustdoc.
+- **README disclosure narrows the named exposure.** The disclosure's
+  named failure mode adds "rounding errors on §9.2 transcendental
+  boundary inputs the Arb empirical worst-case search did not
+  surface" so the residual frontier after the contract tightening
+  is recorded honestly. The verbatim invariants of the disclosure
+  (the bolded line, the maintenance line, the LICENSE disclaimer)
+  are preserved unchanged.
+
+### Rejected alternatives (recorded in ADR-0032)
+
+- **Ziv adaptive precision with arbitrary precision fallback.**
+  Rejected on unbounded worst case latency: no proven termination
+  bound for decimal Ziv; the bound becomes a runtime parameter, not
+  a discharged invariant. Incompatible with the STM32U class
+  embedded target.
+- **CRlibm style precomputed worst case tables.** Rejected on per
+  function code size and table generation cost. The wider fixed
+  precision approach achieves the same contract at the cost of one
+  shared kernel.
+
+The shared infrastructure crates (`ferrodec-ieee`,
+`ferrodec-multiword`, `ferrodec-transcend`, `ferrodec-test-support`)
+stay at their current versions per ADR-0029's intent.
+
 ## [2.0.0] - 2026-05-21
 
 The first major-version release. Three consolidated breaking changes
