@@ -5,7 +5,7 @@
 [![docs.rs](https://docs.rs/ferrodec/badge.svg)](https://docs.rs/ferrodec)
 [![License: MIT OR Apache-2.0](https://img.shields.io/crates/l/ferrodec.svg)](#license)
 
-An IEEE 754 (2019) Decimal128 library for Rust, designed for two audiences: embedded targets that need decimal arithmetic without surprises, and general-purpose code that wants IEEE conformance and faithful rounding.
+An IEEE 754 (2019) Decimal128 library for Rust, designed for two audiences: embedded targets that need decimal arithmetic without surprises, and general-purpose code that wants IEEE conformance with correctly rounded arithmetic and §9.2 transcendentals.
 
 This repository hosts the ferrodec family of canonical pure-Rust IEEE 754 decimal types:
 
@@ -62,7 +62,8 @@ remains public for users who want to read or fork the work.
 ships under his name. The disciplines above narrow the failure surface; they do not eliminate it. In particular, this
 process is most exposed to subtle bugs that a careful human reading of the code would catch but tests, types, and
 formal verification would not. For correctly rounded decimal arithmetic that specifically includes rounding errors on
-boundary cases the decTest suite did not cover, or conformance regressions in operations no harness happened to
+boundary cases the decTest suite did not cover, rounding errors on §9.2 transcendental boundary inputs the Arb
+empirical worst-case search did not surface, or conformance regressions in operations no harness happened to
 exercise. Issues are welcome and will be triaged as time allows; no SLA is offered. This README describes the project's
 development process and is not a warranty; see the LICENSE file for the legal terms governing use.
 
@@ -190,11 +191,11 @@ The IEEE 754:2019 §5.3 quantum surface: `quantize(target, rm)` rescales `self` 
 
 ## Accuracy
 
-ferrodec promises faithful rounding, meaning ≤ 1 ULP at 34 digits, for the core IEEE operations and for every transcendental across the supported domain. One behavioural caveat applies at the boundary.
+ferrodec promises correctly rounded results, meaning exactly the single nearest representable value at 34 digits (ties to even at `NearestEven`, the directed grid point at the four IEEE 754 directed modes), for the core IEEE operations (ADR-0021) and for every §9.2 transcendental across the supported domain (ADR-0032; supersedes ADR-0024's faithful contract). One behavioural caveat applies at the boundary.
 
-* **`tan(x)` near the asymptotes** at odd multiples of π/2 returns ±∞. Note the absence of a `DIV_BY_ZERO` flag: `tan` produces a transcendental asymptote, not a literal IEEE division by zero.
+* **`tan(x)` near the asymptotes** at odd multiples of π/2 returns ±∞. Note the absence of a `DIV_BY_ZERO` flag: `tan` produces a transcendental asymptote, not a literal IEEE division by zero. The ±∞ return is itself the correctly rounded result.
 
-The trigonometric reduction handles the full Decimal128 magnitude range. `sin(10^15)` and `sin(10^3000)` round as accurately as `sin(0.5)` does, because argument reduction uses the algorithm of Payne and Hanek with a 6 300 digit table of 2/π. Inputs that fall within one ULP of an integer multiple of π/2 (the rounded value of π itself, for example) cancel down to a 33 digit residual; the windowed multiplication widens to U512 to recover the remaining 50 digits, so even those boundary points round at ≤ 1 ULP.
+The trigonometric reduction handles the full Decimal128 magnitude range. `sin(10^15)` and `sin(10^3000)` round as accurately as `sin(0.5)` does, because argument reduction uses the algorithm of Payne and Hanek with a 6 300 digit table of 2/π. Inputs that fall within one ULP of an integer multiple of π/2 (the rounded value of π itself, for example) cancel down to a 33 digit residual; the windowed multiplication widens to U512 to recover the remaining 50 digits, so even those boundary points round to the correctly rounded value.
 
 ## Supported targets
 
@@ -258,7 +259,7 @@ The same reasoning leads us to implement `Eq` and `PartialEq` as bitwise equalit
 | Format | IEEE 754:2019 BID-128 | 96-bit fixed-point |
 | Precision | 34 decimal digits | 28 decimal digits |
 | Exponent range | 10⁻⁶¹⁴³ … 10⁺⁶¹⁴⁴ | 10⁻²⁸ … 10⁺²⁸ |
-| Conformance | Full IEEE 754:2019 (NaN, ±∞, signaling NaN, all five rounding modes, total order, quantum ops, faithful-rounded transcendentals) | None: different model, no NaN/Inf, single banker's-rounding mode |
+| Conformance | Full IEEE 754:2019 (NaN, ±∞, signaling NaN, all five rounding modes, total order, quantum ops, correctly rounded §9.2 transcendentals) | None: different model, no NaN/Inf, single banker's-rounding mode |
 | Formal verification | Kani harnesses plus the full Speleotrove decTest conformance suite | None |
 | `no_std` | Real (forbid unsafe, no alloc, fixed-size buffers) | Available with feature flag |
 | Default API | Explicit `RoundingMode` + `(value, Status)` return | `core::ops` operators, banker's rounding |
@@ -289,7 +290,7 @@ The numeric value an operation produces is stable across all three formats and a
 Code that uses ferrodec rarely needs to know what is inside, but two pieces show up in error messages and benchmark output.
 
 * **The multiword stack.** The IEEE pipeline uses `U256`, `U384`, and `U512` (in `src/multiword/`) as wider intermediates. They mirror each other's surface for symmetry. None ever escapes the crate.
-* **`Extended`** (in `src/math/extended.rs`). Transcendentals run their inner kernels at 50 digits of precision: a U256 backed `coef`, an `i32` exponent, and a sign. The kernel rounds once at the `Decimal128` boundary. The 50 digit envelope absorbs the cumulative error of typical 30 to 200 term Taylor series and lets the final result round faithfully.
+* **`Extended`** (in `ferrodec-transcend/src/extended.rs`). Transcendentals run their inner kernels at 50 digits of precision: a U256 backed `coef`, an `i32` exponent, and a sign. The kernel rounds once at the `Decimal128` boundary. The 50 digit envelope absorbs the cumulative error of typical 30 to 200 term Taylor series and clears every empirical Arb worst-case half-ULP margin by more than thirty orders of magnitude (ADR-0032), so the final result lands on the correctly rounded value.
 
 ## MSRV policy
 
