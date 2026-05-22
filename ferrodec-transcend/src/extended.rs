@@ -42,10 +42,16 @@
 //!
 //! ## Status
 //!
-//! This module is the foundation for migrating `exp`, `ln`, `sincos`,
-//! and `pow` to faithful rounding. Until those migrations land, most
-//! of the surface here is exercised only by unit tests — hence the
-//! crate-level `#[allow(dead_code)]`.
+//! The Extended intermediate is the working representation for every
+//! §9.2 transcendental in this crate; the kernel modules (`exp`,
+//! `ln`, `cbrt`, `sincos`, `inverse_trig`, `hyperbolic`, `pow`) all
+//! evaluate at this width before rounding back to the format. The
+//! migrations off the pre-fd-r0l f64 / `libm` detour landed in
+//! fd-r0l; ADR-0032 (Phase D) tightened the resulting kernel's
+//! contract from faithful to correctly rounded. The
+//! `#[allow(dead_code)]` retained at the crate root reflects that
+//! some Extended helpers are exercised only by unit tests, not by
+//! every kernel path.
 
 #![allow(dead_code)]
 
