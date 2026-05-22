@@ -1,6 +1,6 @@
 # ADR-0024: Faithful sibling transcendentals on one shared Extended kernel
 
-- **Status**: accepted
+- **Status**: superseded by ADR-0032
 - **Date**: 2026-05-17
 
 ## Context
