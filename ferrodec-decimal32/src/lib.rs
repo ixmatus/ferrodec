@@ -96,6 +96,7 @@
 //! cross-format table.
 
 #![no_std]
+#![doc = include_str!("../README.md")]
 
 mod bid;
 mod classify;
@@ -117,6 +118,8 @@ mod transcend_impl;
 #[cfg(kani)]
 mod verify;
 
+#[cfg(feature = "binary-float")]
+pub use convert::Decimal32FromFloatError;
 #[cfg(feature = "fmt")]
 pub use convert::{Engineering, FixedPreferred, ParseDecimalError};
 pub use decimal::{Decimal32, Decimal32BuildError};

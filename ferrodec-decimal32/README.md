@@ -133,7 +133,7 @@ empirically corroborated by MPFR with zero disagreements
 
 Tested in CI on:
 
-- Linux x86_64 (Ubuntu)
+- Linux `x86_64` (Ubuntu)
 - macOS aarch64 (M-series)
 - `thumbv6m-none-eabi` (Cortex-M0+ floor), cross-compiled with
   `--no-default-features` through `--all-features`.
@@ -149,7 +149,7 @@ MSRV: Rust 1.84.
 | Unit tests | Hand-derived expected values for every operation, special cases, sign rules, and rounding boundaries. |
 | Property tests | Round-trip `parse_str → Display`. |
 | Kani harnesses | Per-operation modules (addsub, mul, div, sqrt, fma, cmp) prove no-panic and IEEE 754 special-case propagation over a bounded operand set. Run via `cargo kani --package ferrodec-decimal32 --features=fmt`. |
-| Fuzz | Four cargo-fuzz targets (parse, arith, transcendentals, total_cmp) covering panic-freedom and algebraic-identity invariants over arbitrary bit patterns. |
+| Fuzz | Four cargo-fuzz targets (parse, arith, transcendentals, `total_cmp`) covering panic-freedom and algebraic-identity invariants over arbitrary bit patterns. |
 
 ## Why no `core::ops` (and how to opt in)
 
@@ -170,7 +170,7 @@ both compile when `ops` is on.
 
 | Scenario | Pick |
 | --- | --- |
-| 7-digit precision is enough, embedded / no_std target | **ferrodec-decimal32** |
+| 7-digit precision is enough, embedded / `no_std` target | **ferrodec-decimal32** |
 | 16-digit precision (financial general ledger, scientific aggregates), the sweet spot between Decimal32 and Decimal128 | [`ferrodec-decimal64`](https://crates.io/crates/ferrodec-decimal64) |
 | 34-digit precision, IEEE 754 Decimal128 surface | [`ferrodec`](https://crates.io/crates/ferrodec) |
 | Variable / arbitrary precision, no IEEE 754 conformance needed | [`rust_decimal`](https://crates.io/crates/rust_decimal) |

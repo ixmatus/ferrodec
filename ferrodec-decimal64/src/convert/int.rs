@@ -1,4 +1,16 @@
-//! [`Decimal64`] → integer conversions.
+//! Integer ↔ [`Decimal64`] conversions.
+//!
+//! ## From-integer
+//!
+//! Every standard signed and unsigned integer up through 32 bits
+//! fits exactly in `Decimal64` (10 decimal digits ≤ 16 digits =
+//! `PRECISION`), so the i32 / u32 constructors are infallible,
+//! rounding-free, and `const`. `i64` / `u64` can exceed 16 digits
+//! (`i64::MAX = 19` digits, `u64::MAX = 20` digits), so they take a
+//! [`RoundingMode`] and return `(Decimal64, Status)`. `i128` and
+//! `u128` always require rounding for any value past `10^16`.
+//!
+//! ## To-integer
 //!
 //! Every conversion takes a [`RoundingMode`] and returns
 //! `(int, Status)`, following IEEE 754-2019 §5.4.1 convertToInteger:
@@ -24,9 +36,133 @@
 //! `INVALID`; that bound is detected with `checked_mul`, never by an
 //! f64 round trip.
 
-use crate::bid::{classify_bits, decimal_digit_count, Class, BIAS};
+use crate::bid::{
+    classify_bits, decimal_digit_count, pack_finite, BiasedExp, Class, Coefficient, BIAS,
+};
 use crate::decimal::Decimal64;
+use crate::ops::round_and_pack_finite;
 use ferrodec_ieee::{should_round_up, RoundingMode, Status};
+
+// ---------------------------------------------------------------------------
+// From-integer
+
+impl Decimal64 {
+    /// Exact `i32` → `Decimal64`. Quantum is `0`.
+    #[inline]
+    #[must_use]
+    pub const fn from_i32(n: i32) -> Self {
+        if n == 0 {
+            return Self::ZERO;
+        }
+        let sign = n < 0;
+        // |i32| ≤ 2^31 ≈ 2.1·10^9 < 10^16 = COEFFICIENT_LIMIT, so `try_new`
+        // always succeeds; the panic branch is unreachable.
+        let abs = (n as i64).unsigned_abs();
+        let coef = match Coefficient::try_new(abs) {
+            Some(c) => c,
+            None => panic!("i32 magnitude exceeds Decimal64 COEFFICIENT_LIMIT (unreachable)"),
+        };
+        Self::from_bits(pack_finite(sign, BiasedExp::ZERO_QUANTUM, coef))
+    }
+
+    /// Exact `u32` → `Decimal64`. Quantum is `0`.
+    #[inline]
+    #[must_use]
+    pub const fn from_u32(n: u32) -> Self {
+        if n == 0 {
+            return Self::ZERO;
+        }
+        let coef = match Coefficient::try_new(n as u64) {
+            Some(c) => c,
+            None => panic!("u32 magnitude exceeds Decimal64 COEFFICIENT_LIMIT (unreachable)"),
+        };
+        Self::from_bits(pack_finite(false, BiasedExp::ZERO_QUANTUM, coef))
+    }
+
+    /// `i64` → `Decimal64`, possibly rounded.
+    ///
+    /// `|n| < 10^16` is exact. Above that, the rounding mode and
+    /// `INEXACT` flag describe how the low digits were dropped.
+    #[must_use]
+    pub fn from_i64(n: i64, rm: RoundingMode) -> (Self, Status) {
+        if n == 0 {
+            return (Self::ZERO, Status::OK);
+        }
+        let sign = n < 0;
+        // i64::MIN's absolute value doesn't fit in i64; widen to i128.
+        let abs = (n as i128).unsigned_abs();
+        from_unsigned_with_rounding(sign, abs, rm)
+    }
+
+    /// `u64` → `Decimal64`, possibly rounded.
+    #[must_use]
+    pub fn from_u64(n: u64, rm: RoundingMode) -> (Self, Status) {
+        if n == 0 {
+            return (Self::ZERO, Status::OK);
+        }
+        from_unsigned_with_rounding(false, n as u128, rm)
+    }
+
+    /// `i128` → `Decimal64`, possibly rounded.
+    ///
+    /// `|n| < 10^16` is exact. Above that, the rounding mode and
+    /// `INEXACT` flag describe how the low digits were dropped.
+    #[must_use]
+    pub fn from_i128(n: i128, rm: RoundingMode) -> (Self, Status) {
+        if n == 0 {
+            return (Self::ZERO, Status::OK);
+        }
+        let sign = n < 0;
+        let abs = n.unsigned_abs();
+        from_unsigned_with_rounding(sign, abs, rm)
+    }
+
+    /// `u128` → `Decimal64`, possibly rounded.
+    #[must_use]
+    pub fn from_u128(n: u128, rm: RoundingMode) -> (Self, Status) {
+        if n == 0 {
+            return (Self::ZERO, Status::OK);
+        }
+        from_unsigned_with_rounding(false, n, rm)
+    }
+}
+
+impl From<i32> for Decimal64 {
+    #[inline]
+    fn from(n: i32) -> Self {
+        Self::from_i32(n)
+    }
+}
+
+impl From<u32> for Decimal64 {
+    #[inline]
+    fn from(n: u32) -> Self {
+        Self::from_u32(n)
+    }
+}
+
+fn from_unsigned_with_rounding(sign: bool, abs: u128, rm: RoundingMode) -> (Decimal64, Status) {
+    // Reduce `abs` to fit `u64` before calling `round_and_pack_finite`
+    // (which takes a `u64` coefficient and handles the precision drop
+    // from there). `u64::MAX` has 20 decimal digits, exceeding the 16
+    // digits of `PRECISION` by 4; the loop strips just enough trailing
+    // digits to fit `u64`, and the precision-boundary round_digit and
+    // sticky inside `round_and_pack_finite` then see correct neighbour
+    // information. Any non-zero digit dropped here becomes pre-sticky.
+    let mut value = abs;
+    let mut exp_offset: i32 = 0;
+    let mut sticky = false;
+    while value > u64::MAX as u128 {
+        let dropped = (value % 10) as u32;
+        if dropped != 0 {
+            sticky = true;
+        }
+        value /= 10;
+        exp_offset += 1;
+    }
+    let coef_u64 = value as u64;
+    round_and_pack_finite(coef_u64, exp_offset, 0, sign, sticky, rm, Status::OK)
+}
 
 impl Decimal64 {
     /// Convert to `i32`, rounding by `rm`. The module documentation
@@ -340,5 +476,149 @@ mod tests {
         let (n, s) = Decimal64::INFINITY.to_u64(RoundingMode::NearestEven);
         assert_eq!(n, u64::MAX);
         assert!(s.invalid());
+    }
+
+    // ---- From-integer ----------------------------------------------------
+
+    #[test]
+    fn from_int_zero() {
+        assert_eq!(Decimal64::from_i32(0).to_bits(), Decimal64::ZERO.to_bits());
+        assert_eq!(Decimal64::from_u32(0).to_bits(), Decimal64::ZERO.to_bits());
+        let (d, s) = Decimal64::from_i64(0, RoundingMode::NearestEven);
+        assert_eq!(d.to_bits(), Decimal64::ZERO.to_bits());
+        assert!(s.is_ok());
+        let (d, s) = Decimal64::from_u128(0, RoundingMode::NearestEven);
+        assert_eq!(d.to_bits(), Decimal64::ZERO.to_bits());
+        assert!(s.is_ok());
+    }
+
+    #[test]
+    fn from_i32_small_signed() {
+        let one = Decimal64::from_i32(1);
+        assert_eq!(one.to_i32(RoundingMode::NearestEven), (1, Status::OK));
+        let neg_one = Decimal64::from_i32(-1);
+        assert_eq!(neg_one.to_i32(RoundingMode::NearestEven), (-1, Status::OK));
+        // i32::MIN / MAX round-trip exactly (10 digits ≤ 16).
+        let min = Decimal64::from_i32(i32::MIN);
+        assert_eq!(
+            min.to_i32(RoundingMode::NearestEven),
+            (i32::MIN, Status::OK)
+        );
+        let max = Decimal64::from_i32(i32::MAX);
+        assert_eq!(
+            max.to_i32(RoundingMode::NearestEven),
+            (i32::MAX, Status::OK)
+        );
+    }
+
+    #[test]
+    fn from_u32_round_trip() {
+        let big = Decimal64::from_u32(u32::MAX);
+        assert_eq!(
+            big.to_u32(RoundingMode::NearestEven),
+            (u32::MAX, Status::OK)
+        );
+    }
+
+    #[test]
+    fn from_i64_in_precision_is_exact() {
+        // 9_999_999_999_999_999 is the largest 16-digit positive value.
+        for &v in &[
+            1i64,
+            -1,
+            999_999_999_999i64,
+            9_999_999_999_999_999,
+            -9_999_999_999_999_999,
+        ] {
+            let (d, s) = Decimal64::from_i64(v, RoundingMode::NearestEven);
+            assert!(s.is_ok(), "v={v}: expected exact, got {s:?}");
+            let (back, s2) = d.to_i64(RoundingMode::NearestEven);
+            assert!(s2.is_ok());
+            assert_eq!(back, v);
+        }
+    }
+
+    #[test]
+    fn from_i64_above_precision_rounds_inexact() {
+        // 10_000_000_000_000_001 is 17 digits — needs rounding.
+        let (d, s) = Decimal64::from_i64(10_000_000_000_000_001, RoundingMode::NearestEven);
+        assert!(d.is_finite());
+        assert!(s.inexact());
+        // i64::MIN and i64::MAX are 19 digits — also rounded.
+        let (d, s) = Decimal64::from_i64(i64::MAX, RoundingMode::NearestEven);
+        assert!(d.is_finite());
+        assert!(s.inexact());
+        let (d, s) = Decimal64::from_i64(i64::MIN, RoundingMode::NearestEven);
+        assert!(d.is_finite());
+        assert!(d.is_sign_negative());
+        assert!(s.inexact());
+    }
+
+    #[test]
+    fn from_u64_max_rounds_inexact() {
+        // u64::MAX is 20 digits.
+        let (d, s) = Decimal64::from_u64(u64::MAX, RoundingMode::NearestEven);
+        assert!(d.is_finite());
+        assert!(!d.is_sign_negative());
+        assert!(s.inexact());
+    }
+
+    #[test]
+    fn from_u128_below_precision_exact() {
+        let n = 10u128.pow(16) - 1; // exactly 16 digits — fits.
+        let (d, s) = Decimal64::from_u128(n, RoundingMode::NearestEven);
+        assert!(s.is_ok());
+        let (back, s2) = d.to_u128(RoundingMode::NearestEven);
+        assert!(s2.is_ok());
+        assert_eq!(back, n);
+    }
+
+    #[test]
+    fn from_u128_above_precision_rounds_inexact() {
+        let (d, s) = Decimal64::from_u128(u128::MAX, RoundingMode::NearestEven);
+        assert!(d.is_finite());
+        assert!(s.inexact());
+    }
+
+    #[test]
+    fn from_i128_round_directions() {
+        // 12345678901234567 is 17 digits; needs to drop 1.
+        // NearestEven: ties-to-even keeps the lsb even at the precision
+        // boundary. Here the dropped digit is 7 (not a tie), so it rounds
+        // up regardless.
+        let n: i128 = 12_345_678_901_234_567;
+        let (d_ne, _) = Decimal64::from_i128(n, RoundingMode::NearestEven);
+        let (d_tz, _) = Decimal64::from_i128(n, RoundingMode::TowardZero);
+        let (d_tp, _) = Decimal64::from_i128(n, RoundingMode::TowardPositive);
+        let (d_tn, _) = Decimal64::from_i128(n, RoundingMode::TowardNegative);
+        // NearestEven and TowardPositive round up; TowardZero and
+        // TowardNegative round down.
+        let (ne_back, _) = d_ne.to_i128(RoundingMode::NearestEven);
+        let (tz_back, _) = d_tz.to_i128(RoundingMode::NearestEven);
+        let (tp_back, _) = d_tp.to_i128(RoundingMode::NearestEven);
+        let (tn_back, _) = d_tn.to_i128(RoundingMode::NearestEven);
+        assert_eq!(ne_back, 12_345_678_901_234_570);
+        assert_eq!(tz_back, 12_345_678_901_234_560);
+        assert_eq!(tp_back, 12_345_678_901_234_570);
+        assert_eq!(tn_back, 12_345_678_901_234_560);
+    }
+
+    #[test]
+    fn from_trait_impls() {
+        // The two lossless `impl From` impls (i32, u32) compile.
+        let a: Decimal64 = 42i32.into();
+        let b: Decimal64 = 42u32.into();
+        assert_eq!(a.to_i32(RoundingMode::NearestEven), (42i32, Status::OK));
+        assert_eq!(b.to_u32(RoundingMode::NearestEven), (42u32, Status::OK));
+    }
+
+    #[test]
+    fn from_to_roundtrip_i32() {
+        for &v in &[0i32, 1, -1, i32::MAX, i32::MIN, 123_456_789, -987_654_321] {
+            let d: Decimal64 = v.into();
+            let (back, s) = d.to_i32(RoundingMode::NearestEven);
+            assert!(s.is_ok());
+            assert_eq!(back, v);
+        }
     }
 }
