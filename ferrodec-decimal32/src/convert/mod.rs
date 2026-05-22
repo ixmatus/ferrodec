@@ -9,6 +9,9 @@
 #[cfg(feature = "binary-float")]
 mod binary;
 
+#[cfg(feature = "binary-float")]
+pub use binary::Decimal32FromFloatError;
+
 // Integer conversions need neither `fmt` nor `binary-float`: they
 // scale the decimal coefficient directly. Always available.
 mod int;

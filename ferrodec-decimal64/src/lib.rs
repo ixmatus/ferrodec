@@ -113,6 +113,8 @@ mod transcend_impl;
 #[cfg(kani)]
 mod verify;
 
+#[cfg(feature = "binary-float")]
+pub use convert::Decimal64FromFloatError;
 #[cfg(feature = "fmt")]
 pub use convert::{Engineering, FixedPreferred, ParseDecimalError};
 pub use decimal::{Decimal64, Decimal64BuildError};

@@ -286,6 +286,65 @@ impl core::fmt::Write for BufWriter<'_> {
     }
 }
 
+/// Error returned by [`TryFrom<f32>`] / [`TryFrom<f64>`] for
+/// [`Decimal32`] when the input is not a finite number.
+///
+/// [`Decimal32::from_f64`] routes NaN and ±∞ to their `Decimal32`
+/// counterparts (silently for quiet NaN, with `INVALID` for sNaN per
+/// IEEE 754-2019 §5.4.2). The `TryFrom` impls reject those inputs
+/// instead so callers expecting a finite decimal don't have to
+/// re-check the result.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Decimal32FromFloatError {
+    /// The input was NaN.
+    NotANumber,
+    /// The input was `+∞` or `−∞`.
+    Infinite,
+}
+
+impl core::fmt::Display for Decimal32FromFloatError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::NotANumber => f.write_str("cannot convert NaN to Decimal32"),
+            Self::Infinite => f.write_str("cannot convert ±∞ to Decimal32"),
+        }
+    }
+}
+
+impl core::error::Error for Decimal32FromFloatError {}
+
+impl TryFrom<f64> for Decimal32 {
+    type Error = Decimal32FromFloatError;
+
+    /// Convert a finite `f64` to `Decimal32` using `NearestEven`.
+    ///
+    /// NaN and ±∞ are rejected; finite values flow through
+    /// [`Decimal32::from_f64`] at `NearestEven` (the `Status` from
+    /// the underlying conversion is discarded — callers needing the
+    /// status should call `from_f64` directly). Very-large finite
+    /// f64 magnitudes saturate to `±∞` per the standard f64 → decimal
+    /// conversion behaviour; the caller must check `is_finite` if
+    /// that distinction matters.
+    fn try_from(value: f64) -> Result<Self, Self::Error> {
+        if value.is_nan() {
+            return Err(Decimal32FromFloatError::NotANumber);
+        }
+        if value.is_infinite() {
+            return Err(Decimal32FromFloatError::Infinite);
+        }
+        let (d, _) = Self::from_f64(value, RoundingMode::NearestEven);
+        Ok(d)
+    }
+}
+
+impl TryFrom<f32> for Decimal32 {
+    type Error = Decimal32FromFloatError;
+
+    fn try_from(value: f32) -> Result<Self, Self::Error> {
+        Self::try_from(f64::from(value))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -531,5 +590,93 @@ mod tests {
                 "round-trip failed for {s}"
             );
         }
+    }
+
+    // ---- TryFrom<f64> / TryFrom<f32> ------------------------------------
+
+    #[test]
+    fn try_from_f64_finite_succeeds() {
+        // The TryFrom contract: finite inputs accept and route through
+        // `from_f64` at `NearestEven`. Round-trip back to f64 is
+        // governed by `to_f64`'s native precision, out of scope here.
+        let d = Decimal32::try_from(1.5_f64).unwrap();
+        let (direct, _) = Decimal32::from_f64(1.5_f64, RoundingMode::NearestEven);
+        assert_eq!(d.to_bits(), direct.to_bits());
+        assert!(d.is_finite());
+        assert!(!d.is_zero());
+    }
+
+    #[test]
+    fn try_from_f64_nan_rejects() {
+        assert_eq!(
+            Decimal32::try_from(f64::NAN),
+            Err(Decimal32FromFloatError::NotANumber)
+        );
+    }
+
+    #[test]
+    fn try_from_f64_infinity_rejects() {
+        assert_eq!(
+            Decimal32::try_from(f64::INFINITY),
+            Err(Decimal32FromFloatError::Infinite)
+        );
+        assert_eq!(
+            Decimal32::try_from(f64::NEG_INFINITY),
+            Err(Decimal32FromFloatError::Infinite)
+        );
+    }
+
+    #[test]
+    fn try_from_f64_zero_succeeds() {
+        let pos = Decimal32::try_from(0.0_f64).unwrap();
+        let neg = Decimal32::try_from(-0.0_f64).unwrap();
+        assert!(pos.is_zero());
+        assert!(neg.is_zero());
+        assert!(neg.is_sign_negative());
+        assert!(!pos.is_sign_negative());
+    }
+
+    #[test]
+    fn try_from_f32_routes_through_f64() {
+        // f32 path widens to f64 and reuses the f64 impl.
+        let d = Decimal32::try_from(1.5_f32).unwrap();
+        let (direct, _) = Decimal32::from_f64(f64::from(1.5_f32), RoundingMode::NearestEven);
+        assert_eq!(d.to_bits(), direct.to_bits());
+        assert!(d.is_finite());
+        assert_eq!(
+            Decimal32::try_from(f32::NAN),
+            Err(Decimal32FromFloatError::NotANumber)
+        );
+        assert_eq!(
+            Decimal32::try_from(f32::INFINITY),
+            Err(Decimal32FromFloatError::Infinite)
+        );
+    }
+
+    #[test]
+    fn from_float_error_display() {
+        let mut buf = [0u8; 64];
+        let mut w = BufWriter {
+            buf: &mut buf,
+            len: 0,
+        };
+        core::write!(w, "{}", Decimal32FromFloatError::NotANumber).unwrap();
+        let len = w.len;
+        assert_eq!(
+            core::str::from_utf8(&buf[..len]).unwrap(),
+            "cannot convert NaN to Decimal32"
+        );
+
+        let mut buf2 = [0u8; 64];
+        let mut w2 = BufWriter {
+            buf: &mut buf2,
+            len: 0,
+        };
+        core::write!(w2, "{}", Decimal32FromFloatError::Infinite).unwrap();
+        let len2 = w2.len;
+        assert_eq!(
+            core::str::from_utf8(&buf2[..len2]).unwrap(),
+            "cannot convert ±∞ to Decimal32"
+        );
     }
 }
