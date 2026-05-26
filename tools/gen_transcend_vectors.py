@@ -384,16 +384,28 @@ def representative(name):
 
 def decades(name, fmt):
     """Decade probes; for trig these deliberately reach the decades
-    the fixed astro-float oracle skips (|x| ≫ 10^15)."""
+    the fixed astro-float oracle skips (|x| ≫ 10^15), and (ADR-0033)
+    now also reach the format's `emax` so the upper trig argument
+    range is covered rather than implicitly trusting Payne-Hanek to
+    hold past the prior 10^180 clamp."""
     out = []
     if name in TRIG or name in POSITIVE or name == "cbrt":
-        # Trig is capped at ~10^180 (≫ the 10^15 astro-float skip
-        # threshold, the point of the proof-tier backstop) so Arb's
-        # internal argument reduction stays tractable offline; the
-        # cheap non-trig families run out to the format's exponent.
-        hi = min(fmt["emax"] - 4, 180) if name in TRIG else min(fmt["emax"] - 4, 300)
+        # ADR-0033: lifted the prior `min(emax-4, 180)` clamp for
+        # TRIG and the `min(emax-4, 300)` clamp for non-TRIG. The
+        # 2/π table at `ferrodec-transcend/src/argred.rs` is 6300
+        # digits; sized correctly for `Decimal128`'s emax=6144, so
+        # the corpus now probes the table's full coverage range.
+        # A TMD-hard candidate that the prior cap masked surfaces as
+        # a cap-hit, caught by the corpus-integrity assert in `emit`.
+        hi = fmt["emax"] - 4
         ks = [1, 3, 6, 9, 12, 15, 16, 20, 30, 60, 120]
-        ks += [k for k in (180, 240, 300) if k <= hi]
+        # Intermediate decades past the prior cap so the corpus
+        # actually populates the upper range, rather than jumping
+        # straight from 10^120 to `hi`.
+        ks += [
+            k for k in (180, 240, 300, 480, 720, 1200, 2400, 4800)
+            if k <= hi
+        ]
         ks.append(hi)
         for k in ks:
             if k <= hi:
