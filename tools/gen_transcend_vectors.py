@@ -328,7 +328,7 @@ UNIT = {"asin", "acos", "atanh"}            # |x| < 1
 GE_ONE = {"acosh"}                          # x ≥ 1
 
 
-def in_domain(name, coef, exp, neg):
+def in_domain(name, coef, exp, neg, fmt):
     mag = decimal_magnitude(coef, exp)
     if name in POSITIVE and neg:
         return False
@@ -338,8 +338,36 @@ def in_domain(name, coef, exp, neg):
     if name in GE_ONE:
         return (not neg) and mag >= 0
     if name in ("exp", "exp2", "sinh", "cosh"):
-        # keep the result finite well inside d128's range
-        return mag <= 3
+        # ADR-0033 corpus-integrity gate fix. The prior `mag <= 3`
+        # bound was sized for d128 (mag=3 means |x| < 10^4 which is
+        # well inside d128's emax=6144), but the same predicate
+        # serves d32 (emax=96) and d64 (emax=384) too, so it let
+        # arguments like `cosh(560)` through at d32 where the true
+        # result is ~10^243, vastly overflowing the format. `_decisive`
+        # then returns None on "result out of range" and the solve
+        # loop spins to `CAP_BITS = 65536` without ever resolving,
+        # silently dropping a candidate that was never going to fit
+        # the format in the first place. Bound the input by the
+        # format's `emax`: |result| ≈ e^|x| for exp/sinh/cosh and
+        # |result| ≈ 2^|x| for exp2, so the overflow boundary is
+        # |x| ≈ emax·ln(10) for the first family and
+        # |x| ≈ emax·log2(10) ≈ emax·ln(10)/ln(2) for exp2.
+        # Bounded a touch below the boundary so the result is comfortably
+        # in range (matches the prior comment's intent).
+        if coef == 0:
+            return True
+        log10_abs_x = math.log10(coef) + exp
+        # `e^|x| < 10^emax` ⟺ `|x| < emax·ln(10)` ⟺
+        # `log10(|x|) < log10(emax·ln(10)) = log10(emax) + log10(ln(10))`.
+        if name == "exp2":
+            limit_log10_x = math.log10(fmt["emax"] * math.log2(10))
+        else:
+            limit_log10_x = math.log10(fmt["emax"] * math.log(10))
+        # Reserve a small slack to keep the result one decade short of
+        # the boundary; the corpus is interested in TMD-hard cases,
+        # not overflow boundaries (those have a separate special-value
+        # contract).
+        return log10_abs_x <= limit_log10_x - 0.1
     return True
 
 
@@ -474,7 +502,7 @@ def solve(name, fn, coef, exp, neg, fmt, mode="NearestEven"):
     the cap). The NearestEven path is numerically identical to the
     fd-cb6 generator."""
     p = fmt["prec"]
-    if not in_domain(name, coef, exp, neg):
+    if not in_domain(name, coef, exp, neg, fmt):
         return None
     # The argument must be exact in the format, else `parse_str`
     # re-rounds it and ferrodec computes f of a different value than
