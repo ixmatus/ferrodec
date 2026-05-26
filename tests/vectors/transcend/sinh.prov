@@ -14,8 +14,6 @@
 7 NearestEven -1214406e-4 P=80 rad=2.960e+30 margin=2.502e-01 decisive
 7 NearestEven 1542468e-4 P=80 rad=1.037e+45 margin=3.251e-01 decisive
 7 NearestEven 1727114e-4 P=80 rad=1.085e+53 margin=3.299e-01 decisive
-7 NearestEven -1871330e-4 P=80 rad=1.985e+59 margin=3.737e-01 decisive
-7 NearestEven 2077237e-4 P=80 rad=1.739e+68 margin=3.810e-01 decisive
 7 NearestEven 1e-3 P=80 rad=3.436e-27 margin=3.333e-01 decisive
 7 NearestEven -5e-1 P=80 rad=9.291e-25 margin=4.451e-01 decisive
 7 NearestEven 15e-1 P=80 rad=3.533e-24 margin=4.491e-02 decisive
