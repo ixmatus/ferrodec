@@ -37,6 +37,7 @@ import math
 import os
 import random
 import sys
+from collections import defaultdict
 from fractions import Fraction
 
 # Endpoint Fractions carry binary denominators up to 2^CAP_BITS
@@ -110,6 +111,80 @@ BINARY = ("atan2", "pow")
 # all three are seeded deterministically off the one SEED.
 SEED_DIRECTED = SEED ^ 0xD1EC7ED
 SEED_BINARY = SEED ^ 0xB17A12
+
+# ADR-0033 corpus-integrity gate. A `solve` / `solve_binary` call that
+# does not become decisive within `CAP_BITS` Arb working precision is
+# silently dropped from the scan (the worst-case-keeper sorts only the
+# decisive returns), so a TMD-hard candidate at the cap vanishes from
+# the corpus without trace. The counter below records every such drop;
+# the end-of-run summary in `emit` asserts the total is zero and exits
+# non-zero otherwise, so a silent corpus loss is impossible.
+_CAP_HITS = defaultdict(int)  # (name, fmt_label, mode) -> count
+_FMT_LABEL = {id(v): k for k, v in FORMATS.items()}
+
+
+def _record_cap_hit(name, fmt, mode, args_str):
+    """A `solve*` call exhausted `CAP_BITS` Arb precision without the
+    enclosure becoming decisive. Increment the per-(function, format,
+    mode) cap-hit counter and emit a single stderr line naming the
+    candidate so the corpus-integrity assert in `emit` can name what
+    was lost. ADR-0033."""
+    fmt_label = _FMT_LABEL.get(id(fmt), "?")
+    _CAP_HITS[(name, fmt_label, mode)] += 1
+    sys.stderr.write(
+        "cap-hit: %s %s %s %s bits=%d\n"
+        % (name, fmt_label, mode, args_str, CAP_BITS)
+    )
+
+
+def _is_directed_exact_output_unary(name, coef, exp, neg, fmt):
+    """ADR-0033 directed-mode exact-output filter. Some hand-picked
+    candidates from `representative()` have a mathematically exact,
+    format-representable result (e.g. log10(10^k) = k). Under directed
+    rounding (TowardZero/Positive/Negative) the certified Arb ball
+    straddles the exact grid value at every precision: the lower
+    endpoint rounds to the adjacent grid point below, the upper
+    endpoint rounds to the exact point itself, so the rounded endpoint
+    pair stays distinct regardless of how tight Arb gets and
+    `_decisive` cannot resolve. `solve` would then run to `CAP_BITS`
+    on every directed call for these candidates and the corpus
+    integrity assert in `emit` would fire on a trivially-known
+    result. Filter them out of the directed scan up front; the NE
+    corpus (which has no straddle issue) still covers them, so the
+    coverage loss is zero. Detection is by mathematical identity, not
+    by Arb endpoint analysis (the latter is unsound: a genuine
+    TMD-hard candidate just below a grid boundary would look
+    identical, and we would not want to hide that)."""
+    if name == "log10" and coef == 1 and not neg:
+        # log10(10^exp) = exp, an integer, exactly representable as
+        # long as the integer's magnitude fits the format's exponent
+        # range and digit count.
+        return abs(exp) <= fmt["emax"]
+    return False
+
+
+def _is_directed_exact_output_binary(name, xt, yt, fmt):
+    """ADR-0033 directed-mode exact-output filter (binary surface).
+    The companion to `_is_directed_exact_output_unary`; see that
+    function's docstring for the rationale. The candidates filtered
+    are the exact-output pairs from `binary_representative('pow')`
+    that produce a representable result in the target format."""
+    if name != "pow":
+        return False
+    (xc, xe, xn) = xt
+    (yc, ye, yn) = yt
+    if xn or ye != 0:
+        return False  # not a clean integer y on a positive x
+    # pow(1.25, -1) = 0.8 exact (dyadic 4/5 = 8/10, representable in
+    # every format).
+    if (xc, xe) == (125, -2) and yc == 1 and yn:
+        return True
+    # pow(1.234567, k) for small positive integer k. The result has
+    # at most 7·k significant digits, so it is exactly representable
+    # whenever 7·k ≤ format precision.
+    if (xc, xe) == (1_234_567, -6) and not yn and yc >= 1:
+        return 7 * yc <= fmt["prec"]
+    return False
 
 
 def frac10(coef, exp):
@@ -303,7 +378,7 @@ UNIT = {"asin", "acos", "atanh"}            # |x| < 1
 GE_ONE = {"acosh"}                          # x ≥ 1
 
 
-def in_domain(name, coef, exp, neg):
+def in_domain(name, coef, exp, neg, fmt):
     mag = decimal_magnitude(coef, exp)
     if name in POSITIVE and neg:
         return False
@@ -313,8 +388,36 @@ def in_domain(name, coef, exp, neg):
     if name in GE_ONE:
         return (not neg) and mag >= 0
     if name in ("exp", "exp2", "sinh", "cosh"):
-        # keep the result finite well inside d128's range
-        return mag <= 3
+        # ADR-0033 corpus-integrity gate fix. The prior `mag <= 3`
+        # bound was sized for d128 (mag=3 means |x| < 10^4 which is
+        # well inside d128's emax=6144), but the same predicate
+        # serves d32 (emax=96) and d64 (emax=384) too, so it let
+        # arguments like `cosh(560)` through at d32 where the true
+        # result is ~10^243, vastly overflowing the format. `_decisive`
+        # then returns None on "result out of range" and the solve
+        # loop spins to `CAP_BITS = 65536` without ever resolving,
+        # silently dropping a candidate that was never going to fit
+        # the format in the first place. Bound the input by the
+        # format's `emax`: |result| ≈ e^|x| for exp/sinh/cosh and
+        # |result| ≈ 2^|x| for exp2, so the overflow boundary is
+        # |x| ≈ emax·ln(10) for the first family and
+        # |x| ≈ emax·log2(10) ≈ emax·ln(10)/ln(2) for exp2.
+        # Bounded a touch below the boundary so the result is comfortably
+        # in range (matches the prior comment's intent).
+        if coef == 0:
+            return True
+        log10_abs_x = math.log10(coef) + exp
+        # `e^|x| < 10^emax` ⟺ `|x| < emax·ln(10)` ⟺
+        # `log10(|x|) < log10(emax·ln(10)) = log10(emax) + log10(ln(10))`.
+        if name == "exp2":
+            limit_log10_x = math.log10(fmt["emax"] * math.log2(10))
+        else:
+            limit_log10_x = math.log10(fmt["emax"] * math.log(10))
+        # Reserve a small slack to keep the result one decade short of
+        # the boundary; the corpus is interested in TMD-hard cases,
+        # not overflow boundaries (those have a separate special-value
+        # contract).
+        return log10_abs_x <= limit_log10_x - 0.1
     return True
 
 
@@ -359,16 +462,28 @@ def representative(name):
 
 def decades(name, fmt):
     """Decade probes; for trig these deliberately reach the decades
-    the fixed astro-float oracle skips (|x| ≫ 10^15)."""
+    the fixed astro-float oracle skips (|x| ≫ 10^15), and (ADR-0033)
+    now also reach the format's `emax` so the upper trig argument
+    range is covered rather than implicitly trusting Payne-Hanek to
+    hold past the prior 10^180 clamp."""
     out = []
     if name in TRIG or name in POSITIVE or name == "cbrt":
-        # Trig is capped at ~10^180 (≫ the 10^15 astro-float skip
-        # threshold, the point of the proof-tier backstop) so Arb's
-        # internal argument reduction stays tractable offline; the
-        # cheap non-trig families run out to the format's exponent.
-        hi = min(fmt["emax"] - 4, 180) if name in TRIG else min(fmt["emax"] - 4, 300)
+        # ADR-0033: lifted the prior `min(emax-4, 180)` clamp for
+        # TRIG and the `min(emax-4, 300)` clamp for non-TRIG. The
+        # 2/π table at `ferrodec-transcend/src/argred.rs` is 6300
+        # digits; sized correctly for `Decimal128`'s emax=6144, so
+        # the corpus now probes the table's full coverage range.
+        # A TMD-hard candidate that the prior cap masked surfaces as
+        # a cap-hit, caught by the corpus-integrity assert in `emit`.
+        hi = fmt["emax"] - 4
         ks = [1, 3, 6, 9, 12, 15, 16, 20, 30, 60, 120]
-        ks += [k for k in (180, 240, 300) if k <= hi]
+        # Intermediate decades past the prior cap so the corpus
+        # actually populates the upper range, rather than jumping
+        # straight from 10^120 to `hi`.
+        ks += [
+            k for k in (180, 240, 300, 480, 720, 1200, 2400, 4800)
+            if k <= hi
+        ]
         ks.append(hi)
         for k in ks:
             if k <= hi:
@@ -437,7 +552,7 @@ def solve(name, fn, coef, exp, neg, fmt, mode="NearestEven"):
     the cap). The NearestEven path is numerically identical to the
     fd-cb6 generator."""
     p = fmt["prec"]
-    if not in_domain(name, coef, exp, neg):
+    if not in_domain(name, coef, exp, neg, fmt):
         return None
     # The argument must be exact in the format, else `parse_str`
     # re-rounds it and ferrodec computes f of a different value than
@@ -468,6 +583,10 @@ def solve(name, fn, coef, exp, neg, fmt, mode="NearestEven"):
         if frac_of_point(b.lower()) is None or frac_of_point(b.upper()) is None:
             return None
         P *= 2
+    _record_cap_hit(
+        name, fmt, mode,
+        "coef=%s%d exp=%d" % ("-" if neg else "", coef, exp),
+    )
     return None
 
 
@@ -541,6 +660,11 @@ def solve_binary(name, fn2, xt, yt, fmt, mode):
         if frac_of_point(b.lower()) is None or frac_of_point(b.upper()) is None:
             return None
         P *= 2
+    _record_cap_hit(
+        name, fmt, mode,
+        "x=(coef=%s%d exp=%d) y=(coef=%s%d exp=%d)"
+        % ("-" if xn else "", xc, xe, "-" if yn else "", yc, ye),
+    )
     return None
 
 
@@ -646,6 +770,11 @@ def emit():
                 p = fmt["prec"]
                 cand = []
                 for (coef, exp, neg) in representative(name) + decades(name, fmt):
+                    # ADR-0033 directed-mode exact-output filter.
+                    if mode != "NearestAway" and _is_directed_exact_output_unary(
+                        name, coef, exp, neg, fmt
+                    ):
+                        continue
                     cand.append((coef, exp, neg))
                 scanned = []
                 for _ in range(TMD_SCAN_DIRECTED):
@@ -690,7 +819,13 @@ def emit():
         for mode in MODES_ALL:
             for fkey, fmt in FORMATS.items():
                 p = fmt["prec"]
-                cand = list(binary_representative(name))
+                # ADR-0033 directed-mode exact-output filter (binary).
+                cand = [
+                    (xt, yt)
+                    for (xt, yt) in binary_representative(name)
+                    if mode in ("NearestEven", "NearestAway")
+                    or not _is_directed_exact_output_binary(name, xt, yt, fmt)
+                ]
                 scanned = []
                 for _ in range(TMD_SCAN_BINARY):
                     if name == "pow":
@@ -780,6 +915,25 @@ def emit():
             f.write("\n".join(prov_lines))
             f.write("\n")
         sys.stderr.write("%-7s %d vectors\n" % (name, len(vec_lines)))
+
+    # ADR-0033 corpus-integrity assert. A non-zero cap-hits total means
+    # the corpus silently lost a TMD-hard candidate; either CAP_BITS
+    # needs raising for that candidate, or the candidate is genuinely
+    # TMD-hard at every reasonable Arb precision and the situation
+    # needs an explicit ADR-0033 addendum naming it. Exit non-zero so
+    # the operator cannot mistake the partial corpus for the full one.
+    total_cap_hits = sum(_CAP_HITS.values())
+    if total_cap_hits == 0:
+        sys.stderr.write("cap-hits: 0\n")
+        return
+    sys.stderr.write("cap-hits: %d total\n" % total_cap_hits)
+    for key in sorted(_CAP_HITS):
+        name, fmt_label, mode = key
+        sys.stderr.write(
+            "  %-7s %-4s %-15s : %d\n"
+            % (name, fmt_label, mode, _CAP_HITS[key])
+        )
+    sys.exit(1)
 
 
 CASES_PATH = os.path.join(
