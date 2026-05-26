@@ -137,6 +137,56 @@ def _record_cap_hit(name, fmt, mode, args_str):
     )
 
 
+def _is_directed_exact_output_unary(name, coef, exp, neg, fmt):
+    """ADR-0033 directed-mode exact-output filter. Some hand-picked
+    candidates from `representative()` have a mathematically exact,
+    format-representable result (e.g. log10(10^k) = k). Under directed
+    rounding (TowardZero/Positive/Negative) the certified Arb ball
+    straddles the exact grid value at every precision: the lower
+    endpoint rounds to the adjacent grid point below, the upper
+    endpoint rounds to the exact point itself, so the rounded endpoint
+    pair stays distinct regardless of how tight Arb gets and
+    `_decisive` cannot resolve. `solve` would then run to `CAP_BITS`
+    on every directed call for these candidates and the corpus
+    integrity assert in `emit` would fire on a trivially-known
+    result. Filter them out of the directed scan up front; the NE
+    corpus (which has no straddle issue) still covers them, so the
+    coverage loss is zero. Detection is by mathematical identity, not
+    by Arb endpoint analysis (the latter is unsound: a genuine
+    TMD-hard candidate just below a grid boundary would look
+    identical, and we would not want to hide that)."""
+    if name == "log10" and coef == 1 and not neg:
+        # log10(10^exp) = exp, an integer, exactly representable as
+        # long as the integer's magnitude fits the format's exponent
+        # range and digit count.
+        return abs(exp) <= fmt["emax"]
+    return False
+
+
+def _is_directed_exact_output_binary(name, xt, yt, fmt):
+    """ADR-0033 directed-mode exact-output filter (binary surface).
+    The companion to `_is_directed_exact_output_unary`; see that
+    function's docstring for the rationale. The candidates filtered
+    are the exact-output pairs from `binary_representative('pow')`
+    that produce a representable result in the target format."""
+    if name != "pow":
+        return False
+    (xc, xe, xn) = xt
+    (yc, ye, yn) = yt
+    if xn or ye != 0:
+        return False  # not a clean integer y on a positive x
+    # pow(1.25, -1) = 0.8 exact (dyadic 4/5 = 8/10, representable in
+    # every format).
+    if (xc, xe) == (125, -2) and yc == 1 and yn:
+        return True
+    # pow(1.234567, k) for small positive integer k. The result has
+    # at most 7·k significant digits, so it is exactly representable
+    # whenever 7·k ≤ format precision.
+    if (xc, xe) == (1_234_567, -6) and not yn and yc >= 1:
+        return 7 * yc <= fmt["prec"]
+    return False
+
+
 def frac10(coef, exp):
     """Exact rational coef·10^exp as an FLINT `fmpq` (arb accepts
     fmpq, not Python Fraction)."""
@@ -720,6 +770,11 @@ def emit():
                 p = fmt["prec"]
                 cand = []
                 for (coef, exp, neg) in representative(name) + decades(name, fmt):
+                    # ADR-0033 directed-mode exact-output filter.
+                    if mode != "NearestAway" and _is_directed_exact_output_unary(
+                        name, coef, exp, neg, fmt
+                    ):
+                        continue
                     cand.append((coef, exp, neg))
                 scanned = []
                 for _ in range(TMD_SCAN_DIRECTED):
@@ -764,7 +819,13 @@ def emit():
         for mode in MODES_ALL:
             for fkey, fmt in FORMATS.items():
                 p = fmt["prec"]
-                cand = list(binary_representative(name))
+                # ADR-0033 directed-mode exact-output filter (binary).
+                cand = [
+                    (xt, yt)
+                    for (xt, yt) in binary_representative(name)
+                    if mode in ("NearestEven", "NearestAway")
+                    or not _is_directed_exact_output_binary(name, xt, yt, fmt)
+                ]
                 scanned = []
                 for _ in range(TMD_SCAN_BINARY):
                     if name == "pow":
