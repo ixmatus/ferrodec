@@ -37,6 +37,7 @@ import math
 import os
 import random
 import sys
+from collections import defaultdict
 from fractions import Fraction
 
 # Endpoint Fractions carry binary denominators up to 2^CAP_BITS
@@ -110,6 +111,30 @@ BINARY = ("atan2", "pow")
 # all three are seeded deterministically off the one SEED.
 SEED_DIRECTED = SEED ^ 0xD1EC7ED
 SEED_BINARY = SEED ^ 0xB17A12
+
+# ADR-0033 corpus-integrity gate. A `solve` / `solve_binary` call that
+# does not become decisive within `CAP_BITS` Arb working precision is
+# silently dropped from the scan (the worst-case-keeper sorts only the
+# decisive returns), so a TMD-hard candidate at the cap vanishes from
+# the corpus without trace. The counter below records every such drop;
+# the end-of-run summary in `emit` asserts the total is zero and exits
+# non-zero otherwise, so a silent corpus loss is impossible.
+_CAP_HITS = defaultdict(int)  # (name, fmt_label, mode) -> count
+_FMT_LABEL = {id(v): k for k, v in FORMATS.items()}
+
+
+def _record_cap_hit(name, fmt, mode, args_str):
+    """A `solve*` call exhausted `CAP_BITS` Arb precision without the
+    enclosure becoming decisive. Increment the per-(function, format,
+    mode) cap-hit counter and emit a single stderr line naming the
+    candidate so the corpus-integrity assert in `emit` can name what
+    was lost. ADR-0033."""
+    fmt_label = _FMT_LABEL.get(id(fmt), "?")
+    _CAP_HITS[(name, fmt_label, mode)] += 1
+    sys.stderr.write(
+        "cap-hit: %s %s %s %s bits=%d\n"
+        % (name, fmt_label, mode, args_str, CAP_BITS)
+    )
 
 
 def frac10(coef, exp):
@@ -468,6 +493,10 @@ def solve(name, fn, coef, exp, neg, fmt, mode="NearestEven"):
         if frac_of_point(b.lower()) is None or frac_of_point(b.upper()) is None:
             return None
         P *= 2
+    _record_cap_hit(
+        name, fmt, mode,
+        "coef=%s%d exp=%d" % ("-" if neg else "", coef, exp),
+    )
     return None
 
 
@@ -541,6 +570,11 @@ def solve_binary(name, fn2, xt, yt, fmt, mode):
         if frac_of_point(b.lower()) is None or frac_of_point(b.upper()) is None:
             return None
         P *= 2
+    _record_cap_hit(
+        name, fmt, mode,
+        "x=(coef=%s%d exp=%d) y=(coef=%s%d exp=%d)"
+        % ("-" if xn else "", xc, xe, "-" if yn else "", yc, ye),
+    )
     return None
 
 
@@ -780,6 +814,25 @@ def emit():
             f.write("\n".join(prov_lines))
             f.write("\n")
         sys.stderr.write("%-7s %d vectors\n" % (name, len(vec_lines)))
+
+    # ADR-0033 corpus-integrity assert. A non-zero cap-hits total means
+    # the corpus silently lost a TMD-hard candidate; either CAP_BITS
+    # needs raising for that candidate, or the candidate is genuinely
+    # TMD-hard at every reasonable Arb precision and the situation
+    # needs an explicit ADR-0033 addendum naming it. Exit non-zero so
+    # the operator cannot mistake the partial corpus for the full one.
+    total_cap_hits = sum(_CAP_HITS.values())
+    if total_cap_hits == 0:
+        sys.stderr.write("cap-hits: 0\n")
+        return
+    sys.stderr.write("cap-hits: %d total\n" % total_cap_hits)
+    for key in sorted(_CAP_HITS):
+        name, fmt_label, mode = key
+        sys.stderr.write(
+            "  %-7s %-4s %-15s : %d\n"
+            % (name, fmt_label, mode, _CAP_HITS[key])
+        )
+    sys.exit(1)
 
 
 CASES_PATH = os.path.join(
