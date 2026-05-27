@@ -544,13 +544,25 @@ def _decisive(b, fmt, mode):
     return (out_s, rad, _margin_mode(lo, p, mode))
 
 
-def solve(name, fn, coef, exp, neg, fmt, mode="NearestEven"):
+def solve(name, fn, coef, exp, neg, fmt, mode="NearestEven",
+          cap_bits=CAP_BITS, record_cap_hits=True):
     """Smallest Arb precision at which f(coef·10^exp) is decisive at
     the format precision under `mode`. Returns
     (output_str, P_bits, radius, margin) or None (out of domain, input
     not exactly representable, result out of range, or TMD-hard past
-    the cap). The NearestEven path is numerically identical to the
-    fd-cb6 generator."""
+    `cap_bits`). The NearestEven path is numerically identical to the
+    fd-cb6 generator.
+
+    `cap_bits` defaults to the module-level `CAP_BITS` for the
+    corpus-generator's existing behaviour; the ADR-0033 Slice B
+    exhaustive sweep tool overrides it to run a cheap fixed-precision
+    pre-screen (tier 1, low cap) before promoting narrow-margin
+    survivors to the full variable-precision pass (tier 2, full cap).
+
+    `record_cap_hits` defaults to True for the corpus generator's
+    integrity assert. The Slice B tier-1 pre-screen passes False
+    because a tier-1 non-decisive return means "promote to tier 2,"
+    not "silent corpus loss"; recording would conflate the two."""
     p = fmt["prec"]
     if not in_domain(name, coef, exp, neg, fmt):
         return None
@@ -566,7 +578,7 @@ def solve(name, fn, coef, exp, neg, fmt, mode="NearestEven"):
     # trig argument reduction loses ~3.33 bits per decimal digit of |x|
     extra = int(mag * 3.34) + 16 if name in TRIG else 16
     P = 64 + extra
-    while P <= CAP_BITS:
+    while P <= cap_bits:
         ctx.prec = P
         try:
             if name == "cbrt" and neg:
@@ -583,10 +595,11 @@ def solve(name, fn, coef, exp, neg, fmt, mode="NearestEven"):
         if frac_of_point(b.lower()) is None or frac_of_point(b.upper()) is None:
             return None
         P *= 2
-    _record_cap_hit(
-        name, fmt, mode,
-        "coef=%s%d exp=%d" % ("-" if neg else "", coef, exp),
-    )
+    if record_cap_hits:
+        _record_cap_hit(
+            name, fmt, mode,
+            "coef=%s%d exp=%d" % ("-" if neg else "", coef, exp),
+        )
     return None
 
 
@@ -614,9 +627,14 @@ def bin_in_domain(name, xt, yt):
     return True
 
 
-def solve_binary(name, fn2, xt, yt, fmt, mode):
+def solve_binary(name, fn2, xt, yt, fmt, mode,
+                 cap_bits=CAP_BITS, record_cap_hits=True):
     """Smallest Arb precision at which f(x, y) is decisive under
-    `mode`. Returns (output_str, P_bits, radius, margin) or None."""
+    `mode`. Returns (output_str, P_bits, radius, margin) or None.
+    `cap_bits` and `record_cap_hits` mirror the unary `solve`; see
+    its docstring for the ADR-0033 Slice B tier-1 / tier-2 rationale.
+    Binary cap-hits at Slice B scope are out of scope (the binary
+    surface stays on the ADR-0026 sampled corpus path per ADR-0033)."""
     (xc, xe, xn) = xt
     (yc, ye, yn) = yt
     if not bin_in_domain(name, xt, yt):
@@ -647,7 +665,7 @@ def solve_binary(name, fn2, xt, yt, fmt, mode):
     # pow: error ~ enters through y·ln x; atan2: axis cancellation.
     extra = int((xmag + ymag) * 3.34) + 32
     P = 64 + extra
-    while P <= CAP_BITS:
+    while P <= cap_bits:
         ctx.prec = P
         try:
             b = fn2(arb(x), arb(y))
@@ -660,6 +678,8 @@ def solve_binary(name, fn2, xt, yt, fmt, mode):
         if frac_of_point(b.lower()) is None or frac_of_point(b.upper()) is None:
             return None
         P *= 2
+    if not record_cap_hits:
+        return None
     _record_cap_hit(
         name, fmt, mode,
         "x=(coef=%s%d exp=%d) y=(coef=%s%d exp=%d)"
