@@ -71,6 +71,8 @@ corpus path).
 """
 
 import argparse
+import datetime
+import multiprocessing
 import os
 import sys
 import time
@@ -275,14 +277,348 @@ def cmd_list():
     )
 
 
-def cmd_sweep(args):
-    """Run the exhaustive sweep. Slice B C3-C4 implements this."""
-    # ADR-0033 Slice B C3 implements tier 1 + tier 2 + provenance emit.
-    raise NotImplementedError(
-        "Slice B C3 / C4: tier-1 pre-screen + tier-2 promotion + "
-        "per-function provenance emit. The scaffolding is in place; "
-        "the actual Arb sweep lands in the next commits."
+def enumerate_canonical_d32(name):
+    """Stream canonical Decimal32 (coef, exp, neg) triples in the
+    function's mathematical domain. Canonical means the coefficient
+    has no trailing zero (so each numeric value is yielded exactly
+    once by its shortest-coefficient encoding); cohorts of the same
+    value are de-duplicated.
+
+    The enumeration walks every canonical coefficient (1..10^p-1
+    with no trailing zero) and every exponent that keeps the
+    adjusted exponent in [emin, emax] (normal range; subnormals are
+    skipped to match `representable`'s existing rule, the same
+    scope as the ADR-0026 corpus). The in-domain filter is the
+    shared `gtv.in_domain` predicate, with the ADR-0033 Slice A
+    format-dependent bound for exp/sinh/cosh/exp2."""
+    fmt = gtv.FORMATS["d32"]
+    p = fmt["prec"]
+    emin, emax = fmt["emin"], fmt["emax"]
+    for coef in range(1, 10 ** p):
+        # Canonical: no trailing zero (or single-digit, where the
+        # "trailing zero" notion is vacuous).
+        if coef >= 10 and coef % 10 == 0:
+            continue
+        d = len(str(coef))
+        # Adjusted exponent = exp + d - 1; constrain to [emin, emax].
+        exp_low = emin - d + 1
+        exp_high = emax - d + 1
+        for exp in range(exp_low, exp_high + 1):
+            for neg in (False, True):
+                if gtv.in_domain(name, coef, exp, neg, fmt):
+                    yield (coef, exp, neg)
+
+
+# --- multiprocessing workers (top-level for pickle compatibility) ---
+#
+# The worker pool uses 'spawn' (default on macOS); each child re-imports
+# `gen_transcend_vectors` and the lambda-based FUNCS, which is fine
+# because the lambdas live in module scope. We pass the function name
+# (string) across the pipe and the worker looks up FUNCS[name] locally;
+# lambdas themselves are not picklable through `imap_unordered`. The
+# Pool initializer binds Arb in each worker process via gtv's lazy
+# loader so the first `solve` call does not crash on `NameError`.
+
+def _worker_init():
+    """Pool initializer: bind Arb (`arb`, `ctx`, `fmpq`) as module
+    globals in `gen_transcend_vectors` for this worker process. The
+    gtv module's `_require_flint` is the canonical loader; calling
+    it here saves the first-call overhead in every worker invocation
+    and avoids the `NameError: name 'fmpq' is not defined` that
+    otherwise surfaces inside `solve`'s call chain."""
+    gtv._require_flint()
+
+
+def _tier1_worker(args):
+    """Tier-1 pre-screen worker. Returns (coef, exp, neg, status, margin)
+    where status is 'decisive' (margin valid) or 'promote' (margin
+    None, candidate needs tier 2). 'promote' means the Arb ball did
+    not become decisive within `cap_bits` precision, so the candidate
+    is a tier-2 survivor; record_cap_hits=False keeps the gtv
+    integrity counter clean (a tier-1 non-decisive is not a corpus
+    loss, it's a promotion)."""
+    name, coef, exp, neg, cap_bits = args
+    fmt = gtv.FORMATS["d32"]
+    fn = gtv.FUNCS[name]
+    r = gtv.solve(
+        name, fn, coef, exp, neg, fmt, "NearestEven",
+        cap_bits=cap_bits, record_cap_hits=False,
     )
+    if r is None:
+        # In-domain + representable pre-checked by the enumerator;
+        # `solve` returns None here iff the cap was reached.
+        return (coef, exp, neg, "promote", None)
+    out_s, P, rad, margin = r
+    return (coef, exp, neg, "decisive", margin)
+
+
+def _tier2_worker(args):
+    """Tier-2 variable-precision survival worker. Returns
+    (coef, exp, neg, status, margin) where status is 'resolved'
+    (margin valid, decisive at some precision <= CAP_BITS) or
+    'tmd_hard' (margin None, decisive at no precision through
+    CAP_BITS). The CAP_BITS ceiling is the gtv module default."""
+    name, coef, exp, neg = args
+    fmt = gtv.FORMATS["d32"]
+    fn = gtv.FUNCS[name]
+    r = gtv.solve(
+        name, fn, coef, exp, neg, fmt, "NearestEven",
+        cap_bits=gtv.CAP_BITS, record_cap_hits=False,
+    )
+    if r is None:
+        return (coef, exp, neg, "tmd_hard", None)
+    out_s, P, rad, margin = r
+    return (coef, exp, neg, "resolved", margin)
+
+
+def _format_input(coef, exp, neg):
+    return "%s%de%d" % ("-" if neg else "", coef, exp)
+
+
+def _format_duration(seconds):
+    h, rem = divmod(int(seconds), 3600)
+    m, s = divmod(rem, 60)
+    return "%dh %dm %ds" % (h, m, s)
+
+
+def sweep_function(name, tier1_cap_bits, workers, limit, out_dir, run_tier1, run_tier2):
+    """Run the exhaustive sweep for one function. Returns a dict of
+    per-tier statistics + worst-case row + tmd_hard list. Writes the
+    provenance file `<out_dir>/<name>_d32_exhaustive.prov`."""
+    sys.stderr.write(
+        "=== %s: exhaustive Decimal32 sweep ===\n" % name
+    )
+    sys.stderr.write(
+        "  tier-1 cap bits: %d; tier-2 cap bits: %d\n"
+        % (tier1_cap_bits, gtv.CAP_BITS)
+    )
+    sys.stderr.write("  workers: %d\n" % workers)
+    if limit is not None:
+        sys.stderr.write("  limit: %d (dry-run mode)\n" % limit)
+
+    t0 = time.monotonic()
+
+    # --- Tier 1: cheap fixed-precision pre-screen ---
+    tier1_decisive = 0
+    tier2_candidates = []
+    worst_margin = float("inf")
+    worst_input = None
+    worst_tier = None
+
+    def _stream_args():
+        n = 0
+        for (coef, exp, neg) in enumerate_canonical_d32(name):
+            if limit is not None and n >= limit:
+                return
+            n += 1
+            yield (name, coef, exp, neg, tier1_cap_bits)
+
+    if run_tier1:
+        sys.stderr.write("  tier 1 (pre-screen)...\n")
+        with multiprocessing.Pool(workers, initializer=_worker_init) as pool:
+            t1_start = time.monotonic()
+            n_processed = 0
+            last_report = t1_start
+            for (coef, exp, neg, status, margin) in pool.imap_unordered(
+                _tier1_worker, _stream_args(), chunksize=5000,
+            ):
+                n_processed += 1
+                if status == "decisive":
+                    tier1_decisive += 1
+                    if margin < worst_margin:
+                        worst_margin = margin
+                        worst_input = (coef, exp, neg)
+                        worst_tier = 1
+                elif status == "promote":
+                    tier2_candidates.append((coef, exp, neg))
+                # Progress report every 30 seconds.
+                now = time.monotonic()
+                if now - last_report >= 30.0:
+                    rate = n_processed / (now - t1_start)
+                    sys.stderr.write(
+                        "    tier-1: %s processed, %s decisive, %s promoted (%.0f cand/s)\n"
+                        % (
+                            f"{n_processed:_}",
+                            f"{tier1_decisive:_}",
+                            f"{len(tier2_candidates):_}",
+                            rate,
+                        )
+                    )
+                    last_report = now
+            t1_wall = time.monotonic() - t1_start
+            sys.stderr.write(
+                "    tier-1 done: %s candidates in %s (%.0f cand/s); "
+                "%s decisive, %s promoted to tier 2\n"
+                % (
+                    f"{n_processed:_}",
+                    _format_duration(t1_wall),
+                    n_processed / t1_wall if t1_wall > 0 else 0,
+                    f"{tier1_decisive:_}",
+                    f"{len(tier2_candidates):_}",
+                )
+            )
+
+    # --- Tier 2: variable-precision survival ---
+    tier2_resolved = 0
+    tmd_hard = []
+
+    if run_tier2 and tier2_candidates:
+        sys.stderr.write(
+            "  tier 2 (variable precision on %s survivors)...\n"
+            % f"{len(tier2_candidates):_}"
+        )
+        with multiprocessing.Pool(workers, initializer=_worker_init) as pool:
+            t2_start = time.monotonic()
+            for (coef, exp, neg, status, margin) in pool.imap_unordered(
+                _tier2_worker,
+                ((name, c, e, n) for (c, e, n) in tier2_candidates),
+                chunksize=100,
+            ):
+                if status == "resolved":
+                    tier2_resolved += 1
+                    if margin < worst_margin:
+                        worst_margin = margin
+                        worst_input = (coef, exp, neg)
+                        worst_tier = 2
+                elif status == "tmd_hard":
+                    tmd_hard.append((coef, exp, neg))
+            t2_wall = time.monotonic() - t2_start
+            sys.stderr.write(
+                "    tier-2 done: %s resolved, %s TMD-hard in %s\n"
+                % (
+                    f"{tier2_resolved:_}",
+                    f"{len(tmd_hard):_}",
+                    _format_duration(t2_wall),
+                )
+            )
+
+    total_wall = time.monotonic() - t0
+    n_total = tier1_decisive + len(tier2_candidates)
+
+    # --- Emit per-function provenance ---
+    out_path = out_dir / ("%s_d32_exhaustive.prov" % name)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    with open(out_path, "w") as f:
+        f.write(
+            "# Exhaustive Decimal32 sweep for `%s` (ADR-0033, fd-ykr.2).\n"
+            "# Tool: tools/d32_exhaustive_sweep.py\n"
+            "# Generated: %s\n"
+            "# Wall time: %s\n"
+            "# Inputs evaluated: %s\n"
+            "# Tier 1 cap bits: %d; tier 2 cap bits: %d\n"
+            "# Tier 1 decisive: %s (%.4f%%)\n"
+            "# Tier 2 promoted: %s\n"
+            "# Tier 2 resolved: %s\n"
+            "# TMD-hard at CAP_BITS=%d: %s\n"
+            "# Limit: %s\n"
+            "#\n"
+            % (
+                name,
+                datetime.date.today().isoformat(),
+                _format_duration(total_wall),
+                f"{n_total:_}",
+                tier1_cap_bits,
+                gtv.CAP_BITS,
+                f"{tier1_decisive:_}",
+                (100.0 * tier1_decisive / n_total) if n_total > 0 else 0.0,
+                f"{len(tier2_candidates):_}",
+                f"{tier2_resolved:_}",
+                gtv.CAP_BITS,
+                f"{len(tmd_hard):_}",
+                "none (full sweep)" if limit is None else f"{limit:_} (dry-run)",
+            )
+        )
+        if worst_input is not None:
+            coef, exp, neg = worst_input
+            f.write(
+                "# Worst-case half-ULP margin (NearestEven, Decimal32):\n"
+                "7 NearestEven %s margin=%.6e tier=%d\n"
+                "#\n"
+                % (_format_input(coef, exp, neg), worst_margin, worst_tier)
+            )
+        else:
+            f.write("# Worst-case half-ULP margin: NO INPUTS PROCESSED\n#\n")
+        if tmd_hard:
+            f.write(
+                "# TMD-hard candidates (%d, did not become decisive at CAP_BITS=%d):\n"
+                % (len(tmd_hard), gtv.CAP_BITS)
+            )
+            for (coef, exp, neg) in sorted(tmd_hard):
+                f.write("#   %s\n" % _format_input(coef, exp, neg))
+        else:
+            f.write("# TMD-hard candidates: none\n")
+
+    sys.stderr.write(
+        "  → %s (worst margin=%.6e at %s, tier %s; wall=%s)\n"
+        % (
+            out_path.name,
+            worst_margin if worst_input is not None else float("nan"),
+            _format_input(*worst_input) if worst_input is not None else "(none)",
+            worst_tier,
+            _format_duration(total_wall),
+        )
+    )
+    return {
+        "name": name,
+        "inputs": n_total,
+        "tier1_decisive": tier1_decisive,
+        "tier2_promoted": len(tier2_candidates),
+        "tier2_resolved": tier2_resolved,
+        "tmd_hard": len(tmd_hard),
+        "worst_margin": worst_margin if worst_input is not None else None,
+        "worst_input": worst_input,
+        "worst_tier": worst_tier,
+        "wall_seconds": total_wall,
+    }
+
+
+def cmd_sweep(args):
+    """Run the exhaustive sweep across the selected functions."""
+    # `_require_flint` binds Arb in the parent (needed for any direct
+    # Arb call in the parent process; workers re-import and re-bind
+    # via gtv's lazy loader on first call).
+    gtv._require_flint()
+
+    funcs = args.func if args.func else list(UNARY_FUNCTIONS)
+    run_tier1 = args.tier in ("1", "all")
+    run_tier2 = args.tier in ("2", "all")
+
+    sys.stderr.write(
+        "ADR-0033 Slice B exhaustive Decimal32 sweep: %d function%s\n"
+        % (len(funcs), "" if len(funcs) == 1 else "s")
+    )
+
+    results = []
+    for name in funcs:
+        r = sweep_function(
+            name,
+            tier1_cap_bits=args.tier1_cap_bits,
+            workers=args.workers,
+            limit=args.limit,
+            out_dir=args.out,
+            run_tier1=run_tier1,
+            run_tier2=run_tier2,
+        )
+        results.append(r)
+
+    # Final summary table.
+    sys.stderr.write("\n=== Summary ===\n")
+    sys.stderr.write(
+        "%-10s %-15s %-12s %-10s %-10s %s\n"
+        % ("function", "inputs", "worst margin", "tier", "tmd-hard", "wall")
+    )
+    for r in results:
+        sys.stderr.write(
+            "%-10s %15s  %-12s %-10s %-10s %s\n"
+            % (
+                r["name"],
+                f"{r['inputs']:_}",
+                "%.4e" % r["worst_margin"] if r["worst_margin"] is not None else "(none)",
+                str(r["worst_tier"]) if r["worst_tier"] is not None else "-",
+                f"{r['tmd_hard']:_}",
+                _format_duration(r["wall_seconds"]),
+            )
+        )
 
 
 def main():
