@@ -1,0 +1,5 @@
+# ADR-0033 Plan C4 exhaustive sweep worst-case row for `atanh`.
+# Re-derived proven correctly-rounded value via Arb at P=80 bits.
+# Source: tests/vectors/transcend/atanh_d32_exhaustive.prov
+# Tool: tools/d32_exhaustive_compute_outputs.py
+7 NearestEven 6085038e-7 7.065420e-1
