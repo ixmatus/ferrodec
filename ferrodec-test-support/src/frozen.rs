@@ -116,3 +116,65 @@ pub fn load(prec: u32) -> Vec<FrozenVec> {
     });
     out
 }
+
+/// Every exhaustive-sweep worst-case vector (ADR-0033 Plan C4, fd-ykr.4)
+/// for `prec` significant digits. Loads from the
+/// `tests/vectors/transcend/exhaustive/` subdirectory; each `<fn>.txt`
+/// there carries one line: the input that achieved the smallest
+/// half-ULP margin across the function's full canonical Decimal32
+/// input set, paired with the proven correctly-rounded output. The
+/// file format and line format match the sampled corpus's
+/// `<fn>.txt`; the subdirectory placement keeps the existing `load`
+/// loader unaware (so the default frozen test continues to assert
+/// against the sampled corpus only).
+///
+/// Panics if the exhaustive subdirectory is missing, matching the
+/// `load` semantics: the absence of checked-in data is a real
+/// breakage, not a skip.
+#[must_use]
+pub fn load_exhaustive(prec: u32) -> Vec<FrozenVec> {
+    let dir = corpus_dir().join("exhaustive");
+    let mut out = Vec::new();
+    let mut files: Vec<PathBuf> = fs::read_dir(&dir)
+        .unwrap_or_else(|e| panic!("exhaustive corpus directory {}: {e}", dir.display()))
+        .filter_map(Result::ok)
+        .map(|e| e.path())
+        .filter(|p| p.extension().and_then(|s| s.to_str()) == Some("txt"))
+        .collect();
+    files.sort();
+    let want = prec.to_string();
+    for path in files {
+        let func = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .expect("exhaustive corpus file stem")
+            .to_string();
+        let text = fs::read_to_string(&path).expect("read exhaustive corpus file");
+        for line in text.lines() {
+            if line.starts_with('#') || line.is_empty() {
+                continue;
+            }
+            // Same `<prec> <mode> <input> <output>` unary format as
+            // the sampled corpus (binary surface is out of scope for
+            // ADR-0033 Plan C4).
+            let mut it = line.split_whitespace();
+            let Some(p) = it.next() else { continue };
+            if p != want {
+                continue;
+            }
+            let rest: Vec<&str> = it.collect();
+            let [mode, input, output] = rest.as_slice() else {
+                panic!("malformed exhaustive line in {}: {line:?}", path.display());
+            };
+            out.push(FrozenVec {
+                func: func.clone(),
+                mode: (*mode).to_string(),
+                input: (*input).to_string(),
+                input2: None,
+                output: (*output).to_string(),
+            });
+        }
+    }
+    out.sort_by(|a, b| (&a.func, &a.input).cmp(&(&b.func, &b.input)));
+    out
+}

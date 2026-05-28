@@ -1,0 +1,5 @@
+# ADR-0033 Plan C4 exhaustive sweep worst-case row for `tan`.
+# Re-derived proven correctly-rounded value via Arb at P=293 bits.
+# Source: tests/vectors/transcend/tan_d32_exhaustive.prov
+# Tool: tools/d32_exhaustive_compute_outputs.py
+7 NearestEven 840978e59 2.849937e0
