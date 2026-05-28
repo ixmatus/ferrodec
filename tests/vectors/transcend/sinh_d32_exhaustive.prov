@@ -1,0 +1,16 @@
+# Exhaustive Decimal32 sweep for `sinh` (ADR-0033, fd-ykr.2).
+# Tool: tools/d32_exhaustive_sweep.py
+# Generated: 2026-05-28
+# Wall time: 0h 51m 1s
+# Inputs evaluated: 1_747_511_698
+# Tier 1 cap bits: 512; tier 2 cap bits: 65536
+# Tier 1 decisive: 1_747_511_698 (100.0000%)
+# Tier 2 promoted: 0
+# Tier 2 resolved: 0
+# TMD-hard at CAP_BITS=65536: 0
+# Limit: none (full sweep)
+#
+# Worst-case half-ULP margin (NearestEven, Decimal32):
+7 NearestEven -4426808e-7 margin=1.243979e-08 tier=1
+#
+# TMD-hard candidates: none
