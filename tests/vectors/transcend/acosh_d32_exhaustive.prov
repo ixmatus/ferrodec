@@ -1,0 +1,17 @@
+# Exhaustive Decimal32 sweep for `acosh` (ADR-0033, fd-ykr.2).
+# Tool: tools/d32_exhaustive_sweep.py
+# Generated: 2026-05-28
+# Wall time: 0h 21m 25s
+# Inputs evaluated: 873_000_000
+# Tier 1 cap bits: 512; tier 2 cap bits: 65536
+# Tier 1 decisive: 872_999_999 (100.0000%)
+# Tier 2 promoted: 1
+# Tier 2 resolved: 0
+# TMD-hard at CAP_BITS=65536: 1
+# Limit: none (full sweep)
+#
+# Worst-case half-ULP margin (NearestEven, Decimal32):
+7 NearestEven 2102146e38 margin=1.528369e-10 tier=1
+#
+# TMD-hard candidates (1, did not become decisive at CAP_BITS=65536):
+#   1e0
