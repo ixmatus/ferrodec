@@ -14,14 +14,22 @@
 //! supersedes ADR-0024's faithful contract). Derived from `exp` and
 //! `ln` via three composition steps (one `ln`, one division by 3,
 //! one `exp`); the bound is the worse of the `exp` and `ln` bounds
-//! plus the composition rounding. The Arb empirical worst case half
-//! ULP margins from `tests/vectors/transcend/cbrt.prov` (ADR-0026,
-//! fd-97a) are `3.339e-4` at `Decimal32`, `3.411e-4` at `Decimal64`,
-//! and `2.942e-4` at `Decimal128`. The 50 digit kernel clears the
-//! smallest margin by more than thirty orders of magnitude on every
-//! format. The directed mode handling at `eff_rm` reflects the
-//! rounding for negative arguments (fd-r5m); the bound holds for
-//! every IEEE 754 directed mode.
+//! plus the composition rounding. The worst case half ULP margins
+//! per format precision are `2.102016e-08` at `Decimal32` (proven
+//! across the full canonical Decimal32 input set by the ADR-0033
+//! Plan C4 exhaustive Arb sweep at input `-3.804522e-87`;
+//! `tests/vectors/transcend/exhaustive/cbrt.txt`), `3.411e-4` at
+//! `Decimal64`, and `2.942e-4` at `Decimal128` (both sampled corpus
+//! minima from `tests/vectors/transcend/cbrt.prov`, ADR-0026
+//! fd-97a). The 50 digit kernel clears the smallest margin by more
+//! than thirty orders of magnitude on every format. The directed
+//! mode handling at `eff_rm` reflects the rounding for negative
+//! arguments (fd-r5m); the bound holds for every IEEE 754 directed
+//! mode. cbrt has no TMD hard candidates in the canonical
+//! enumeration: cbrt(1) = 1 and cube roots of perfect cubes
+//! (cbrt(8), cbrt(27), ...) all resolve decisively at low Arb
+//! precision because the certified ball is centred well inside the
+//! format's range, not at the underflow boundary.
 
 use crate::exp::exp_from_extended;
 use crate::format::DecimalFormat;

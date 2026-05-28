@@ -38,33 +38,73 @@
 //! (`sinh`, `cosh`, `tanh`) derives through `exp` (two evaluations
 //! at `±x` plus the combining arithmetic); the inverse family
 //! (`asinh`, `acosh`, `atanh`) derives through `ln` (plus the
-//! sqrt or fraction inside). The Arb empirical worst case half ULP
-//! margins from the per function provenance files (ADR-0026,
-//! fd-97a) are:
+//! sqrt or fraction inside). The worst case half ULP margins per
+//! format precision are:
 //!
-//! - `sinh.prov`: `7.259e-3` at `Decimal32`, `3.166e-3` at
+//! - `sinh`: `1.243979e-08` at `Decimal32` (ADR-0033 Plan C4
+//!   exhaustive sweep at input `-0.4426808`;
+//!   `tests/vectors/transcend/exhaustive/sinh.txt`), `3.166e-3` at
 //!   `Decimal64`, `1.648e-2` at `Decimal128`.
-//! - `cosh.prov`: `4.167e-8` at `Decimal32`, `4.044e-2` at
-//!   `Decimal64`, `4.372e-3` at `Decimal128`.
-//! - `tanh.prov`: `8.363e-3` at `Decimal32`, `7.198e-3` at
-//!   `Decimal64`, `2.550e-3` at `Decimal128`.
-//! - `asinh.prov`: `4.958e-4` at `Decimal32`, `8.484e-4` at
-//!   `Decimal64`, `1.752e-3` at `Decimal128`.
-//! - `acosh.prov`: `1.192e-3` at `Decimal32`, `2.755e-5` at
+//! - `cosh`: `3.515891e-08` at `Decimal32` (Plan C4 exhaustive at
+//!   `9.848818e-3`), `4.044e-2` at `Decimal64`, `4.372e-3` at
+//!   `Decimal128`. Note: `cosh`'s exhaustive sweep tightens the
+//!   sampled corpus minimum (`4.167e-8`) only by roughly 20
+//!   percent; the sampled corpus's random TMD search happened to
+//!   capture a candidate close to the true worst case by luck. The
+//!   other functions in this family tighten by 4 to 7 orders of
+//!   magnitude under Plan C4. `cosh` is the campaign's single
+//!   sampled-corpus-already-near-optimal outlier.
+//! - `tanh`: `6.460895e-09` at `Decimal32` (Plan C4 exhaustive at
+//!   `8.752195`), `7.198e-3` at `Decimal64`, `2.550e-3` at
+//!   `Decimal128`.
+//! - `asinh`: `1.528369e-10` at `Decimal32` (Plan C4 exhaustive at
+//!   `2.102146e44`), `8.484e-4` at `Decimal64`, `1.752e-3` at
+//!   `Decimal128`. The `Decimal32` worst case input is
+//!   byte-identical to `acosh`'s (next item) because both reduce
+//!   to ~`ln(2x)` for large positive `x` and the hardest case is
+//!   shared by structure; the proven kernel output at that input
+//!   is the same value `1.027499e2`.
+//! - `acosh`: `1.528369e-10` at `Decimal32` (Plan C4 exhaustive at
+//!   `2.102146e44`, byte-identical to `asinh`), `2.755e-5` at
 //!   `Decimal64`, `1.844e-3` at `Decimal128`.
-//! - `atanh.prov`: `6.535e-5` at `Decimal32`, `1.113e-3` at
-//!   `Decimal64`, `6.005e-3` at `Decimal128`.
+//! - `atanh`: `3.956666e-08` at `Decimal32` (Plan C4 exhaustive at
+//!   `0.6085038`), `1.113e-3` at `Decimal64`, `6.005e-3` at
+//!   `Decimal128`.
 //!
-//! The smallest margin in the entire transcend corpus is `cosh`'s
-//! `4.167e-8` at `Decimal32`. At 50 digit kernel working precision
-//! the cumulative error is bounded by `K · 10^(p − 50)` with `K`
-//! the operation count (under ~150 for any of these functions); at
-//! `Decimal32` (`p = 7`) this is `≤ 1.5e-41`, which clears the
-//! `cosh` margin by more than thirty orders of magnitude. The
-//! `|x| < 0.5` direct Taylor branch for `sinh` is precisely the
-//! cancellation avoidance the bound depends on. The shared error
-//! model lives in ADR-0032 §Decision; the corpus test is the
-//! standing empirical witness.
+//! The `Decimal32` figures are proven correctly rounded across the
+//! full canonical input set by Arb; the `Decimal64` and `Decimal128`
+//! figures are sampled corpus minima from
+//! `tests/vectors/transcend/{sinh,cosh,tanh,asinh,acosh,atanh}.prov`
+//! (ADR-0026 fd-97a) under the ADR-0033 Slice A corpus integrity
+//! discipline.
+//!
+//! The tightest empirical margin across the campaign is the
+//! `asinh`/`acosh` shared `1.528369e-10`. At 50 digit kernel working
+//! precision the cumulative error is bounded by `K · 10^(p − 50)`
+//! with `K` the operation count (under ~150 for any of these
+//! functions); at `Decimal32` (`p = 7`) this is `≤ 1.5e-41`, which
+//! clears the tightest margin by more than thirty orders of
+//! magnitude. The `|x| < 0.5` direct Taylor branch for `sinh` is
+//! precisely the cancellation avoidance the bound depends on.
+//!
+//! `acosh` has one TMD hard candidate at input `1`: `acosh(1) = 0`
+//! exactly. The certified Arb ball around the true value 0 has
+//! nonzero radius at every Arb precision and straddles the format's
+//! underflow boundary, so `_decisive` cannot resolve. The kernel
+//! short circuits `acosh(1)` to 0 exactly; this is an oracle side
+//! limitation, not a kernel defect. The other five functions in
+//! this family have no TMD hard candidates: `sinh(0)`, `cosh(0)`,
+//! `tanh(0)`, `asinh(0)` are all zero or one but coef = 0 is not
+//! in the canonical enumeration; `atanh(0) = 0` similarly; and the
+//! function values at nonzero canonical inputs are transcendental.
+//!
+//! The shared error model lives in ADR-0032 §Decision; the sampled
+//! corpus test, the ADR-0033 exhaustive worst case kernel
+//! verification gate
+//! (`ferrodec-decimal32/tests/transcend_vectors_exhaustive.rs`,
+//! 18/18 exact), and the MPFR cross-validation gate
+//! (`ferrodec-test-support/tests/mpfr_gate.rs`, 0 disagreements)
+//! are the empirical witnesses.
 
 use crate::exp::exp_extended;
 use crate::extended::Extended;

@@ -36,18 +36,33 @@
 //! ## Accuracy
 //!
 //! Correctly rounded across each function's domain (ADR-0032;
-//! supersedes ADR-0024's faithful contract). The Arb empirical
-//! worst case half ULP margins from the per function provenance
-//! files (ADR-0026, fd-97a) are:
+//! supersedes ADR-0024's faithful contract). The worst case half
+//! ULP margins per format precision are:
 //!
-//! - `atan.prov`: `1.177e-2` at `Decimal32`, `4.038e-4` at
+//! - `atan`: `6.577106e-09` at `Decimal32` (ADR-0033 Plan C4
+//!   exhaustive sweep at input `-29.33065`;
+//!   `tests/vectors/transcend/exhaustive/atan.txt`), `4.038e-4` at
 //!   `Decimal64`, `1.242e-3` at `Decimal128`.
-//! - `asin.prov`: `8.427e-4` at `Decimal32`, `3.553e-4` at
-//!   `Decimal64`, `1.052e-3` at `Decimal128`.
-//! - `acos.prov`: `9.306e-4` at `Decimal32`, `7.313e-4` at
-//!   `Decimal64`, `6.409e-3` at `Decimal128`.
-//! - `atan2.prov`: `1.602e-3` at `Decimal32`, `3.017e-3` at
-//!   `Decimal64`, `3.701e-3` at `Decimal128`.
+//! - `asin`: `1.138763e-08` at `Decimal32` (Plan C4 exhaustive at
+//!   `6.694329e-4`), `3.553e-4` at `Decimal64`, `1.052e-3` at
+//!   `Decimal128`.
+//! - `acos`: `2.328715e-09` at `Decimal32` (Plan C4 exhaustive at
+//!   `8.288267e-4`), `7.313e-4` at `Decimal64`, `6.409e-3` at
+//!   `Decimal128`.
+//! - `atan2`: `1.602e-3` at `Decimal32`, `3.017e-3` at `Decimal64`,
+//!   `3.701e-3` at `Decimal128` (all sampled corpus minima from
+//!   `tests/vectors/transcend/atan2.prov`, ADR-0026 fd-97a; `atan2`
+//!   is binary and was excluded from the ADR-0033 Plan C4 unary
+//!   exhaustive sweep per the §Rejected alternatives — its 10^16
+//!   canonical Decimal32 input pair cardinality is beyond
+//!   exhaustive reach and it stays on the sampled corpus path).
+//!
+//! The `Decimal32` figures for the unary functions are proven
+//! correctly rounded across the full canonical input set by Arb;
+//! the `Decimal64` and `Decimal128` figures are sampled corpus
+//! minima from `tests/vectors/transcend/{atan,asin,acos}.prov`
+//! (ADR-0026 fd-97a) under the ADR-0033 Slice A corpus integrity
+//! discipline.
 //!
 //! At 50 digit kernel working precision, the cumulative two stage
 //! argument reduction and Taylor series error (`atan`) and the
@@ -56,8 +71,23 @@
 //! `asin` near `|x| = 1` uses the numerically stable
 //! `2 · atan(x / (1 + sqrt(1 − x²)))` form so the cancellation
 //! that would otherwise tighten the bound is structurally absent.
-//! The shared error model lives in ADR-0032 §Decision; the corpus
-//! test is the standing empirical witness.
+//!
+//! None of `atan`, `asin`, `acos` has a TMD hard candidate in the
+//! Plan C4 enumeration. `asin(0) = 0`, `atan(0) = 0`, `acos(1) = 0`
+//! are all exact representable outputs that would hit the
+//! Arb-ball-spans-zero pattern, but `asin` and `atan` skip
+//! coef = 0 in the canonical enumeration and `acos`'s UNIT domain
+//! is strictly `|x| < 1`, so `x = 1` is not tested. (Compare
+//! `acosh` in [`crate::hyperbolic`], whose domain `x ≥ 1`
+//! includes `x = 1` and which does hit the TMD hard pattern.)
+//!
+//! The shared error model lives in ADR-0032 §Decision; the sampled
+//! corpus test, the ADR-0033 exhaustive worst case kernel
+//! verification gate
+//! (`ferrodec-decimal32/tests/transcend_vectors_exhaustive.rs`,
+//! 18/18 exact), and the MPFR cross-validation gate
+//! (`ferrodec-test-support/tests/mpfr_gate.rs`, 0 disagreements)
+//! are the empirical witnesses.
 
 use crate::consts::{pi_ext, pi_over_four_ext, pi_over_two_ext, tan_pi_over_eight_ext};
 use crate::extended::Extended;

@@ -30,16 +30,25 @@
 //! the domain short circuit to ±∞ / ±0 with the appropriate IEEE 754
 //! flags.
 //!
-//! The Arb empirical worst case half ULP margin from
-//! `tests/vectors/transcend/exp.prov` (ADR-0026, fd-97a) is
-//! `1.667e-4` at `Decimal32` precision, `5.159e-2` at `Decimal64`
-//! precision, and `3.442e-2` at `Decimal128` precision. The kernel
-//! runs at 50 decimal digits (`EXT_PRECISION` in `extended.rs`),
-//! which clears the smallest margin by more than thirty orders of
-//! magnitude on every format. The shared error model and the per
-//! format headroom derivation live in ADR-0032 §Decision; the
-//! corpus test (`tests/transcend_vectors.rs`) is the standing
-//! empirical witness.
+//! The worst case half ULP margins per format precision are
+//! `5.350453e-09` at `Decimal32` (proven across the full canonical
+//! Decimal32 input set by the ADR-0033 Plan C4 exhaustive Arb sweep
+//! at input `2.408597e-3`;
+//! `tests/vectors/transcend/exhaustive/exp.txt`), `5.159e-2` at
+//! `Decimal64`, and `3.442e-2` at `Decimal128` (both sampled corpus
+//! minima from `tests/vectors/transcend/exp.prov`, ADR-0026 fd-97a).
+//! The kernel runs at 50 decimal digits (`EXT_PRECISION` in
+//! `extended.rs`), which clears the smallest margin by more than
+//! thirty orders of magnitude on every format. The shared error
+//! model and the per format headroom derivation live in ADR-0032
+//! §Decision; the sampled corpus test (`tests/transcend_vectors.rs`),
+//! the ADR-0033 exhaustive worst case kernel verification
+//! (`ferrodec-decimal32/tests/transcend_vectors_exhaustive.rs`,
+//! 18/18 exact), and the MPFR cross-validation gate
+//! (`ferrodec-test-support/tests/mpfr_gate.rs`, 0 disagreements)
+//! are the empirical witnesses. `exp` has no TMD hard candidates:
+//! `exp(0) = 1` is handled by the zero short circuit and is not in
+//! the canonical sweep enumeration.
 
 use crate::consts::{inv_ln10_ext, ln10_ext, ln2_ext};
 use crate::extended::Extended;
@@ -75,11 +84,19 @@ pub fn exp_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
 ///
 /// Correctly rounded across the supported domain (ADR-0032). Derived
 /// from `exp` via a single composition step; the bound is the `exp`
-/// bound plus one composition rounding. The Arb empirical worst case
-/// half ULP margins from `tests/vectors/transcend/exp2.prov`
-/// (ADR-0026, fd-97a) are `1.665e-2` at `Decimal32`, `3.515e-2` at
-/// `Decimal64`, and `2.015e-2` at `Decimal128`, all cleared by the
-/// composed bound by more than thirty orders of magnitude.
+/// bound plus one composition rounding. The ADR-0033 Plan C4
+/// exhaustive `Decimal32` worst case is `exp2(-11) = 1/2048 =
+/// 4.882812e-4` exactly (`tests/vectors/transcend/exhaustive/exp2.txt`);
+/// the half ULP margin is exactly 0 because the true value sits
+/// exactly at a NearestEven tie. NE ties-to-even resolves decisively
+/// (rounds to the even significand `4.882812e-4` over odd
+/// `4.882813e-4`), so this is the tightest possible NE constraint
+/// for any function in the family rather than TMD hard. The kernel
+/// produces the tie value exactly. Sampled corpus minima
+/// (`tests/vectors/transcend/exp2.prov`, ADR-0026 fd-97a) are
+/// `3.515e-2` at `Decimal64` and `2.015e-2` at `Decimal128`, both
+/// cleared by the composed bound by more than thirty orders of
+/// magnitude.
 pub fn exp2_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
     match x.classify() {
         Class::SignalingNaN { .. } => return (x.nan_from(), Status::INVALID),

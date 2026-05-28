@@ -33,22 +33,42 @@
 //! ## Accuracy
 //!
 //! Correctly rounded across the function's domain (ADR-0032;
-//! supersedes ADR-0024's faithful contract). The Arb empirical worst
-//! case half ULP margin from `tests/vectors/transcend/ln.prov`
-//! (ADR-0026, fd-97a) is `3.333e-7` at `Decimal32` precision,
-//! `2.037e-3` at `Decimal64` precision, and `4.227e-4` at
-//! `Decimal128` precision. The 50 digit kernel clears the smallest
-//! margin by more than thirty orders of magnitude on every format.
-//! The shared error model lives in ADR-0032 §Decision; the corpus
-//! test is the standing empirical witness.
+//! supersedes ADR-0024's faithful contract). The worst case half ULP
+//! margins per format precision are `8.119691e-11` at `Decimal32`
+//! (proven across the full canonical Decimal32 input set by the
+//! ADR-0033 Plan C4 exhaustive Arb sweep at input `6.436357e-29`;
+//! `tests/vectors/transcend/exhaustive/ln.txt`), `2.037e-3` at
+//! `Decimal64`, and `4.227e-4` at `Decimal128` (both sampled corpus
+//! minima from `tests/vectors/transcend/ln.prov`, ADR-0026 fd-97a;
+//! `Decimal64` and `Decimal128`'s ~10^18 and ~10^36 canonical input
+//! cardinalities are beyond exhaustive reach). The 50 digit kernel
+//! clears the smallest margin by more than thirty orders of magnitude
+//! on every format. The shared error model lives in ADR-0032
+//! §Decision; the sampled corpus test, the ADR-0033 exhaustive
+//! worst case kernel verification test
+//! (`ferrodec-decimal32/tests/transcend_vectors_exhaustive.rs`,
+//! 18/18 exact), and the MPFR cross-validation gate
+//! (`ferrodec-test-support/tests/mpfr_gate.rs`, 0 disagreements) are
+//! the empirical witnesses.
+//!
+//! ADR-0033 Plan C4 records one TMD hard candidate at input `1`
+//! (ln(1) = 0 exactly): the certified Arb ball around the true value
+//! 0 has nonzero radius at every Arb precision and straddles the
+//! format's underflow boundary, so `_decisive` cannot resolve. The
+//! kernel short circuits `ln(1)` to 0 exactly; this is an oracle
+//! side limitation, not a kernel defect.
 //!
 //! `log10` (`log10_kernel`) and `log2` (`log2_kernel`) are derived
 //! as `ln(x) · (1 / ln(10))` and `ln(x) · (1 / ln(2))`; their bound
 //! is `ln`'s bound plus one composition rounding. The corresponding
-//! `log10.prov` and `log2.prov` margins are `7.250e-4` / `5.147e-4`
-//! and `7.212e-4` / `8.820e-5` (smallest across the three
-//! precisions), both far above the kernel error at 50 digit working
-//! precision.
+//! ADR-0033 Plan C4 exhaustive `Decimal32` worst case margins are
+//! `5.258429e-08` at `log10(4.401241)` and `6.316104e-10` at
+//! `log2(3.035871e37)`. The sampled corpus minima for `Decimal64`
+//! and `Decimal128` are `6.859e-4` / `5.147e-4` (log10) and
+//! `2.709e-3` / `8.820e-5` (log2), all far above the kernel error
+//! at 50 digit working precision. Both `log10(1) = 0` and
+//! `log2(1) = 0` are TMD hard at `CAP_BITS = 65536` for the same
+//! reason as `ln(1) = 0`; the kernel short circuits each.
 
 use crate::consts::{inv_ln10_ext, inv_ln2_ext, ln10_ext, ln2_ext};
 use crate::extended::Extended;
