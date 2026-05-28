@@ -1,0 +1,16 @@
+# Exhaustive Decimal32 sweep for `tanh` (ADR-0033, fd-ykr.2).
+# Tool: tools/d32_exhaustive_sweep.py
+# Generated: 2026-05-28
+# Wall time: 1h 13m 29s
+# Inputs evaluated: 3_456_000_000
+# Tier 1 cap bits: 512; tier 2 cap bits: 65536
+# Tier 1 decisive: 3_456_000_000 (100.0000%)
+# Tier 2 promoted: 0
+# Tier 2 resolved: 0
+# TMD-hard at CAP_BITS=65536: 0
+# Limit: none (full sweep)
+#
+# Worst-case half-ULP margin (NearestEven, Decimal32):
+7 NearestEven 8752195e-6 margin=6.460895e-09 tier=1
+#
+# TMD-hard candidates: none
