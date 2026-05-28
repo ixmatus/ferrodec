@@ -1,0 +1,17 @@
+# Exhaustive Decimal32 sweep for `log10` (ADR-0033, fd-ykr.2).
+# Tool: tools/d32_exhaustive_sweep.py
+# Generated: 2026-05-27
+# Wall time: 2h 8m 59s
+# Inputs evaluated: 1_728_000_000
+# Tier 1 cap bits: 512; tier 2 cap bits: 65536
+# Tier 1 decisive: 1_727_999_999 (100.0000%)
+# Tier 2 promoted: 1
+# Tier 2 resolved: 0
+# TMD-hard at CAP_BITS=65536: 1
+# Limit: none (full sweep)
+#
+# Worst-case half-ULP margin (NearestEven, Decimal32):
+7 NearestEven 4401241e-6 margin=5.258429e-08 tier=1
+#
+# TMD-hard candidates (1, did not become decisive at CAP_BITS=65536):
+#   1e0
