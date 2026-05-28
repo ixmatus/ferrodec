@@ -188,3 +188,55 @@ fn mpfr_cross_validates_arb_corpus() {
          exact, {above} above."
     );
 }
+
+/// ADR-0033 Plan C5: cross-validate the exhaustive-sweep worst-case
+/// rows against MPFR. Each row is the tightest half-ULP margin input
+/// across the function's full canonical Decimal32 input set — by the
+/// proof-program argument the binding constraint for the kernel's
+/// correctly-rounded contract at Decimal32. MPFR independently
+/// reproducing the Arb-proven value on these rows is the defensive
+/// confirmation that our oracle (Arb at variable precision up to
+/// CAP_BITS=65536) is not silently disagreeing with the industrial
+/// gold standard on the hardest known inputs.
+#[test]
+fn mpfr_cross_validates_exhaustive_worst_cases() {
+    let (mut checked, mut disagree) = (0usize, 0usize);
+    let mut first_disagreement: Option<String> = None;
+
+    for v in frozen::load_exhaustive(7) {
+        let mag = decimal_magnitude(&parse_dec(&v.input)).unsigned_abs() as i64;
+        let p = work_bits(7, mag, TRIG.contains(&v.func.as_str()));
+        let (y, _ternary) = eval(&v, p);
+        let dr = dec_round(&v.mode);
+        let guard = 7 + 15;
+        let mpfr_dec = round_directed_sig(&parse_dec(&y.to_string_radix(10, Some(guard))), 7, dr);
+        let arb_dec = round_directed_sig(&parse_dec(&v.output), 7, dr);
+        checked += 1;
+        if !same_value(&mpfr_dec, &arb_dec) {
+            disagree += 1;
+            first_disagreement.get_or_insert_with(|| {
+                format!(
+                    "ADR-0033 exhaustive worst-case Arb/MPFR disagreement: \
+                     {} {}({}) p7 -> Arb {} | MPFR {}",
+                    v.mode, v.func, v.input, v.output, y
+                )
+            });
+        }
+    }
+
+    assert!(
+        checked >= 18,
+        "expected the 18 unary §9.2 exhaustive worst-case rows, ran {checked}"
+    );
+    assert!(
+        disagree == 0,
+        "{disagree} exhaustive worst-case Arb/MPFR disagreement(s); first: {}",
+        first_disagreement.as_deref().unwrap_or("?")
+    );
+    eprintln!(
+        "ADR-0033 Plan C5 exhaustive worst-case MPFR cross-validation: \
+         {checked} rows independently reproduced by MPFR, 0 disagreements. \
+         The exhaustive-sweep oracle (Arb up to CAP_BITS=65536) agrees \
+         with MPFR bit for bit on every function's tightest known input."
+    );
+}
