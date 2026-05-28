@@ -51,9 +51,20 @@
 //! `Decimal128` precision. The kernel's working precision exceeds
 //! the cumulative `exp` + `ln` + composition error budget by more
 //! than thirty orders of magnitude on every format, so the
-//! composed bound holds. The shared error model lives in ADR-0032
-//! §Decision; the corpus test (`tests/transcend_vectors.rs`) is the
-//! standing empirical witness.
+//! composed bound holds.
+//!
+//! `pow` is binary and was excluded from the ADR-0033 Plan C4
+//! unary exhaustive sweep per the ADR-0033 §Rejected alternatives:
+//! the canonical Decimal32 input pair cardinality is roughly 10^16,
+//! beyond exhaustive reach at per-candidate Arb cost. `pow` at
+//! `Decimal32` therefore continues to cite the sampled corpus
+//! minimum as the binding empirical margin under the ADR-0033
+//! Slice A corpus integrity discipline (cap hits asserted zero per
+//! regeneration).
+//!
+//! The shared error model lives in ADR-0032 §Decision; the corpus
+//! test (`tests/transcend_vectors.rs`) is the standing empirical
+//! witness.
 
 use crate::exp::exp_from_extended;
 use crate::extended::Extended;

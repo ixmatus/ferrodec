@@ -36,16 +36,28 @@
 //! ## Accuracy
 //!
 //! Correctly rounded across the full `Decimal128` magnitude range
-//! (ADR-0032; supersedes ADR-0024's faithful contract). The Arb
-//! empirical worst case half ULP margins from the per function
-//! provenance files (ADR-0026, fd-97a) are:
+//! (ADR-0032; supersedes ADR-0024's faithful contract). The worst
+//! case half ULP margins per format precision are:
 //!
-//! - `sin.prov`: `1.134e-4` at `Decimal32`, `1.609e-4` at
+//! - `sin`: `2.811904e-10` at `Decimal32` (ADR-0033 Plan C4
+//!   exhaustive sweep at input `6.109088e40`, deep in the
+//!   Payne Hanek argument reduction regime;
+//!   `tests/vectors/transcend/exhaustive/sin.txt`), `1.609e-4` at
 //!   `Decimal64`, `5.056e-4` at `Decimal128`.
-//! - `cos.prov`: `2.054e-3` at `Decimal32`, `7.996e-4` at
-//!   `Decimal64`, `4.051e-4` at `Decimal128`.
-//! - `tan.prov`: `8.147e-4` at `Decimal32`, `3.177e-4` at
-//!   `Decimal64`, `2.272e-3` at `Decimal128`.
+//! - `cos`: `7.699426e-10` at `Decimal32` (Plan C4 exhaustive at
+//!   `5.734251e52`), `7.996e-4` at `Decimal64`, `4.051e-4` at
+//!   `Decimal128`.
+//! - `tan`: `5.107326e-10` at `Decimal32` (Plan C4 exhaustive at
+//!   `8.40978e64`, the campaign's deepest Payne Hanek argument
+//!   reduction input), `3.177e-4` at `Decimal64`, `2.272e-3` at
+//!   `Decimal128`.
+//!
+//! The `Decimal32` figures are proven correctly rounded across the
+//! full canonical input set by Arb; the `Decimal64` and `Decimal128`
+//! figures are sampled corpus minima from
+//! `tests/vectors/transcend/{sin,cos,tan}.prov` (ADR-0026 fd-97a)
+//! under the ADR-0033 Slice A corpus integrity discipline (cap hits
+//! asserted zero, trig scan extended to full per format `emax`).
 //!
 //! At 50 digit kernel working precision the cumulative error
 //! (Payne Hanek reduction error plus Taylor series error plus
@@ -63,8 +75,20 @@
 //! asymptote convention (no `DIV_BY_ZERO`); this is itself the
 //! correctly rounded value.
 //!
-//! The shared error model lives in ADR-0032 §Decision; the corpus
-//! test is the standing empirical witness.
+//! None of `sin`, `cos`, `tan` has a TMD hard candidate in the
+//! Plan C4 enumeration: `sin(0) = 0` and `cos(0) = 1` are not in
+//! the canonical sweep (the enumeration skips coef = 0), and the
+//! function values at nonzero canonical inputs are transcendental,
+//! so the certified Arb ball never straddles the underflow boundary
+//! in the way `ln(1) = 0` does.
+//!
+//! The shared error model lives in ADR-0032 §Decision; the sampled
+//! corpus test, the ADR-0033 exhaustive worst case kernel
+//! verification gate
+//! (`ferrodec-decimal32/tests/transcend_vectors_exhaustive.rs`,
+//! 18/18 exact), and the MPFR cross-validation gate
+//! (`ferrodec-test-support/tests/mpfr_gate.rs`, 0 disagreements)
+//! are the empirical witnesses.
 
 use crate::argred;
 use crate::extended::Extended;

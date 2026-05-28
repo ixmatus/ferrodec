@@ -58,4 +58,4 @@ The ADRs in number order:
 - [0030 — decimal64 / decimal32 FMA subnormal single-rounding (sibling fd-42l port)](0030-sibling-fma-subnormal-single-rounding.md)
 - [0031 — GDA decNumber extension operations (1.18.0)](0031-gda-decnumber-extensions.md)
 - [0032 — Correctly rounded §9.2 transcendentals via Lefèvre / Muller fixed precision bounds (2.1.0)](0032-correctly-rounded-transcendentals.md) *(supersedes 0024)*
-- [0033 — Worst case margin completeness via exhaustive decimal32 enumeration](0033-worst-case-margin-completeness.md) *(extends 0032, proposed)*
+- [0033 — Worst case margin completeness via exhaustive decimal32 enumeration](0033-worst-case-margin-completeness.md) *(extends 0032)*
