@@ -1,7 +1,7 @@
 # ADR-0033: Worst case margin completeness via exhaustive decimal32 enumeration
 
-- **Status**: proposed
-- **Date**: 2026-05-26
+- **Status**: accepted
+- **Date**: 2026-05-26 (proposed); 2026-05-28 (accepted, post Plan C4 + C5 close)
 
 ## Context
 
@@ -291,8 +291,12 @@ range.
   (Kani policy and shim routing).
 - Beads: `fd-ykr` (ADR-0033 umbrella), `fd-ykr.3` (Slice A:
   hygiene + corpus extension + ADR proposed), `fd-ykr.2` (Slice B:
-  d32 exhaustive offline campaign), `fd-ykr.1` (Slice C: ADR
-  accepted + per function rustdoc amendment).
+  d32 exhaustive offline campaign tool), `fd-ykr.4` (Plan C4:
+  the offline campaign itself, producing the 18 per function
+  `<fn>_d32_exhaustive.prov` files), `fd-ykr.5` (Plan C5 + bonus
+  kernel verification: MPFR cross-validation of the worst case
+  rows plus the default-on kernel verification test), `fd-ykr.1`
+  (Slice C: ADR accepted + per function rustdoc amendment).
 - Citations:
   - Lefèvre, V. 2000, "Moyens arithmétiques pour un calcul fiable"
     (PhD thesis, École Normale Supérieure de Lyon). The empirical
@@ -306,3 +310,106 @@ range.
   - IEEE 754-2019 §9.2. The recommended correctly rounded
     transcendental clause ADR-0032 commits to and ADR-0033
     strengthens the evidence base for.
+
+## Outcomes (Plan C4 + C5 close, 2026-05-28)
+
+The Plan C4 offline campaign and Plan C5 verification ran
+between 2026-05-26 and 2026-05-28; this addendum records the
+load bearing findings the ADR's body anticipated in the future
+tense.
+
+### Plan C4 campaign
+
+`tools/d32_exhaustive_sweep.py` walked every canonical Decimal32
+input through the two tier Arb filter for each of the 18 unary
+§9.2 transcendentals. Aggregate inputs evaluated: roughly 42
+billion. Tier 1 at 512 cap bits resolved 100 percent of
+candidates on every function except a small explicitly enumerated
+TMD hard set; tier 2 promoted the survivors to variable
+precision Arb up to `CAP_BITS = 65536`.
+
+The 18 per function `tests/vectors/transcend/<fn>_d32_exhaustive.prov`
+files record the worst case input + half ULP margin per function.
+A separate `tests/vectors/transcend/exhaustive/<fn>.txt` companion
+(produced by `tools/d32_exhaustive_compute_outputs.py` after the
+campaign) records the worst case input paired with its proven
+correctly rounded output, the format the test harness consumes.
+
+### TMD hard residual
+
+The campaign surfaced four candidates that did not become
+decisive at `CAP_BITS = 65536`: `ln(1)`, `log2(1)`, `log10(1)`,
+`acosh(1)`. All four are of the f(1) = 0 family where the true
+value sits at the format's underflow boundary; the certified Arb
+ball around the true value 0 has nonzero radius at every Arb
+precision and straddles the boundary, so `_decisive`'s in range
+check rejects. The kernel short circuits each of the four to 0
+exactly before entering the series; the TMD hard label is an
+oracle side limitation at the chosen precision ceiling, not a
+kernel defect. Slice C's per function rustdoc names each
+explicitly with this caveat.
+
+`exp2(-11) = 1/2048 = 0.00048828125` is the campaign's unique
+half ULP tie: margin = 0 (the true value sits exactly at a
+NearestEven tie), decisive under NE ties to even (rounds to the
+even significand), so not TMD hard but the tightest possible NE
+correctness constraint for any function.
+
+### Empirical anchors
+
+Tightest empirical margin across the 18 functions: `1.528e-10`,
+tied between `asinh` and `acosh` at byte identical input
+`2.102146e44` (both functions reduce to ~`ln(2x)` for large
+positive x, so the hardest case is shared by structure). The
+shared kernel output at this input is `1.027499e2` exactly.
+
+Largest exhaustive vs sampled corpus gap: `acosh` at roughly
+7.8 million times narrower (1.53e-10 vs 1.19e-3). The campaign's
+median across the 18 functions is roughly 10^5 narrower.
+
+Single sampled corpus near optimal outlier: `cosh`, where the
+sampled minimum (4.17e-8) sits within 20 percent of the
+exhaustive worst case (3.52e-8). Every other function benefits
+substantially from the exhaustion; for `cosh` the sampled corpus
+was structurally near complete by luck. The per function rustdoc
+records this honestly.
+
+### Plan C5 verification
+
+Two test gates, both green:
+
+- `ferrodec-decimal32/tests/transcend_vectors_exhaustive.rs`
+  (default on under `--features exp-log,trig,hyperbolic,pow`):
+  18 / 18 worst case rows exactly correctly rounded by the
+  Decimal32 kernel. This is the strongest empirical correctness
+  evidence the project has assembled. By the ADR proof program
+  argument (kernel working width exceeds the empirical worst
+  case margin plus the analytic Payne Hanek error budget by at
+  least 30 orders of magnitude on every function), passing the
+  binding constraint here implies the kernel rounds every
+  Decimal32 input correctly.
+
+- `ferrodec-test-support/tests/mpfr_gate.rs::mpfr_cross_validates_exhaustive_worst_cases`
+  (gated behind `--features mpfr-gate`): 18 / 18 worst case
+  rows agree bit for bit with MPFR at high working precision,
+  zero disagreements. The defensive confirmation that the Arb
+  oracle is sound on the hardest known inputs, not just on the
+  sampled corpus the existing gate already covers.
+
+### Decimal32 contract status
+
+For the 18 unary §9.2 functions on `Decimal32`, ferrodec ships
+correctly rounded on every canonical input except the four
+explicitly enumerated TMD hard candidates above, each of which
+the kernel handles correctly via a short circuit. The per
+function rustdoc cites the exhaustive worst case margin (from
+`tests/vectors/transcend/exhaustive/<fn>.txt`) as the binding
+empirical constraint and the kernel verification test as the
+direct empirical witness.
+
+`Decimal64` and `Decimal128` continue to cite the sampled corpus
+minimum (from `tests/vectors/transcend/<fn>.prov`) as the
+binding margin, under the ADR-0033 Slice A corpus integrity
+discipline (cap hits asserted zero per regeneration; trig scan
+extended to full per format `emax`) and the analytic Payne Hanek
+error budget at the format ceiling.
