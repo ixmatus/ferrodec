@@ -10,9 +10,9 @@ use core::num::FpCategory;
 
 use crate::bid::{
     classify_bits, decimal_digit_count, pack_finite, pack_infinity, pack_quiet_nan,
-    pack_signaling_nan, sign_of, type_field, BiasedExp, Class, Coefficient, COEFFICIENT_LIMIT,
-    FORM_B_MARKER, NAN_SIGNALING_SHIFT, PRECISION, SIGN_SHIFT, TYPE_INFINITY, TYPE_NAN, T_BITS,
-    T_MASK,
+    pack_signaling_nan, sign_of, type_field, BiasedExp, Class, Coefficient, BIAS,
+    COEFFICIENT_LIMIT, FORM_B_MARKER, NAN_SIGNALING_SHIFT, PRECISION, SIGN_SHIFT, TYPE_INFINITY,
+    TYPE_NAN, T_BITS, T_MASK,
 };
 use crate::decimal::Decimal64;
 use ferrodec_ieee::IeeeClass;
@@ -299,6 +299,125 @@ impl Decimal64 {
             }
         }
     }
+
+    /// Sign of `self` as a unit value, mirroring `copysign(1, self)` for
+    /// finite non-zero inputs.
+    ///
+    /// NaN returns a quiet NaN with the sign preserved and a zero
+    /// payload. `±0` returns the signed zero unchanged. Every other
+    /// value returns `±1` at quantum 0.
+    ///
+    /// This is the inherent counterpart to the `num_traits::Signed`
+    /// `signum`; the inherent method wins in method-call position, so
+    /// `x.signum()` resolves here without importing the trait.
+    #[inline]
+    #[must_use]
+    pub const fn signum(self) -> Self {
+        if self.is_nan() {
+            return Self::from_bits(pack_quiet_nan(self.is_sign_negative(), 0));
+        }
+        let neg = self.is_sign_negative();
+        if self.is_zero() {
+            return if neg { Self::NEG_ZERO } else { Self::ZERO };
+        }
+        Self::from_bits(pack_finite(neg, BiasedExp::ZERO_QUANTUM, Coefficient::ONE))
+    }
+
+    /// Return `true` iff `self` represents a mathematical integer.
+    ///
+    /// `±0` and any finite value with non-negative quantum exponent
+    /// (`biased_exp ≥ BIAS`) is an integer trivially. For finite values
+    /// with negative quantum (e.g. `1.5` stored as `coef = 15` at
+    /// quantum `−1`), the coefficient must be an exact integer multiple
+    /// of `10^|quantum|`.
+    ///
+    /// `±∞` and NaN return `false`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use ferrodec_decimal64::Decimal64;
+    ///
+    /// assert!(Decimal64::ONE.is_integer());
+    /// assert!(Decimal64::TEN.is_integer());
+    /// assert!(Decimal64::try_new(20, -1).unwrap().is_integer()); // 2.0
+    /// assert!(!Decimal64::try_new(15, -1).unwrap().is_integer()); // 1.5
+    /// assert!(!Decimal64::INFINITY.is_integer());
+    /// assert!(!Decimal64::NAN.is_integer());
+    /// ```
+    #[inline]
+    #[must_use]
+    pub const fn is_integer(self) -> bool {
+        match classify_bits(self.0) {
+            Class::Zero { .. } => true,
+            Class::Finite {
+                biased_exp,
+                coefficient,
+                ..
+            } => {
+                if biased_exp >= BIAS {
+                    return true;
+                }
+                let drop = BIAS - biased_exp;
+                if drop > 19 {
+                    // 10^20 already exceeds u64. A 16-digit coefficient
+                    // can't be a multiple of 10^17 or larger, so not
+                    // integer.
+                    return false;
+                }
+                let divisor = 10u64.pow(drop);
+                coefficient % divisor == 0
+            }
+            _ => false,
+        }
+    }
+
+    /// Return the unit in the last place at `self`'s stored quantum:
+    /// `10^(biased_exp − BIAS)`.
+    ///
+    /// For finite `self` this is the spacing between values that share
+    /// `self`'s cohort, useful for tolerance bookkeeping at a known
+    /// magnitude. Cohort matters: `Decimal64::ONE.ulp()` returns `1`
+    /// (the unit at the `1E+0` cohort), but `1.0E+0` parsed as `10E−1`
+    /// would return `10⁻¹` instead.
+    ///
+    /// Edge cases:
+    /// * `±0` returns the smallest positive magnitude at the stored
+    ///   quantum (`1 × 10^(biased_exp − BIAS)`).
+    /// * `±∞` and NaN return `self` (no defined ULP at the non-finite
+    ///   boundary).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use ferrodec_decimal64::Decimal64;
+    ///
+    /// // ULP at the ONE cohort is 1: neighbours stay at the same
+    /// // quantum (next_up moves to a finer cohort, but ulp doesn't).
+    /// assert_eq!(Decimal64::ONE.ulp().to_bits(), Decimal64::ONE.to_bits());
+    ///
+    /// // ULP at 1.5 (= 15 × 10⁻¹) is 10⁻¹ = 0.1.
+    /// let x = Decimal64::try_new(15, -1).unwrap();
+    /// let want = Decimal64::try_new(1, -1).unwrap();
+    /// assert_eq!(x.ulp().to_bits(), want.to_bits());
+    /// ```
+    #[inline]
+    #[must_use]
+    pub const fn ulp(self) -> Self {
+        match classify_bits(self.0) {
+            Class::Zero { biased_exp, .. } | Class::Finite { biased_exp, .. } => {
+                // `classify_bits` only yields biased exponents inside the
+                // canonical `[0, BIASED_EXP_MAX]` range, so the typed
+                // constructor never returns `None`.
+                let biased_exp = match BiasedExp::try_from_biased(biased_exp) {
+                    Some(b) => b,
+                    None => return self,
+                };
+                Self::from_bits(pack_finite(false, biased_exp, Coefficient::ONE))
+            }
+            _ => self,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -462,5 +581,83 @@ mod tests {
         let canonicalised = dirty_nan.canonicalize();
         assert!(canonicalised.is_canonical());
         assert!(canonicalised.is_quiet_nan());
+    }
+
+    #[test]
+    fn signum_inherent() {
+        assert_eq!(Decimal64::ONE.signum().to_bits(), Decimal64::ONE.to_bits());
+        assert_eq!(
+            Decimal64::try_new(5, 2).unwrap().signum().to_bits(),
+            Decimal64::ONE.to_bits()
+        );
+        assert_eq!(
+            Decimal64::NEG_ONE.signum().to_bits(),
+            Decimal64::NEG_ONE.to_bits()
+        );
+        // Zero keeps its sign.
+        assert_eq!(
+            Decimal64::ZERO.signum().to_bits(),
+            Decimal64::ZERO.to_bits()
+        );
+        assert_eq!(
+            Decimal64::NEG_ZERO.signum().to_bits(),
+            Decimal64::NEG_ZERO.to_bits()
+        );
+        // NaN quiets, preserves sign, zero payload.
+        let q = Decimal64::NAN.signum();
+        assert!(q.is_quiet_nan());
+        assert!(!q.is_sign_negative());
+        let nq = Decimal64::NAN.neg().signum();
+        assert!(nq.is_quiet_nan());
+        assert!(nq.is_sign_negative());
+        // Signaling NaN signum is a quiet NaN (no Status path).
+        assert!(Decimal64::SIGNALING_NAN.signum().is_quiet_nan());
+    }
+
+    #[test]
+    fn is_integer_inherent() {
+        assert!(Decimal64::ZERO.is_integer());
+        assert!(Decimal64::NEG_ZERO.is_integer());
+        assert!(Decimal64::ONE.is_integer());
+        assert!(Decimal64::TEN.is_integer());
+        // 2.0 stored as 20 × 10⁻¹ is an integer (multiple of 10¹).
+        assert!(Decimal64::try_new(20, -1).unwrap().is_integer());
+        // 1.5 stored as 15 × 10⁻¹ is not.
+        assert!(!Decimal64::try_new(15, -1).unwrap().is_integer());
+        // Large positive quantum is trivially integer.
+        assert!(Decimal64::try_new(7, 5).unwrap().is_integer());
+        // Specials are not integers.
+        assert!(!Decimal64::INFINITY.is_integer());
+        assert!(!Decimal64::NEG_INFINITY.is_integer());
+        assert!(!Decimal64::NAN.is_integer());
+    }
+
+    #[test]
+    fn is_integer_deep_fractional_quantum() {
+        // A coefficient that is a multiple of 10^drop reduces to an
+        // integer; one that is not, does not. Exercises the
+        // `drop <= 19` divisor path rather than the early returns.
+        assert!(Decimal64::try_new(1_000_000_000, -9).unwrap().is_integer());
+        assert!(!Decimal64::try_new(1_500_000_000, -9).unwrap().is_integer());
+    }
+
+    #[test]
+    fn ulp_inherent() {
+        // ULP at the ONE cohort is 1 (same quantum).
+        assert_eq!(Decimal64::ONE.ulp().to_bits(), Decimal64::ONE.to_bits());
+        // ULP at 1.5 (= 15 × 10⁻¹) is 10⁻¹.
+        let x = Decimal64::try_new(15, -1).unwrap();
+        let want = Decimal64::try_new(1, -1).unwrap();
+        assert_eq!(x.ulp().to_bits(), want.to_bits());
+        // ULP of a zero is the unit at the zero's stored quantum.
+        let z = Decimal64::try_new(0, -3).unwrap();
+        let want_z = Decimal64::try_new(1, -3).unwrap();
+        assert_eq!(z.ulp().to_bits(), want_z.to_bits());
+        // Non-finite values return themselves.
+        assert_eq!(
+            Decimal64::INFINITY.ulp().to_bits(),
+            Decimal64::INFINITY.to_bits()
+        );
+        assert!(Decimal64::NAN.ulp().is_nan());
     }
 }

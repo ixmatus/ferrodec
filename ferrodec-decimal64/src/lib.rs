@@ -102,6 +102,9 @@ mod cmp;
 mod convert;
 mod decimal;
 mod digits;
+mod iter;
+#[cfg(any(feature = "trig", feature = "exp-log"))]
+mod math;
 #[cfg(feature = "num-traits")]
 mod num_traits_impls;
 mod ops;
@@ -120,5 +123,7 @@ pub use convert::Decimal64FromFloatError;
 pub use convert::{Engineering, FixedPreferred, ParseDecimalError};
 pub use decimal::{Decimal64, Decimal64BuildError};
 pub use ferrodec_ieee::{IeeeClass, RoundingMode, Status};
+#[cfg(any(feature = "trig", feature = "exp-log"))]
+pub use math::{e, ln10, ln2, pi};
 #[cfg(feature = "serde")]
 pub use serde_impls::serde_bid;
