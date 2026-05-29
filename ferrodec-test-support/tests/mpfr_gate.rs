@@ -196,7 +196,7 @@ fn mpfr_cross_validates_arb_corpus() {
 /// correctly-rounded contract at Decimal32. MPFR independently
 /// reproducing the Arb-proven value on these rows is the defensive
 /// confirmation that our oracle (Arb at variable precision up to
-/// CAP_BITS=65536) is not silently disagreeing with the industrial
+/// `CAP_BITS=65536`) is not silently disagreeing with the industrial
 /// gold standard on the hardest known inputs.
 #[test]
 fn mpfr_cross_validates_exhaustive_worst_cases() {

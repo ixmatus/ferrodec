@@ -88,7 +88,7 @@ pub fn exp_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
 /// exhaustive `Decimal32` worst case is `exp2(-11) = 1/2048 =
 /// 4.882812e-4` exactly (`tests/vectors/transcend/exhaustive/exp2.txt`);
 /// the half ULP margin is exactly 0 because the true value sits
-/// exactly at a NearestEven tie. NE ties-to-even resolves decisively
+/// exactly at a `NearestEven` tie. NE ties-to-even resolves decisively
 /// (rounds to the even significand `4.882812e-4` over odd
 /// `4.882813e-4`), so this is the tightest possible NE constraint
 /// for any function in the family rather than TMD hard. The kernel
