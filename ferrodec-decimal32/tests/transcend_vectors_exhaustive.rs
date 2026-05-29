@@ -1,5 +1,6 @@
-//! ADR-0033 Plan C4 exhaustive worst-case kernel verification gate
-//! (fd-ykr.1, Slice C work-in-progress).
+//! Exhaustive worst-case kernel verification gate for the unary
+//! Decimal32 surface (ADR-0033 Plan C4 for the 18 §9.2
+//! transcendentals; ADR-0034 for §5 sqrt).
 //!
 //! The campaign in `tools/d32_exhaustive_sweep.py` walked every
 //! canonical Decimal32 input through a two-tier certified Arb filter
@@ -8,7 +9,8 @@
 //! input + proven correctly-rounded output is committed under
 //! `tests/vectors/transcend/exhaustive/<fn>.txt`; this test asserts
 //! the kernel reproduces the proven value at that input for every
-//! function in the 18-function unary §9.2 surface.
+//! function in the unary surface that admits the proof shape: the 18
+//! §9.2 transcendentals plus the §5 mandatory sqrt.
 //!
 //! This is the strongest empirical correctness gate the project
 //! currently has: if the kernel rounds the worst case correctly, by
@@ -58,6 +60,7 @@ fn kernel(v: &frozen::FrozenVec, rm: RoundingMode) -> Decimal32 {
         "log10" => x.log10(rm).0,
         "exp2" => x.exp2(rm).0,
         "cbrt" => x.cbrt(rm).0,
+        "sqrt" => x.sqrt(rm).0,
         "sin" => x.sin(rm).0,
         "cos" => x.cos(rm).0,
         "tan" => x.tan(rm).0,
@@ -92,8 +95,8 @@ fn step_distance(got: Decimal32, cr: Decimal32) -> Option<u8> {
 fn exhaustive_worst_case_correctly_rounded() {
     let vectors = frozen::load_exhaustive(PREC);
     assert!(
-        vectors.len() >= 18,
-        "expected the 18 unary §9.2 exhaustive worst-case rows, got {}",
+        vectors.len() >= 19,
+        "expected 19 exhaustive worst-case rows (18 §9.2 transcendentals + §5 sqrt), got {}",
         vectors.len()
     );
 
@@ -107,20 +110,21 @@ fn exhaustive_worst_case_correctly_rounded() {
             Some(d) => panic!(
                 "exhaustive worst-case contract violated ({d} step) [{}]: \
                  {}({}) -> ferrodec {} | proven correctly rounded {} \
-                 (ADR-0033 Plan C4)",
+                 (ADR-0033 Plan C4 / ADR-0034 sqrt)",
                 v.mode, v.func, v.input, got, cr
             ),
             None => panic!(
                 "exhaustive worst-case contract violated (multi step) [{}]: \
                  {}({}) -> ferrodec {} | proven correctly rounded {} \
-                 (ADR-0033 Plan C4)",
+                 (ADR-0033 Plan C4 / ADR-0034 sqrt)",
                 v.mode, v.func, v.input, got, cr
             ),
         }
     }
     eprintln!(
-        "ADR-0033 Plan C4 exhaustive worst-case gate (Decimal32, p{PREC}): \
-         {exact}/{} exactly correctly rounded. Each row is the tightest \
+        "ADR-0033 Plan C4 + ADR-0034 exhaustive worst-case gate \
+         (Decimal32, p{PREC}): {exact}/{} exactly correctly rounded \
+         (18 §9.2 transcendentals + §5 sqrt). Each row is the tightest \
          half-ULP margin input across the function's full canonical \
          Decimal32 input set; passing here is the strongest empirical \
          correctness evidence the campaign produced.",
