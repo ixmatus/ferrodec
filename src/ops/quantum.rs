@@ -52,17 +52,25 @@ impl Decimal128 {
     pub fn quantize(self, target: Self, rm: RoundingMode) -> (Self, Status) {
         let snan = self.is_signaling_nan() || target.is_signaling_nan();
         if self.is_nan() || target.is_nan() {
-            let src = if self.is_nan() { self } else { target };
-            // Preserve the source NaN's payload; sNaN is converted to
-            // qNaN in the process, so an sNaN input drops only the
-            // "signaling" bit (and raises INVALID). Quiet NaN input
-            // passes through untouched.
-            let out = if src.is_signaling_nan() {
-                nan_from(src)
+            // Signaling-NaN priority, then operand order (self, target),
+            // matching the arithmetic propagation and decTest (e.g.
+            // dqqua675 `quantize NaN95 sNaN93 -> NaN93`). `nan_from`
+            // preserves the chosen operand's sign and payload and
+            // quietens it; a signaling operand additionally raises
+            // INVALID.
+            let src = if self.is_signaling_nan() {
+                self
+            } else if target.is_signaling_nan() {
+                target
+            } else if self.is_nan() {
+                self
             } else {
-                src
+                target
             };
-            return (out, if snan { Status::INVALID } else { Status::OK });
+            return (
+                nan_from(src),
+                if snan { Status::INVALID } else { Status::OK },
+            );
         }
         if self.is_infinite() {
             return if target.is_infinite() {
