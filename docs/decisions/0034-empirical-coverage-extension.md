@@ -277,8 +277,8 @@ the scope boundary is explicit.
 
 The sqrt exhaustive campaign ran on a single cloud host; this addendum
 records the findings the Decision section anticipated in the future
-tense. The identity residue sweep (Slice 3) is tracked separately and
-its outcome will be recorded when it lands.
+tense. The identity residue sweep (Slice 3) ran locally; its outcome is
+recorded at the end of this section.
 
 ### sqrt campaign
 
@@ -330,3 +330,28 @@ residual. The sqrt rustdoc cites the exhaustive worst case margin as
 the binding empirical constraint. `Decimal64` and `Decimal128` sqrt
 keep their proptest envelope against `astro-float`; their canonical
 input cardinalities are beyond exhaustive reach.
+
+### Identity residue sweep
+
+`ferrodec-decimal32/tests/identity_exhaustive.rs` walked the entire
+`2^32 = 4,294,967,296` Decimal32 encoding space (70.6 seconds in
+release, parallelized across cores). All `4,294,967,296` encodings
+satisfy total order reflexivity (`total_cmp(x, x) == Equal`) across
+every cohort, every NaN payload, and every non canonical encoding,
+beyond the same cohort finite finite domain the Kani harness covers.
+The `3,840,000,000` canonical finite values additionally satisfy the
+three canonical finite identities with zero violations: the string
+round trip (`parse_str(x.to_string())` recovers `x` bit for bit,
+confirming GDA toSci formatting and parsing are mutually inverse and
+cohort preserving), the additive zero identity (`x + 0` is value equal
+to `x` through the general add path), and the successor inverse
+(`next_up(next_down(x))` and `next_down(next_up(x))` recover the value
+of `x` away from the finite extremes).
+
+The bit exact string round trip held over all `3.84` billion canonical
+finite values, which is the empirically interesting result: Display
+and parse are mutually inverse including the cohort, a property neither
+Kani (which proves only the bit level encode and decode round trip) nor
+the existing fuzz sampling established exhaustively. The sweep is
+`#[ignore]`d (run on demand in release); it compiles under CI so it
+cannot bitrot, but the `2^32` walk does not run in the default suite.
