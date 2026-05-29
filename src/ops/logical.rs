@@ -15,7 +15,6 @@
 use crate::bid::{classify_bits, pack_finite, Class, BIAS, PRECISION};
 use crate::decimal::Decimal128;
 use crate::digits::{coefficient_to_digits, digits_to_coefficient};
-use crate::ops::nan_from;
 use crate::status::Status;
 
 /// Returns `Some(digits)` if `d` is a *logical operand* (positive sign,
@@ -83,12 +82,13 @@ impl Decimal128 {
     #[must_use]
     pub fn logical_invert(self) -> (Self, Status) {
         // GDA logical ops reject every NaN input as INVALID, not just
-        // signaling NaN — the logical-operand precondition is global.
-        if self.is_signaling_nan() {
-            return (nan_from(self), Status::INVALID);
-        }
+        // signaling NaN; the logical-operand precondition is global.
+        // An invalid operand (NaN included) yields the *default* NaN
+        // (sign 0, payload 0), not a propagated one, matching decTest
+        // (e.g. `dqinv861 invert NaN1 -> NaN`) and the non-logical
+        // finite path below.
         if self.is_nan() {
-            return (self, Status::INVALID);
+            return (Self::NAN, Status::INVALID);
         }
         let mut digits = match as_logical_digits(self) {
             Some(d) => d,
@@ -129,18 +129,11 @@ impl Decimal128 {
 /// truth-table function applied digit-wise. Both operands must be
 /// logical operands; otherwise the result is `(NaN, INVALID)`.
 fn logical_binary(a: Decimal128, b: Decimal128, op: fn(u8, u8) -> u8) -> (Decimal128, Status) {
-    // Reject every NaN (qNaN or sNaN) on either side; sNaN quietens.
-    if a.is_signaling_nan() {
-        return (nan_from(a), Status::INVALID);
-    }
-    if b.is_signaling_nan() {
-        return (nan_from(b), Status::INVALID);
-    }
-    if a.is_nan() {
-        return (a, Status::INVALID);
-    }
-    if b.is_nan() {
-        return (b, Status::INVALID);
+    // Reject every NaN (qNaN or sNaN) on either side. An invalid
+    // logical operand yields the default NaN (sign 0, payload 0), not a
+    // propagated one, matching decTest and the non-logical finite path.
+    if a.is_nan() || b.is_nan() {
+        return (Decimal128::NAN, Status::INVALID);
     }
     let da = match as_logical_digits(a) {
         Some(d) => d,
