@@ -1,6 +1,6 @@
 //! IEEE 754-2019 square root for [`Decimal64`].
 //!
-//! Scale the coefficient to 31 or 32 decimal digits in `u128` so the
+//! Scale the coefficient to 33 or 34 decimal digits in `u128` so the
 //! integer square root falls in `[10¹⁶, 10¹⁷)` (= 17 digits, one
 //! above PRECISION for correct rounding), then route through
 //! `round_and_pack_into_u64` with the squared-back-residue feeding
@@ -105,18 +105,18 @@ fn sqrt_positive_finite(coef: u64, biased_exp: u32, rm: RoundingMode) -> (Decima
         (u128::from(coef), exp)
     };
 
-    // Scale to 31 or 32 digits — isqrt then lands in [10^15, 10^16),
-    // wait, no: sqrt(10^30) = 10^15, sqrt(10^32) = 10^16. We want
-    // sqrt to land in [10^16, 10^17) for 17-digit precision. So
-    // working_coef should land in [10^32, 10^34). Scale to 33 digits
-    // (with the same odd/even parity adjustment).
+    // Scale working_coef to 33 or 34 digits (preserving parity) so the
+    // integer square root lands in [10^16, 10^17), i.e. 17 digits, one
+    // above PRECISION = 16 for correct rounding (sqrt(10^32) = 10^16,
+    // sqrt(10^34) = 10^17).
     let d = decimal_digit_count_u128(working_coef);
     let target_d: u32 = if d % 2 == 0 { 34 } else { 33 };
-    // `working_coef` is a Decimal64 coefficient (≤ 16 digits), so
-    // `d ≤ 16 < 33 ≤ target_d` and the subtraction never underflows.
-    // A plain subtraction states that invariant; the previous
-    // `saturating_sub` would have silently clamped to 0 and skipped
-    // scaling if the invariant were ever broken, masking the bug.
+    // `working_coef` is a Decimal64 coefficient (≤ 16 digits), times 10
+    // on the odd-exponent branch above, so `d ≤ 17 < 33 ≤ target_d` and
+    // the subtraction never underflows. A plain subtraction states that
+    // invariant; the previous `saturating_sub` would have silently
+    // clamped to 0 and skipped scaling if the invariant were ever
+    // broken, masking the bug.
     debug_assert!(target_d >= d, "working_coef fits the scaling window");
     let scale: u32 = target_d - d;
     debug_assert!(scale % 2 == 0);

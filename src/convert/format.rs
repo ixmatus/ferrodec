@@ -549,7 +549,7 @@ fn format_scientific(
 
 /// Engineering notation: scientific with the exponent forced to a
 /// multiple of 3, so the mantissa lies in `[1, 1000)`. Used by
-/// `Decimal128::to_engineering_string`.
+/// [`Decimal128::engineering`].
 fn format_engineering_into(
     coefficient: u128,
     digits: i32,

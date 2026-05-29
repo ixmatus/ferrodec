@@ -319,10 +319,8 @@ fn round_to_integer(coef: u128, unbiased: i32, sign: bool, rm: RoundingMode) -> 
             cur /= 10;
             i += 1;
             if cur == 0 && i + 1 < drop {
-                // Remaining digits all-zero from here.
-                if i < drop - 1 {
-                    // round_digit stays 0; sticky already accumulated.
-                }
+                // Remaining digits are all zero from here: round_digit
+                // stays 0 and sticky has already accumulated.
                 break;
             }
         }
