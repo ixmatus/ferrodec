@@ -35,7 +35,7 @@ if str(_TOOLS_DIR) not in sys.path:
 import gen_transcend_vectors as gtv  # noqa: E402
 
 UNARY_FUNCTIONS = (
-    "exp", "ln", "exp2", "log2", "log10", "cbrt",
+    "exp", "ln", "exp2", "log2", "log10", "cbrt", "sqrt",
     "sin", "cos", "tan",
     "asin", "acos", "atan",
     "sinh", "cosh", "tanh",
@@ -104,9 +104,12 @@ def main():
         out_s, P, rad, _ = r
         # Match the existing `<fn>.txt` line format exactly:
         #   <prec> <mode> <input> <output>
+        # sqrt is the IEEE §5 op added under ADR-0034; the §9.2 set
+        # traces to ADR-0033 Plan C4.
+        adr = "ADR-0034" if name == "sqrt" else "ADR-0033 Plan C4"
         out_path = OUT_DIR / f"{name}.txt"
         out_path.write_text(
-            f"# ADR-0033 Plan C4 exhaustive sweep worst-case row for `{name}`.\n"
+            f"# {adr} exhaustive sweep worst-case row for `{name}`.\n"
             f"# Re-derived proven correctly-rounded value via Arb at "
             f"P={P} bits.\n"
             f"# Source: tests/vectors/transcend/{name}_d32_exhaustive.prov\n"
