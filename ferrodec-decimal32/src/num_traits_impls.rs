@@ -122,29 +122,17 @@ impl Signed for Decimal32 {
 
 impl FromPrimitive for Decimal32 {
     fn from_i64(n: i64) -> Option<Self> {
-        // Decimal32 holds 7 digits. Values with |n| < 10⁷ fit exactly
-        // via try_new; larger magnitudes round via the f64 round-trip
-        // (lossless for |n| < 2⁵³, ≤ 1 ULP at the f64 scale beyond
-        // that — well below Decimal32's 7-digit envelope).
-        if let Ok(coef) = i32::try_from(n) {
-            if let Ok(d) = Self::try_new(coef, 0) {
-                return Some(d);
-            }
-        }
-        #[allow(clippy::cast_precision_loss)]
-        let (d, _) = Self::from_f64(n as f64, RM);
+        // Delegate to the rounding-aware inherent constructor rather
+        // than an f64 round-trip: f64 holds exact integers only to
+        // 2^53, so `n as f64` double-rounded large integers before
+        // Decimal32's 7-digit rounding. The inherent path rounds the
+        // integer directly with `RM`, matching the exact Decimal128
+        // conversion and decimal64.
+        let (d, _) = Self::from_i64(n, RM);
         Some(d)
     }
     fn from_u64(n: u64) -> Option<Self> {
-        // Same shape as from_i64; exact via try_new_unsigned for
-        // n < 10⁷, f64 round-trip otherwise.
-        if let Ok(coef) = u32::try_from(n) {
-            if let Ok(d) = Self::try_new_unsigned(coef, 0) {
-                return Some(d);
-            }
-        }
-        #[allow(clippy::cast_precision_loss)]
-        let (d, _) = Self::from_f64(n as f64, RM);
+        let (d, _) = Self::from_u64(n, RM);
         Some(d)
     }
     fn from_f64(n: f64) -> Option<Self> {
@@ -310,6 +298,28 @@ mod tests {
         assert_eq!(
             small.to_bits(),
             Decimal32::try_new(-9999, 0).unwrap().to_bits()
+        );
+    }
+
+    #[test]
+    fn from_i64_delegates_to_exact_rounding_path() {
+        // The FromPrimitive impl must round the integer directly, not
+        // through f64 (which double-rounds near a 7-digit tie). The
+        // guarantee is equivalence with the rounding-aware inherent
+        // constructor, not an f64 round-trip.
+        let n: i64 = 9_007_199_254_740_993; // 2^53 + 1
+        assert_eq!(
+            <Decimal32 as FromPrimitive>::from_i64(n).unwrap().to_bits(),
+            Decimal32::from_i64(n, RoundingMode::NearestEven)
+                .0
+                .to_bits()
+        );
+        let u: u64 = (1u64 << 60) + 7;
+        assert_eq!(
+            <Decimal32 as FromPrimitive>::from_u64(u).unwrap().to_bits(),
+            Decimal32::from_u64(u, RoundingMode::NearestEven)
+                .0
+                .to_bits()
         );
     }
 
