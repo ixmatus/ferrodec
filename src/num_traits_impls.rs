@@ -142,14 +142,14 @@ impl FromPrimitive for Decimal128 {
         if n.is_nan() {
             return None;
         }
-        Some(Self::from_f64(n))
+        Some(Self::from_f64(n, RM).0)
     }
     #[cfg(feature = "binary-float")]
     fn from_f32(n: f32) -> Option<Self> {
         if n.is_nan() {
             return None;
         }
-        Some(Self::from_f32(n))
+        Some(Self::from_f32(n, RM).0)
     }
 }
 

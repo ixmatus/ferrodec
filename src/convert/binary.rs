@@ -195,41 +195,48 @@ impl Decimal128 {
     /// Decimal128 coefficient (with the rest being trailing zeros
     /// from `Display`'s shortest-round-trip output).
     #[must_use]
-    pub fn from_f64(value: f64) -> Self {
+    pub fn from_f64(value: f64, rm: RoundingMode) -> (Self, Status) {
         if value.is_nan() {
-            return Decimal128::NAN;
+            return (Decimal128::NAN, Status::OK);
         }
         if value.is_infinite() {
-            return if value.is_sign_negative() {
+            let v = if value.is_sign_negative() {
                 Decimal128::NEG_INFINITY
             } else {
                 Decimal128::INFINITY
             };
+            return (v, Status::OK);
         }
         if value == 0.0 {
-            return if value.is_sign_negative() {
+            let v = if value.is_sign_negative() {
                 Decimal128::NEG_ZERO
             } else {
                 Decimal128::ZERO
             };
+            return (v, Status::OK);
         }
         // Use scientific notation explicitly — `{value}` uses fixed
         // notation for moderate magnitudes which can run to 100+
         // characters for very small or very large `f64` (e.g.
         // `1e-100` → "0.0000…0001"). `{value:e}` always fits in a
-        // few dozen characters.
+        // few dozen characters. The f64 shortest-round-trip decimal is
+        // ≤ 17 digits, which fits Decimal128's 34-digit coefficient
+        // exactly, so `rm` drives the (normally exact) parse and the
+        // returned status is the parse's. Signature matches the
+        // siblings (ADR-0036).
         let mut buf = StrBuf::new();
         write!(&mut buf, "{value:e}").expect("f64 scientific format fits 64 bytes");
-        match Decimal128::parse_str(buf.as_str(), RoundingMode::NearestEven) {
-            Ok((d, _)) => d,
-            Err(_) => Decimal128::NAN,
+        match Decimal128::parse_str(buf.as_str(), rm) {
+            Ok((d, status)) => (d, status),
+            Err(_) => (Decimal128::NAN, Status::INVALID),
         }
     }
 
-    /// Convert an `f32` to `Decimal128`.
+    /// Convert an `f32` to `Decimal128` using `rm`, returning the
+    /// conversion status. See [`Decimal128::from_f64`].
     #[must_use]
-    pub fn from_f32(value: f32) -> Self {
-        Self::from_f64(value as f64)
+    pub fn from_f32(value: f32, rm: RoundingMode) -> (Self, Status) {
+        Self::from_f64(f64::from(value), rm)
     }
 }
 
@@ -269,7 +276,10 @@ impl TryFrom<f64> for Decimal128 {
         if value.is_infinite() {
             return Err(Decimal128FromFloatError::Infinite);
         }
-        Ok(Self::from_f64(value))
+        // Finite: the conversion is exact (the f64 shortest-decimal fits
+        // Decimal128), so the rounding mode is immaterial and the status
+        // is discarded; NearestEven matches the sibling `TryFrom`.
+        Ok(Self::from_f64(value, RoundingMode::NearestEven).0)
     }
 }
 
@@ -406,13 +416,17 @@ mod tests {
 
     #[test]
     fn from_f64_zero_signed() {
-        assert!(!Decimal128::from_f64(0.0).is_sign_negative());
-        assert!(Decimal128::from_f64(-0.0).is_sign_negative());
+        assert!(!Decimal128::from_f64(0.0, RoundingMode::NearestEven)
+            .0
+            .is_sign_negative());
+        assert!(Decimal128::from_f64(-0.0, RoundingMode::NearestEven)
+            .0
+            .is_sign_negative());
     }
 
     #[test]
     fn from_f64_one() {
-        let d = Decimal128::from_f64(1.0);
+        let d = Decimal128::from_f64(1.0, RoundingMode::NearestEven).0;
         let (cmp, _) = d.partial_cmp(Decimal128::ONE);
         assert_eq!(cmp, Some(core::cmp::Ordering::Equal));
     }
@@ -421,7 +435,7 @@ mod tests {
     fn from_f64_round_trip() {
         let cases = [1.0f64, -1.0, 1.5, -7.654_321, 6.022e23, 1e-100, 9.876e50];
         for &f in &cases {
-            let d = Decimal128::from_f64(f);
+            let d = Decimal128::from_f64(f, RoundingMode::NearestEven).0;
             let (back, _) = d.to_f64(RoundingMode::NearestEven);
             // f64 display gives shortest round-trip → same f64.
             assert_eq!(back, f, "round-trip failed for {f}");
@@ -430,15 +444,18 @@ mod tests {
 
     #[test]
     fn from_f64_inf_nan() {
-        assert!(Decimal128::from_f64(f64::INFINITY).is_infinite());
-        assert!(Decimal128::from_f64(f64::NEG_INFINITY).is_infinite());
-        assert!(Decimal128::from_f64(f64::NEG_INFINITY).is_sign_negative());
-        assert!(Decimal128::from_f64(f64::NAN).is_nan());
+        let rm = RoundingMode::NearestEven;
+        assert!(Decimal128::from_f64(f64::INFINITY, rm).0.is_infinite());
+        assert!(Decimal128::from_f64(f64::NEG_INFINITY, rm).0.is_infinite());
+        assert!(Decimal128::from_f64(f64::NEG_INFINITY, rm)
+            .0
+            .is_sign_negative());
+        assert!(Decimal128::from_f64(f64::NAN, rm).0.is_nan());
     }
 
     #[test]
     fn from_f32_basic() {
-        let d = Decimal128::from_f32(2.5_f32);
+        let d = Decimal128::from_f32(2.5_f32, RoundingMode::NearestEven).0;
         let want = Decimal128::parse_str("2.5", RoundingMode::default())
             .unwrap()
             .0;
