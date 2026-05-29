@@ -315,7 +315,10 @@ fn format_zero(
                 }
             }
             f.write_char(exp_char)?;
-            write_signed_int(0, f)
+            // A zero's adjusted exponent is its unbiased exponent (a
+            // single 0 digit); emit it rather than a hardcoded 0, so
+            // `0E+5` renders `0E+5` like the siblings, not `0E+0`.
+            write_signed_int(unbiased, f)
         }
         Notation::Engineering(exp_char) => {
             f.write_str("0")?;
@@ -328,7 +331,10 @@ fn format_zero(
                 }
             }
             f.write_char(exp_char)?;
-            write_signed_int(0, f)
+            // Lone 0 with the (non-rebased) exponent, matching the
+            // sibling write_engineering zero path; a zero has no
+            // significant digit to rebase to a multiple of three.
+            write_signed_int(unbiased, f)
         }
         Notation::Auto => {
             // GDA `toSci` on zero: plain when `unbiased ≤ 0` (the
@@ -345,13 +351,14 @@ fn format_zero(
                     }
                 }
                 Ok(())
-            } else if unbiased <= 0 {
+            } else if (-6..=0).contains(&unbiased) {
                 if unbiased == 0 {
                     f.write_str("0")
                 } else {
-                    // Fractional-quantum zero: render plain with
-                    // leading zeros, matching the toSci rule for
-                    // `0.000…0` cohorts.
+                    // Fractional-quantum zero down to 1e-6: plain, per
+                    // the toSci rule (a zero's adjusted exponent is its
+                    // unbiased exponent, so the `adjusted >= -6` test is
+                    // `unbiased >= -6`).
                     f.write_str("0.")?;
                     for _ in 0..(-unbiased) {
                         f.write_str("0")?;
@@ -359,6 +366,9 @@ fn format_zero(
                     Ok(())
                 }
             } else {
+                // unbiased > 0, or a fractional zero below 1e-6
+                // (adjusted < -6): scientific, matching GDA toSci and
+                // the siblings (e.g. `0E-7`, `0E+5`).
                 f.write_str("0E")?;
                 write_signed_int(unbiased, f)
             }
@@ -842,6 +852,29 @@ mod tests {
         );
         // Engineering always emits the explicit `E±N` exponent.
         assert_eq!(format!("{}", Decimal128::ZERO.engineering()), "0E+0");
+    }
+
+    #[test]
+    fn zero_notation_matches_tosci() {
+        // Default (Auto) toSci: a zero is plain down to 1e-6, scientific
+        // below (its adjusted exponent equals its unbiased exponent).
+        assert_eq!(
+            format!("{}", Decimal128::try_new(0, -6).unwrap()),
+            "0.000000"
+        );
+        assert_eq!(format!("{}", Decimal128::try_new(0, -7).unwrap()), "0E-7");
+        assert_eq!(format!("{}", Decimal128::try_new(0, 5).unwrap()), "0E+5");
+        // Forced scientific / engineering carry the zero's real
+        // exponent, not a hardcoded 0 (matches the siblings).
+        assert_eq!(format!("{:e}", Decimal128::try_new(0, 5).unwrap()), "0e+5");
+        assert_eq!(
+            format!("{}", Decimal128::try_new(0, 5).unwrap().engineering()),
+            "0E+5"
+        );
+        assert_eq!(
+            format!("{}", Decimal128::try_new(0, -7).unwrap().engineering()),
+            "0E-7"
+        );
     }
 
     #[test]
