@@ -98,13 +98,15 @@ fn div_special_cases(a: Decimal128, b: Decimal128) -> Option<(Decimal128, Status
         return Some((Decimal128::from_bits(pack_infinity(result_sign)), status));
     }
     // x / ∞ → ±0. Per IEEE 754 / dec-spec the preferred quantum is
-    // `qa − q_inf`, but ∞ has no quantum so the spec clamps to the
-    // smallest representable quantum (`Q_MIN`, biased 0). We emit
-    // that directly.
+    // `qa − q_inf`, but ∞ has no quantum (unboundedly negative ideal
+    // exponent), so the spec clamps to the smallest representable
+    // quantum (`Q_MIN`, biased 0) and raises the §7.4 Clamped
+    // informational flag. The zero is exact. Matches decTest dddiv788
+    // (`-1000 / Inf -> -0E-398 Clamped`) and the siblings.
     if inf_b {
         return Some((
             Decimal128::from_bits(pack_finite(result_sign, 0, 0)),
-            status,
+            status | Status::CLAMPED,
         ));
     }
     // 0 / finite_non_zero: result is ±0 with preferred quantum `qa − qb`.

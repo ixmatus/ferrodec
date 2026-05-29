@@ -1153,13 +1153,8 @@ fn compare(
                 ));
             }
 
-            // Status flags — compare only the IEEE 754 set we track.
-            let mask = Status::INVALID
-                | Status::DIV_BY_ZERO
-                | Status::OVERFLOW
-                | Status::UNDERFLOW
-                | Status::INEXACT;
-            let _ = mask; // value used via merge below
+            // Status flags — compare only the IEEE 754 exception set;
+            // `mask_status` drops the informational GDA conditions.
             let actual_relevant = mask_status(*actual_flags);
             let expected_relevant = mask_status(expected_flags);
             if actual_relevant.bits() != expected_relevant.bits() {
@@ -1177,7 +1172,20 @@ fn compare(
 }
 
 fn mask_status(s: Status) -> Status {
-    Status::from_bits_truncate(s.bits())
+    // Compare only the five IEEE 754 exception flags. The informational
+    // GDA conditions (CLAMPED, ROUNDED, SUBNORMAL, LOST_DIGITS) are not
+    // part of IEEE 754 conformance: `decode_conditions` already drops
+    // them from the expected side, and ferrodec may emit the §7.4
+    // informational CLAMPED at genuine clamp sites where the dec corpus
+    // also pins it (the remaining ideal-exponent cases are deferred,
+    // fd-61r). Masking both sides keeps the comparison consistent and
+    // matches the sibling runners' `status_conformance_eq`.
+    let ieee = Status::INVALID
+        | Status::DIV_BY_ZERO
+        | Status::OVERFLOW
+        | Status::UNDERFLOW
+        | Status::INEXACT;
+    Status::from_bits_truncate(s.bits() & ieee.bits())
 }
 
 /// Per-file expected `passed` count for the decTest run.
