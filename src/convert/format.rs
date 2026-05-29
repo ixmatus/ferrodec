@@ -568,16 +568,24 @@ fn format_engineering_into(
     let mut buf = [0u8; MAX_DIGITS];
     let written = write_digits(coefficient, &mut buf);
     let coef_digits = &buf[..written];
-    let int_digits = (shift + 1) as usize;
-    let int_digits = int_digits.min(coef_digits.len());
+    // Digits that belong before the decimal point. When the coefficient
+    // has *fewer* digits than this (e.g. `50` is coefficient `5` with
+    // `want_int = 2`), the integer part is padded with trailing zeros;
+    // capping at the coefficient length without padding would drop a
+    // factor of ten (rendering `50` as `5E+0`).
+    let want_int = (shift + 1) as usize;
+    let take = want_int.min(coef_digits.len());
 
-    f.write_str(core::str::from_utf8(&coef_digits[..int_digits]).expect("ASCII"))?;
+    f.write_str(core::str::from_utf8(&coef_digits[..take]).expect("ASCII"))?;
+    for _ in coef_digits.len()..want_int {
+        f.write_str("0")?;
+    }
 
-    let frac_natural = coef_digits.len().saturating_sub(int_digits);
+    let frac_natural = coef_digits.len().saturating_sub(want_int);
     let target_frac = precision.unwrap_or(frac_natural);
     if frac_natural > 0 || target_frac > 0 {
         f.write_str(".")?;
-        f.write_str(core::str::from_utf8(&coef_digits[int_digits..]).expect("ASCII"))?;
+        f.write_str(core::str::from_utf8(&coef_digits[take..]).expect("ASCII"))?;
         for _ in frac_natural..target_frac {
             f.write_str("0")?;
         }
@@ -797,6 +805,31 @@ mod tests {
         assert_eq!(
             format!("{}", Decimal128::try_new(1, 3).unwrap().engineering()),
             "1E+3"
+        );
+    }
+
+    #[test]
+    fn engineering_pads_short_integer_part() {
+        // Regression: a single-digit coefficient whose scientific
+        // exponent is not a multiple of three needs the integer part
+        // zero-padded. Capping at the coefficient length dropped a
+        // power of ten (`50` rendered as `5E+0`).
+        assert_eq!(
+            format!("{}", Decimal128::try_new(5, 1).unwrap().engineering()),
+            "50E+0"
+        );
+        assert_eq!(
+            format!("{}", Decimal128::try_new(5, 2).unwrap().engineering()),
+            "500E+0"
+        );
+        assert_eq!(
+            format!("{}", Decimal128::try_new(5, -2).unwrap().engineering()),
+            "50E-3"
+        );
+        // Two-digit coefficient needing three integer digits.
+        assert_eq!(
+            format!("{}", Decimal128::try_new(75, 1).unwrap().engineering()),
+            "750E+0"
         );
     }
 
