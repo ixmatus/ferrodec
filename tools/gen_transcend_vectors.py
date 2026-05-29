@@ -356,6 +356,11 @@ FUNCS = {
     # Arb `root` rejects negatives; cbrt is odd, so solve() feeds |x|
     # and re-applies the sign.
     "cbrt": lambda a: a.root(3),
+    # sqrt is the IEEE 754 §5 mandatory root. Its domain is x >= 0
+    # (negatives are NaN, a special-value contract rather than a
+    # hard-to-round case), so solve() needs no sign re-application,
+    # unlike cbrt's odd-function branch.
+    "sqrt": lambda a: a.sqrt(),
     "sin": lambda a: a.sin(),
     "cos": lambda a: a.cos(),
     "tan": lambda a: a.tan(),
@@ -376,6 +381,7 @@ TRIG = {"sin", "cos", "tan"}
 POSITIVE = {"ln", "log2", "log10"}          # x > 0
 UNIT = {"asin", "acos", "atanh"}            # |x| < 1
 GE_ONE = {"acosh"}                          # x ≥ 1
+NON_NEGATIVE = {"sqrt"}                      # x ≥ 0 (IEEE §5 sqrt)
 
 
 def in_domain(name, coef, exp, neg, fmt):
@@ -387,6 +393,11 @@ def in_domain(name, coef, exp, neg, fmt):
         return (not neg or name == "atanh") and mag < 0
     if name in GE_ONE:
         return (not neg) and mag >= 0
+    if name in NON_NEGATIVE:
+        # sqrt: x >= 0. The enumerator's coefficient is always >= 1 so
+        # x is never zero here; negatives are the NaN special-value
+        # contract, not a TMD candidate, so they are excluded.
+        return not neg
     if name in ("exp", "exp2", "sinh", "cosh"):
         # ADR-0033 corpus-integrity gate fix. The prior `mag <= 3`
         # bound was sized for d128 (mag=3 means |x| < 10^4 which is

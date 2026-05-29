@@ -17,6 +17,17 @@ and Decimal128 stay on the sampled corpus path; their canonical
 input cardinalities (~10^16 and ~10^34 respectively) are beyond
 exhaustive reach.
 
+ADR-0034 extends this tool beyond the 18 §9.2 transcendentals to the
+IEEE 754 §5 mandatory `sqrt`. sqrt is algebraic-irrational, so it
+shares the Table Maker's Dilemma structure that makes exhaustion
+load-bearing; basic arithmetic does not (its exact result is
+computable in finite precision), which is why the ADR-0034 scope
+stops at sqrt rather than extending to the binary arithmetic surface.
+The two-tier filter applies to sqrt unchanged; its domain is x >= 0,
+and its worst-case row lands in
+`tests/vectors/transcend/sqrt_d32_exhaustive.prov` alongside the
+§9.2 set.
+
 This is a *build tool*, not a project dependency. It is never a
 workspace member and never enters the Cargo graph: Arb/FLINT (LGPL)
 stay entirely outside the build. The committed output is the per
@@ -88,9 +99,12 @@ if str(_TOOLS_DIR) not in sys.path:
 import gen_transcend_vectors as gtv  # noqa: E402
 
 # Per ADR-0033 §Decision, the exhaustive sweep covers the 18 unary
-# §9.2 transcendentals. The binary surface (pow, atan2) is excluded.
+# §9.2 transcendentals. ADR-0034 adds the IEEE 754 §5 mandatory
+# `sqrt` (also unary, also TMD-bearing). The binary surface (pow,
+# atan2) stays excluded: its ~10^16 canonical input cardinality at
+# Decimal32 is beyond exhaustive reach.
 UNARY_FUNCTIONS = (
-    "exp", "ln", "exp2", "log2", "log10", "cbrt",
+    "exp", "ln", "exp2", "log2", "log10", "cbrt", "sqrt",
     "sin", "cos", "tan",
     "asin", "acos", "atan",
     "sinh", "cosh", "tanh",
@@ -134,8 +148,9 @@ def estimate_input_cardinality(name):
         # [-95, 2]: ~98 decades of subnormal-to-3-digit; double for
         # sign.
         return 98 * coefs_per_magnitude * 2  # ~1.8e9
-    if name in ("ln", "log2", "log10"):
-        # x > 0 only; full magnitude range [emin, emax].
+    if name in ("ln", "log2", "log10", "sqrt"):
+        # x > 0 (sqrt: x >= 0; coef >= 1 so the enumerator never emits
+        # zero either way); full magnitude range [emin, emax].
         return (fmt["emax"] - fmt["emin"] + 1) * coefs_per_magnitude
     if name in ("asin", "acos", "atanh"):
         # |x| < 1: magnitudes [-95, -1] = 95 decades; signed except
@@ -158,8 +173,8 @@ def parse_args():
         choices=UNARY_FUNCTIONS,
         action="append",
         help=(
-            "Function to sweep (repeatable). Default: all 18 unary "
-            "§9.2 functions."
+            "Function to sweep (repeatable). Default: all unary "
+            "functions (the 18 §9.2 transcendentals plus §5 sqrt)."
         ),
     )
     parser.add_argument(
@@ -236,6 +251,7 @@ def cmd_list():
         "ln": "x > 0",
         "log2": "x > 0",
         "log10": "x > 0",
+        "sqrt": "x ≥ 0",
         "cbrt": "all reals",
         "sin": "all reals",
         "cos": "all reals",
@@ -497,10 +513,15 @@ def sweep_function(name, tier1_cap_bits, workers, limit, out_dir, run_tier1, run
 
     # --- Emit per-function provenance ---
     out_path = out_dir / ("%s_d32_exhaustive.prov" % name)
+    # sqrt is the IEEE §5 op added under ADR-0034; the 18 §9.2
+    # transcendentals trace to ADR-0033 (fd-ykr.2).
+    provenance_adr = (
+        "ADR-0034 §5 sqrt" if name == "sqrt" else "ADR-0033 §9.2, fd-ykr.2"
+    )
     out_dir.mkdir(parents=True, exist_ok=True)
     with open(out_path, "w") as f:
         f.write(
-            "# Exhaustive Decimal32 sweep for `%s` (ADR-0033, fd-ykr.2).\n"
+            "# Exhaustive Decimal32 sweep for `%s` (%s).\n"
             "# Tool: tools/d32_exhaustive_sweep.py\n"
             "# Generated: %s\n"
             "# Wall time: %s\n"
@@ -514,6 +535,7 @@ def sweep_function(name, tier1_cap_bits, workers, limit, out_dir, run_tier1, run
             "#\n"
             % (
                 name,
+                provenance_adr,
                 datetime.date.today().isoformat(),
                 _format_duration(total_wall),
                 f"{n_total:_}",
