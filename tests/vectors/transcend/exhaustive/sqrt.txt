@@ -1,0 +1,5 @@
+# ADR-0034 exhaustive sweep worst-case row for `sqrt`.
+# Re-derived proven correctly-rounded value via Arb at P=80 bits.
+# Source: tests/vectors/transcend/sqrt_d32_exhaustive.prov
+# Tool: tools/d32_exhaustive_compute_outputs.py
+7 NearestEven 9999999e11 9.999999e8

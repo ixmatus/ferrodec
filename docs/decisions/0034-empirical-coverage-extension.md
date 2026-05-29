@@ -1,7 +1,7 @@
 # ADR-0034: Empirical coverage extension to decimal32 sqrt and the Kani unreachable identity residue
 
-- **Status**: proposed
-- **Date**: 2026-05-28 (proposed)
+- **Status**: accepted
+- **Date**: 2026-05-28 (proposed); 2026-05-28 (accepted, post sqrt campaign)
 
 ## Context
 
@@ -272,3 +272,61 @@ the scope boundary is explicit.
     transcendental cases (which admit no a priori margin bound) from
     basic arithmetic (whose exact result is finitely computable), the
     distinction that scopes this ADR.
+
+## Outcomes (sqrt campaign, 2026-05-28)
+
+The sqrt exhaustive campaign ran on a single cloud host; this addendum
+records the findings the Decision section anticipated in the future
+tense. The identity residue sweep (Slice 3) is tracked separately and
+its outcome will be recorded when it lands.
+
+### sqrt campaign
+
+`tools/d32_exhaustive_sweep.py --func sqrt` walked every canonical
+`Decimal32` input with `x >= 0` through the two tier Arb filter:
+`1,728,000,000` inputs evaluated. Tier 1 at 512 cap bits resolved
+100.0000 percent of candidates; tier 2 promoted none, and the TMD
+hard set is empty, exactly as the Decision predicted (`sqrt(1) = 1`
+and `sqrt(0) = 0` are exact, perfect square coefficients give exact
+roots, so no `f(1) = 0` underflow boundary candidate arises).
+
+The worst case half ULP margin is `1.250000e-8` at input
+`9999999e11` (the largest seven digit coefficient at that exponent),
+proven correctly rounded to `9.999999e8`. The committed deliverables
+are `tests/vectors/transcend/sqrt_d32_exhaustive.prov` (worst case
+margin + per tier statistics) and
+`tests/vectors/transcend/exhaustive/sqrt.txt` (worst case input +
+proven correctly rounded output).
+
+### Empirical anchor
+
+sqrt's worst case margin (`1.25e-8`) is roughly two orders of
+magnitude wider than the tightest §9.2 transcendental margin
+(`1.528e-10`, asinh and acosh). The gap is expected: an algebraic
+root's hardest to round cases do not approach a half ULP boundary as
+closely as a transcendental's, so sqrt is the easier of the TMD
+bearing operations to round correctly. The kernel's working width
+exceeds this margin by far more than 30 orders of magnitude, so the
+exhaustive worst case is a comfortable constraint.
+
+### Verification
+
+Two test gates, both green:
+
+- `ferrodec-decimal32/tests/transcend_vectors_exhaustive.rs` (default
+  on under `--features exp-log,trig,hyperbolic,pow`): 19 / 19 worst
+  case rows exactly correctly rounded (the 18 §9.2 transcendentals
+  plus sqrt). The exhaustive Decimal32 unary surface that admits the
+  proof shape is now complete.
+- `ferrodec-test-support/tests/mpfr_gate.rs::mpfr_cross_validates_exhaustive_worst_cases`
+  (gated behind `--features mpfr-gate`): 19 / 19 rows agree bit for
+  bit with MPFR, zero disagreements.
+
+### Decimal32 contract status
+
+For sqrt on `Decimal32`, ferrodec ships correctly rounded on every
+canonical input, machine verified exhaustively, with no TMD hard
+residual. The sqrt rustdoc cites the exhaustive worst case margin as
+the binding empirical constraint. `Decimal64` and `Decimal128` sqrt
+keep their proptest envelope against `astro-float`; their canonical
+input cardinalities are beyond exhaustive reach.

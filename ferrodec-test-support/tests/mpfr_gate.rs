@@ -99,6 +99,7 @@ fn eval(fv: &frozen::FrozenVec, p: u32) -> (Float, Ordering) {
         "log10" => v.log10_round(Round::Nearest),
         "exp2" => v.exp2_round(Round::Nearest),
         "cbrt" => v.cbrt_round(Round::Nearest),
+        "sqrt" => v.sqrt_round(Round::Nearest),
         "sin" => v.sin_round(Round::Nearest),
         "cos" => v.cos_round(Round::Nearest),
         "tan" => v.tan_round(Round::Nearest),
@@ -225,8 +226,8 @@ fn mpfr_cross_validates_exhaustive_worst_cases() {
     }
 
     assert!(
-        checked >= 18,
-        "expected the 18 unary §9.2 exhaustive worst-case rows, ran {checked}"
+        checked >= 19,
+        "expected 19 exhaustive worst-case rows (18 §9.2 + §5 sqrt), ran {checked}"
     );
     assert!(
         disagree == 0,
@@ -234,9 +235,10 @@ fn mpfr_cross_validates_exhaustive_worst_cases() {
         first_disagreement.as_deref().unwrap_or("?")
     );
     eprintln!(
-        "ADR-0033 Plan C5 exhaustive worst-case MPFR cross-validation: \
-         {checked} rows independently reproduced by MPFR, 0 disagreements. \
-         The exhaustive-sweep oracle (Arb up to CAP_BITS=65536) agrees \
-         with MPFR bit for bit on every function's tightest known input."
+        "ADR-0033 Plan C5 + ADR-0034 exhaustive worst-case MPFR \
+         cross-validation: {checked} rows independently reproduced by \
+         MPFR, 0 disagreements (18 §9.2 transcendentals + §5 sqrt). The \
+         exhaustive-sweep oracle (Arb up to CAP_BITS=65536) agrees with \
+         MPFR bit for bit on every function's tightest known input."
     );
 }
