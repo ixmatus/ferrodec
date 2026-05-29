@@ -61,10 +61,11 @@ remains public for users who want to read or fork the work.
 **What this does not promise.** AI collaboration does not transfer responsibility. The author is accountable for what
 ships under his name. The disciplines above narrow the failure surface; they do not eliminate it. In particular, this
 process is most exposed to subtle bugs that a careful human reading of the code would catch but tests, types, and
-formal verification would not. For correctly rounded decimal arithmetic that specifically includes rounding errors on
-boundary cases the decTest suite did not cover, rounding errors on §9.2 transcendental boundary inputs the Arb
-empirical worst-case search did not surface, or conformance regressions in operations no harness happened to
-exercise. Issues are welcome and will be triaged as time allows; no SLA is offered. This README describes the project's
+formal verification would not. For correctly rounded decimal arithmetic that specifically includes rounding errors on boundary cases the decTest
+suite did not cover, rounding errors on Decimal64 or Decimal128 transcendental boundary inputs the sampled Arb
+worst-case search did not surface (the Decimal32 §9.2 transcendentals and square root are now searched
+exhaustively across the full canonical input space rather than sampled), or conformance regressions in operations
+no harness happened to exercise. Issues are welcome and will be triaged as time allows; no SLA is offered. This README describes the project's
 development process and is not a warranty; see the LICENSE file for the legal terms governing use.
 
 ## What ferrodec is
