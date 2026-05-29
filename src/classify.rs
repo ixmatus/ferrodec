@@ -223,8 +223,18 @@ impl Decimal128 {
     #[inline]
     #[must_use]
     pub fn abs_with_status(self) -> (Self, crate::status::Status) {
-        if self.is_signaling_nan() {
-            return (Self::NAN, crate::status::Status::INVALID);
+        // GDA / decTest `abs` propagates a NaN operand unchanged: its
+        // sign and payload are preserved (e.g. `abs -NaN22 -> -NaN22`),
+        // a signaling NaN is quietened and raises INVALID. abs does
+        // *not* clear a NaN's sign. The const `abs` keeps the f64-style
+        // clear-sign behaviour for the non-NaN fast path below.
+        if self.is_nan() {
+            let status = if self.is_signaling_nan() {
+                crate::status::Status::INVALID
+            } else {
+                crate::status::Status::OK
+            };
+            return (crate::ops::nan_propagate::nan_from(self), status);
         }
         (self.abs(), crate::status::Status::OK)
     }
@@ -250,8 +260,17 @@ impl Decimal128 {
     #[inline]
     #[must_use]
     pub fn neg_with_status(self) -> (Self, crate::status::Status) {
-        if self.is_signaling_nan() {
-            return (Self::NAN, crate::status::Status::INVALID);
+        // GDA / decTest `minus` propagates a NaN operand unchanged: its
+        // sign is *preserved*, not flipped (e.g. `minus -NaN -> -NaN`),
+        // a signaling NaN is quietened and raises INVALID. minus does
+        // not negate a NaN's sign.
+        if self.is_nan() {
+            let status = if self.is_signaling_nan() {
+                crate::status::Status::INVALID
+            } else {
+                crate::status::Status::OK
+            };
+            return (crate::ops::nan_propagate::nan_from(self), status);
         }
         if self.is_zero() {
             return (self.abs(), crate::status::Status::OK);

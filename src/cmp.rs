@@ -163,7 +163,11 @@ impl Decimal128 {
             return (nan_from(other), Status::INVALID);
         }
         if self.is_nan() && other.is_nan() {
-            return (Self::NAN, Status::OK);
+            // Two quiet NaNs: propagate the first operand's NaN
+            // (sign + payload), matching decTest (e.g. dqmax184
+            // `max -NaN1 NaN11 -> -NaN1`) and the siblings. The sNaN
+            // cases above already took precedence.
+            return (nan_from(self), Status::OK);
         }
         if self.is_nan() {
             return (other, Status::OK);
@@ -190,7 +194,11 @@ impl Decimal128 {
             return (nan_from(other), Status::INVALID);
         }
         if self.is_nan() && other.is_nan() {
-            return (Self::NAN, Status::OK);
+            // Two quiet NaNs: propagate the first operand's NaN
+            // (sign + payload), matching decTest (e.g. dqmax184
+            // `max -NaN1 NaN11 -> -NaN1`) and the siblings. The sNaN
+            // cases above already took precedence.
+            return (nan_from(self), Status::OK);
         }
         if self.is_nan() {
             return (other, Status::OK);
@@ -229,7 +237,11 @@ impl Decimal128 {
             return (nan_from(other), Status::INVALID);
         }
         if self.is_nan() && other.is_nan() {
-            return (Self::NAN, Status::OK);
+            // Two quiet NaNs: propagate the first operand's NaN
+            // (sign + payload), matching decTest (e.g. dqmax184
+            // `max -NaN1 NaN11 -> -NaN1`) and the siblings. The sNaN
+            // cases above already took precedence.
+            return (nan_from(self), Status::OK);
         }
         if self.is_nan() {
             return (other, Status::OK);
@@ -262,7 +274,11 @@ impl Decimal128 {
             return (nan_from(other), Status::INVALID);
         }
         if self.is_nan() && other.is_nan() {
-            return (Self::NAN, Status::OK);
+            // Two quiet NaNs: propagate the first operand's NaN
+            // (sign + payload), matching decTest (e.g. dqmax184
+            // `max -NaN1 NaN11 -> -NaN1`) and the siblings. The sNaN
+            // cases above already took precedence.
+            return (nan_from(self), Status::OK);
         }
         if self.is_nan() {
             return (other, Status::OK);
