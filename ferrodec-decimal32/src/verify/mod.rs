@@ -17,6 +17,7 @@
 
 mod addsub;
 mod canonical;
+mod classify;
 mod cmp;
 mod div;
 // DPD interchange codec lives behind the `dpd` feature
@@ -44,6 +45,7 @@ mod pow;
 // `quantize` … `next_down` are pure decimal (always compiled,
 // `ops/quantum.rs` has no feature gate), so the harness is too.
 mod quantum;
+mod rem;
 mod sqrt;
 // `trig` lives behind the `trig` feature (ops/trig.rs); the harness
 // references its Kani shims, so it is gated identically.
