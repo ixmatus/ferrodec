@@ -81,16 +81,17 @@ impl Decimal32 {
 
     /// IEEE 754-2019 `subtraction(self, other)` rounded by `rm`.
     ///
-    /// Equivalent to `add(self, neg(other))` but quiets a signaling
-    /// NaN in either operand (the negation does not strip the sNaN
-    /// marker; the special-case dispatcher does).
+    /// Implemented as `self + (-other)`, with a NaN `other` left
+    /// unnegated so its propagated sign is preserved: `neg` flips the
+    /// sign bit even on a NaN, which would corrupt the propagated
+    /// result (decTest pins the NaN sign on subtraction). Non-NaN
+    /// operands negate exactly, including the IEEE sign-of-zero rules.
+    /// Mirrors the `ferrodec` parent and the `ferrodec-decimal64`
+    /// sibling.
     #[must_use]
     pub fn sub(self, other: Self, rm: RoundingMode) -> (Self, Status) {
-        // neg flips the sign bit, even on NaN. The dispatcher below
-        // raises INVALID for any signaling-NaN input, so the bit-flip
-        // is safe; the sNaN marker (bit 25) is independent of the
-        // sign bit (bit 31).
-        add_inner(self, other.neg(), rm)
+        let other = if other.is_nan() { other } else { other.neg() };
+        add_inner(self, other, rm)
     }
 
     /// Kani-only entry point that returns the special-case branch only,
@@ -106,15 +107,15 @@ impl Decimal32 {
         handle_specials(classify_bits(self.0), classify_bits(rhs.0), rm)
     }
 
-    /// Kani-only entry point for `sub`'s special path. Equivalent to
-    /// `add_special_only_for_kani(self, rhs.neg(), rm)`; the negation
-    /// happens before the dispatcher so sNaN propagation behaves
-    /// identically to [`Decimal32::sub`].
+    /// Kani-only entry point for `sub`'s special path. Mirrors
+    /// [`Decimal32::sub`]: a NaN operand is left unnegated so
+    /// NaN-sign propagation and sNaN INVALID match the production path
+    /// and cannot drift.
     #[cfg(kani)]
     #[doc(hidden)]
     #[must_use]
     pub fn sub_special_only_for_kani(self, rhs: Self, rm: RoundingMode) -> Option<(Self, Status)> {
-        let negated = rhs.neg();
+        let negated = if rhs.is_nan() { rhs } else { rhs.neg() };
         handle_specials(classify_bits(self.0), classify_bits(negated.0), rm)
     }
 }
@@ -596,6 +597,18 @@ mod tests {
         let (r, s) = Decimal32::ONE.sub(Decimal32::SIGNALING_NAN, RoundingMode::NearestEven);
         assert!(r.is_quiet_nan());
         assert!(s.invalid());
+    }
+
+    #[test]
+    fn sub_preserves_nan_sign() {
+        // decTest pins the NaN sign on subtraction; `neg` must not flip
+        // it. Pre-fix `sub` negated the operand unconditionally, so
+        // `x - (-NaN)` produced `+NaN`.
+        let neg_nan = Decimal32::NAN.neg();
+        let (r, _) = Decimal32::ONE.sub(neg_nan, RoundingMode::NearestEven);
+        assert!(r.is_nan() && r.is_sign_negative(), "1 - (-NaN) keeps -NaN");
+        let (r, _) = Decimal32::ONE.sub(Decimal32::NAN, RoundingMode::NearestEven);
+        assert!(r.is_nan() && !r.is_sign_negative(), "1 - NaN keeps +NaN");
     }
 
     #[test]

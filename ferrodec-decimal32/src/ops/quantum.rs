@@ -232,6 +232,33 @@ impl Decimal32 {
         )
     }
 
+    /// Return `true` if `self` and `other` have the same quantum
+    /// exponent (IEEE 754-2019 §5.7.2 `sameQuantum`).
+    ///
+    /// * Both NaN (any kind) → `true`.
+    /// * Both ±∞ → `true`.
+    /// * NaN with non-NaN, or Inf with finite/zero → `false`.
+    /// * Two finite or zero values → `true` iff their biased exponents
+    ///   match.
+    ///
+    /// No status flags are raised. Matches `Decimal128::same_quantum`
+    /// and `Decimal64::same_quantum`; added for cross-format parity
+    /// (it was previously missing on Decimal32).
+    #[inline]
+    #[must_use]
+    pub fn same_quantum(self, other: Self) -> bool {
+        use Class::{Finite, Infinity, QuietNaN, SignalingNaN, Zero};
+        match (classify_bits(self.0), classify_bits(other.0)) {
+            (QuietNaN { .. } | SignalingNaN { .. }, QuietNaN { .. } | SignalingNaN { .. }) => true,
+            (Infinity { .. }, Infinity { .. }) => true,
+            (
+                Zero { biased_exp: a, .. } | Finite { biased_exp: a, .. },
+                Zero { biased_exp: b, .. } | Finite { biased_exp: b, .. },
+            ) => a == b,
+            _ => false,
+        }
+    }
+
     /// IEEE 754-2019 §5.3.3 `scaleB(self, n)`: returns `self * 10^n`.
     ///
     /// Equivalent to shifting the unbiased exponent by `n`. NaN
@@ -741,6 +768,21 @@ mod tests {
         let (r, s) = Decimal32::NAN.logb();
         assert!(r.is_quiet_nan());
         assert!(s.is_ok());
+    }
+
+    #[test]
+    fn same_quantum_cohort_and_specials() {
+        // Same biased exponent ⇒ same quantum, regardless of value.
+        assert!(from_int(123, -2).same_quantum(from_int(456, -2)));
+        assert!(from_int(0, -2).same_quantum(from_int(999, -2)));
+        // Different cohort of the same numeric value.
+        assert!(!from_int(10, -1).same_quantum(from_int(100, -2)));
+        // Two NaNs share a quantum; NaN vs finite does not.
+        assert!(Decimal32::NAN.same_quantum(Decimal32::SIGNALING_NAN));
+        assert!(!Decimal32::NAN.same_quantum(from_int(1, 0)));
+        // Two infinities share a quantum; ∞ vs finite does not.
+        assert!(Decimal32::INFINITY.same_quantum(Decimal32::NEG_INFINITY));
+        assert!(!Decimal32::INFINITY.same_quantum(from_int(1, 0)));
     }
 
     #[test]

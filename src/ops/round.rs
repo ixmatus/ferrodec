@@ -54,6 +54,13 @@ pub(crate) fn round_and_pack_finite(
         // `BIASED_EXP_MAX` debug-assert.
         let q = q_preferred.min(unbiased_exp);
         let q_clamped = q.clamp(-(BIAS as i32), BIASED_EXP_MAX as i32 - BIAS as i32);
+        if q_clamped != q {
+            // IEEE 754-2019 §7.4 Clamped (informational): the zero is
+            // exact at every exponent, so the value is unchanged, but
+            // its preferred quantum fell outside the format range and
+            // was clamped into it. Mirrors decimal64 round.rs.
+            status |= Status::CLAMPED;
+        }
         return (
             Decimal128::from_bits(pack_finite(sign, biased(q_clamped), 0)),
             status,
@@ -278,6 +285,11 @@ fn finalize_finite(
         // Never an exception path — emit canonical zero with the given exp
         // (clamped if it falls out of range).
         let clamped_exp = unbiased_exp.clamp(-(BIAS as i32), BIASED_EXP_MAX as i32 - BIAS as i32);
+        if clamped_exp != unbiased_exp {
+            // §7.4 Clamped (informational): zero is exact at every
+            // exponent; the preferred quantum was clamped into range.
+            status |= Status::CLAMPED;
+        }
         return (
             Decimal128::from_bits(pack_finite(sign, biased(clamped_exp), 0)),
             status,

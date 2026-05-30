@@ -78,12 +78,18 @@ impl Decimal128 {
 
     /// IEEE 754 `subtraction(self, rhs)`.
     ///
-    /// Implemented as `self + (−rhs)` — sign-flipping `rhs` is exact and
-    /// preserves NaN payload, so the addition kernel handles every edge
-    /// case correctly.
+    /// Implemented as `self + (-rhs)`, with a NaN `rhs` left unnegated
+    /// so its propagated sign is preserved (decTest pins the NaN sign
+    /// on subtraction). Mirrors the `ferrodec-decimal64` /
+    /// `ferrodec-decimal32` siblings.
     #[must_use]
     pub fn sub(self, rhs: Self, rm: RoundingMode) -> (Self, Status) {
-        add_kernel(self, rhs.neg(), rm)
+        // A NaN `rhs` is left unnegated: `neg` flips the sign bit even
+        // on a NaN, which would corrupt the propagated NaN's sign. For
+        // non-NaN operands the negation is exact (sign-of-zero rules
+        // included), so the addition kernel handles every case.
+        let rhs = if rhs.is_nan() { rhs } else { rhs.neg() };
+        add_kernel(self, rhs, rm)
     }
 
     /// Kani-only entry point that returns the special-case branch only,

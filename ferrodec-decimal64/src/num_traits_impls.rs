@@ -122,26 +122,16 @@ impl Signed for Decimal64 {
 
 impl FromPrimitive for Decimal64 {
     fn from_i64(n: i64) -> Option<Self> {
-        // Decimal64 holds 16 digits, so any i64 with |n| < 10¹⁶ fits
-        // exactly via try_new. Larger magnitudes go through the f64
-        // round-trip for Decimal64-appropriate rounding.
-        if let Ok(d) = Self::try_new(n, 0) {
-            return Some(d);
-        }
-        #[allow(clippy::cast_precision_loss)]
-        let (d, _) = Self::from_f64(n as f64, RM);
+        // Delegate to the rounding-aware inherent constructor rather
+        // than an f64 round-trip: f64 holds exact integers only to
+        // 2^53 (~9.0e15), coarser than Decimal64's 16-digit target, so
+        // the old `n as f64` path double-rounded integers >= 10^16.
+        // The inherent path rounds the integer directly with `RM`.
+        let (d, _) = Self::from_i64(n, RM);
         Some(d)
     }
     fn from_u64(n: u64) -> Option<Self> {
-        // u64 values that round-trip through i64 < 10¹⁶ fit exactly;
-        // larger ones round via f64.
-        if let Ok(signed) = i64::try_from(n) {
-            if let Ok(d) = Self::try_new(signed, 0) {
-                return Some(d);
-            }
-        }
-        #[allow(clippy::cast_precision_loss)]
-        let (d, _) = Self::from_f64(n as f64, RM);
+        let (d, _) = Self::from_u64(n, RM);
         Some(d)
     }
     fn from_f64(n: f64) -> Option<Self> {
@@ -276,6 +266,22 @@ mod tests {
             2.5
         );
         assert!(<Decimal64 as FromPrimitive>::from_f64(f64::NAN).is_none());
+    }
+
+    #[test]
+    fn from_i64_large_integer_is_exact_not_double_rounded() {
+        // 2^53 + 1 = 9_007_199_254_740_993 is 16 digits, exactly
+        // representable in Decimal64. The old f64 round-trip lost the
+        // last digit (`n as f64` rounds 2^53 + 1 down to the even
+        // 2^53 = ...992), so the result was off by one. Delegating to
+        // the rounding-aware inherent constructor is exact.
+        let n: i64 = 9_007_199_254_740_993;
+        let d = <Decimal64 as FromPrimitive>::from_i64(n).unwrap();
+        assert_eq!(d.to_bits(), Decimal64::try_new(n, 0).unwrap().to_bits());
+
+        let u: u64 = 9_007_199_254_740_993;
+        let d = <Decimal64 as FromPrimitive>::from_u64(u).unwrap();
+        assert_eq!(d.to_bits(), Decimal64::try_new(n, 0).unwrap().to_bits());
     }
 
     #[test]

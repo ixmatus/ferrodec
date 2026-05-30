@@ -23,7 +23,7 @@ proptest! {
         if !f.is_finite() {
             return Ok(());
         }
-        let d = Decimal128::from_f64(f);
+        let d = Decimal128::from_f64(f, RoundingMode::NearestEven).0;
         let (back, _) = d.to_f64(RoundingMode::NearestEven);
         // Sign-of-zero must also round-trip.
         if f == 0.0 {
@@ -40,7 +40,7 @@ proptest! {
         if !f.is_finite() {
             return Ok(());
         }
-        let d = Decimal128::from_f32(f);
+        let d = Decimal128::from_f32(f, RoundingMode::NearestEven).0;
         let (back, _) = d.to_f32(RoundingMode::NearestEven);
         if f == 0.0 {
             prop_assert_eq!(back.is_sign_negative(), f.is_sign_negative());

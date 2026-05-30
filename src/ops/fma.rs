@@ -256,6 +256,14 @@ fn combine_zero_product_with_c(
             let qc = ec as i32 - BIAS as i32;
             let target = qab.min(qc);
             let target_clamped = target.clamp(-(BIAS as i32), BIASED_EXP_MAX as i32 - BIAS as i32);
+            // §7.4 Clamped (informational): the exact zero product plus
+            // a zero addend is exact at every exponent, but its
+            // preferred quantum min(q_ab, q_c) was clamped into range.
+            // Mirrors the decimal64 / decimal32 fma zero-product path.
+            let mut status = status;
+            if target_clamped != target {
+                status |= Status::CLAMPED;
+            }
             let result_sign = if product_sign == sc {
                 product_sign
             } else {

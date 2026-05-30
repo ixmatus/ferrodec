@@ -315,7 +315,10 @@ fn format_zero(
                 }
             }
             f.write_char(exp_char)?;
-            write_signed_int(0, f)
+            // A zero's adjusted exponent is its unbiased exponent (a
+            // single 0 digit); emit it rather than a hardcoded 0, so
+            // `0E+5` renders `0E+5` like the siblings, not `0E+0`.
+            write_signed_int(unbiased, f)
         }
         Notation::Engineering(exp_char) => {
             f.write_str("0")?;
@@ -328,7 +331,10 @@ fn format_zero(
                 }
             }
             f.write_char(exp_char)?;
-            write_signed_int(0, f)
+            // Lone 0 with the (non-rebased) exponent, matching the
+            // sibling write_engineering zero path; a zero has no
+            // significant digit to rebase to a multiple of three.
+            write_signed_int(unbiased, f)
         }
         Notation::Auto => {
             // GDA `toSci` on zero: plain when `unbiased ≤ 0` (the
@@ -345,13 +351,14 @@ fn format_zero(
                     }
                 }
                 Ok(())
-            } else if unbiased <= 0 {
+            } else if (-6..=0).contains(&unbiased) {
                 if unbiased == 0 {
                     f.write_str("0")
                 } else {
-                    // Fractional-quantum zero: render plain with
-                    // leading zeros, matching the toSci rule for
-                    // `0.000…0` cohorts.
+                    // Fractional-quantum zero down to 1e-6: plain, per
+                    // the toSci rule (a zero's adjusted exponent is its
+                    // unbiased exponent, so the `adjusted >= -6` test is
+                    // `unbiased >= -6`).
                     f.write_str("0.")?;
                     for _ in 0..(-unbiased) {
                         f.write_str("0")?;
@@ -359,6 +366,9 @@ fn format_zero(
                     Ok(())
                 }
             } else {
+                // unbiased > 0, or a fractional zero below 1e-6
+                // (adjusted < -6): scientific, matching GDA toSci and
+                // the siblings (e.g. `0E-7`, `0E+5`).
                 f.write_str("0E")?;
                 write_signed_int(unbiased, f)
             }
@@ -549,7 +559,7 @@ fn format_scientific(
 
 /// Engineering notation: scientific with the exponent forced to a
 /// multiple of 3, so the mantissa lies in `[1, 1000)`. Used by
-/// `Decimal128::to_engineering_string`.
+/// [`Decimal128::engineering`].
 fn format_engineering_into(
     coefficient: u128,
     digits: i32,
@@ -568,16 +578,24 @@ fn format_engineering_into(
     let mut buf = [0u8; MAX_DIGITS];
     let written = write_digits(coefficient, &mut buf);
     let coef_digits = &buf[..written];
-    let int_digits = (shift + 1) as usize;
-    let int_digits = int_digits.min(coef_digits.len());
+    // Digits that belong before the decimal point. When the coefficient
+    // has *fewer* digits than this (e.g. `50` is coefficient `5` with
+    // `want_int = 2`), the integer part is padded with trailing zeros;
+    // capping at the coefficient length without padding would drop a
+    // factor of ten (rendering `50` as `5E+0`).
+    let want_int = (shift + 1) as usize;
+    let take = want_int.min(coef_digits.len());
 
-    f.write_str(core::str::from_utf8(&coef_digits[..int_digits]).expect("ASCII"))?;
+    f.write_str(core::str::from_utf8(&coef_digits[..take]).expect("ASCII"))?;
+    for _ in coef_digits.len()..want_int {
+        f.write_str("0")?;
+    }
 
-    let frac_natural = coef_digits.len().saturating_sub(int_digits);
+    let frac_natural = coef_digits.len().saturating_sub(want_int);
     let target_frac = precision.unwrap_or(frac_natural);
     if frac_natural > 0 || target_frac > 0 {
         f.write_str(".")?;
-        f.write_str(core::str::from_utf8(&coef_digits[int_digits..]).expect("ASCII"))?;
+        f.write_str(core::str::from_utf8(&coef_digits[take..]).expect("ASCII"))?;
         for _ in frac_natural..target_frac {
             f.write_str("0")?;
         }
@@ -801,6 +819,31 @@ mod tests {
     }
 
     #[test]
+    fn engineering_pads_short_integer_part() {
+        // Regression: a single-digit coefficient whose scientific
+        // exponent is not a multiple of three needs the integer part
+        // zero-padded. Capping at the coefficient length dropped a
+        // power of ten (`50` rendered as `5E+0`).
+        assert_eq!(
+            format!("{}", Decimal128::try_new(5, 1).unwrap().engineering()),
+            "50E+0"
+        );
+        assert_eq!(
+            format!("{}", Decimal128::try_new(5, 2).unwrap().engineering()),
+            "500E+0"
+        );
+        assert_eq!(
+            format!("{}", Decimal128::try_new(5, -2).unwrap().engineering()),
+            "50E-3"
+        );
+        // Two-digit coefficient needing three integer digits.
+        assert_eq!(
+            format!("{}", Decimal128::try_new(75, 1).unwrap().engineering()),
+            "750E+0"
+        );
+    }
+
+    #[test]
     fn engineering_handles_specials() {
         assert_eq!(format!("{}", Decimal128::NAN.engineering()), "NaN");
         assert_eq!(
@@ -809,6 +852,29 @@ mod tests {
         );
         // Engineering always emits the explicit `E±N` exponent.
         assert_eq!(format!("{}", Decimal128::ZERO.engineering()), "0E+0");
+    }
+
+    #[test]
+    fn zero_notation_matches_tosci() {
+        // Default (Auto) toSci: a zero is plain down to 1e-6, scientific
+        // below (its adjusted exponent equals its unbiased exponent).
+        assert_eq!(
+            format!("{}", Decimal128::try_new(0, -6).unwrap()),
+            "0.000000"
+        );
+        assert_eq!(format!("{}", Decimal128::try_new(0, -7).unwrap()), "0E-7");
+        assert_eq!(format!("{}", Decimal128::try_new(0, 5).unwrap()), "0E+5");
+        // Forced scientific / engineering carry the zero's real
+        // exponent, not a hardcoded 0 (matches the siblings).
+        assert_eq!(format!("{:e}", Decimal128::try_new(0, 5).unwrap()), "0e+5");
+        assert_eq!(
+            format!("{}", Decimal128::try_new(0, 5).unwrap().engineering()),
+            "0E+5"
+        );
+        assert_eq!(
+            format!("{}", Decimal128::try_new(0, -7).unwrap().engineering()),
+            "0E-7"
+        );
     }
 
     #[test]

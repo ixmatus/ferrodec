@@ -786,7 +786,11 @@ fn invoke(op: OpKind, operands: &[String], rm: RoundingMode, enc: Encoding) -> O
             let b = parse_value(&operands[1], rm, enc)?.0;
             let (ord, s) = a.partial_cmp(b);
             let v = match ord {
-                None => Decimal128::NAN,
+                // Unordered means a NaN operand. The GDA `compare` op
+                // returns that NaN propagated (sNaN-priority, sign and
+                // payload preserved, signaling quietened) — exactly the
+                // arithmetic NaN-propagation rule, so reuse `add`.
+                None => a.add(b, RoundingMode::NearestEven).0,
                 Some(core::cmp::Ordering::Less) => Decimal128::NEG_ONE,
                 Some(core::cmp::Ordering::Equal) => Decimal128::ZERO,
                 Some(core::cmp::Ordering::Greater) => Decimal128::ONE,
@@ -846,14 +850,19 @@ fn invoke(op: OpKind, operands: &[String], rm: RoundingMode, enc: Encoding) -> O
             //  • Inf as second operand     → NaN + INVALID
             //  • non-integer quantum (i.e. biased_exp != BIAS) → NaN + INVALID
             // Magnitude bound (|n| > 12356) is enforced by `scaleb` itself.
-            if a.is_signaling_nan() || n_dec.is_signaling_nan() {
-                return Some(OpResult::Value(Decimal128::NAN, Status::INVALID));
-            }
-            if a.is_nan() {
-                return Some(OpResult::Value(a, Status::OK));
-            }
-            if n_dec.is_nan() {
-                return Some(OpResult::Value(n_dec, Status::OK));
+            if a.is_nan() || n_dec.is_nan() {
+                // Propagate the NaN operand the same way the arithmetic
+                // kernels do (sNaN-priority, sign and payload preserved,
+                // signaling quietened). `add` is a convenient vehicle
+                // for that rule; the status carries INVALID iff a
+                // signaling NaN was present.
+                let v = a.add(n_dec, RoundingMode::NearestEven).0;
+                let status = if a.is_signaling_nan() || n_dec.is_signaling_nan() {
+                    Status::INVALID
+                } else {
+                    Status::OK
+                };
+                return Some(OpResult::Value(v, status));
             }
             if n_dec.is_infinite() {
                 return Some(OpResult::Value(Decimal128::NAN, Status::INVALID));
@@ -1105,14 +1114,33 @@ fn compare(
             unreachable!("class results are compared in run_case");
         }
         OpResult::Value(actual, actual_flags) => {
-            // NaN compare: both must be NaN. Cohort/payload is allowed to
-            // differ unless the test pinned a payload.
+            // NaN compare: both must be NaN, with the same sign,
+            // signaling bit, and diagnostic payload. decTest pins all
+            // three on NaN-result vectors (the propagated-payload
+            // first-NaN-wins / sNaN-priority rule, IEEE 754-2019
+            // §6.2.3), and the parent renders sign / sNaN-vs-NaN /
+            // payload through `Display` (the 1.9.0 NaN-with-payload
+            // support), so the `Display` string is the exact projection
+            // onto the fields the spec pins for a NaN: comparing it
+            // catches a flipped sign or a mispropagated payload that the
+            // old `is_nan()`-only check let through. The informational
+            // §7.4 CLAMPED flag stays masked in the status comparison
+            // below (fd-61r), coherent with the sibling runners; this
+            // tightens only the NaN *value* side.
             if expected.is_nan() {
                 if !actual.is_nan() {
                     return Outcome::Fail(format!(
                         "expected NaN, got {} ({:032X})",
                         actual,
                         actual.to_bits()
+                    ));
+                }
+                let (got, want) = (format!("{actual}"), format!("{expected}"));
+                if got != want {
+                    return Outcome::Fail(format!(
+                        "NaN sign/payload mismatch: got {got} ({:032X}), want {want} ({:032X})",
+                        actual.to_bits(),
+                        expected.to_bits()
                     ));
                 }
             } else if actual.to_bits() != expected.to_bits() {
@@ -1125,13 +1153,8 @@ fn compare(
                 ));
             }
 
-            // Status flags — compare only the IEEE 754 set we track.
-            let mask = Status::INVALID
-                | Status::DIV_BY_ZERO
-                | Status::OVERFLOW
-                | Status::UNDERFLOW
-                | Status::INEXACT;
-            let _ = mask; // value used via merge below
+            // Status flags — compare only the IEEE 754 exception set;
+            // `mask_status` drops the informational GDA conditions.
             let actual_relevant = mask_status(*actual_flags);
             let expected_relevant = mask_status(expected_flags);
             if actual_relevant.bits() != expected_relevant.bits() {
@@ -1149,7 +1172,20 @@ fn compare(
 }
 
 fn mask_status(s: Status) -> Status {
-    Status::from_bits_truncate(s.bits())
+    // Compare only the five IEEE 754 exception flags. The informational
+    // GDA conditions (CLAMPED, ROUNDED, SUBNORMAL, LOST_DIGITS) are not
+    // part of IEEE 754 conformance: `decode_conditions` already drops
+    // them from the expected side, and ferrodec may emit the §7.4
+    // informational CLAMPED at genuine clamp sites where the dec corpus
+    // also pins it (the remaining ideal-exponent cases are deferred,
+    // fd-61r). Masking both sides keeps the comparison consistent and
+    // matches the sibling runners' `status_conformance_eq`.
+    let ieee = Status::INVALID
+        | Status::DIV_BY_ZERO
+        | Status::OVERFLOW
+        | Status::UNDERFLOW
+        | Status::INEXACT;
+    Status::from_bits_truncate(s.bits() & ieee.bits())
 }
 
 /// Per-file expected `passed` count for the decTest run.

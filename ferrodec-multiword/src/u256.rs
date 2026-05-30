@@ -137,6 +137,15 @@ impl U256 {
     /// as `self · 10^38 · 10^(k − 38)` (two multiplies). Both shapes are
     /// far cheaper than the previous sequential `mul10`-loop, which paid
     /// the four-component multi-precision multiply on every iteration.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `k > 76`. The chunked path indexes the 39-entry
+    /// `POW10_U128` table at `k − 38`, so a larger `k` is out of range.
+    /// This is an explicit hard precondition (asserted in release too),
+    /// not the module's general wrapping contract: stating it up front
+    /// turns what was an incidental out-of-bounds slice index into a
+    /// clear precondition failure. No in-crate caller exceeds 76.
     #[must_use]
     pub fn mul_pow10(self, k: u32) -> Self {
         if k == 0 {
@@ -145,7 +154,7 @@ impl U256 {
         if (k as usize) < POW10_U128.len() {
             return self.mul_u128(POW10_U128[k as usize]);
         }
-        debug_assert!(k <= 76, "mul_pow10 called with k > 76");
+        assert!(k <= 76, "mul_pow10: k must be ≤ 76");
         self.mul_u128(POW10_U128[38])
             .mul_u128(POW10_U128[(k - 38) as usize])
     }

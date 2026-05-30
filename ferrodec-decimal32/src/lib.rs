@@ -124,5 +124,7 @@ pub use convert::Decimal32FromFloatError;
 pub use convert::{Engineering, FixedPreferred, ParseDecimalError};
 pub use decimal::{Decimal32, Decimal32BuildError};
 pub use ferrodec_ieee::{IeeeClass, RoundingMode, Status};
+#[cfg(feature = "num-traits")]
+pub use num_traits_impls::FromStrRadixError;
 #[cfg(feature = "serde")]
 pub use serde_impls::serde_bid;
