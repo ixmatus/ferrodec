@@ -9,16 +9,21 @@
 //!
 //! Claims covered:
 //!
-//! 1. Special-case dispatch resolves to `Some` whenever the IEEE
-//!    rules require a closed-form answer (NaN / Inf / Zero / 0+0
-//!    sign rule).
+//! 1. Special-case dispatch resolves to `Some` whenever an operand
+//!    is NaN or Infinity (the classes the dispatcher answers in
+//!    closed form).
 //! 2. NaN propagation: a NaN input produces a NaN result through
 //!    the dispatcher.
 //! 3. Signaling NaN raises `INVALID`.
 //! 4. `(±∞) + (±∞)` of opposite sign → NaN + INVALID; same sign →
 //!    same-signed infinity.
-//! 5. IEEE 754-2019 §6.3 zero-sign rule: `(+0) + (−0) = +0` in all
-//!    rounding modes except `TowardNegative`, which yields `−0`.
+//!
+//! The IEEE 754-2019 §6.3 zero-sign rule (`(+0) + (−0) = +0` except
+//! in `TowardNegative`) is **not** pinned here: decimal32's
+//! dispatcher returns `None` for `(Zero, Zero)` and the rule lives on
+//! the finite path, so a §6.3 harness cannot route through the shim.
+//! See the note at the bottom of this file; the rule is covered by
+//! the proptest oracle in `tests/property_addsub.rs`.
 
 use super::{operand, rm_from_u8, NUM_OPERANDS};
 use crate::decimal::Decimal32;

@@ -128,3 +128,31 @@ fn div_infinity_by_infinity_invalid() {
     assert!(r.is_nan());
     assert!(s.invalid());
 }
+
+/// `∞ / 0` is `±∞` but does NOT raise `DIV_BY_ZERO` (the infinity is
+/// genuine, not produced by the division). The flag distinction
+/// against `finite_non_zero / 0` is the load-bearing claim: IEEE
+/// 754-2019 §7.3 raises `divideByZero` only for a finite non-zero
+/// dividend.
+#[kani::proof]
+fn inf_over_zero_no_div_by_zero() {
+    let sa: bool = kani::any();
+    let sb: bool = kani::any();
+    let inf = if sa {
+        Decimal64::NEG_INFINITY
+    } else {
+        Decimal64::INFINITY
+    };
+    let zero = if sb {
+        Decimal64::NEG_ZERO
+    } else {
+        Decimal64::ZERO
+    };
+
+    let (r, s) = inf
+        .div_special_only_for_kani(zero)
+        .expect("∞ / 0 resolved by special_cases");
+    assert!(r.is_infinite());
+    assert!(!s.div_by_zero());
+    assert!(r.is_sign_negative() == (sa ^ sb));
+}
