@@ -462,6 +462,25 @@ impl Decimal32 {
         (r.neg(), s)
     }
 
+    /// The radix of the format: `10`.
+    ///
+    /// Constant for every decimal format; provided for parity with the
+    /// IEEE 754-2019 `radix` operation and the `num_traits` `Float`
+    /// surface.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use ferrodec_decimal32::Decimal32;
+    ///
+    /// assert_eq!(Decimal32::radix(), 10);
+    /// ```
+    #[inline]
+    #[must_use]
+    pub const fn radix() -> u32 {
+        10
+    }
+
     /// Kani-only entry for the binary `quantize` special-case branch
     /// (NaN propagation and infinity handling) without the
     /// finite-finite rescale arithmetic. ADR-0016.
@@ -944,5 +963,10 @@ mod tests {
                 .0
                 .to_bits()
         );
+    }
+
+    #[test]
+    fn radix_is_ten() {
+        assert_eq!(Decimal32::radix(), 10);
     }
 }

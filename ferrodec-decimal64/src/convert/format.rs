@@ -15,14 +15,17 @@
 //! point + "E±NNN" exponent), comfortably within stack constraints on
 //! Cortex-M0+.
 //!
-//! Format precision (`{:.N}`) is not yet honoured in this v0.x
-//! release; quantize support lands with the arithmetic ops in
-//! subsequent commits.
+//! Format precision is honoured: `{:.N}` renders a fixed-point value
+//! with exactly `N` fractional digits (the value is quantized to that
+//! width, then padded), and `{:.Ne}` / `{:.NE}` give the scientific
+//! mantissa `N` fractional digits. This mirrors the `ferrodec`
+//! (Decimal128) parent's precision handling.
 
 use core::fmt;
 
 use crate::bid::{classify_bits, decimal_digit_count, Class, BIAS};
 use crate::decimal::Decimal64;
+use ferrodec_ieee::RoundingMode;
 
 /// Lower bound on the scale (`digits + unbiased_exp`) at which the
 /// [`FixedPreferred`] rule emits plain notation. Mirrors the 1.x
@@ -165,7 +168,68 @@ fn format_nan(
     Ok(())
 }
 
+/// Quantize `d` to `precision` digits after the decimal point. Used by
+/// `Display` (`{:.N}`) where the precision is the fractional width.
+fn quantize_to_fixed_precision(d: Decimal64, precision: usize) -> Decimal64 {
+    if !d.is_finite() {
+        return d;
+    }
+    quantize_to_target_quantum(d, -(precision as i32))
+}
+
+/// Quantize `d` so that scientific notation with `(precision + 1)`
+/// significant digits in the mantissa round-trips correctly. Used by
+/// `LowerExp` / `UpperExp` (`{:.Ne}`).
+fn quantize_to_scientific_precision(d: Decimal64, precision: usize) -> Decimal64 {
+    if !d.is_finite() || d.is_zero() {
+        return d;
+    }
+    // The mantissa's leading digit sits at `10^(scale - 1)` where
+    // `scale = digit_count + unbiased`. The target quantum gives
+    // `(precision + 1)` digits in the coefficient.
+    let (digits, unbiased) = match classify_bits(d.to_bits()) {
+        Class::Finite {
+            biased_exp,
+            coefficient,
+            ..
+        } => (
+            decimal_digit_count(coefficient) as i32,
+            biased_exp as i32 - BIAS as i32,
+        ),
+        _ => return d,
+    };
+    let scale = digits + unbiased;
+    let target_quantum = scale - 1 - precision as i32;
+    quantize_to_target_quantum(d, target_quantum)
+}
+
+fn quantize_to_target_quantum(d: Decimal64, target_quantum: i32) -> Decimal64 {
+    let target = match Decimal64::try_new(1, target_quantum) {
+        Ok(t) => t,
+        Err(_) => return d,
+    };
+    let (q, _) = d.quantize(target, RoundingMode::NearestEven);
+    if q.is_nan() {
+        d
+    } else {
+        q
+    }
+}
+
 fn format_to(d: Decimal64, f: &mut fmt::Formatter<'_>, notation: Notation) -> fmt::Result {
+    let precision = f.precision();
+    // Adjust the value to honour `{:.N}` precision before formatting.
+    // Specials (NaN/Inf) ignore precision per the f64 convention.
+    let d = match (notation, precision) {
+        (_, None) => d,
+        // Auto and FixedPreferred both render their precision-padded
+        // shape from the fractional buffer, so quantize to fractional
+        // width once and let the writers pad the rest.
+        (Notation::Auto | Notation::FixedPreferred, Some(p)) => quantize_to_fixed_precision(d, p),
+        (Notation::ScientificForced(_) | Notation::Engineering(_), Some(p)) => {
+            quantize_to_scientific_precision(d, p)
+        }
+    };
     match classify_bits(d.to_bits()) {
         Class::QuietNaN { sign, payload } => format_nan(f, sign, payload, false),
         Class::SignalingNaN { sign, payload } => format_nan(f, sign, payload, true),
@@ -175,9 +239,15 @@ fn format_to(d: Decimal64, f: &mut fmt::Formatter<'_>, notation: Notation) -> fm
             }
             f.write_str("Infinity")
         }
-        Class::Zero { sign, biased_exp } => {
-            format_finite(f, sign, 0, biased_exp as i32 - BIAS as i32, 1, notation)
-        }
+        Class::Zero { sign, biased_exp } => format_finite(
+            f,
+            sign,
+            0,
+            biased_exp as i32 - BIAS as i32,
+            1,
+            notation,
+            precision,
+        ),
         Class::Finite {
             sign,
             biased_exp,
@@ -185,11 +255,12 @@ fn format_to(d: Decimal64, f: &mut fmt::Formatter<'_>, notation: Notation) -> fm
         } => {
             let unbiased = biased_exp as i32 - BIAS as i32;
             let digits = decimal_digit_count(coefficient);
-            format_finite(f, sign, coefficient, unbiased, digits, notation)
+            format_finite(f, sign, coefficient, unbiased, digits, notation, precision)
         }
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn format_finite(
     f: &mut fmt::Formatter<'_>,
     sign: bool,
@@ -197,26 +268,54 @@ fn format_finite(
     unbiased_exp: i32,
     digits: u32,
     notation: Notation,
+    precision: Option<usize>,
 ) -> fmt::Result {
     if sign {
         f.write_str("-")?;
     }
     let adjusted_exp = unbiased_exp + (digits as i32) - 1;
     let scale = unbiased_exp + digits as i32;
+
+    match notation {
+        Notation::ScientificForced(letter) => {
+            return write_scientific(
+                f,
+                coef,
+                unbiased_exp,
+                digits,
+                adjusted_exp,
+                letter,
+                precision,
+            );
+        }
+        Notation::Engineering(letter) => {
+            return write_engineering(
+                f,
+                coef,
+                unbiased_exp,
+                digits,
+                adjusted_exp,
+                letter,
+                precision,
+            );
+        }
+        Notation::Auto | Notation::FixedPreferred => {}
+    }
+
+    // `{:.N}` always renders fixed (the precision pin is fractional
+    // width), regardless of the underlying notation rule.
+    if precision.is_some() {
+        return write_plain(f, coef, unbiased_exp, digits, precision);
+    }
+
     match notation {
         Notation::Auto => {
             // toSci rule: plain notation when exp ≤ 0 and adjusted ≥ -6.
             if unbiased_exp <= 0 && adjusted_exp >= -6 {
-                write_plain(f, coef, unbiased_exp, digits)
+                write_plain(f, coef, unbiased_exp, digits, precision)
             } else {
-                write_scientific(f, coef, unbiased_exp, digits, adjusted_exp, 'E')
+                write_scientific(f, coef, unbiased_exp, digits, adjusted_exp, 'E', precision)
             }
-        }
-        Notation::ScientificForced(letter) => {
-            write_scientific(f, coef, unbiased_exp, digits, adjusted_exp, letter)
-        }
-        Notation::Engineering(letter) => {
-            write_engineering(f, coef, unbiased_exp, digits, adjusted_exp, letter)
         }
         Notation::FixedPreferred => {
             // The 1.x parent `Decimal128::Display` rule applied to a
@@ -226,11 +325,12 @@ fn format_finite(
             if (scale > FIXED_LOWER_LOG10 && scale <= FIXED_UPPER_LOG10 && unbiased_exp <= 0)
                 || (unbiased_exp >= 0 && scale <= FIXED_UPPER_LOG10)
             {
-                write_plain(f, coef, unbiased_exp, digits)
+                write_plain(f, coef, unbiased_exp, digits, precision)
             } else {
-                write_scientific(f, coef, unbiased_exp, digits, adjusted_exp, 'E')
+                write_scientific(f, coef, unbiased_exp, digits, adjusted_exp, 'E', precision)
             }
         }
+        Notation::ScientificForced(_) | Notation::Engineering(_) => unreachable!(),
     }
 }
 
@@ -252,47 +352,67 @@ fn digit_string(coef: u64, digits: u32) -> [u8; 18] {
     buf
 }
 
+/// Plain fixed-point output. When `precision = Some(p)` the value has
+/// already been quantized to `p` fractional digits by the caller; the
+/// renderer pads to exactly `p` fractional digits (adding a decimal
+/// point for an integer) if the natural rendering came out short.
 fn write_plain(
     f: &mut fmt::Formatter<'_>,
     coef: u64,
     unbiased_exp: i32,
     digits: u32,
+    precision: Option<usize>,
 ) -> fmt::Result {
     let buf = digit_string(coef, digits);
     let digit_slice = &buf[..digits as usize];
+    let target_frac = precision.map(|p| p as i32);
 
-    if unbiased_exp == 0 {
-        return f.write_str(core::str::from_utf8(digit_slice).unwrap());
-    }
-    if unbiased_exp > 0 {
-        // Positive quantum: render the digits then `unbiased_exp`
-        // trailing zeros (the `FixedPreferred` rule for the
-        // `unbiased >= 0 && scale <= 21` branch). The toSci `Auto`
-        // rule never routes here.
+    if unbiased_exp >= 0 {
+        // Pure integer with optional trailing zeros from the quantum.
         f.write_str(core::str::from_utf8(digit_slice).unwrap())?;
         for _ in 0..unbiased_exp {
             f.write_str("0")?;
+        }
+        if let Some(t) = target_frac {
+            if t > 0 {
+                f.write_str(".")?;
+                for _ in 0..t {
+                    f.write_str("0")?;
+                }
+            }
         }
         return Ok(());
     }
     // unbiased_exp < 0.
     let frac_len = (-unbiased_exp) as u32;
+    let render_frac = target_frac.map_or(frac_len as i32, |t| t.max(frac_len as i32));
     if frac_len < digits {
         // Decimal point sits inside the digit run: split at digits - frac_len.
         let split = (digits - frac_len) as usize;
         f.write_str(core::str::from_utf8(&digit_slice[..split]).unwrap())?;
         f.write_str(".")?;
-        f.write_str(core::str::from_utf8(&digit_slice[split..]).unwrap())
+        f.write_str(core::str::from_utf8(&digit_slice[split..]).unwrap())?;
+        for _ in (frac_len as i32)..render_frac {
+            f.write_str("0")?;
+        }
+        Ok(())
     } else {
         // Need leading zeros: "0.0...0digits".
         f.write_str("0.")?;
         for _ in digits..frac_len {
             f.write_str("0")?;
         }
-        f.write_str(core::str::from_utf8(digit_slice).unwrap())
+        f.write_str(core::str::from_utf8(digit_slice).unwrap())?;
+        for _ in (frac_len as i32)..render_frac {
+            f.write_str("0")?;
+        }
+        Ok(())
     }
 }
 
+/// Scientific output. When `precision = Some(p)` the mantissa is padded
+/// to `p` fractional digits (the caller already quantized to give a
+/// `(p + 1)`-significant-digit coefficient in the typical case).
 fn write_scientific(
     f: &mut fmt::Formatter<'_>,
     coef: u64,
@@ -300,16 +420,21 @@ fn write_scientific(
     digits: u32,
     adjusted_exp: i32,
     letter: char,
+    precision: Option<usize>,
 ) -> fmt::Result {
     let buf = digit_string(coef, digits);
     let digit_slice = &buf[..digits as usize];
 
-    if digits == 1 {
-        f.write_str(core::str::from_utf8(digit_slice).unwrap())?;
-    } else {
-        f.write_str(core::str::from_utf8(&digit_slice[..1]).unwrap())?;
+    let mantissa_frac_natural = (digits as i32) - 1;
+    let target_frac = precision.map_or(mantissa_frac_natural, |p| p as i32);
+
+    f.write_str(core::str::from_utf8(&digit_slice[..1]).unwrap())?;
+    if mantissa_frac_natural > 0 || target_frac > 0 {
         f.write_str(".")?;
         f.write_str(core::str::from_utf8(&digit_slice[1..]).unwrap())?;
+        for _ in mantissa_frac_natural..target_frac {
+            f.write_str("0")?;
+        }
     }
 
     // Zero with non-trivial exponent renders as `0E±N`; no decimal
@@ -324,6 +449,7 @@ fn write_scientific(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn write_engineering(
     f: &mut fmt::Formatter<'_>,
     coef: u64,
@@ -331,6 +457,7 @@ fn write_engineering(
     digits: u32,
     adjusted_exp: i32,
     letter: char,
+    precision: Option<usize>,
 ) -> fmt::Result {
     // L13 (Agent 5 B8): a zero coefficient has no significant digit
     // to rebase, so the engineering mantissa-shift below would pad
@@ -361,6 +488,8 @@ fn write_engineering(
     let digit_slice = &buf[..digits as usize];
 
     let mantissa_int_digits = (shift + 1) as usize;
+    let frac_natural = digit_slice.len().saturating_sub(mantissa_int_digits);
+    let target_frac = precision.unwrap_or(frac_natural);
     if mantissa_int_digits >= digit_slice.len() {
         // All digits go before the decimal point; if there are fewer
         // digits than mantissa_int_digits (rare for Decimal64), pad
@@ -369,10 +498,19 @@ fn write_engineering(
         for _ in digit_slice.len()..mantissa_int_digits {
             f.write_str("0")?;
         }
+        if target_frac > 0 {
+            f.write_str(".")?;
+            for _ in 0..target_frac {
+                f.write_str("0")?;
+            }
+        }
     } else {
         f.write_str(core::str::from_utf8(&digit_slice[..mantissa_int_digits]).unwrap())?;
         f.write_str(".")?;
         f.write_str(core::str::from_utf8(&digit_slice[mantissa_int_digits..]).unwrap())?;
+        for _ in frac_natural..target_frac {
+            f.write_str("0")?;
+        }
     }
 
     let _ = unbiased_exp;
@@ -534,5 +672,52 @@ mod tests {
             format!("{}", Decimal64::INFINITY.fixed_preferred()),
             "Infinity"
         );
+    }
+
+    #[test]
+    fn display_precision_pads_integer() {
+        assert_eq!(format!("{:.3}", parse("1")), "1.000");
+        assert_eq!(format!("{:.0}", parse("3")), "3");
+        assert_eq!(format!("{:.2}", parse("10")), "10.00");
+    }
+
+    #[test]
+    fn display_precision_rounds_fractional() {
+        assert_eq!(format!("{:.2}", parse("3.14159")), "3.14");
+        assert_eq!(format!("{:.4}", parse("3.14159")), "3.1416");
+        assert_eq!(format!("{:.0}", parse("3.7")), "4");
+        // Round-half-to-even on a 5 boundary.
+        assert_eq!(format!("{:.0}", parse("2.5")), "2");
+        assert_eq!(format!("{:.0}", parse("3.5")), "4");
+    }
+
+    #[test]
+    fn display_precision_pads_short_fractional() {
+        assert_eq!(format!("{:.5}", parse("0.1")), "0.10000");
+        assert_eq!(format!("{:.4}", parse("100.5")), "100.5000");
+    }
+
+    #[test]
+    fn display_precision_zero_and_specials() {
+        assert_eq!(format!("{:.2}", Decimal64::ZERO), "0.00");
+        assert_eq!(format!("{:.0}", Decimal64::ZERO), "0");
+        // Specials ignore precision, matching the f64 convention.
+        assert_eq!(format!("{:.3}", Decimal64::NAN), "NaN");
+        assert_eq!(format!("{:.3}", Decimal64::INFINITY), "Infinity");
+        assert_eq!(format!("{:.3}", Decimal64::NEG_INFINITY), "-Infinity");
+    }
+
+    #[test]
+    fn scientific_precision() {
+        // Mantissa gets exactly N fractional digits.
+        assert_eq!(format!("{:.2e}", parse("12345")), "1.23e+4");
+        assert_eq!(format!("{:.3e}", parse("12345")), "1.234e+4");
+        // Pad with zeros when the natural mantissa is shorter.
+        assert_eq!(format!("{:.4e}", parse("1")), "1.0000e+0");
+        assert_eq!(format!("{:.0e}", parse("0.000123")), "1e-4");
+        // Upper-exp variant.
+        assert_eq!(format!("{:.3E}", parse("12345")), "1.234E+4");
+        // Zero with scientific precision.
+        assert_eq!(format!("{:.2e}", Decimal64::ZERO), "0.00e+0");
     }
 }

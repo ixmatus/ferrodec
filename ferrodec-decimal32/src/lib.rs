@@ -106,6 +106,9 @@ mod decimal;
 mod digits;
 #[cfg(feature = "dpd")]
 mod dpd;
+mod iter;
+#[cfg(any(feature = "trig", feature = "exp-log"))]
+mod math;
 #[cfg(feature = "num-traits")]
 mod num_traits_impls;
 mod ops;
@@ -124,6 +127,8 @@ pub use convert::Decimal32FromFloatError;
 pub use convert::{Engineering, FixedPreferred, ParseDecimalError};
 pub use decimal::{Decimal32, Decimal32BuildError};
 pub use ferrodec_ieee::{IeeeClass, RoundingMode, Status};
+#[cfg(any(feature = "trig", feature = "exp-log"))]
+pub use math::{e, ln10, ln2, pi};
 #[cfg(feature = "num-traits")]
 pub use num_traits_impls::FromStrRadixError;
 #[cfg(feature = "serde")]

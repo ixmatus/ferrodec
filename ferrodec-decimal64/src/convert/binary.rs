@@ -224,6 +224,18 @@ impl Decimal64 {
             Err(_) => (Decimal64::NAN, Status::INVALID),
         }
     }
+
+    /// Construct a `Decimal64` from an `f32`, rounding by `rm`.
+    ///
+    /// Widens to `f64` and reuses [`Decimal64::from_f64`]; the widening
+    /// is exact (every `f32` is representable in `f64`), so no precision
+    /// is lost before the decimal rounding step. Returns `(value,
+    /// Status)` with the same special-case handling as `from_f64`
+    /// (signaling NaN bit patterns raise `INVALID`).
+    #[must_use]
+    pub fn from_f32(x: f32, rm: RoundingMode) -> (Self, Status) {
+        Self::from_f64(f64::from(x), rm)
+    }
 }
 
 /// `10^k` as `f64` for any `i32` `k`. Uses doubling-square exponentiation
@@ -519,6 +531,28 @@ mod tests {
         let (d, _) = Decimal64::from_f64(f64::MAX, RoundingMode::NearestEven);
         assert!(d.is_finite());
         assert!(!d.is_zero());
+    }
+
+    #[test]
+    fn from_f32_widens_through_f64() {
+        // from_f32 widens exactly to f64 then reuses from_f64, so the
+        // result is bit-identical to calling from_f64 on the widened
+        // value.
+        let (d, _) = Decimal64::from_f32(2.5_f32, RoundingMode::NearestEven);
+        let (direct, _) = Decimal64::from_f64(f64::from(2.5_f32), RoundingMode::NearestEven);
+        assert_eq!(d.to_bits(), direct.to_bits());
+        assert_eq!(
+            d.partial_cmp(from_int(25, -1)).0,
+            Some(core::cmp::Ordering::Equal)
+        );
+
+        // Specials route through identically.
+        let (n, _) = Decimal64::from_f32(f32::NAN, RoundingMode::NearestEven);
+        assert!(n.is_quiet_nan());
+        let (i, _) = Decimal64::from_f32(f32::INFINITY, RoundingMode::NearestEven);
+        assert!(i.is_infinite() && !i.is_sign_negative());
+        let (z, _) = Decimal64::from_f32(-0.0_f32, RoundingMode::NearestEven);
+        assert_eq!(z.to_bits(), Decimal64::NEG_ZERO.to_bits());
     }
 
     #[test]
