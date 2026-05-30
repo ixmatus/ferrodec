@@ -1,6 +1,6 @@
 # ADR-0036: Decimal128 from_f64 / from_f32 signature unification (breaking)
 
-- **Status**: proposed
+- **Status**: accepted
 - **Date**: 2026-05-29
 
 ## Context

@@ -1,6 +1,6 @@
 # ADR-0035: Decimal128 parity train and conformance oracle hardening
 
-- **Status**: proposed
+- **Status**: accepted
 - **Date**: 2026-05-29
 
 ## Context
