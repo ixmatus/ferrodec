@@ -15,6 +15,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `(-1)^negative * coefficient * 10^exponent`. Covered by unit tests, a proptest
   round trip over the full bit space, and a Kani totality harness.
 
+## [3.0.0] - 2026-05-30
+
+Released lockstep with the `ferrodec` (Decimal128) parity train
+(ADR-0035). The parent reached major version 3.0.0 for a breaking
+binary float constructor change (ADR-0036); Decimal32 carries no
+breaking change and bumps to 3.0.0 only to keep the workspace versions
+aligned. The changes are additive public API, two behavior fixes ported
+up from `decimal64`, a conversion accuracy fix, and new GDA cross check
+tests.
+
+### Added
+
+- **Public API parity with Decimal128 (fd-92w.11).** Inherent `signum`,
+  `is_integer`, and `ulp` on `Decimal32`; `radix()` returning 10;
+  inherent `from_f32(f32, RoundingMode) -> (Decimal32, Status)`; `Sum`
+  and `Product` over owned and borrowed iterators; and the `pi`, `e`,
+  `ln2`, `ln10` constants (gated under `trig` or `exp-log`, as on the
+  parent). Each item is adapted to Decimal32's coefficient width and
+  parameters rather than pasted from the parent. All additive.
+- **Display honors the precision specifier.** `{:.N}`, `{:.Ne}`, and
+  `{:.NE}` now quantize and pad as on the parent, where they were
+  previously ignored.
+- **GDA decNumber extension cross check tests (fd-92w.12).** The
+  `decimal32` analogue of the ADR-0031 cross check vectors, previously
+  promised but absent.
+
+### Fixed
+
+- **`sub` no longer flips a NaN operand's sign.** Matching the parent and
+  `decimal64` fix, a guard preserves the propagated NaN sign instead of
+  toggling it through the operand negation (ADR-0035).
+- **`CLAMPED` is raised on the `mul` quantum clamp path** where
+  `decimal64` already emitted it (ADR-0035).
+- **`FromPrimitive::from_i64` / `from_u64` are exact.** The conversion
+  now rounds the integer directly to the 7 digit format precision rather
+  than through an `f64` intermediate, removing a double rounding
+  (ADR-0035).
+
 ## [2.2.0] - 2026-05-21
 
 Sibling-only release restoring conversion API parity with the
