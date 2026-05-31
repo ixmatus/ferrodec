@@ -10,7 +10,7 @@ use crate::bid::{
     pack_signaling_nan, sign_of, type_field, Class, BIAS, COEFFICIENT_LIMIT, NAN_SIGNALING_SHIFT,
     PRECISION, SIGN_SHIFT, T_BITS, T_MASK,
 };
-use crate::decimal::Decimal128;
+use crate::decimal::{Decimal128, Decimal128Parts};
 
 pub use ferrodec_ieee::IeeeClass;
 
@@ -517,6 +517,67 @@ impl Decimal128 {
             _ => self,
         }
     }
+
+    /// Decompose a finite value into its stored sign, coefficient, and
+    /// quantum exponent.
+    ///
+    /// Returns [`None`] for NaN and `±∞`, and `Some` for every finite value
+    /// (including `±0`). For `Some(p)` the represented value is exactly
+    /// `(−1)^p.negative × p.coefficient × 10^p.exponent`, with no rounding.
+    ///
+    /// The decode is quantum preserving: it returns the stored cohort
+    /// member, not a normalized form. The value `1.00` stored as coefficient
+    /// `100` at exponent `−2` decodes to `(false, 100, −2)`, not
+    /// `(false, 1, 0)`. [`Decimal128::canonicalize`] is the normalizing
+    /// counterpart.
+    ///
+    /// Encodings that are not canonical (Form B, or a Form A coefficient
+    /// `≥ 10^34`) decode per IEEE 754-2019 §3.5.2 as zero: `coefficient` is
+    /// `0` with the encoded sign and quantum exponent.
+    ///
+    /// The coefficient lies in `[0, 10^34)` and the exponent in
+    /// `[−6176, 6111]`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use ferrodec::{Decimal128, Decimal128Parts};
+    ///
+    /// // 1.23 = 123 × 10^−2.
+    /// assert_eq!(
+    ///     Decimal128::try_new(123, -2).unwrap().decode(),
+    ///     Some(Decimal128Parts { negative: false, coefficient: 123, exponent: -2 }),
+    /// );
+    ///
+    /// // Zero decodes (it is finite); NaN and infinity do not.
+    /// assert_eq!(
+    ///     Decimal128::ZERO.decode(),
+    ///     Some(Decimal128Parts { negative: false, coefficient: 0, exponent: 0 }),
+    /// );
+    /// assert!(Decimal128::NAN.decode().is_none());
+    /// assert!(Decimal128::INFINITY.decode().is_none());
+    /// ```
+    #[inline]
+    #[must_use]
+    pub const fn decode(self) -> Option<Decimal128Parts> {
+        match classify_bits(self.0) {
+            Class::Finite {
+                sign,
+                biased_exp,
+                coefficient,
+            } => Some(Decimal128Parts {
+                negative: sign,
+                coefficient,
+                exponent: (biased_exp as i32 - BIAS as i32) as i16,
+            }),
+            Class::Zero { sign, biased_exp } => Some(Decimal128Parts {
+                negative: sign,
+                coefficient: 0,
+                exponent: (biased_exp as i32 - BIAS as i32) as i16,
+            }),
+            Class::Infinity { .. } | Class::QuietNaN { .. } | Class::SignalingNaN { .. } => None,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -989,6 +1050,161 @@ mod tests {
         ];
         for (v, expected) in pairs {
             assert_eq!(v.classify(), expected, "{v:?}");
+        }
+    }
+
+    #[test]
+    fn decode_finite_and_sign() {
+        assert_eq!(
+            Decimal128::try_new(123, -2).unwrap().decode(),
+            Some(Decimal128Parts {
+                negative: false,
+                coefficient: 123,
+                exponent: -2,
+            })
+        );
+        assert_eq!(
+            Decimal128::try_new(-123, -2).unwrap().decode(),
+            Some(Decimal128Parts {
+                negative: true,
+                coefficient: 123,
+                exponent: -2,
+            })
+        );
+    }
+
+    #[test]
+    fn decode_is_quantum_preserving() {
+        // 1.00 = 100 × 10⁻² and 1 = 1 × 10⁰ are the same value in
+        // different cohorts; decode keeps them distinct.
+        let hundredths = Decimal128::try_new(100, -2).unwrap();
+        assert_eq!(
+            hundredths.decode(),
+            Some(Decimal128Parts {
+                negative: false,
+                coefficient: 100,
+                exponent: -2,
+            })
+        );
+        assert_eq!(
+            Decimal128::ONE.decode(),
+            Some(Decimal128Parts {
+                negative: false,
+                coefficient: 1,
+                exponent: 0,
+            })
+        );
+        assert_ne!(hundredths.decode(), Decimal128::ONE.decode());
+    }
+
+    #[test]
+    fn decode_zero_cohorts() {
+        assert_eq!(
+            Decimal128::ZERO.decode(),
+            Some(Decimal128Parts {
+                negative: false,
+                coefficient: 0,
+                exponent: 0,
+            })
+        );
+        assert_eq!(
+            Decimal128::NEG_ZERO.decode(),
+            Some(Decimal128Parts {
+                negative: true,
+                coefficient: 0,
+                exponent: 0,
+            })
+        );
+        // A zero at a non-default quantum keeps its exponent.
+        assert_eq!(
+            Decimal128::try_new(0, 5).unwrap().decode(),
+            Some(Decimal128Parts {
+                negative: false,
+                coefficient: 0,
+                exponent: 5,
+            })
+        );
+    }
+
+    #[test]
+    fn decode_specials_are_none() {
+        assert!(Decimal128::NAN.decode().is_none());
+        assert!(Decimal128::SIGNALING_NAN.decode().is_none());
+        assert!(Decimal128::INFINITY.decode().is_none());
+        assert!(Decimal128::NEG_INFINITY.decode().is_none());
+    }
+
+    #[test]
+    fn decode_extremes_pin_i16_endpoints() {
+        assert_eq!(
+            Decimal128::MAX.decode(),
+            Some(Decimal128Parts {
+                negative: false,
+                coefficient: COEFFICIENT_LIMIT - 1,
+                exponent: 6111,
+            })
+        );
+        assert_eq!(
+            Decimal128::MIN.decode(),
+            Some(Decimal128Parts {
+                negative: true,
+                coefficient: COEFFICIENT_LIMIT - 1,
+                exponent: 6111,
+            })
+        );
+        assert_eq!(
+            Decimal128::MIN_POSITIVE.decode(),
+            Some(Decimal128Parts {
+                negative: false,
+                coefficient: 1,
+                exponent: -6176,
+            })
+        );
+    }
+
+    #[test]
+    fn decode_non_canonical_is_zero() {
+        // Form A coefficient ≥ 10^34 decodes to zero at the stored quantum.
+        let oversized = Decimal128::from_bits(pack_finite(false, BIAS, COEFFICIENT_LIMIT));
+        assert_eq!(
+            oversized.decode(),
+            Some(Decimal128Parts {
+                negative: false,
+                coefficient: 0,
+                exponent: 0,
+            })
+        );
+
+        // A Form B encoding (type field top two bits = 0b11) is non-canonical
+        // for BID-128 and decodes to zero with biased exponent 0 (quantum −6176).
+        let form_b = Decimal128::from_bits(0x6000_0000_0000_0000_0000_0000_0000_0000);
+        assert_eq!(
+            form_b.decode(),
+            Some(Decimal128Parts {
+                negative: false,
+                coefficient: 0,
+                exponent: -6176,
+            })
+        );
+    }
+
+    #[test]
+    fn decode_roundtrip_via_try_new() {
+        // Reconstruct through try_new_unsigned + neg (which preserves the
+        // sign of zero, where try_new cannot) and confirm bit equality.
+        for &d in &[
+            Decimal128::try_new(123, -2).unwrap(),
+            Decimal128::try_new(-123, -2).unwrap(),
+            Decimal128::ZERO,
+            Decimal128::NEG_ZERO,
+            Decimal128::MAX,
+            Decimal128::MIN,
+            Decimal128::MIN_POSITIVE,
+        ] {
+            let p = d.decode().unwrap();
+            let r = Decimal128::try_new_unsigned(p.coefficient, p.exponent as i32).unwrap();
+            let r = if p.negative { r.neg() } else { r };
+            assert_eq!(r.to_bits(), d.to_bits());
         }
     }
 }

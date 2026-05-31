@@ -125,7 +125,7 @@ mod verify;
 pub use convert::Decimal32FromFloatError;
 #[cfg(feature = "fmt")]
 pub use convert::{Engineering, FixedPreferred, ParseDecimalError};
-pub use decimal::{Decimal32, Decimal32BuildError};
+pub use decimal::{Decimal32, Decimal32BuildError, Decimal32Parts};
 pub use ferrodec_ieee::{IeeeClass, RoundingMode, Status};
 #[cfg(any(feature = "trig", feature = "exp-log"))]
 pub use math::{e, ln10, ln2, pi};

@@ -91,7 +91,7 @@ pub use serde_impls::serde_bid;
 pub use math::{e, ln10, ln2, pi};
 
 pub use classify::IeeeClass;
-pub use decimal::{Decimal128, Decimal128BuildError};
+pub use decimal::{Decimal128, Decimal128BuildError, Decimal128Parts};
 pub use status::{RoundingMode, Status};
 
 #[cfg(feature = "fmt")]
