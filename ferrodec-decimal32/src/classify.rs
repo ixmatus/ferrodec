@@ -14,7 +14,7 @@ use crate::bid::{
     COEFFICIENT_LIMIT, FORM_B_MARKER, NAN_SIGNALING_SHIFT, PRECISION, SIGN_SHIFT, TYPE_INFINITY,
     TYPE_NAN, T_BITS, T_MASK,
 };
-use crate::decimal::Decimal32;
+use crate::decimal::{Decimal32, Decimal32Parts};
 use ferrodec_ieee::IeeeClass;
 use ferrodec_ieee::Status;
 
@@ -480,6 +480,66 @@ impl Decimal32 {
             _ => self,
         }
     }
+
+    /// Decompose a finite value into its stored sign, coefficient, and
+    /// quantum exponent.
+    ///
+    /// Returns [`None`] for NaN and `±∞`, and `Some` for every finite value
+    /// (including `±0`). For `Some(p)` the represented value is exactly
+    /// `(−1)^p.negative × p.coefficient × 10^p.exponent`, with no rounding.
+    ///
+    /// The decode is quantum preserving: it returns the stored cohort
+    /// member, not a normalized form. The value `1.00` stored as coefficient
+    /// `100` at exponent `−2` decodes to `(false, 100, −2)`, not
+    /// `(false, 1, 0)`. [`Decimal32::canonicalize`] is the normalizing
+    /// counterpart.
+    ///
+    /// Encodings that are not canonical (a coefficient `≥ 10^7`) decode per
+    /// IEEE 754-2019 §3.5.2 as zero: `coefficient` is `0` with the encoded
+    /// sign and quantum exponent.
+    ///
+    /// The coefficient lies in `[0, 10^7)` and the exponent in `[−101, 90]`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use ferrodec_decimal32::{Decimal32, Decimal32Parts};
+    ///
+    /// // 1.23 = 123 × 10^−2.
+    /// assert_eq!(
+    ///     Decimal32::try_new(123, -2).unwrap().decode(),
+    ///     Some(Decimal32Parts { negative: false, coefficient: 123, exponent: -2 }),
+    /// );
+    ///
+    /// // Zero decodes (it is finite); NaN and infinity do not.
+    /// assert_eq!(
+    ///     Decimal32::ZERO.decode(),
+    ///     Some(Decimal32Parts { negative: false, coefficient: 0, exponent: 0 }),
+    /// );
+    /// assert!(Decimal32::NAN.decode().is_none());
+    /// assert!(Decimal32::INFINITY.decode().is_none());
+    /// ```
+    #[inline]
+    #[must_use]
+    pub const fn decode(self) -> Option<Decimal32Parts> {
+        match classify_bits(self.0) {
+            Class::Finite {
+                sign,
+                biased_exp,
+                coefficient,
+            } => Some(Decimal32Parts {
+                negative: sign,
+                coefficient,
+                exponent: (biased_exp as i32 - BIAS as i32) as i16,
+            }),
+            Class::Zero { sign, biased_exp } => Some(Decimal32Parts {
+                negative: sign,
+                coefficient: 0,
+                exponent: (biased_exp as i32 - BIAS as i32) as i16,
+            }),
+            Class::Infinity { .. } | Class::QuietNaN { .. } | Class::SignalingNaN { .. } => None,
+        }
+    }
 }
 
 // Suppress dead_code on bid items that are now consumed by classify.
@@ -755,5 +815,138 @@ mod tests {
             Decimal32::INFINITY.to_bits()
         );
         assert!(Decimal32::NAN.ulp().is_nan());
+    }
+
+    #[test]
+    fn decode_finite_and_sign() {
+        assert_eq!(
+            Decimal32::try_new(123, -2).unwrap().decode(),
+            Some(Decimal32Parts {
+                negative: false,
+                coefficient: 123,
+                exponent: -2,
+            })
+        );
+        assert_eq!(
+            Decimal32::try_new(-123, -2).unwrap().decode(),
+            Some(Decimal32Parts {
+                negative: true,
+                coefficient: 123,
+                exponent: -2,
+            })
+        );
+    }
+
+    #[test]
+    fn decode_is_quantum_preserving() {
+        let hundredths = Decimal32::try_new(100, -2).unwrap();
+        assert_eq!(
+            hundredths.decode(),
+            Some(Decimal32Parts {
+                negative: false,
+                coefficient: 100,
+                exponent: -2,
+            })
+        );
+        assert_eq!(
+            Decimal32::ONE.decode(),
+            Some(Decimal32Parts {
+                negative: false,
+                coefficient: 1,
+                exponent: 0,
+            })
+        );
+        assert_ne!(hundredths.decode(), Decimal32::ONE.decode());
+    }
+
+    #[test]
+    fn decode_zero_cohorts() {
+        assert_eq!(
+            Decimal32::ZERO.decode(),
+            Some(Decimal32Parts {
+                negative: false,
+                coefficient: 0,
+                exponent: 0,
+            })
+        );
+        assert_eq!(
+            Decimal32::NEG_ZERO.decode(),
+            Some(Decimal32Parts {
+                negative: true,
+                coefficient: 0,
+                exponent: 0,
+            })
+        );
+        assert_eq!(
+            Decimal32::try_new(0, 5).unwrap().decode(),
+            Some(Decimal32Parts {
+                negative: false,
+                coefficient: 0,
+                exponent: 5,
+            })
+        );
+    }
+
+    #[test]
+    fn decode_specials_are_none() {
+        assert!(Decimal32::NAN.decode().is_none());
+        assert!(Decimal32::SIGNALING_NAN.decode().is_none());
+        assert!(Decimal32::INFINITY.decode().is_none());
+        assert!(Decimal32::NEG_INFINITY.decode().is_none());
+    }
+
+    #[test]
+    fn decode_extremes_pin_i16_endpoints() {
+        assert_eq!(
+            Decimal32::MAX.decode(),
+            Some(Decimal32Parts {
+                negative: false,
+                coefficient: COEFFICIENT_LIMIT - 1,
+                exponent: 90,
+            })
+        );
+        assert_eq!(
+            Decimal32::MIN.decode(),
+            Some(Decimal32Parts {
+                negative: true,
+                coefficient: COEFFICIENT_LIMIT - 1,
+                exponent: 90,
+            })
+        );
+        assert_eq!(
+            Decimal32::MIN_POSITIVE.decode(),
+            Some(Decimal32Parts {
+                negative: false,
+                coefficient: 1,
+                exponent: -101,
+            })
+        );
+    }
+
+    #[test]
+    fn decode_non_canonical_is_zero() {
+        // A Form B coefficient ≥ 10^7 is non-canonical for BID-32 and
+        // decodes to zero at the stored quantum.
+        let non_canonical = Decimal32::from_bits((0b11011u32 << 26) | ((1u32 << 26) - 1));
+        let p = non_canonical.decode().expect("zero is finite");
+        assert_eq!(p.coefficient, 0);
+    }
+
+    #[test]
+    fn decode_roundtrip_via_try_new() {
+        for &d in &[
+            Decimal32::try_new(123, -2).unwrap(),
+            Decimal32::try_new(-123, -2).unwrap(),
+            Decimal32::ZERO,
+            Decimal32::NEG_ZERO,
+            Decimal32::MAX,
+            Decimal32::MIN,
+            Decimal32::MIN_POSITIVE,
+        ] {
+            let p = d.decode().unwrap();
+            let r = Decimal32::try_new_unsigned(p.coefficient, p.exponent as i32).unwrap();
+            let r = if p.negative { r.neg() } else { r };
+            assert_eq!(r.to_bits(), d.to_bits());
+        }
     }
 }

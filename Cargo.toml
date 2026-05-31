@@ -59,7 +59,7 @@ missing_panics_doc = "allow"
 
 [package]
 name = "ferrodec"
-version = "3.0.0"
+version = "3.1.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

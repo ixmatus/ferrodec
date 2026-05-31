@@ -16,7 +16,7 @@
 //! same shape: every `u128` decoded as a `Decimal128` must produce a
 //! safe, IEEE-conformant value at every public method.
 
-use ferrodec::{Decimal128, IeeeClass, RoundingMode};
+use ferrodec::{Decimal128, Decimal128Parts, IeeeClass, RoundingMode};
 use proptest::prelude::*;
 
 proptest! {
@@ -127,6 +127,55 @@ proptest! {
                     | IeeeClass::NegativeNormal
             );
             prop_assert_eq!(class_is_negative, d.is_sign_negative());
+        }
+    }
+
+    /// `decode` then reconstruct is the identity on canonical finite values.
+    /// The operand is built canonically from a `(sign, coefficient, exponent)`
+    /// triple, so decode and the constructor are exact inverses bit for bit.
+    /// Reconstruction goes through `try_new_unsigned` + `neg` (not the signed
+    /// `try_new`) so the sign of zero round-trips.
+    #[test]
+    fn decode_reconstruct_roundtrip_canonical(
+        negative in any::<bool>(),
+        coefficient in 0u128..10u128.pow(34),
+        exponent in -6176i32..=6111,
+    ) {
+        let base = Decimal128::try_new_unsigned(coefficient, exponent).unwrap();
+        let original = if negative { base.neg() } else { base };
+
+        let p = original.decode().unwrap();
+        prop_assert_eq!(
+            p,
+            Decimal128Parts { negative, coefficient, exponent: exponent as i16 }
+        );
+
+        let r = Decimal128::try_new_unsigned(p.coefficient, p.exponent as i32).unwrap();
+        let r = if p.negative { r.neg() } else { r };
+        prop_assert_eq!(r.to_bits(), original.to_bits());
+    }
+
+    /// `decode` is total over the full bit space: `Some` exactly for finite
+    /// values, with the coefficient and exponent inside their documented
+    /// bounds; `None` otherwise. For canonical finite inputs the reconstruction
+    /// is additionally bit-equal (non-canonical inputs decode to zero and are
+    /// only numerically equal to the junk bits, so the bit check is gated on
+    /// `is_canonical`).
+    #[test]
+    fn decode_total_over_bits(bits in any::<u128>()) {
+        let d = Decimal128::from_bits(bits);
+        match d.decode() {
+            Some(p) => {
+                prop_assert!(d.is_finite());
+                prop_assert!(p.coefficient < 10u128.pow(34));
+                prop_assert!((-6176..=6111).contains(&p.exponent));
+                if d.is_canonical() {
+                    let r = Decimal128::try_new_unsigned(p.coefficient, p.exponent as i32).unwrap();
+                    let r = if p.negative { r.neg() } else { r };
+                    prop_assert_eq!(r.to_bits(), d.to_bits());
+                }
+            }
+            None => prop_assert!(!d.is_finite()),
         }
     }
 }

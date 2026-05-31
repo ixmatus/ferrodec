@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `Decimal128::decode` and the `Decimal128Parts` struct. A quantum preserving
+  accessor that decomposes a finite value into `{ negative, coefficient, exponent }`,
+  returning `None` for NaN and infinity. The represented value is exactly
+  `(-1)^negative * coefficient * 10^exponent`. Covered by unit tests, a proptest
+  round trip over the full bit space, and a Kani totality harness.
+
 ## [2.1.0] - 2026-05-21
 
 The §9.2 transcendental contract tightens from faithful (≤ 1 ULP,

@@ -160,6 +160,25 @@ impl Decimal32 {
     pub const NEG_INFINITY: Self = Self(bid::pack_infinity(true));
 }
 
+/// The decoded `(sign, coefficient, exponent)` components of a finite
+/// [`Decimal32`], as returned by [`Decimal32::decode`].
+///
+/// The represented value is exactly
+/// `(−1)^negative × coefficient × 10^exponent`. The decode is quantum
+/// preserving: it returns the stored cohort member, so `1.00` (coefficient
+/// `100`, exponent `−2`) and `1` (coefficient `1`, exponent `0`) decode to
+/// distinct `Decimal32Parts`. Use [`Decimal32::canonicalize`] first if a
+/// normalized cohort is wanted.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct Decimal32Parts {
+    /// `true` when the value carries a negative sign, including `−0`.
+    pub negative: bool,
+    /// The integer coefficient (significand), in `[0, 10^7)`.
+    pub coefficient: u32,
+    /// The unbiased quantum exponent, in `[−101, 90]`.
+    pub exponent: i16,
+}
+
 /// Error returned by [`Decimal32::try_new`].
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Decimal32BuildError {

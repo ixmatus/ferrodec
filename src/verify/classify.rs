@@ -83,3 +83,20 @@ fn neg_neg_is_identity() {
     let d = Decimal128::from_bits(bits);
     assert!(d.neg().neg().to_bits() == d.to_bits());
 }
+
+/// `decode` is total and agrees with `is_finite`: it returns `Some` for
+/// exactly the finite values, and the decoded coefficient and exponent stay
+/// within their documented bounds for every input bit pattern.
+#[kani::proof]
+fn decode_total_and_consistent() {
+    let bits: u128 = kani::any();
+    let d = Decimal128::from_bits(bits);
+    match (d.decode(), d.is_finite()) {
+        (Some(p), true) => {
+            assert!(p.coefficient < crate::bid::COEFFICIENT_LIMIT);
+            assert!(p.exponent >= -6176 && p.exponent <= 6111);
+        }
+        (None, false) => {}
+        _ => panic!("decode must return Some iff the value is finite"),
+    }
+}
