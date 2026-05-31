@@ -15,6 +15,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `(-1)^negative * coefficient * 10^exponent`. Covered by unit tests, a proptest
   round trip over the full bit space, and a Kani totality harness.
 
+## [3.0.0] - 2026-05-30
+
+The parity train (ADR-0035) completes the round trip begun by the
+sibling correctness trains. ADR-0018, ADR-0019, ADR-0022, and ADR-0030
+carried parent fixes down to the siblings; a 2026-05-29 review found the
+dual, a family of fixes that had landed on the siblings and were never
+ported back up to the parent. The gap was invisible because the
+conformance comparator accepted any NaN for any NaN expected vector and
+omitted `CLAMPED` from its status mask, so the 0 fail gate was vacuous
+for NaN sign, NaN payload, and `CLAMPED`. This release hardens the
+comparator first (it now checks the NaN sign and payload a vector pins
+and adds `CLAMPED` to the mask, across all three runners) and then ports
+the sibling fixes up. It also carries one deliberate breaking change to
+the binary float constructors (ADR-0036), which is what makes it a major
+release.
+
+### Changed
+
+- **BREAKING: `from_f64` and `from_f32` take a `RoundingMode` and return
+  a `Status` (ADR-0036).** The signatures converge on the siblings'
+  richer shape: `from_f64(value: f64, rm: RoundingMode) -> (Decimal128,
+  Status)` and likewise for `from_f32`. The caller gains rounding control
+  and the INEXACT signal. `TryFrom<f64>` / `TryFrom<f32>` and the
+  `FromPrimitive` impls are unaffected: they keep
+  `RoundingMode::NearestEven` internally and drop the status. Callers of
+  the bare inherent constructors must add the rounding mode argument and
+  take `.0`.
+
+### Fixed
+
+- **`sub` no longer flips a NaN operand's sign.** The unconditional
+  negation of the second operand toggled the sign bit of a NaN, so
+  `x - NaN` produced `-NaN`. A guard now preserves the propagated NaN
+  sign, matching the `ddSubtract` decTest cases and the `decimal64`
+  behavior (ADR-0035).
+- **NaN payload propagation gives the signaling operand priority.**
+  `mul`, `quantize`, and `divide_integer` now return the signaling
+  operand's payload in a quiet times signaling mix, matching the
+  decNumber vectors and the siblings, rather than the first operand's
+  payload (ADR-0035).
+- **`CLAMPED` is raised where the siblings raise it.** The flag now
+  propagates on the `mul` quantum clamp path, the `finite / Inf` divide
+  path, and the rounding and packing preferred quantum clamp (ADR-0035).
+- **The string parser caps its exponent counters.** Porting the sibling
+  `L12 / B7` hardening, both digit counters saturate at the maximum
+  exponent magnitude before the `i32` cast, closing a latent exponent
+  sign flip on multi gigabyte inputs (unreachable on the embedded target,
+  theoretical on a host) (ADR-0035).
+- **`engineering()` zero pads a single digit coefficient.** When a single
+  digit coefficient's scientific exponent is not a multiple of three, the
+  integer part is now padded so the value renders at the correct power of
+  ten, for example 50 as `50E+0` rather than `5E+0` (ADR-0035).
+
 ## [2.1.0] - 2026-05-21
 
 The §9.2 transcendental contract tightens from faithful (≤ 1 ULP,

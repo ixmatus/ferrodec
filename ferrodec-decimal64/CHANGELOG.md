@@ -15,6 +15,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `(-1)^negative * coefficient * 10^exponent`. Covered by unit tests, a proptest
   round trip over the full bit space, and a Kani totality harness.
 
+## [3.0.0] - 2026-05-30
+
+Released lockstep with the `ferrodec` (Decimal128) parity train
+(ADR-0035). The parent reached major version 3.0.0 for a breaking
+binary float constructor change (ADR-0036); the siblings carry no
+breaking change and bump to 3.0.0 only to keep the workspace versions
+aligned. The Decimal64 changes are additive public API plus one
+conversion accuracy fix.
+
+### Added
+
+- **Public API parity with Decimal128 (fd-92w.11).** Inherent `signum`,
+  `is_integer`, and `ulp` on `Decimal64`; `radix()` returning 10;
+  inherent `from_f32(f32, RoundingMode) -> (Decimal64, Status)`; `Sum`
+  and `Product` over owned and borrowed iterators; and the `pi`, `e`,
+  `ln2`, `ln10` constants (gated under `trig` or `exp-log`, as on the
+  parent). Each item is adapted to Decimal64's coefficient width and
+  parameters rather than pasted from the parent. All additive.
+- **Display honors the precision specifier.** `{:.N}`, `{:.Ne}`, and
+  `{:.NE}` now quantize and pad as on the parent, where they were
+  previously ignored.
+
+### Fixed
+
+- **`FromPrimitive::from_i64` / `from_u64` are exact.** Integers at or
+  above `10^16` previously routed through an `f64` intermediate, which
+  holds exact integers only to `2^53` and so double rounded. The
+  conversion now rounds the integer directly to the format precision
+  (ADR-0035).
+
 ## [2.2.0] - 2026-05-21
 
 Sibling-only release restoring conversion API parity with the
