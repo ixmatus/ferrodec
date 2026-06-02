@@ -52,6 +52,52 @@ impl Decimal {
         round_finite(sign, ca.mul(cb), exp, false, exp, ctx, Status::OK)
     }
 
+    /// Round `self` to the context: `0 + self` (the `plus` operation).
+    #[must_use]
+    pub fn plus(&self, ctx: &Context) -> (Decimal, Status) {
+        self.unary_round(false, false, ctx)
+    }
+
+    /// Negate `self` and round to the context: `0 - self` (the `minus`
+    /// operation), so a zero negates by the subtract-from-zero rule.
+    #[must_use]
+    pub fn minus(&self, ctx: &Context) -> (Decimal, Status) {
+        self.unary_round(true, false, ctx)
+    }
+
+    /// The absolute value of `self`, rounded to the context.
+    #[must_use]
+    pub fn abs(&self, ctx: &Context) -> (Decimal, Status) {
+        self.unary_round(false, true, ctx)
+    }
+
+    /// Shared `plus` / `minus` / `abs`: combine `self` (optionally negated, or
+    /// forced positive for `abs`) with a zero at `self`'s exponent, which
+    /// applies the subtract-from-zero sign rule and rounds to the context.
+    fn unary_round(&self, negate: bool, force_positive: bool, ctx: &Context) -> (Decimal, Status) {
+        if let Some(r) = nan_unary(self, ctx) {
+            return r;
+        }
+        let sign = if force_positive {
+            false
+        } else {
+            self.is_negative() ^ negate
+        };
+        if self.is_infinite() {
+            return (Decimal::infinity(sign), Status::OK);
+        }
+        let (_, ca, ea) = self.finite_parts().expect("finite");
+        combine_finite(
+            false,
+            &DecBig::zero(),
+            i64::from(ea),
+            sign,
+            ca,
+            i64::from(ea),
+            ctx,
+        )
+    }
+
     /// Fused multiply-add `(self * factor) + addend` under `ctx`, with the
     /// product formed exactly and a single rounding applied at the end.
     #[must_use]

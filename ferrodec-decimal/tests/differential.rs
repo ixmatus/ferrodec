@@ -56,6 +56,20 @@ for line in sys.stdin:
         r = ctx.remainder_near(da, db)
     elif op == 'sqrt':
         r = ctx.sqrt(da)
+    elif op == 'quantize':
+        r = ctx.quantize(da, db)
+    elif op == 'to_integral_value':
+        r = ctx.to_integral_value(da)
+    elif op == 'to_integral_exact':
+        r = ctx.to_integral_exact(da)
+    elif op == 'reduce':
+        r = ctx.normalize(da)
+    elif op == 'plus':
+        r = ctx.plus(da)
+    elif op == 'minus':
+        r = ctx.minus(da)
+    elif op == 'abs':
+        r = ctx.abs(da)
     else:
         r = ctx.fma(da, db, dc)
     f = []
@@ -144,7 +158,7 @@ const ROUNDINGS: [(&str, Rounding); 8] = [
 // overflow / subnormal boundaries given the operand exponent span.
 const CONTEXTS: [(u32, i32, i32); 4] = [(9, 999, -999), (7, 96, -95), (3, 9, -9), (1, 6, -6)];
 
-const OPS: [&str; 9] = [
+const OPS: [&str; 16] = [
     "add",
     "subtract",
     "multiply",
@@ -154,6 +168,13 @@ const OPS: [&str; 9] = [
     "remainder_near",
     "sqrt",
     "fma",
+    "quantize",
+    "to_integral_value",
+    "to_integral_exact",
+    "reduce",
+    "plus",
+    "minus",
+    "abs",
 ];
 
 #[test]
@@ -235,6 +256,13 @@ fn differential_core_arithmetic_vs_libmpdec() {
             "remainder" => da.remainder(&db, &case.ctx),
             "remainder_near" => da.remainder_near(&db, &case.ctx),
             "sqrt" => da.sqrt(&case.ctx),
+            "quantize" => da.quantize(&db, &case.ctx),
+            "to_integral_value" => da.round_to_integral_value(&case.ctx),
+            "to_integral_exact" => da.round_to_integral_exact(&case.ctx),
+            "reduce" => da.reduce(&case.ctx),
+            "plus" => da.plus(&case.ctx),
+            "minus" => da.minus(&case.ctx),
+            "abs" => da.abs(&case.ctx),
             _ => da.fma(&db, &dc, &case.ctx),
         };
         let got_str = r.to_string();

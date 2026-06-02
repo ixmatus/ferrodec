@@ -27,6 +27,7 @@ mod arith;
 pub mod context;
 pub mod decimal;
 mod divrem;
+mod quantize;
 mod round;
 mod sqrt;
 
