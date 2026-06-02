@@ -6,6 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 description = "no_std + alloc arbitrary-precision decimal arithmetic (General Decimal Arithmetic), pure Rust"
 repository.workspace = true
+readme = "README.md"
 keywords = ["decimal", "bignum", "arbitrary-precision", "no_std", "decnumber"]
 categories = ["mathematics", "no-std"]
 
@@ -46,6 +47,10 @@ ferrodec-decimal32 = { path = "../ferrodec-decimal32", version = "3.2.0", option
 
 [dev-dependencies]
 proptest = "1"
+
+[[example]]
+name = "arbitrary_precision"
+required-features = ["fmt"]
 
 [lints]
 workspace = true

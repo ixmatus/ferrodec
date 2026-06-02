@@ -1,6 +1,6 @@
 # ADR-0038: Arbitrary precision decimal (`ferrodec-decimal`)
 
-- **Status**: proposed
+- **Status**: accepted
 - **Date**: 2026-06-02
 
 ## Context
@@ -53,11 +53,13 @@ transcribed.
 
 **Spec authority and oracle.** The General Decimal Arithmetic Specification is
 authoritative. The `decNumber` C library is a behaviour oracle only, never a
-code template. Python `decimal` is libmpdec, which is the specification's
-reference implementation, so it serves as the differential oracle at a matched
-context. The general (precision driven) `*.decTest` suite is the conformance
-validator; those vectors are not yet vendored and will be added per operation
-group.
+code template. Python `decimal` is libmpdec, the specification's reference
+implementation, so it serves as the differential oracle at a matched context.
+For v0.1.0 that differential is the conformance validator: every operation is
+compared cohort-exact against libmpdec over a deterministic sweep that reaches
+the special values and the overflow, subnormal, and clamp boundaries. Vendoring
+the static general (precision driven) `*.decTest` suite as an independent
+cross-check is part of the path to 1.0, not done here.
 
 **Context and rounding.** A `Context` carries the working precision, exponent
 bounds, rounding mode, and clamp flag, passed by reference per operation with a
@@ -106,8 +108,9 @@ rather than folded into a release. The fixed formats and their embedded path
 are unaffected: `DecBig` sits behind the `ferrodec-multiword` `alloc` feature,
 off by default.
 
-The conformance harness gains the general `*.decTest` suite, broadening what
-the test apparatus understands beyond the fixed format dispatch. The rounding
+The cohort-exact libmpdec differential becomes the v0.1.0 conformance validator
+across the whole operation surface; vendoring the static general `*.decTest`
+suite as an independent cross-check is deferred to the 1.0 path. The rounding
 superset living local to the crate keeps the IEEE crate at five modes and
 honors ADR-0005, at the cost of a small amount of duplicated mode dispatch.
 
@@ -125,6 +128,9 @@ without over promising the full surface.
 ## Related
 
 - Plan: `plans/2026-06-02-arbitrary-precision-decimal.md`
+- Commits: the `fd-decimal` branch (DecBig and the crate scaffold, the value
+  type and parse/format, the rounding core and the full operation surface, the
+  libmpdec differential, and the fixed-format interop).
 - Other ADRs: ADR-0002 (per op Status), ADR-0003 (method only API), ADR-0005
   (`half_down` / `05up` will not fix for the fixed formats), ADR-0010
   (conformance per file expectation table), ADR-0031 (GDA `decNumber` extension
