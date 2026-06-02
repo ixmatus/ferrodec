@@ -51,9 +51,9 @@ example tests otherwise. CI runs the usual lints and the full test and verificat
 conformance counts change as the project evolves. Significant decisions are recorded as ADRs in the repo. `unsafe`
 blocks carry a written justification at the call site.
 
-**Scope.** ferrodec is a personal project consisting of a core crate and the ferrodec-decimal32, ferrodec-decimal64,
-ferrodec-ieee, ferrodec-transcend, and ferrodec-multiword member crates in the same workspace, together with the
-dev-only ferrodec-test-support crate; this disclosure covers all of them. The lead consumer is
+**Scope.** ferrodec is a personal project consisting of a core crate and the ferrodec-decimal, ferrodec-decimal32,
+ferrodec-decimal64, ferrodec-ieee, ferrodec-transcend, and ferrodec-multiword member crates in the same workspace,
+together with the dev-only ferrodec-test-support crate; this disclosure covers all of them. The lead consumer is
 Parnell's own embedded calculator firmware on STM32U class hardware; durability and quality are goals, but this is not
 a funded library with a maintenance team behind it. The published versions on crates.io are yanked; the repository
 remains public for users who want to read or fork the work.
@@ -62,10 +62,11 @@ remains public for users who want to read or fork the work.
 ships under his name. The disciplines above narrow the failure surface; they do not eliminate it. In particular, this
 process is most exposed to subtle bugs that a careful human reading of the code would catch but tests, types, and
 formal verification would not. For correctly rounded decimal arithmetic that specifically includes rounding errors on boundary cases the decTest
-suite did not cover, rounding errors on Decimal64 or Decimal128 transcendental boundary inputs the sampled Arb
-worst-case search did not surface (the Decimal32 §9.2 transcendentals and square root are now searched
-exhaustively across the full canonical input space rather than sampled), or conformance regressions in operations
-no harness happened to exercise. Issues are welcome and will be triaged as time allows; no SLA is offered. This README describes the project's
+suite did not cover, rounding or boundary errors in the arbitrary precision ferrodec-decimal type on operands wider
+than the u128 ground truth oracle reaches that the sampled libmpdec differential did not draw, rounding errors on
+Decimal64 or Decimal128 transcendental boundary inputs the sampled Arb worst-case search did not surface (the
+Decimal32 §9.2 transcendentals and square root are now searched exhaustively across the full canonical input space
+rather than sampled), or conformance regressions in operations no harness happened to exercise. Issues are welcome and will be triaged as time allows; no SLA is offered. This README describes the project's
 development process and is not a warranty; see the LICENSE file for the legal terms governing use.
 
 ## What ferrodec is
