@@ -9,5 +9,17 @@ repository.workspace = true
 keywords = ["bigint", "u256", "no_std", "embedded", "decimal"]
 categories = ["embedded", "mathematics", "no-std", "no-std::no-alloc"]
 
+[features]
+# Off by default: the fixed-width U256/U384/U512 types stay strictly
+# no-alloc for the Cortex-M0+ floor. Enabling `alloc` compiles in the
+# growable base-10^9 decimal-limb integer `DecBig` (the coefficient
+# backend for the arbitrary-precision `ferrodec-decimal` crate), which
+# needs heap storage. The fixed-width types are unaffected either way.
+default = []
+alloc = []
+
+[dev-dependencies]
+proptest = "1"
+
 [lints]
 workspace = true
