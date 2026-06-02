@@ -1,8 +1,34 @@
 # Known issues
 
-This file enumerates the cases ferrodec deliberately or unintentionally
-skips in the decTest conformance suite. The runner is
-`tests/conformance.rs`; vectors live under `tests/vectors/`.
+This file records ferrodec's known issues. Most of it enumerates the
+cases ferrodec deliberately or unintentionally skips in the decTest
+conformance suite (the runner is `tests/conformance.rs`; vectors live
+under `tests/vectors/`). Defects outside that suite are recorded first,
+under "Known defects".
+
+## Known defects
+
+### cbrt and pow raise INEXACT on exact results
+
+* **Status**: open, deferred (low priority). Tracked as `fd-92w.8`.
+* **Symptom**: `cbrt` of a perfect cube and `pow` with an exact result
+  (for example `cbrt(8) == 2` or `pow(2, 3) == 8`) return the correct
+  value but raise `Status::INEXACT`, where IEEE 754-2019 §7.5 requires
+  the flag only when the delivered result differs from the infinitely
+  precise one. The value is correct; only the flag is spurious.
+* **Mechanism**: the shared `ferrodec-transcend` kernel
+  (`src/cbrt.rs:69-74`, and the `pow` path that reduces to
+  `exp(y · ln(x))`) computes at extended precision and raises INEXACT
+  from the final rounding step without first checking whether the
+  extended result was already exact at the target precision. The defect
+  lives in the kernel, so it surfaces identically on `cbrt` and `pow`
+  across all three formats (Decimal128, Decimal64, Decimal32).
+* **Why deferred**: it is a spurious informational flag, not a wrong
+  value; the correctly rounded result is always returned, so no
+  numerical correctness rides on it.
+* **Fix landing**: suppress INEXACT when the rounded result expands back
+  to the exact input power (a perfect cube or exact power check before
+  the flag is raised), in `ferrodec-transcend`.
 
 ## Headline numbers
 
