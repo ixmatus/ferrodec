@@ -26,8 +26,14 @@ extern crate alloc;
 pub mod context;
 pub mod decimal;
 
+#[cfg(feature = "fmt")]
+mod convert;
+
 pub use context::{Context, Rounding};
 pub use decimal::Decimal;
+
+#[cfg(feature = "fmt")]
+pub use convert::ParseDecimalError;
 
 pub use ferrodec_ieee::Status;
 pub use ferrodec_multiword::DecBig;
