@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.1.0] - 2026-05-31
+
 ### Added
 
 - `Decimal128::decode` and the `Decimal128Parts` struct. A quantum preserving
@@ -1750,7 +1752,7 @@ IEEE 754 §5.3 / §5.10 quantum gap-fill.
   results across the speleotrove `dq*.decTest` suite; 50 Kani
   formal-verification harnesses for the IEEE special-case dispatch.
 
-[Unreleased]: https://github.com/ixmatus/ferrodec/compare/v1.7.1...HEAD
+[Unreleased]: https://github.com/ixmatus/ferrodec/compare/ferrodec-v3.1.0...HEAD
 [1.7.1]: https://github.com/ixmatus/ferrodec/releases/tag/v1.7.1
 [1.7.0]: https://github.com/ixmatus/ferrodec/releases/tag/v1.7.0
 [1.6.0]: https://github.com/ixmatus/ferrodec/releases/tag/v1.6.0
