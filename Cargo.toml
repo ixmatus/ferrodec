@@ -181,6 +181,10 @@ required-features = ["fmt"]
 name = "transcendentals"
 required-features = ["transcendentals"]
 
+[[example]]
+name = "physical_constants"
+required-features = ["fmt"]
+
 [[bench]]
 name = "core_ops"
 harness = false

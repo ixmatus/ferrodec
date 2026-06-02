@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `Decimal128::from_parts`, the `const` inverse of `decode`. Reconstructs a
+  finite value from `{ negative, coefficient, exponent }`, returning `None`
+  when the coefficient or exponent is out of range. Always available (no
+  `fmt` feature), and unlike `try_new` it carries an explicit sign, so it
+  can build negative zero. Forms a documented bijection with `decode` on
+  canonical finite values, proved by Kani in both directions.
+- `Decimal128::from_str_const` and the `dec!` macro, for embedding exact
+  published constants in `const` initializers
+  (`Decimal128::from_str_const("6.62607015e-34")` or `dec!("...")`). A
+  `const` decimal literal parser that requires exact representability: a
+  malformed, oversized, or out of range literal is a compile error, never
+  silent rounding. Finite only, gated by `fmt`. Equivalence with
+  `parse_str` on the exactly representable subset is pinned by a property
+  test. See ADR-0037.
+
 ## [3.1.0] - 2026-05-31
 
 ### Added
