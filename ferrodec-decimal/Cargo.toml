@@ -14,6 +14,13 @@ default = ["fmt"]
 # String parse + format (General Decimal Arithmetic to-scientific /
 # to-engineering notation). Uses core::fmt and alloc, no extra dependency.
 fmt = []
+# Opt-in, local-only Python/libmpdec differential test. Gates
+# tests/differential.rs so the Python subprocess never runs in a default
+# `cargo test` or CI. CPython's stdlib `decimal` is libmpdec, the General
+# Decimal Arithmetic reference implementation, so it is the natural
+# cohort-exact oracle. No extra Rust dependency; degrades to skip-with-
+# diagnostic when python3 is unavailable. Implies `fmt` for the string I/O.
+differential = ["fmt"]
 
 [dependencies]
 ferrodec-ieee = { path = "../ferrodec-ieee", version = "0.1.4" }

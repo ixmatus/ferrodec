@@ -34,7 +34,7 @@ impl Decimal {
     /// Multiply two decimals under `ctx`.
     #[must_use]
     pub fn multiply(&self, other: &Self, ctx: &Context) -> (Decimal, Status) {
-        if let Some(r) = nan_result(self, other) {
+        if let Some(r) = nan_result(self, other, ctx) {
             return r;
         }
         let sign = self.is_negative() ^ other.is_negative();
@@ -55,7 +55,7 @@ impl Decimal {
 
 /// Shared add / subtract. `subtract` flips the effective sign of `b`.
 fn add_sub(a: &Decimal, b: &Decimal, subtract: bool, ctx: &Context) -> (Decimal, Status) {
-    if let Some(r) = nan_result(a, b) {
+    if let Some(r) = nan_result(a, b, ctx) {
         return r;
     }
     let a_neg = a.is_negative();
@@ -96,27 +96,31 @@ fn add_sub(a: &Decimal, b: &Decimal, subtract: bool, ctx: &Context) -> (Decimal,
 
 /// NaN propagation common to every binary operation. A signaling NaN operand
 /// yields its quieted form and an invalid-operation flag; a quiet NaN operand
-/// propagates unchanged. Returns `None` when neither operand is a NaN.
-fn nan_result(a: &Decimal, b: &Decimal) -> Option<(Decimal, Status)> {
+/// propagates as a quiet NaN. The diagnostic payload is truncated to the
+/// context precision (its low `precision` digits), matching the General
+/// Decimal Arithmetic reference. Returns `None` when neither operand is a NaN.
+fn nan_result(a: &Decimal, b: &Decimal, ctx: &Context) -> Option<(Decimal, Status)> {
     if a.is_signaling_nan() {
-        return Some((quieten(a), Status::INVALID));
+        return Some((quiet_from(a, ctx), Status::INVALID));
     }
     if b.is_signaling_nan() {
-        return Some((quieten(b), Status::INVALID));
+        return Some((quiet_from(b, ctx), Status::INVALID));
     }
     if a.is_nan() {
-        return Some((a.clone(), Status::OK));
+        return Some((quiet_from(a, ctx), Status::OK));
     }
     if b.is_nan() {
-        return Some((b.clone(), Status::OK));
+        return Some((quiet_from(b, ctx), Status::OK));
     }
     None
 }
 
-/// Quiet a NaN, preserving its sign and payload.
-fn quieten(d: &Decimal) -> Decimal {
+/// Build the propagated quiet NaN: same sign, payload truncated to the low
+/// `ctx.precision` digits.
+fn quiet_from(d: &Decimal, ctx: &Context) -> Decimal {
     let (sign, _signaling, payload) = d.nan_parts().expect("nan");
-    Decimal::quiet_nan(sign, payload.clone())
+    let truncated = payload.div_rem_pow10(ctx.precision).1;
+    Decimal::quiet_nan(sign, truncated)
 }
 
 /// The default quiet NaN produced by an invalid operation.
