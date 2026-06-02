@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- New workspace member `ferrodec-decimal` 0.1.0: arbitrary precision decimal
+  arithmetic to the General Decimal Arithmetic Specification, the parent
+  specification the fixed width formats derive from. `no_std` with `alloc` (the
+  coefficient is a growable heap integer), an explicit `Context` passed per
+  operation with a per operation `Status`, and the eight General Decimal
+  Arithmetic rounding modes. The v1.0 surface is the core arithmetic plus
+  correctly rounded `squareRoot`: add, subtract, multiply, divide,
+  divideInteger, the remainder family, fma, quantize, round to integral,
+  reduce, the sign operations, compare, compareTotal, max, min, and the copy
+  operations. An optional `interop` feature converts losslessly from and
+  roundingly to the fixed width `Decimal32` / `Decimal64` / `Decimal128`. The
+  transcendental functions are a stated later phase, so the crate stays on the
+  `0.x` line. Every operation is validated cohort-exact against CPython's
+  `decimal` (libmpdec), the specification's reference implementation. Adds a
+  base-`10^9` growable `DecBig` integer to `ferrodec-multiword` behind a new
+  `alloc` feature. See ADR-0038.
+
 ## [3.2.0] - 2026-06-01
 
 ### Added

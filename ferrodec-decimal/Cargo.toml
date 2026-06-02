@@ -1,0 +1,56 @@
+[package]
+name = "ferrodec-decimal"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "no_std + alloc arbitrary-precision decimal arithmetic (General Decimal Arithmetic), pure Rust"
+repository.workspace = true
+readme = "README.md"
+keywords = ["decimal", "bignum", "arbitrary-precision", "no_std", "decnumber"]
+categories = ["mathematics", "no-std"]
+
+[features]
+default = ["fmt"]
+# String parse + format (General Decimal Arithmetic to-scientific /
+# to-engineering notation). Uses core::fmt and alloc, no extra dependency.
+fmt = []
+# Opt-in, local-only Python/libmpdec differential test. Gates
+# tests/differential.rs so the Python subprocess never runs in a default
+# `cargo test` or CI. CPython's stdlib `decimal` is libmpdec, the General
+# Decimal Arithmetic reference implementation, so it is the natural
+# cohort-exact oracle. No extra Rust dependency; degrades to skip-with-
+# diagnostic when python3 is unavailable. Implies `fmt` for the string I/O.
+differential = ["fmt"]
+# Lossless widening from and rounding narrowing to the three fixed-width
+# ferrodec formats. Off by default to keep the dependency graph minimal; the
+# conversions ride the exact decimal-string bridge, so this pulls `fmt` and
+# the three format crates (which do not depend back, so there is no cycle).
+interop = [
+    "fmt",
+    "dep:ferrodec",
+    "dep:ferrodec-decimal64",
+    "dep:ferrodec-decimal32",
+]
+
+[dependencies]
+ferrodec-ieee = { path = "../ferrodec-ieee", version = "0.1.4" }
+# The coefficient backend. `alloc` pulls in the growable DecBig integer; this
+# crate is the reason that feature exists.
+ferrodec-multiword = { path = "../ferrodec-multiword", version = "0.1.0", features = ["alloc"] }
+# Fixed-format interop, behind the `interop` feature. Only `fmt` is needed
+# (the conversions go through the decimal string), so the transcendental and
+# other surfaces stay out of the build.
+ferrodec = { path = "..", version = "3.2.0", optional = true, default-features = false, features = ["fmt"] }
+ferrodec-decimal64 = { path = "../ferrodec-decimal64", version = "3.2.0", optional = true, default-features = false, features = ["fmt"] }
+ferrodec-decimal32 = { path = "../ferrodec-decimal32", version = "3.2.0", optional = true, default-features = false, features = ["fmt"] }
+
+[dev-dependencies]
+proptest = "1"
+
+[[example]]
+name = "arbitrary_precision"
+required-features = ["fmt"]
+
+[lints]
+workspace = true

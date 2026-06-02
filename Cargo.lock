@@ -247,6 +247,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "ferrodec-decimal"
+version = "0.1.0"
+dependencies = [
+ "ferrodec",
+ "ferrodec-decimal32",
+ "ferrodec-decimal64",
+ "ferrodec-ieee",
+ "ferrodec-multiword",
+ "proptest",
+]
+
+[[package]]
 name = "ferrodec-decimal32"
 version = "3.2.0"
 dependencies = [
@@ -285,6 +297,9 @@ version = "0.1.4"
 [[package]]
 name = "ferrodec-multiword"
 version = "0.1.0"
+dependencies = [
+ "proptest",
+]
 
 [[package]]
 name = "ferrodec-test-support"

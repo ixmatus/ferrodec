@@ -1,0 +1,328 @@
+//! Comparison, selection, and sign-copy operations.
+//!
+//! `compare` is the numeric comparison (NaN-aware, returning a NaN when either
+//! operand is a NaN); `compare_total` is the IEEE 754 total ordering, which
+//! orders every value including NaNs and never returns a NaN. `max` and `min`
+//! select an operand (ignoring a quiet NaN) and round it to the context. The
+//! copy operations manipulate only the sign bit and take no context.
+
+use crate::arith::{nan_result, quiet_from};
+use crate::{Context, Decimal, Status};
+use core::cmp::Ordering;
+use ferrodec_multiword::DecBig;
+
+impl Decimal {
+    /// Numeric comparison: `-1`, `0`, or `1` as a decimal, or a NaN when
+    /// either operand is a NaN (a signaling NaN also signals invalid).
+    #[must_use]
+    pub fn compare(&self, other: &Self, ctx: &Context) -> (Decimal, Status) {
+        if let Some(r) = nan_result(self, other, ctx) {
+            return r;
+        }
+        (ordering_to_decimal(numeric_cmp(self, other)), Status::OK)
+    }
+
+    /// The IEEE 754 total ordering of `self` and `other`: `-1`, `0`, or `1`.
+    /// Every value is ordered, including NaNs (by sign then payload), so this
+    /// never returns a NaN and takes no context.
+    #[must_use]
+    pub fn compare_total(&self, other: &Self) -> Decimal {
+        ordering_to_decimal(total_cmp(self, other))
+    }
+
+    /// The larger of `self` and `other`, rounded to the context. A quiet NaN
+    /// operand is ignored in favor of a number; a signaling NaN signals
+    /// invalid.
+    #[must_use]
+    pub fn max(&self, other: &Self, ctx: &Context) -> (Decimal, Status) {
+        select(self, other, ctx, true)
+    }
+
+    /// The smaller of `self` and `other`, rounded to the context, with the same
+    /// NaN handling as [`max`](Self::max).
+    #[must_use]
+    pub fn min(&self, other: &Self, ctx: &Context) -> (Decimal, Status) {
+        select(self, other, ctx, false)
+    }
+
+    /// `self` with a positive sign (no context, no rounding).
+    #[must_use]
+    pub fn copy_abs(&self) -> Decimal {
+        self.with_sign(false)
+    }
+
+    /// `self` with its sign inverted (no context, no rounding).
+    #[must_use]
+    pub fn copy_negate(&self) -> Decimal {
+        self.with_sign(!self.is_negative())
+    }
+
+    /// `self` with the sign of `other` (no context, no rounding).
+    #[must_use]
+    pub fn copy_sign(&self, other: &Self) -> Decimal {
+        self.with_sign(other.is_negative())
+    }
+}
+
+fn ordering_to_decimal(ord: Ordering) -> Decimal {
+    match ord {
+        Ordering::Less => Decimal::finite(true, DecBig::from_u32(1), 0),
+        Ordering::Equal => Decimal::finite(false, DecBig::zero(), 0),
+        Ordering::Greater => Decimal::finite(false, DecBig::from_u32(1), 0),
+    }
+}
+
+/// Numeric comparison of two non-NaN values (signed, with `-0 == +0`).
+fn numeric_cmp(a: &Decimal, b: &Decimal) -> Ordering {
+    let (sa, sb) = (a.is_negative(), b.is_negative());
+    match (a.is_infinite(), b.is_infinite()) {
+        (true, true) => {
+            return match (sa, sb) {
+                (true, false) => Ordering::Less,
+                (false, true) => Ordering::Greater,
+                _ => Ordering::Equal,
+            }
+        }
+        (true, false) => {
+            return if sa {
+                Ordering::Less
+            } else {
+                Ordering::Greater
+            }
+        }
+        (false, true) => {
+            return if sb {
+                Ordering::Greater
+            } else {
+                Ordering::Less
+            }
+        }
+        (false, false) => {}
+    }
+    let (sa, ca, ea) = a.finite_parts().expect("finite");
+    let (sb, cb, eb) = b.finite_parts().expect("finite");
+    if ca.is_zero() && cb.is_zero() {
+        return Ordering::Equal;
+    }
+    if sa != sb {
+        return if sa {
+            Ordering::Less
+        } else {
+            Ordering::Greater
+        };
+    }
+    let mag = abs_value_cmp(ca, ea, cb, eb);
+    if sa {
+        mag.reverse()
+    } else {
+        mag
+    }
+}
+
+/// Compare the numeric magnitudes of two finite coefficients.
+fn abs_value_cmp(ca: &DecBig, ea: i32, cb: &DecBig, eb: i32) -> Ordering {
+    match (ca.is_zero(), cb.is_zero()) {
+        (true, true) => return Ordering::Equal,
+        (true, false) => return Ordering::Less,
+        (false, true) => return Ordering::Greater,
+        (false, false) => {}
+    }
+    // Compare adjusted exponents first; only equal magnitudes need alignment,
+    // and then the exponent gap is bounded by the digit counts.
+    let adj_a = i64::from(ea) + ca.decimal_digit_count() as i64 - 1;
+    let adj_b = i64::from(eb) + cb.decimal_digit_count() as i64 - 1;
+    if adj_a != adj_b {
+        return adj_a.cmp(&adj_b);
+    }
+    let min_e = ea.min(eb);
+    ca.mul_pow10((ea - min_e) as u32)
+        .cmp_ref(&cb.mul_pow10((eb - min_e) as u32))
+}
+
+/// Total-order category (for a positive sign): numbers and infinities rank
+/// below signaling NaNs, which rank below quiet NaNs.
+fn total_category(d: &Decimal) -> u8 {
+    if d.is_signaling_nan() {
+        1
+    } else if d.is_nan() {
+        2
+    } else {
+        0
+    }
+}
+
+/// IEEE 754 total ordering.
+fn total_cmp(a: &Decimal, b: &Decimal) -> Ordering {
+    let (sa, sb) = (a.is_negative(), b.is_negative());
+    if sa != sb {
+        return if sa {
+            Ordering::Less
+        } else {
+            Ordering::Greater
+        };
+    }
+    let ord = total_rank_positive(a, b);
+    if sa {
+        ord.reverse()
+    } else {
+        ord
+    }
+}
+
+/// Total ordering within one sign, as if both operands were positive.
+fn total_rank_positive(a: &Decimal, b: &Decimal) -> Ordering {
+    let (ca, cb) = (total_category(a), total_category(b));
+    if ca != cb {
+        return ca.cmp(&cb);
+    }
+    if ca == 0 {
+        match (a.is_infinite(), b.is_infinite()) {
+            (true, true) => Ordering::Equal,
+            (true, false) => Ordering::Greater,
+            (false, true) => Ordering::Less,
+            (false, false) => {
+                let (_, pca, ea) = a.finite_parts().expect("finite");
+                let (_, pcb, eb) = b.finite_parts().expect("finite");
+                // Equal numeric value: the larger exponent ranks higher.
+                match abs_value_cmp(pca, ea, pcb, eb) {
+                    Ordering::Equal => ea.cmp(&eb),
+                    other => other,
+                }
+            }
+        }
+    } else {
+        // Two NaNs of the same class: order by payload.
+        let (_, _, pa) = a.nan_parts().expect("nan");
+        let (_, _, pb) = b.nan_parts().expect("nan");
+        pa.cmp_ref(pb)
+    }
+}
+
+/// Shared `max` / `min`: ignore a quiet NaN, signal invalid on a signaling
+/// NaN, and otherwise pick by numeric value (breaking ties with the total
+/// order), then round the chosen operand to the context.
+fn select(a: &Decimal, b: &Decimal, ctx: &Context, is_max: bool) -> (Decimal, Status) {
+    if a.is_signaling_nan() {
+        return (quiet_from(a, ctx), Status::INVALID);
+    }
+    if b.is_signaling_nan() {
+        return (quiet_from(b, ctx), Status::INVALID);
+    }
+    match (a.is_nan(), b.is_nan()) {
+        (true, true) => return (quiet_from(a, ctx), Status::OK),
+        (true, false) => return b.plus(ctx),
+        (false, true) => return a.plus(ctx),
+        (false, false) => {}
+    }
+    let pick_a = match numeric_cmp(a, b) {
+        Ordering::Greater => is_max,
+        Ordering::Less => !is_max,
+        Ordering::Equal => {
+            let total = total_cmp(a, b);
+            if is_max {
+                total == Ordering::Greater
+            } else {
+                total == Ordering::Less
+            }
+        }
+    };
+    if pick_a {
+        a.plus(ctx)
+    } else {
+        b.plus(ctx)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Rounding;
+
+    fn ctx() -> Context {
+        Context::new(9, 9999, -9999, Rounding::HalfEven)
+    }
+
+    fn fin(sign: bool, coeff: u128, exp: i32) -> Decimal {
+        Decimal::finite(sign, DecBig::from_u128(coeff), exp)
+    }
+
+    fn minus_one() -> Decimal {
+        fin(true, 1, 0)
+    }
+    fn zero() -> Decimal {
+        fin(false, 0, 0)
+    }
+    fn one() -> Decimal {
+        fin(false, 1, 0)
+    }
+
+    #[test]
+    fn compare_numeric() {
+        let c = ctx();
+        assert_eq!(
+            fin(false, 2, 0).compare(&fin(false, 3, 0), &c).0,
+            minus_one()
+        );
+        assert_eq!(fin(false, 3, 0).compare(&fin(false, 2, 0), &c).0, one());
+        // 1.0 == 1.00 numerically; -0 == +0.
+        assert_eq!(
+            fin(false, 10, -1).compare(&fin(false, 100, -2), &c).0,
+            zero()
+        );
+        assert_eq!(fin(true, 0, 0).compare(&fin(false, 0, 0), &c).0, zero());
+        // NaN comparison yields NaN.
+        assert!(Decimal::quiet_nan(false, DecBig::zero())
+            .compare(&one(), &c)
+            .0
+            .is_nan());
+    }
+
+    #[test]
+    fn compare_total_orders_cohorts_and_nans() {
+        // 1.00 < 1.0 in the total order (smaller exponent ranks lower).
+        assert_eq!(
+            fin(false, 100, -2).compare_total(&fin(false, 10, -1)),
+            minus_one()
+        );
+        // -0 < +0 in the total order.
+        assert_eq!(
+            fin(true, 0, 0).compare_total(&fin(false, 0, 0)),
+            minus_one()
+        );
+        // A signaling NaN ranks above every number; a quiet NaN above that.
+        let qn = Decimal::quiet_nan(false, DecBig::zero());
+        let sn = Decimal::signaling_nan(false, DecBig::zero());
+        assert_eq!(one().compare_total(&sn), minus_one());
+        assert_eq!(sn.compare_total(&qn), minus_one());
+    }
+
+    #[test]
+    fn max_min_and_nan_handling() {
+        let c = ctx();
+        assert_eq!(
+            fin(false, 2, 0).max(&fin(false, 7, 0), &c).0,
+            fin(false, 7, 0)
+        );
+        assert_eq!(
+            fin(false, 2, 0).min(&fin(false, 7, 0), &c).0,
+            fin(false, 2, 0)
+        );
+        // A quiet NaN is ignored.
+        let qn = Decimal::quiet_nan(false, DecBig::zero());
+        assert_eq!(qn.max(&fin(false, 5, 0), &c).0, fin(false, 5, 0));
+        // A signaling NaN signals invalid.
+        let sn = Decimal::signaling_nan(false, DecBig::zero());
+        assert!(sn.max(&fin(false, 5, 0), &c).1.invalid());
+    }
+
+    #[test]
+    fn copy_operations() {
+        let neg = fin(true, 5, -1);
+        assert_eq!(neg.copy_abs(), fin(false, 5, -1));
+        assert_eq!(neg.copy_negate(), fin(false, 5, -1));
+        assert_eq!(fin(false, 5, -1).copy_sign(&neg), fin(true, 5, -1));
+        // Copy operates on NaNs too, touching only the sign.
+        let qn = Decimal::quiet_nan(false, DecBig::from_u32(3));
+        assert!(qn.copy_negate().is_negative());
+    }
+}
