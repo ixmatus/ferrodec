@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.2.0] - 2026-06-01
+
+### Added
+
+- `Decimal128::from_parts`, the `const` inverse of `decode`. Reconstructs a
+  finite value from `{ negative, coefficient, exponent }`, returning `None`
+  when the coefficient or exponent is out of range. Always available (no
+  `fmt` feature), and unlike `try_new` it carries an explicit sign, so it
+  can build negative zero. Forms a documented bijection with `decode` on
+  canonical finite values, proved by Kani in both directions.
+- `Decimal128::from_str_const` and the `dec!` macro, for embedding exact
+  published constants in `const` initializers
+  (`Decimal128::from_str_const("6.62607015e-34")` or `dec!("...")`). A
+  `const` decimal literal parser that requires exact representability: a
+  malformed, oversized, or out of range literal is a compile error, never
+  silent rounding. Finite only, gated by `fmt`. Equivalence with
+  `parse_str` on the exactly representable subset is pinned by a property
+  test. See ADR-0037.
+
+## [3.1.0] - 2026-05-31
+
 ### Added
 
 - `Decimal128::decode` and the `Decimal128Parts` struct. A quantum preserving
@@ -1750,7 +1771,7 @@ IEEE 754 §5.3 / §5.10 quantum gap-fill.
   results across the speleotrove `dq*.decTest` suite; 50 Kani
   formal-verification harnesses for the IEEE special-case dispatch.
 
-[Unreleased]: https://github.com/ixmatus/ferrodec/compare/v1.7.1...HEAD
+[Unreleased]: https://github.com/ixmatus/ferrodec/compare/ferrodec-v3.1.0...HEAD
 [1.7.1]: https://github.com/ixmatus/ferrodec/releases/tag/v1.7.1
 [1.7.0]: https://github.com/ixmatus/ferrodec/releases/tag/v1.7.0
 [1.6.0]: https://github.com/ixmatus/ferrodec/releases/tag/v1.6.0

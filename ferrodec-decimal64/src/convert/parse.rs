@@ -27,8 +27,10 @@
 //! trailing digits beyond that contribute to the rounding sticky bit.
 //! The rounding direction comes from the supplied [`RoundingMode`].
 
-use crate::bid::{pack_quiet_nan, pack_signaling_nan, T_MASK};
-use crate::decimal::Decimal64;
+use crate::bid::{
+    pack_quiet_nan, pack_signaling_nan, BIAS, BIASED_EXP_MAX, COEFFICIENT_LIMIT, T_MASK,
+};
+use crate::decimal::{Decimal64, Decimal64Parts};
 use crate::ops::round_and_pack_finite;
 use ferrodec_ieee::{RoundingMode, Status};
 
@@ -142,6 +144,50 @@ impl Decimal64 {
     /// input value.
     pub fn parse_str(s: &str, rm: RoundingMode) -> Result<(Self, Status), ParseDecimalError> {
         parse_str_inner(s.as_bytes(), rm)
+    }
+
+    /// Build a `Decimal64` from a decimal literal at compile time.
+    ///
+    /// Intended for `const` initializers that embed an exact published
+    /// constant so the source reads as the decimal itself:
+    ///
+    /// ```
+    /// use ferrodec_decimal64::Decimal64;
+    ///
+    /// const SPEED_OF_LIGHT: Decimal64 = Decimal64::from_str_const("2.99792458e8");
+    /// assert!(SPEED_OF_LIGHT.is_finite() && !SPEED_OF_LIGHT.is_zero());
+    ///
+    /// // Decimal literals are exact: 0.1 carries no representation error.
+    /// assert_eq!(
+    ///     Decimal64::from_str_const("0.1").to_bits(),
+    ///     Decimal64::try_new(1, -1).unwrap().to_bits(),
+    /// );
+    /// ```
+    ///
+    /// The literal is an optional sign, decimal digits with an optional
+    /// point, and an optional `e`/`E` exponent. Infinity and NaN are
+    /// rejected; use the named [`Decimal64::INFINITY`] / [`Decimal64::NAN`]
+    /// constants instead.
+    ///
+    /// # Panics
+    ///
+    /// Panics, which is a compile error in `const` context, if the literal
+    /// is not a finite decimal exactly representable in Decimal64: a
+    /// malformed or empty string, more than 16 significant figures, or an
+    /// exponent outside `[-398, 369]`. Exactness is required; an inexact
+    /// literal is a compile error, never silent rounding. A value with
+    /// many trailing zeros can exceed 16 significant figures as written;
+    /// write it in scientific notation instead.
+    ///
+    /// The threat model is a programmer typo in a source literal, not
+    /// untrusted input. For runtime parsing of untrusted input, with
+    /// rounding and a recoverable error, use [`Decimal64::parse_str`].
+    #[must_use]
+    pub const fn from_str_const(s: &str) -> Self {
+        match Decimal64::from_parts(parse_literal(s.as_bytes())) {
+            Some(d) => d,
+            None => panic!("from_str_const: literal not representable in Decimal64"),
+        }
     }
 }
 
@@ -358,6 +404,136 @@ fn parse_str_inner(
     Ok((value, status))
 }
 
+/// Parse a finite decimal literal into its [`Decimal64Parts`] at compile
+/// time, panicking on anything not exactly representable.
+///
+/// The byte loop mirrors [`parse_str_inner`] restricted to the exactly
+/// representable, finite subset: the same sign handling, leading-zero
+/// rules, and quantum derivation, with the rounding machinery replaced by
+/// a hard exactness gate. Because every accepted input has at most 16
+/// significant figures the coefficient fits a `u64` directly, so no
+/// rounding is needed; on the accepted subset the result agrees with
+/// `parse_str` bit for bit (pinned by a property test).
+///
+/// All `panic!` messages are static strings so they surface in `const`
+/// evaluation. Each names a distinct failure so a stalled build points at
+/// the offending constraint.
+const fn parse_literal(bytes: &[u8]) -> Decimal64Parts {
+    assert!(!bytes.is_empty(), "from_str_const: empty decimal literal");
+
+    let len = bytes.len();
+    let (negative, mut idx) = match bytes[0] {
+        b'+' => (false, 1usize),
+        b'-' => (true, 1usize),
+        _ => (false, 0usize),
+    };
+    assert!(idx < len, "from_str_const: sign with no digits");
+
+    let mut coef: u64 = 0;
+    let mut digits_after_point: i32 = 0;
+    let mut decimal_seen = false;
+    let mut has_digit = false;
+
+    while idx < len {
+        let c = bytes[idx];
+        match c {
+            b'0'..=b'9' => {
+                has_digit = true;
+                let d = (c - b'0') as u64;
+                let leading_int_zero = coef == 0 && d == 0 && !decimal_seen;
+                let leading_frac_zero = coef == 0 && d == 0 && decimal_seen;
+                if leading_int_zero {
+                    // Pure leading zero in the integer part: ignore it.
+                } else if leading_frac_zero {
+                    // Leading zero after the point but before the first
+                    // significant digit: shifts the quantum without
+                    // spending a significand slot.
+                    digits_after_point += 1;
+                    assert!(
+                        digits_after_point <= MAX_EXPONENT_MAGNITUDE as i32,
+                        "from_str_const: exponent out of range"
+                    );
+                } else {
+                    // A significant digit. `coef < COEFFICIENT_LIMIT` holds
+                    // on entry, so `coef * 10 + d` cannot overflow a u64;
+                    // reaching the limit means more than 16 significant
+                    // figures, which is not exactly representable.
+                    let next = coef * 10 + d;
+                    assert!(
+                        next < COEFFICIENT_LIMIT,
+                        "from_str_const: more than 16 significant figures, not exactly representable (use scientific notation)"
+                    );
+                    coef = next;
+                    if decimal_seen {
+                        digits_after_point += 1;
+                    }
+                }
+                idx += 1;
+            }
+            b'.' => {
+                assert!(!decimal_seen, "from_str_const: more than one decimal point");
+                decimal_seen = true;
+                idx += 1;
+            }
+            b'e' | b'E' => break,
+            b'+' | b'-' => panic!("from_str_const: misplaced sign in mantissa"),
+            _ => panic!("from_str_const: invalid character in literal"),
+        }
+    }
+
+    assert!(has_digit, "from_str_const: no digits in literal");
+
+    let mut exp_explicit: i32 = 0;
+    if idx < len && (bytes[idx] == b'e' || bytes[idx] == b'E') {
+        idx += 1;
+        let exp_negative = if idx < len && bytes[idx] == b'+' {
+            idx += 1;
+            false
+        } else if idx < len && bytes[idx] == b'-' {
+            idx += 1;
+            true
+        } else {
+            false
+        };
+        assert!(idx < len, "from_str_const: malformed exponent");
+        let mut exp_val: i32 = 0;
+        while idx < len {
+            let c = bytes[idx];
+            assert!(
+                !(c < b'0' || c > b'9'),
+                "from_str_const: invalid character in exponent"
+            );
+            exp_val = exp_val * 10 + (c - b'0') as i32;
+            assert!(
+                exp_val <= MAX_EXPONENT_MAGNITUDE as i32,
+                "from_str_const: exponent out of range"
+            );
+            idx += 1;
+        }
+        exp_explicit = if exp_negative { -exp_val } else { exp_val };
+    }
+
+    assert!(
+        idx == len,
+        "from_str_const: trailing characters after literal"
+    );
+
+    let unbiased_exp = exp_explicit - digits_after_point;
+    // Range check in i32 before the i16 cast, so a large exponent cannot
+    // silently wrap into the representable range.
+    let biased = unbiased_exp + BIAS as i32;
+    assert!(
+        !(biased < 0 || biased > BIASED_EXP_MAX as i32),
+        "from_str_const: exponent out of range"
+    );
+
+    Decimal64Parts {
+        negative,
+        coefficient: coef,
+        exponent: unbiased_exp as i16,
+    }
+}
+
 /// Match a special-value token (`Infinity`, `Inf`, `NaN`, `sNaN`) at the
 /// start of `rest`. Case-insensitive. Returns:
 /// * `None` — the input doesn't start with a special token; fall
@@ -452,6 +628,30 @@ fn eq_ignore_ascii_case(a: &[u8], b: &[u8]) -> bool {
         && a.iter()
             .zip(b.iter())
             .all(|(x, y)| x.eq_ignore_ascii_case(y))
+}
+
+/// Build a [`Decimal64`] from a decimal literal at compile time.
+///
+/// `dec!("2.99792458e8")` expands to
+/// [`Decimal64::from_str_const`]`("2.99792458e8")`, so the same
+/// exact-or-compile-error contract applies (see its `# Panics`). Const
+/// evaluation bakes the value into the binary; there is no runtime parser.
+/// Available only with the `fmt` feature.
+///
+/// Each format crate exports its own `dec!`; to use more than one, rename
+/// on import (`use ferrodec_decimal64::dec as dec64;`).
+///
+/// ```
+/// use ferrodec_decimal64::{dec, Decimal64};
+///
+/// const C: Decimal64 = dec!("2.99792458e8");
+/// assert!(C.is_finite() && !C.is_zero());
+/// ```
+#[macro_export]
+macro_rules! dec {
+    ($s:literal) => {
+        $crate::Decimal64::from_str_const($s)
+    };
 }
 
 #[cfg(test)]

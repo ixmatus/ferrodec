@@ -21,6 +21,7 @@ mod div;
 mod dpd;
 mod encode;
 mod fma;
+mod from_parts;
 mod integral;
 mod mul;
 mod nan_payload;

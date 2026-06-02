@@ -59,7 +59,7 @@ missing_panics_doc = "allow"
 
 [package]
 name = "ferrodec"
-version = "3.1.0"
+version = "3.2.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -180,6 +180,10 @@ required-features = ["fmt"]
 [[example]]
 name = "transcendentals"
 required-features = ["transcendentals"]
+
+[[example]]
+name = "physical_constants"
+required-features = ["fmt"]
 
 [[bench]]
 name = "core_ops"
