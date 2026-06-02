@@ -34,12 +34,17 @@ mod sqrt;
 
 #[cfg(feature = "fmt")]
 mod convert;
+#[cfg(feature = "interop")]
+mod interop;
 
 pub use context::{Context, Rounding};
 pub use decimal::Decimal;
 
 #[cfg(feature = "fmt")]
 pub use convert::ParseDecimalError;
+
+#[cfg(feature = "interop")]
+pub use ferrodec_ieee::RoundingMode;
 
 pub use ferrodec_ieee::Status;
 pub use ferrodec_multiword::DecBig;

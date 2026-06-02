@@ -250,6 +250,9 @@ dependencies = [
 name = "ferrodec-decimal"
 version = "0.1.0"
 dependencies = [
+ "ferrodec",
+ "ferrodec-decimal32",
+ "ferrodec-decimal64",
  "ferrodec-ieee",
  "ferrodec-multiword",
  "proptest",
