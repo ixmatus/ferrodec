@@ -26,6 +26,7 @@ extern crate alloc;
 mod arith;
 pub mod context;
 pub mod decimal;
+mod divrem;
 mod round;
 
 #[cfg(feature = "fmt")]

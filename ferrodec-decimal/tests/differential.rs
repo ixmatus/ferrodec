@@ -36,16 +36,26 @@ for line in sys.stdin:
     line = line.rstrip('\n')
     if not line:
         continue
-    op, prec, emax, emin, rnd, a, b = line.split('\t')
+    op, prec, emax, emin, rnd, a, b, c = line.split('\t')
     ctx = decimal.Context(prec=int(prec), Emax=int(emax), Emin=int(emin),
                           rounding=ROUND[rnd], clamp=0, traps=[])
-    da, db = decimal.Decimal(a), decimal.Decimal(b)
+    da, db, dc = decimal.Decimal(a), decimal.Decimal(b), decimal.Decimal(c)
     if op == 'add':
         r = ctx.add(da, db)
     elif op == 'subtract':
         r = ctx.subtract(da, db)
-    else:
+    elif op == 'multiply':
         r = ctx.multiply(da, db)
+    elif op == 'divide':
+        r = ctx.divide(da, db)
+    elif op == 'divide_int':
+        r = ctx.divide_int(da, db)
+    elif op == 'remainder':
+        r = ctx.remainder(da, db)
+    elif op == 'remainder_near':
+        r = ctx.remainder_near(da, db)
+    else:
+        r = ctx.fma(da, db, dc)
     f = []
     if ctx.flags[decimal.InvalidOperation]: f.append('invalid')
     if ctx.flags[decimal.DivisionByZero]: f.append('divzero')
@@ -132,10 +142,19 @@ const ROUNDINGS: [(&str, Rounding); 8] = [
 // overflow / subnormal boundaries given the operand exponent span.
 const CONTEXTS: [(u32, i32, i32); 4] = [(9, 999, -999), (7, 96, -95), (3, 9, -9), (1, 6, -6)];
 
-const OPS: [&str; 3] = ["add", "subtract", "multiply"];
+const OPS: [&str; 8] = [
+    "add",
+    "subtract",
+    "multiply",
+    "divide",
+    "divide_int",
+    "remainder",
+    "remainder_near",
+    "fma",
+];
 
 #[test]
-fn differential_add_sub_mul_vs_libmpdec() {
+fn differential_core_arithmetic_vs_libmpdec() {
     let mut g = Lcg(0x1234_5678_9abc_def0);
 
     struct Case {
@@ -144,22 +163,29 @@ fn differential_add_sub_mul_vs_libmpdec() {
         rnd_name: &'static str,
         a: String,
         b: String,
+        c: String,
     }
     let mut cases = Vec::new();
     let mut input = String::new();
-    for _ in 0..6000 {
+    for _ in 0..8000 {
         let op = OPS[g.below(OPS.len() as u32) as usize];
         let (prec, emax, emin) = CONTEXTS[g.below(CONTEXTS.len() as u32) as usize];
         let (rnd_name, rounding) = ROUNDINGS[g.below(8) as usize];
         let a = gen_operand(&mut g);
         let b = gen_operand(&mut g);
-        writeln!(input, "{op}\t{prec}\t{emax}\t{emin}\t{rnd_name}\t{a}\t{b}").unwrap();
+        let c = gen_operand(&mut g);
+        writeln!(
+            input,
+            "{op}\t{prec}\t{emax}\t{emin}\t{rnd_name}\t{a}\t{b}\t{c}"
+        )
+        .unwrap();
         cases.push(Case {
             op,
             ctx: Context::new(prec, emax, emin, rounding),
             rnd_name,
             a,
             b,
+            c,
         });
     }
 
@@ -196,10 +222,16 @@ fn differential_add_sub_mul_vs_libmpdec() {
         let (exp_str, exp_flags) = exp_line.split_once('\t').expect("py line shape");
         let da = Decimal::parse_str(&case.a).expect("operand a");
         let db = Decimal::parse_str(&case.b).expect("operand b");
+        let dc = Decimal::parse_str(&case.c).expect("operand c");
         let (r, status) = match case.op {
             "add" => da.add(&db, &case.ctx),
             "subtract" => da.subtract(&db, &case.ctx),
-            _ => da.multiply(&db, &case.ctx),
+            "multiply" => da.multiply(&db, &case.ctx),
+            "divide" => da.divide(&db, &case.ctx),
+            "divide_int" => da.divide_integer(&db, &case.ctx),
+            "remainder" => da.remainder(&db, &case.ctx),
+            "remainder_near" => da.remainder_near(&db, &case.ctx),
+            _ => da.fma(&db, &dc, &case.ctx),
         };
         let got_str = r.to_string();
         let got_flags = ferrodec_flags(status);
@@ -207,8 +239,8 @@ fn differential_add_sub_mul_vs_libmpdec() {
             mismatches += 1;
             if mismatches <= 30 {
                 eprintln!(
-                    "MISMATCH {} {} [{}] a={} b={}\n  ferrodec: {got_str:?} [{got_flags}]\n  libmpdec: {exp_str:?} [{exp_flags}]",
-                    case.op, case.rnd_name, case.ctx.precision, case.a, case.b
+                    "MISMATCH {} {} [{}] a={} b={} c={}\n  ferrodec: {got_str:?} [{got_flags}]\n  libmpdec: {exp_str:?} [{exp_flags}]",
+                    case.op, case.rnd_name, case.ctx.precision, case.a, case.b, case.c
                 );
             }
         }

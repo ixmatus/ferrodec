@@ -9,7 +9,7 @@
 //! Note: add and subtract align the operands by their exponents exactly. For
 //! operands whose exponents differ by a very large amount the aligned
 //! coefficient can grow large; bounding that alignment with a sticky tail is a
-//! stated performance follow-up (see `KNOWN_ISSUES`). It does not affect
+//! stated performance and resource-bounding follow-up. It does not affect
 //! correctness, and in-context operands stay within the context's exponent
 //! span.
 
@@ -51,6 +51,63 @@ impl Decimal {
         let exp = i64::from(ea) + i64::from(eb);
         round_finite(sign, ca.mul(cb), exp, false, exp, ctx, Status::OK)
     }
+
+    /// Fused multiply-add `(self * factor) + addend` under `ctx`, with the
+    /// product formed exactly and a single rounding applied at the end.
+    #[must_use]
+    pub fn fma(&self, factor: &Self, addend: &Self, ctx: &Context) -> (Decimal, Status) {
+        // A signaling NaN anywhere signals invalid first.
+        for d in [self, factor, addend] {
+            if d.is_signaling_nan() {
+                return (quiet_from(d, ctx), Status::INVALID);
+            }
+        }
+        // A quiet NaN in a factor propagates as the product before the addend
+        // is consulted.
+        if self.is_nan() {
+            return (quiet_from(self, ctx), Status::OK);
+        }
+        if factor.is_nan() {
+            return (quiet_from(factor, ctx), Status::OK);
+        }
+
+        let psign = self.is_negative() ^ factor.is_negative();
+        let (a_inf, b_inf) = (self.is_infinite(), factor.is_infinite());
+
+        // The exact product, as either a signed infinity or finite parts. An
+        // invalid product (infinity times zero) wins over a quiet-NaN addend.
+        let product = if a_inf || b_inf {
+            if (a_inf && factor.is_zero()) || (b_inf && self.is_zero()) {
+                return (invalid_nan(), Status::INVALID);
+            }
+            None // signed infinity, carried by psign
+        } else {
+            let (_, ca, ea) = self.finite_parts().expect("finite");
+            let (_, cb, eb) = factor.finite_parts().expect("finite");
+            Some((ca.mul(cb), i64::from(ea) + i64::from(eb)))
+        };
+
+        // Now add the addend; a quiet-NaN addend propagates here.
+        if addend.is_nan() {
+            return (quiet_from(addend, ctx), Status::OK);
+        }
+        match product {
+            None => {
+                // Infinite product plus the addend.
+                if addend.is_infinite() && addend.is_negative() != psign {
+                    return (invalid_nan(), Status::INVALID);
+                }
+                (Decimal::infinity(psign), Status::OK)
+            }
+            Some((pc, pe)) => {
+                if addend.is_infinite() {
+                    return (Decimal::infinity(addend.is_negative()), Status::OK);
+                }
+                let (cs, cc, ce) = addend.finite_parts().expect("finite");
+                combine_finite(psign, &pc, pe, cs, cc, i64::from(ce), ctx)
+            }
+        }
+    }
 }
 
 /// Shared add / subtract. `subtract` flips the effective sign of `b`.
@@ -73,8 +130,32 @@ fn add_sub(a: &Decimal, b: &Decimal, subtract: bool, ctx: &Context) -> (Decimal,
 
     let (sa, ca, ea) = a.finite_parts().expect("finite");
     let (sb_raw, cb, eb) = b.finite_parts().expect("finite");
-    let sb = sb_raw ^ subtract;
+    combine_finite(
+        sa,
+        ca,
+        i64::from(ea),
+        sb_raw ^ subtract,
+        cb,
+        i64::from(eb),
+        ctx,
+    )
+}
 
+/// Exactly combine two signed finite operands `(sa, ca, ea)` and
+/// `(sb, cb, eb)` (where the value is `(-1)^s * coeff * 10^exp`) and round to
+/// the context. Aligns to the smaller exponent, adds like signs or subtracts
+/// by magnitude for opposite signs, and rounds toward the ideal exponent
+/// `min(ea, eb)`. Exponents are `i64` so a fused product's exponent fits.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn combine_finite(
+    sa: bool,
+    ca: &DecBig,
+    ea: i64,
+    sb: bool,
+    cb: &DecBig,
+    eb: i64,
+    ctx: &Context,
+) -> (Decimal, Status) {
     let min_e = ea.min(eb);
     let ca2 = ca.mul_pow10((ea - min_e) as u32);
     let cb2 = cb.mul_pow10((eb - min_e) as u32);
@@ -90,8 +171,7 @@ fn add_sub(a: &Decimal, b: &Decimal, subtract: bool, ctx: &Context) -> (Decimal,
         }
     };
 
-    let ideal = i64::from(min_e);
-    round_finite(sign, coeff, ideal, false, ideal, ctx, Status::OK)
+    round_finite(sign, coeff, min_e, false, min_e, ctx, Status::OK)
 }
 
 /// NaN propagation common to every binary operation. A signaling NaN operand
@@ -99,7 +179,7 @@ fn add_sub(a: &Decimal, b: &Decimal, subtract: bool, ctx: &Context) -> (Decimal,
 /// propagates as a quiet NaN. The diagnostic payload is truncated to the
 /// context precision (its low `precision` digits), matching the General
 /// Decimal Arithmetic reference. Returns `None` when neither operand is a NaN.
-fn nan_result(a: &Decimal, b: &Decimal, ctx: &Context) -> Option<(Decimal, Status)> {
+pub(crate) fn nan_result(a: &Decimal, b: &Decimal, ctx: &Context) -> Option<(Decimal, Status)> {
     if a.is_signaling_nan() {
         return Some((quiet_from(a, ctx), Status::INVALID));
     }
@@ -124,7 +204,7 @@ fn quiet_from(d: &Decimal, ctx: &Context) -> Decimal {
 }
 
 /// The default quiet NaN produced by an invalid operation.
-fn invalid_nan() -> Decimal {
+pub(crate) fn invalid_nan() -> Decimal {
     Decimal::quiet_nan(false, DecBig::zero())
 }
 
