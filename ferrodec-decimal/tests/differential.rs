@@ -70,6 +70,20 @@ for line in sys.stdin:
         r = ctx.minus(da)
     elif op == 'abs':
         r = ctx.abs(da)
+    elif op == 'compare':
+        r = ctx.compare(da, db)
+    elif op == 'compare_total':
+        r = ctx.compare_total(da, db)
+    elif op == 'max':
+        r = ctx.max(da, db)
+    elif op == 'min':
+        r = ctx.min(da, db)
+    elif op == 'copy_abs':
+        r = da.copy_abs()
+    elif op == 'copy_negate':
+        r = da.copy_negate()
+    elif op == 'copy_sign':
+        r = da.copy_sign(db)
     else:
         r = ctx.fma(da, db, dc)
     f = []
@@ -158,7 +172,7 @@ const ROUNDINGS: [(&str, Rounding); 8] = [
 // overflow / subnormal boundaries given the operand exponent span.
 const CONTEXTS: [(u32, i32, i32); 4] = [(9, 999, -999), (7, 96, -95), (3, 9, -9), (1, 6, -6)];
 
-const OPS: [&str; 16] = [
+const OPS: [&str; 23] = [
     "add",
     "subtract",
     "multiply",
@@ -175,6 +189,13 @@ const OPS: [&str; 16] = [
     "plus",
     "minus",
     "abs",
+    "compare",
+    "compare_total",
+    "max",
+    "min",
+    "copy_abs",
+    "copy_negate",
+    "copy_sign",
 ];
 
 #[test]
@@ -263,6 +284,13 @@ fn differential_core_arithmetic_vs_libmpdec() {
             "plus" => da.plus(&case.ctx),
             "minus" => da.minus(&case.ctx),
             "abs" => da.abs(&case.ctx),
+            "compare" => da.compare(&db, &case.ctx),
+            "compare_total" => (da.compare_total(&db), ferrodec_decimal::Status::OK),
+            "max" => da.max(&db, &case.ctx),
+            "min" => da.min(&db, &case.ctx),
+            "copy_abs" => (da.copy_abs(), ferrodec_decimal::Status::OK),
+            "copy_negate" => (da.copy_negate(), ferrodec_decimal::Status::OK),
+            "copy_sign" => (da.copy_sign(&db), ferrodec_decimal::Status::OK),
             _ => da.fma(&db, &dc, &case.ctx),
         };
         let got_str = r.to_string();

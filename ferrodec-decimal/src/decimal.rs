@@ -164,6 +164,26 @@ impl Decimal {
         }
     }
 
+    /// A copy of this value with its sign replaced, preserving everything else
+    /// (coefficient and exponent, or NaN payload and signaling flag). Used by
+    /// the copy operations, which manipulate only the sign bit.
+    #[must_use]
+    pub(crate) fn with_sign(&self, sign: bool) -> Decimal {
+        match &self.repr {
+            Repr::Finite { coeff, exp, .. } => Decimal::finite(sign, coeff.clone(), *exp),
+            Repr::Infinity { .. } => Decimal::infinity(sign),
+            Repr::Nan {
+                signaling, payload, ..
+            } => {
+                if *signaling {
+                    Decimal::signaling_nan(sign, payload.clone())
+                } else {
+                    Decimal::quiet_nan(sign, payload.clone())
+                }
+            }
+        }
+    }
+
     /// The `(sign, signaling, payload)` of a NaN, else `None`.
     #[must_use]
     pub fn nan_parts(&self) -> Option<(bool, bool, &DecBig)> {
