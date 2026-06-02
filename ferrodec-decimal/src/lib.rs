@@ -28,6 +28,7 @@ pub mod context;
 pub mod decimal;
 mod divrem;
 mod round;
+mod sqrt;
 
 #[cfg(feature = "fmt")]
 mod convert;

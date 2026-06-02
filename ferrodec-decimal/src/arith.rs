@@ -195,9 +195,22 @@ pub(crate) fn nan_result(a: &Decimal, b: &Decimal, ctx: &Context) -> Option<(Dec
     None
 }
 
+/// Unary NaN propagation (`squareRoot` and the other single-operand ops): a
+/// signaling NaN quiets and signals invalid; a quiet NaN propagates. Returns
+/// `None` when the operand is not a NaN.
+pub(crate) fn nan_unary(a: &Decimal, ctx: &Context) -> Option<(Decimal, Status)> {
+    if a.is_signaling_nan() {
+        return Some((quiet_from(a, ctx), Status::INVALID));
+    }
+    if a.is_nan() {
+        return Some((quiet_from(a, ctx), Status::OK));
+    }
+    None
+}
+
 /// Build the propagated quiet NaN: same sign, payload truncated to the low
 /// `ctx.precision` digits.
-fn quiet_from(d: &Decimal, ctx: &Context) -> Decimal {
+pub(crate) fn quiet_from(d: &Decimal, ctx: &Context) -> Decimal {
     let (sign, _signaling, payload) = d.nan_parts().expect("nan");
     let truncated = payload.div_rem_pow10(ctx.precision).1;
     Decimal::quiet_nan(sign, truncated)
