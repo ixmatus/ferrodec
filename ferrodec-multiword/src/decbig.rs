@@ -94,6 +94,31 @@ impl DecBig {
         Self { limbs }
     }
 
+    /// Construct from a slice of ASCII decimal digit bytes (`b'0'..=b'9'`),
+    /// most significant first. Leading zeros are absorbed; an empty slice and
+    /// an all-zero slice both yield zero. Callers pass validated digits; in
+    /// debug builds a non-digit byte trips an assertion.
+    ///
+    /// The bytes are consumed in nine-digit groups from the least significant
+    /// end, so each group fills one base-`10^9` limb directly.
+    #[must_use]
+    pub fn from_ascii_digits(digits: &[u8]) -> Self {
+        debug_assert!(digits.iter().all(u8::is_ascii_digit));
+        let group = LIMB_DIGITS as usize;
+        let mut limbs = Vec::with_capacity(digits.len() / group + 1);
+        let mut end = digits.len();
+        while end > 0 {
+            let start = end.saturating_sub(group);
+            let mut val = 0u32;
+            for &b in &digits[start..end] {
+                val = val * 10 + u32::from(b - b'0');
+            }
+            limbs.push(val);
+            end = start;
+        }
+        Self::from_limbs(limbs)
+    }
+
     /// Build from a raw little-endian limb vector, stripping any
     /// most-significant zero limbs to re-establish the normal form.
     ///
@@ -486,6 +511,24 @@ impl Ord for DecBig {
     }
 }
 
+impl core::fmt::Display for DecBig {
+    /// Writes the unsigned decimal digits with no leading zeros (`0` for
+    /// zero). The most significant limb prints bare; every lower limb prints
+    /// zero-padded to its nine-digit group.
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self.limbs.last() {
+            None => f.write_str("0"),
+            Some(&top) => {
+                write!(f, "{top}")?;
+                for &limb in self.limbs.iter().rev().skip(1) {
+                    write!(f, "{limb:09}")?;
+                }
+                Ok(())
+            }
+        }
+    }
+}
+
 /// Decimal digit count of a single limb value, `1` for zero.
 #[inline]
 fn digits_u32(x: u32) -> u32 {
@@ -583,6 +626,20 @@ mod tests {
         for k in 0u32..40 {
             assert_eq!(DecBig::pow10(k), db(1).mul_pow10(k), "10^{k}");
         }
+    }
+
+    #[test]
+    fn from_ascii_digits_known() {
+        assert!(DecBig::from_ascii_digits(b"").is_zero());
+        assert!(DecBig::from_ascii_digits(b"0").is_zero());
+        assert!(DecBig::from_ascii_digits(b"0000").is_zero());
+        assert_eq!(DecBig::from_ascii_digits(b"000123").to_u128(), Some(123));
+        let big = DecBig::from_ascii_digits(b"123456789012345678901234567890");
+        assert_eq!(big.decimal_digit_count(), 30);
+        assert_eq!(
+            big,
+            DecBig::from_u128(123_456_789_012_345_678_901_234_567_890)
+        );
     }
 
     #[test]

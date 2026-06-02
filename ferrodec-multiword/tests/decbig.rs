@@ -88,4 +88,13 @@ proptest! {
         let expected = a.to_string().len() as u64;
         prop_assert_eq!(db(a).decimal_digit_count(), expected);
     }
+
+    #[test]
+    fn prop_ascii_digits_and_display_roundtrip(a in 0u128..=u128::MAX) {
+        let s = a.to_string();
+        // from_ascii_digits parses the canonical decimal string back to a.
+        prop_assert_eq!(DecBig::from_ascii_digits(s.as_bytes()), db(a));
+        // Display renders the canonical decimal string.
+        prop_assert_eq!(db(a).to_string(), s);
+    }
 }
