@@ -1,0 +1,28 @@
+[package]
+name = "ferrodec-decimal"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "no_std + alloc arbitrary-precision decimal arithmetic (General Decimal Arithmetic), pure Rust"
+repository.workspace = true
+keywords = ["decimal", "bignum", "arbitrary-precision", "no_std", "decnumber"]
+categories = ["mathematics", "no-std"]
+
+[features]
+default = ["fmt"]
+# String parse + format (General Decimal Arithmetic to-scientific /
+# to-engineering notation). Uses core::fmt and alloc, no extra dependency.
+fmt = []
+
+[dependencies]
+ferrodec-ieee = { path = "../ferrodec-ieee", version = "0.1.4" }
+# The coefficient backend. `alloc` pulls in the growable DecBig integer; this
+# crate is the reason that feature exists.
+ferrodec-multiword = { path = "../ferrodec-multiword", version = "0.1.0", features = ["alloc"] }
+
+[dev-dependencies]
+proptest = "1"
+
+[lints]
+workspace = true
