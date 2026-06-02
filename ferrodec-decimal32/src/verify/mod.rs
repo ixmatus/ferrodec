@@ -31,6 +31,7 @@ mod dpd;
 #[cfg(feature = "exp-log")]
 mod exp;
 mod fma;
+mod from_parts;
 // `sinh` … `atanh` live behind the `hyperbolic` feature
 // (ops/hyper.rs); the harness references their Kani shims, so it is
 // gated identically.

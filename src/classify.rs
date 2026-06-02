@@ -7,8 +7,8 @@ use core::num::FpCategory;
 
 use crate::bid::{
     classify_bits, decimal_digit_count, pack_finite, pack_infinity, pack_quiet_nan,
-    pack_signaling_nan, sign_of, type_field, Class, BIAS, COEFFICIENT_LIMIT, NAN_SIGNALING_SHIFT,
-    PRECISION, SIGN_SHIFT, T_BITS, T_MASK,
+    pack_signaling_nan, sign_of, type_field, Class, BIAS, BIASED_EXP_MAX, COEFFICIENT_LIMIT,
+    NAN_SIGNALING_SHIFT, PRECISION, SIGN_SHIFT, T_BITS, T_MASK,
 };
 use crate::decimal::{Decimal128, Decimal128Parts};
 
@@ -577,6 +577,61 @@ impl Decimal128 {
             }),
             Class::Infinity { .. } | Class::QuietNaN { .. } | Class::SignalingNaN { .. } => None,
         }
+    }
+
+    /// Reconstruct a finite `Decimal128` from its decoded components: the
+    /// exact inverse of [`Decimal128::decode`].
+    ///
+    /// Returns `Some` when `parts` is in canonical range (the coefficient
+    /// is below `10^34` and the unbiased exponent is in `[-6176, 6111]`),
+    /// and `None` otherwise. The pairing is a bijection on canonical finite
+    /// values: `from_parts(d.decode()?)` reproduces `d` bit for bit, and
+    /// `from_parts(p)?.decode()` reproduces `p`. Unlike
+    /// [`Decimal128::try_new`], `from_parts` carries an explicit sign, so it
+    /// can build negative zero, and it is `const`.
+    ///
+    /// Being `const`, it is the building block for compile time constants
+    /// from integer parts, available even with `default-features = false`
+    /// (no `fmt`). To embed a published decimal as it reads in source,
+    /// prefer the `fmt`-gated [`Decimal128::from_str_const`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use ferrodec::{Decimal128, Decimal128Parts};
+    ///
+    /// // Planck's constant, 6.62607015e-34, from its integer parts.
+    /// const PLANCK: Decimal128 = Decimal128::from_parts(Decimal128Parts {
+    ///     negative: false,
+    ///     coefficient: 662_607_015,
+    ///     exponent: -42,
+    /// })
+    /// .unwrap();
+    /// assert_eq!(PLANCK.decode().unwrap().coefficient, 662_607_015);
+    ///
+    /// // A coefficient at the 10^34 limit is out of range.
+    /// assert!(Decimal128::from_parts(Decimal128Parts {
+    ///     negative: false,
+    ///     coefficient: 10u128.pow(34),
+    ///     exponent: 0,
+    /// })
+    /// .is_none());
+    /// ```
+    #[inline]
+    #[must_use]
+    pub const fn from_parts(parts: Decimal128Parts) -> Option<Self> {
+        if parts.coefficient >= COEFFICIENT_LIMIT {
+            return None;
+        }
+        let biased = parts.exponent as i32 + BIAS as i32;
+        if biased < 0 || biased > BIASED_EXP_MAX as i32 {
+            return None;
+        }
+        Some(Self(pack_finite(
+            parts.negative,
+            biased as u32,
+            parts.coefficient,
+        )))
     }
 }
 
@@ -1206,5 +1261,81 @@ mod tests {
             let r = if p.negative { r.neg() } else { r };
             assert_eq!(r.to_bits(), d.to_bits());
         }
+    }
+
+    #[test]
+    fn from_parts_is_inverse_of_decode() {
+        // from_parts(decode(d)) reproduces d bit for bit, including the
+        // sign of zero and a zero held at a non-default quantum.
+        for &d in &[
+            Decimal128::try_new(123, -2).unwrap(),
+            Decimal128::try_new(-123, -2).unwrap(),
+            Decimal128::ZERO,
+            Decimal128::NEG_ZERO,
+            Decimal128::try_new(0, 5).unwrap(),
+            Decimal128::MAX,
+            Decimal128::MIN,
+            Decimal128::MIN_POSITIVE,
+        ] {
+            let p = d.decode().unwrap();
+            assert_eq!(Decimal128::from_parts(p).unwrap().to_bits(), d.to_bits());
+        }
+    }
+
+    #[test]
+    fn from_parts_builds_negative_zero() {
+        // Unlike try_new (sign comes from the coefficient), from_parts can
+        // build negative zero directly.
+        let neg_zero = Decimal128::from_parts(Decimal128Parts {
+            negative: true,
+            coefficient: 0,
+            exponent: 0,
+        })
+        .unwrap();
+        assert_eq!(neg_zero.to_bits(), Decimal128::NEG_ZERO.to_bits());
+    }
+
+    #[test]
+    fn from_parts_out_of_range_is_none() {
+        // Coefficient at the 10^34 limit.
+        assert!(Decimal128::from_parts(Decimal128Parts {
+            negative: false,
+            coefficient: COEFFICIENT_LIMIT,
+            exponent: 0,
+        })
+        .is_none());
+        // Exponent one above the maximum (6111).
+        assert!(Decimal128::from_parts(Decimal128Parts {
+            negative: false,
+            coefficient: 1,
+            exponent: 6112,
+        })
+        .is_none());
+        // Exponent one below the minimum (-6176).
+        assert!(Decimal128::from_parts(Decimal128Parts {
+            negative: false,
+            coefficient: 1,
+            exponent: -6177,
+        })
+        .is_none());
+    }
+
+    #[test]
+    fn from_parts_in_const_context() {
+        // The driving use case: a const initializer from integer parts.
+        const PLANCK: Decimal128 = Decimal128::from_parts(Decimal128Parts {
+            negative: false,
+            coefficient: 662_607_015,
+            exponent: -42,
+        })
+        .unwrap();
+        assert_eq!(
+            PLANCK.decode().unwrap(),
+            Decimal128Parts {
+                negative: false,
+                coefficient: 662_607_015,
+                exponent: -42,
+            }
+        );
     }
 }

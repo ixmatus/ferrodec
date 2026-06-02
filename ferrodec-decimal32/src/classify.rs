@@ -540,6 +540,58 @@ impl Decimal32 {
             Class::Infinity { .. } | Class::QuietNaN { .. } | Class::SignalingNaN { .. } => None,
         }
     }
+
+    /// Reconstruct a finite `Decimal32` from its decoded components: the
+    /// exact inverse of [`Decimal32::decode`].
+    ///
+    /// Returns `Some` when `parts` is in canonical range (the coefficient
+    /// is below `10^7` and the unbiased exponent is in `[-101, 90]`), and
+    /// `None` otherwise. The pairing is a bijection on canonical finite
+    /// values: `from_parts(d.decode()?)` reproduces `d` bit for bit, and
+    /// `from_parts(p)?.decode()` reproduces `p`. Unlike
+    /// [`Decimal32::try_new`], `from_parts` carries an explicit sign, so it
+    /// can build negative zero, and it is `const`.
+    ///
+    /// Being `const`, it is the building block for compile time constants
+    /// from integer parts, available even with `default-features = false`
+    /// (no `fmt`). To embed a published decimal as it reads in source,
+    /// prefer the `fmt`-gated [`Decimal32::from_str_const`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use ferrodec_decimal32::{Decimal32, Decimal32Parts};
+    ///
+    /// // Standard gravity, 9.806_65 m/s^2, exactly (six significant figures).
+    /// const G0: Decimal32 = Decimal32::from_parts(Decimal32Parts {
+    ///     negative: false,
+    ///     coefficient: 980_665,
+    ///     exponent: -5,
+    /// })
+    /// .unwrap();
+    /// assert_eq!(G0.decode().unwrap().coefficient, 980_665);
+    ///
+    /// // A coefficient at the 10^7 limit is out of range.
+    /// assert!(Decimal32::from_parts(Decimal32Parts {
+    ///     negative: false,
+    ///     coefficient: 10u32.pow(7),
+    ///     exponent: 0,
+    /// })
+    /// .is_none());
+    /// ```
+    #[inline]
+    #[must_use]
+    pub const fn from_parts(parts: Decimal32Parts) -> Option<Self> {
+        let coefficient = match Coefficient::try_new(parts.coefficient) {
+            Some(c) => c,
+            None => return None,
+        };
+        let biased_exp = match BiasedExp::try_from_unbiased(parts.exponent as i32) {
+            Some(b) => b,
+            None => return None,
+        };
+        Some(Self(pack_finite(parts.negative, biased_exp, coefficient)))
+    }
 }
 
 // Suppress dead_code on bid items that are now consumed by classify.
@@ -948,5 +1000,78 @@ mod tests {
             let r = if p.negative { r.neg() } else { r };
             assert_eq!(r.to_bits(), d.to_bits());
         }
+    }
+
+    #[test]
+    fn from_parts_is_inverse_of_decode() {
+        // from_parts(decode(d)) reproduces d bit for bit, including the
+        // sign of zero and a zero held at a non-default quantum.
+        for &d in &[
+            Decimal32::try_new(123, -2).unwrap(),
+            Decimal32::try_new(-123, -2).unwrap(),
+            Decimal32::ZERO,
+            Decimal32::NEG_ZERO,
+            Decimal32::try_new(0, 5).unwrap(),
+            Decimal32::MAX,
+            Decimal32::MIN,
+            Decimal32::MIN_POSITIVE,
+        ] {
+            let p = d.decode().unwrap();
+            assert_eq!(Decimal32::from_parts(p).unwrap().to_bits(), d.to_bits());
+        }
+    }
+
+    #[test]
+    fn from_parts_builds_negative_zero() {
+        let neg_zero = Decimal32::from_parts(Decimal32Parts {
+            negative: true,
+            coefficient: 0,
+            exponent: 0,
+        })
+        .unwrap();
+        assert_eq!(neg_zero.to_bits(), Decimal32::NEG_ZERO.to_bits());
+    }
+
+    #[test]
+    fn from_parts_out_of_range_is_none() {
+        // Coefficient at the 10^7 limit.
+        assert!(Decimal32::from_parts(Decimal32Parts {
+            negative: false,
+            coefficient: 10u32.pow(7),
+            exponent: 0,
+        })
+        .is_none());
+        // Exponent one above the maximum (90).
+        assert!(Decimal32::from_parts(Decimal32Parts {
+            negative: false,
+            coefficient: 1,
+            exponent: 91,
+        })
+        .is_none());
+        // Exponent one below the minimum (-101).
+        assert!(Decimal32::from_parts(Decimal32Parts {
+            negative: false,
+            coefficient: 1,
+            exponent: -102,
+        })
+        .is_none());
+    }
+
+    #[test]
+    fn from_parts_in_const_context() {
+        const G0: Decimal32 = Decimal32::from_parts(Decimal32Parts {
+            negative: false,
+            coefficient: 980_665,
+            exponent: -5,
+        })
+        .unwrap();
+        assert_eq!(
+            G0.decode().unwrap(),
+            Decimal32Parts {
+                negative: false,
+                coefficient: 980_665,
+                exponent: -5,
+            }
+        );
     }
 }
