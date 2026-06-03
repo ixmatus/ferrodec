@@ -11,17 +11,15 @@
 //! shared value is provably the correct rounding of every value in the bracket,
 //! the true value included.
 //!
-//! [`RoundingStrategy::BoundedZiv`] (the default) re-runs the kernel at a
-//! growing guard until the bracket is decisive, with a generous cap and a
-//! faithful fallback if the cap is reached (the astronomically unlikely table
-//! maker's dilemma case, wrong by at most the bracket width, never silently
-//! claimed correct). [`RoundingStrategy::FixedGuard`] runs once at a wide guard;
-//! it is the swappable alternative, not proven sufficient at unbounded
-//! precision, kept behind the same interface so the default is a one-line
-//! choice. This is libmpdec's own technique, so the differential against it
-//! stays cohort exact. ADR-0032 rejected Ziv for the fixed-width formats on
-//! embedded latency grounds; that argument does not bind a crate that already
-//! requires a heap.
+//! The strategy re-runs the kernel at a growing guard until the bracket is
+//! decisive, with a generous cap and a faithful fallback if the cap is reached
+//! (the astronomically unlikely table-maker's-dilemma case, wrong by at most the
+//! bracket width, never silently claimed correct). This is libmpdec's own
+//! technique, so the differential against it stays cohort exact. ADR-0032
+//! rejected Ziv for the fixed-width formats on embedded-latency grounds; that
+//! argument does not bind a crate that already requires a heap. A single-pass
+//! fixed-guard mode (trading the correctly-rounded guarantee for latency) is a
+//! documented future lever (ADR-0040), not wired here.
 
 use super::work::Work;
 use crate::round::round_finite;
@@ -29,65 +27,38 @@ use crate::{Context, Decimal, Status};
 use core::cmp::Ordering;
 use ferrodec_multiword::DecBig;
 
-/// How the working precision is chosen when rounding a kernel result.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum RoundingStrategy {
-    /// Re-run at a growing guard until the rounding is provably decisive.
-    BoundedZiv,
-    /// Run once at a fixed wide guard (the swappable alternative).
-    FixedGuard,
-}
-
-/// The crate default. Flipping it is a one-line, ADR-recorded edit; it is not
-/// exposed on [`Context`] for this arc.
-pub(crate) const DEFAULT_STRATEGY: RoundingStrategy = RoundingStrategy::BoundedZiv;
-
-/// The first guard width [`RoundingStrategy::BoundedZiv`] tries; doubled on each
-/// indecisive pass.
+/// The first guard width tried; doubled on each indecisive pass.
 const INITIAL_GUARD: u32 = 8;
 
 /// Maximum number of guard doublings before the faithful fallback. `8 * 2^11`
 /// is far more guard than any non-pathological input needs.
 const MAX_DOUBLINGS: u32 = 11;
 
-/// The single fixed guard for [`RoundingStrategy::FixedGuard`].
-const FIXED_GUARD: u32 = 40;
-
-/// Round a kernel result to `ctx` and pack, per `strat`.
+/// Round a kernel result to `ctx` and pack, by bounded Ziv.
 ///
 /// `kernel(wp)` returns the value computed to `wp` significant digits, accurate
-/// to within `err` ulp of the true value at that precision. The general
-/// transcendental result is inexact (the exact cases are short-circuited before
-/// `finish`), so the rounding always carries `Inexact`.
-pub(crate) fn finish<F>(
-    ctx: &Context,
-    err: u128,
-    strat: RoundingStrategy,
-    mut kernel: F,
-) -> (Decimal, Status)
+/// to within `err` ulp of the true value at that precision. The kernel is
+/// re-run at a growing guard until the bracket test is decisive; if the cap is
+/// ever reached (an astronomically unlikely table-maker's-dilemma input) the
+/// widest computation is rounded faithfully, the named residual in ADR-0040. The
+/// general transcendental result is inexact (the exact cases are short-circuited
+/// before `finish`), so the rounding always carries `Inexact`.
+pub(crate) fn finish<F>(ctx: &Context, err: u128, mut kernel: F) -> (Decimal, Status)
 where
     F: FnMut(u32) -> Work,
 {
-    match strat {
-        RoundingStrategy::BoundedZiv => {
-            let mut guard = INITIAL_GUARD;
-            for _ in 0..MAX_DOUBLINGS {
-                let v = kernel(ctx.precision + guard);
-                if let Some(result) = try_round(&v, err, ctx) {
-                    return result;
-                }
-                guard = guard.saturating_mul(2);
-            }
-            // Cap reached: round the widest computation faithfully. Correct to
-            // within the bracket; the named residual exposure in ADR-0040.
-            let v = kernel(ctx.precision + guard);
-            faithful_round(v, ctx)
+    let mut guard = INITIAL_GUARD;
+    for _ in 0..MAX_DOUBLINGS {
+        let v = kernel(ctx.precision + guard);
+        if let Some(result) = try_round(&v, err, ctx) {
+            return result;
         }
-        RoundingStrategy::FixedGuard => {
-            let v = kernel(ctx.precision + FIXED_GUARD);
-            faithful_round(v, ctx)
-        }
+        guard = guard.saturating_mul(2);
     }
+    // Cap reached: round the widest computation faithfully, correct to within
+    // the bracket.
+    let v = kernel(ctx.precision + guard);
+    faithful_round(v, ctx)
 }
 
 /// Round `v` to `ctx.precision` if the bracket `[v - err, v + err + 1]` rounds
@@ -121,8 +92,7 @@ fn try_round(v: &Work, err: u128, ctx: &Context) -> Option<(Decimal, Status)> {
 }
 
 /// Round `v` once with its real sticky bit. The decided result of [`try_round`],
-/// and the faithful fallback when the Ziv cap is reached or
-/// [`RoundingStrategy::FixedGuard`] is selected.
+/// and the faithful fallback when the Ziv cap is reached.
 fn faithful_round(v: Work, ctx: &Context) -> (Decimal, Status) {
     let ideal = v.exp;
     round_finite(v.sign, v.coeff, v.exp, v.sticky, ideal, ctx, Status::OK)
@@ -158,7 +128,7 @@ mod tests {
     fn bounded_ziv_matches_division_half_even() {
         let c = ctx(20, Rounding::HalfEven);
         for (n, d) in [(1, 3), (2, 3), (1, 7), (22, 7), (355, 113), (10, 9)] {
-            let (got, st) = finish(&c, 2, RoundingStrategy::BoundedZiv, ratio_kernel(n, d));
+            let (got, st) = finish(&c, 2, ratio_kernel(n, d));
             assert_eq!(got, divide_ref(n, d, &c), "{n}/{d}");
             assert!(st.inexact(), "{n}/{d} inexact");
         }
@@ -176,26 +146,18 @@ mod tests {
         ] {
             let c = ctx(15, mode);
             for (n, d) in [(1, 3), (2, 7), (1, 11), (100, 7)] {
-                let (got, _) = finish(&c, 2, RoundingStrategy::BoundedZiv, ratio_kernel(n, d));
+                let (got, _) = finish(&c, 2, ratio_kernel(n, d));
                 assert_eq!(got, divide_ref(n, d, &c), "{n}/{d} mode {mode:?}");
             }
         }
     }
 
     #[test]
-    fn fixed_guard_agrees_with_bounded_on_easy_inputs() {
-        let c = ctx(12, Rounding::HalfEven);
-        let (a, _) = finish(&c, 2, RoundingStrategy::BoundedZiv, ratio_kernel(1, 3));
-        let (b, _) = finish(&c, 2, RoundingStrategy::FixedGuard, ratio_kernel(1, 3));
-        assert_eq!(a, b);
-        assert_eq!(a.to_string(), "0.333333333333");
-    }
-
-    #[test]
     fn normal_inexact_carries_only_inexact() {
         // A normal-range non-terminating result raises Inexact and nothing else.
         let c = ctx(9, Rounding::HalfEven);
-        let (_, st) = finish(&c, 2, RoundingStrategy::BoundedZiv, ratio_kernel(1, 3));
+        let (got, st) = finish(&c, 2, ratio_kernel(1, 3));
+        assert_eq!(got.to_string(), "0.333333333");
         assert!(st.inexact() && !st.underflow() && !st.overflow() && !st.clamped());
     }
 }

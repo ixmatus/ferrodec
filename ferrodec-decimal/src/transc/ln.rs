@@ -27,7 +27,7 @@
 //! `ln(1) = 0` exact).
 
 use super::consts::ConstCache;
-use super::strategy::{finish, DEFAULT_STRATEGY};
+use super::strategy::finish;
 use super::work::Work;
 use crate::arith::{invalid_nan, nan_unary};
 use crate::round::round_finite;
@@ -75,9 +75,7 @@ impl Decimal {
             ..*ctx
         };
         let mut cache = ConstCache::new();
-        finish(&round_ctx, LN_ERR, DEFAULT_STRATEGY, |wp| {
-            ln_kernel(&x, wp, &mut cache)
-        })
+        finish(&round_ctx, LN_ERR, |wp| ln_kernel(&x, wp, &mut cache))
     }
 
     /// The base-ten logarithm `log10(self)`, correctly rounded under `ctx`.
@@ -121,7 +119,7 @@ impl Decimal {
 
         let x = Work::from_decimal(self);
         let mut cache = ConstCache::new();
-        finish(&round_ctx, LN_ERR, DEFAULT_STRATEGY, |wp| {
+        finish(&round_ctx, LN_ERR, |wp| {
             // ln(x) at a small extra guard, divided by ln 10.
             let ip = wp + 4;
             let lnx = ln_kernel(&x, ip, &mut cache);

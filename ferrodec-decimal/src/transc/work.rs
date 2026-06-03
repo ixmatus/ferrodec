@@ -21,8 +21,7 @@
 //! `is_zero`); the one operation `DecBig` lacks, divide-to-N-significant-digits,
 //! is composed here exactly as `divrem.rs` composes it for `divide`.
 
-use crate::round::round_finite;
-use crate::{Context, Decimal, Status};
+use crate::Decimal;
 use core::cmp::Ordering;
 use ferrodec_multiword::DecBig;
 
@@ -44,11 +43,6 @@ impl Work {
             exp,
             sticky: false,
         }
-    }
-
-    /// `+0`.
-    pub(crate) fn zero() -> Self {
-        Self::new(false, DecBig::zero(), 0)
     }
 
     /// `+1`.
@@ -281,26 +275,6 @@ impl Work {
             v
         }
     }
-
-    /// Round to the [`Context`] and pack, terminating the kernel in the one
-    /// [`round_finite`] call. `self.sticky` is the `pre_sticky` the rounding
-    /// core consumes.
-    pub(crate) fn into_decimal(
-        self,
-        ideal_exp: i64,
-        ctx: &Context,
-        status: Status,
-    ) -> (Decimal, Status) {
-        round_finite(
-            self.sign,
-            self.coeff,
-            self.exp,
-            self.sticky,
-            ideal_exp,
-            ctx,
-            status,
-        )
-    }
 }
 
 /// Express `coeff * 10^exp` at the exponent `target`, returning the new
@@ -338,13 +312,13 @@ mod tests {
 
     #[test]
     fn constructors_and_digits() {
-        assert!(Work::zero().is_zero());
+        assert!(Work::new(false, DecBig::zero(), 0).is_zero());
         assert_eq!(Work::one().coeff.to_u128(), Some(1));
         let n = Work::from_i64(-12345);
         assert!(n.sign);
         assert_eq!(n.coeff.to_u128(), Some(12345));
         assert_eq!(n.digits(), 5);
-        assert_eq!(Work::zero().digits(), 1);
+        assert_eq!(Work::new(false, DecBig::zero(), 0).digits(), 1);
     }
 
     #[test]
@@ -456,7 +430,7 @@ mod tests {
         assert_eq!(two_five.neg().round_to_i64(), -3);
         assert_eq!(Work::new(false, DecBig::from_u32(24), -1).round_to_i64(), 2);
         assert_eq!(Work::from_i64(7).round_to_i64(), 7);
-        assert_eq!(Work::zero().round_to_i64(), 0);
+        assert_eq!(Work::new(false, DecBig::zero(), 0).round_to_i64(), 0);
     }
 
     #[test]

@@ -31,7 +31,7 @@
 use super::consts::ConstCache;
 use super::exp::exp_kernel;
 use super::ln::{ln_kernel, power_of_ten_exponent};
-use super::strategy::{finish, DEFAULT_STRATEGY};
+use super::strategy::finish;
 use super::work::Work;
 use crate::arith::{invalid_nan, quiet_from};
 use crate::round::round_finite;
@@ -204,7 +204,7 @@ fn general_power(x: &Decimal, y: &Decimal, result_sign: bool, ctx: &Context) -> 
         };
     }
 
-    finish(ctx, POW_ERR, DEFAULT_STRATEGY, |wp| {
+    finish(ctx, POW_ERR, |wp| {
         // exp amplifies the product's absolute error by |product|, so ln is
         // taken with `amp` extra digits to keep that below the working ulp.
         let ip = wp + POW_GUARD;

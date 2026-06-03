@@ -23,7 +23,7 @@
 //! overflow / underflow behaviour.
 
 use super::consts::ConstCache;
-use super::strategy::{finish, DEFAULT_STRATEGY};
+use super::strategy::finish;
 use super::work::Work;
 use crate::arith::nan_unary;
 use crate::round::round_finite;
@@ -84,9 +84,7 @@ impl Decimal {
             };
         }
 
-        finish(&round_ctx, EXP_ERR, DEFAULT_STRATEGY, |wp| {
-            exp_kernel(&x, wp, &mut cache)
-        })
+        finish(&round_ctx, EXP_ERR, |wp| exp_kernel(&x, wp, &mut cache))
     }
 }
 

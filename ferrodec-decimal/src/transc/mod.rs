@@ -18,11 +18,6 @@
 //! fixed 50-digit representation, stored constant table, and Payne-Hanek table
 //! do not generalize to unbounded precision.
 
-// The kernel surface (work / consts / strategy) is built in this slice and
-// consumed by the exp / ln / log10 / power kernels in the following slices;
-// this allow is removed once those land and exercise every path.
-#![allow(dead_code)]
-
 mod consts;
 mod exp;
 mod ln;
