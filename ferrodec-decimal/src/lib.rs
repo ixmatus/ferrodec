@@ -28,6 +28,7 @@
 extern crate alloc;
 
 mod arith;
+mod classify;
 mod compare;
 pub mod context;
 pub mod decimal;

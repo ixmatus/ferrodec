@@ -43,6 +43,7 @@ fn expected_per_file() -> &'static [(&'static str, usize)] {
         ("and.decTest", 279),
         ("base.decTest", 1152),
         ("clamp.decTest", 111),
+        ("class.decTest", 84),
         ("compare.decTest", 639),
         ("comparesig.decTest", 625),
         ("comparetotal.decTest", 670),
@@ -328,6 +329,9 @@ fn run_case(case: &TestCase, dctx: &DirCtx) -> Outcome {
     if op == "toeng" {
         return run_toeng(case, &ctx);
     }
+    if op == "class" {
+        return run_class(case, &ctx);
+    }
 
     // Parse operands exactly. A syntactically invalid (or bare `#` null)
     // operand yields (NaN, Invalid_operation) per the specification.
@@ -480,6 +484,23 @@ fn run_tosci(case: &TestCase, ctx: &Context) -> Outcome {
 /// decTest `toEng`: render the operand in to-engineering notation.
 fn run_toeng(case: &TestCase, ctx: &Context) -> Outcome {
     run_to_string(case, ctx, "toEng", Decimal::to_eng_string)
+}
+
+/// decTest `class`: classify the operand and compare the class string. The
+/// operand is read exactly (no context rounding) and `class` never signals.
+fn run_class(case: &TestCase, ctx: &Context) -> Outcome {
+    match Decimal::parse_str(&case.operands[0]) {
+        Ok(d) => {
+            let got = d.class(ctx);
+            if got == case.expected {
+                Outcome::Pass
+            } else {
+                Outcome::Fail(format!("class: got {got} want {}", case.expected))
+            }
+        }
+        Err(ParseDecimalError::ExponentOverflow) => Outcome::Skip,
+        Err(_) => Outcome::Fail(format!("class: unparseable operand {:?}", case.operands[0])),
+    }
 }
 
 /// Shared driver for the string-rendering operations. The operand is read
