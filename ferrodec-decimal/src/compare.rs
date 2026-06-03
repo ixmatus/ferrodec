@@ -131,7 +131,7 @@ fn ordering_to_decimal(ord: Ordering) -> Decimal {
 }
 
 /// Numeric comparison of two non-NaN values (signed, with `-0 == +0`).
-fn numeric_cmp(a: &Decimal, b: &Decimal) -> Ordering {
+pub(crate) fn numeric_cmp(a: &Decimal, b: &Decimal) -> Ordering {
     let (sa, sb) = (a.is_negative(), b.is_negative());
     match (a.is_infinite(), b.is_infinite()) {
         (true, true) => {

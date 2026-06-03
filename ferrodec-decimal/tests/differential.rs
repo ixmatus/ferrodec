@@ -124,6 +124,12 @@ for line in sys.stdin:
         r = ctx.scaleb(da, db)
     elif op == 'logb':
         r = ctx.logb(da)
+    elif op == 'next_plus':
+        r = ctx.next_plus(da)
+    elif op == 'next_minus':
+        r = ctx.next_minus(da)
+    elif op == 'next_toward':
+        r = ctx.next_toward(da, db)
     else:
         r = ctx.fma(da, db, dc)
     f = []
@@ -239,7 +245,7 @@ const ROUNDINGS: [(&str, Rounding); 8] = [
 // overflow / subnormal boundaries given the operand exponent span.
 const CONTEXTS: [(u32, i32, i32); 4] = [(9, 999, -999), (7, 96, -95), (3, 9, -9), (1, 6, -6)];
 
-const OPS: [&str; 41] = [
+const OPS: [&str; 44] = [
     "add",
     "subtract",
     "multiply",
@@ -281,6 +287,9 @@ const OPS: [&str; 41] = [
     "copy",
     "scaleb",
     "logb",
+    "next_plus",
+    "next_minus",
+    "next_toward",
 ];
 
 /// Whether two finite results are within one unit in the last place. The
@@ -423,6 +432,9 @@ fn differential_core_arithmetic_vs_libmpdec() {
             "copy" => (da.copy(), Status::OK),
             "scaleb" => da.scaleb(&db, &case.ctx),
             "logb" => da.logb(&case.ctx),
+            "next_plus" => da.next_plus(&case.ctx),
+            "next_minus" => da.next_minus(&case.ctx),
+            "next_toward" => da.next_toward(&db, &case.ctx),
             _ => da.fma(&db, &dc, &case.ctx),
         };
         let got_str = r.to_string();

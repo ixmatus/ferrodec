@@ -36,6 +36,7 @@ mod digits;
 mod divrem;
 mod exponent;
 mod logical;
+mod next;
 mod positioning;
 mod quantize;
 mod round;
