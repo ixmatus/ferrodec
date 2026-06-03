@@ -68,3 +68,4 @@ The ADRs in number order:
 - [0040 — Arbitrary-precision transcendentals for ferrodec-decimal](0040-arbitrary-precision-transcendentals.md)
 - [0041 — GDA miscellaneous-operation surface for ferrodec-decimal](0041-gda-miscellaneous-operations.md)
 - [0042 — Hash-pinned vendored-fixture integrity](0042-vendored-fixture-integrity.md)
+- [0043 — DecBig and transcendental performance baseline](0043-decbig-perf-baseline.md)
