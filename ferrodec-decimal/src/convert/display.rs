@@ -1,5 +1,5 @@
 //! Formatting a [`Decimal`] in the two General Decimal Arithmetic numeric
-//! string forms: to-scientific (the canonical [`Display`], specification
+//! string forms: to-scientific (the canonical [`Display`](core::fmt::Display), specification
 //! §"to-scientific-string") and to-engineering ([`Decimal::to_eng_string`],
 //! §"to-engineering-string").
 //!
@@ -34,21 +34,21 @@ impl fmt::Display for Decimal {
 impl Decimal {
     /// Render in to-engineering notation (specification §"to-engineering-string").
     ///
-    /// Identical to [`Display`] (to-scientific) for special values and for any
+    /// Identical to [`Display`](core::fmt::Display) (to-scientific) for special values and for any
     /// magnitude shown in plain form, but when an exponent is shown it is a
     /// multiple of three and one to three digits precede the decimal point, so
     /// the value sits on the SI prefix grid. For example `7E-7` renders as
     /// `700E-9` and `10E12` as `10E+12`.
     ///
     /// This is the spelled-out operation that produces a string; for in-place,
-    /// allocation-free formatting use the [`Display`] (to-scientific) form.
+    /// allocation-free formatting use the [`Display`](core::fmt::Display) (to-scientific) form.
     #[must_use]
     pub fn to_eng_string(&self) -> String {
         Engineering(self).to_string()
     }
 }
 
-/// [`Display`] wrapper that renders its [`Decimal`] in to-engineering notation.
+/// [`Display`](core::fmt::Display) wrapper that renders its [`Decimal`] in to-engineering notation.
 /// Private: [`Decimal::to_eng_string`] is the public surface, but routing
 /// through a `Display` keeps the renderer allocation-free at its core.
 struct Engineering<'a>(&'a Decimal);

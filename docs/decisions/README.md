@@ -59,3 +59,11 @@ The ADRs in number order:
 - [0031 — GDA decNumber extension operations (1.18.0)](0031-gda-decnumber-extensions.md)
 - [0032 — Correctly rounded §9.2 transcendentals via Lefèvre / Muller fixed precision bounds (2.1.0)](0032-correctly-rounded-transcendentals.md) *(supersedes 0024)*
 - [0033 — Worst case margin completeness via exhaustive decimal32 enumeration](0033-worst-case-margin-completeness.md) *(extends 0032)*
+- [0034 — Empirical coverage extension to decimal32 sqrt and the Kani unreachable identity residue](0034-empirical-coverage-extension.md)
+- [0035 — Decimal128 parity train and conformance oracle hardening](0035-decimal128-parity-train.md)
+- [0036 — Decimal128 from_f64 / from_f32 signature unification (breaking)](0036-decimal128-from-f64-signature.md)
+- [0037 — Compile time decimal literal constructors](0037-compile-time-decimal-literals.md)
+- [0038 — Arbitrary precision decimal (`ferrodec-decimal`)](0038-arbitrary-precision-decimal.md)
+- [0039 — General decTest conformance for ferrodec-decimal](0039-general-dectest-conformance.md)
+- [0040 — Arbitrary-precision transcendentals for ferrodec-decimal](0040-arbitrary-precision-transcendentals.md)
+- [0041 — GDA miscellaneous-operation surface for ferrodec-decimal](0041-gda-miscellaneous-operations.md)

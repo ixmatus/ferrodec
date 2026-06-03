@@ -96,6 +96,40 @@ for line in sys.stdin:
         r = ctx.log10(da)
     elif op == 'power':
         r = ctx.power(da, db)
+    elif op == 'logical_and':
+        r = ctx.logical_and(da, db)
+    elif op == 'logical_or':
+        r = ctx.logical_or(da, db)
+    elif op == 'logical_xor':
+        r = ctx.logical_xor(da, db)
+    elif op == 'logical_invert':
+        r = ctx.logical_invert(da)
+    elif op == 'shift':
+        r = ctx.shift(da, db)
+    elif op == 'rotate':
+        r = ctx.rotate(da, db)
+    elif op == 'compare_signal':
+        r = ctx.compare_signal(da, db)
+    elif op == 'compare_total_mag':
+        r = da.compare_total_mag(db)
+    elif op == 'max_mag':
+        r = ctx.max_mag(da, db)
+    elif op == 'min_mag':
+        r = ctx.min_mag(da, db)
+    elif op == 'same_quantum':
+        r = decimal.Decimal(1) if da.same_quantum(db) else decimal.Decimal(0)
+    elif op == 'copy':
+        r = da
+    elif op == 'scaleb':
+        r = ctx.scaleb(da, db)
+    elif op == 'logb':
+        r = ctx.logb(da)
+    elif op == 'next_plus':
+        r = ctx.next_plus(da)
+    elif op == 'next_minus':
+        r = ctx.next_minus(da)
+    elif op == 'next_toward':
+        r = ctx.next_toward(da, db)
     else:
         r = ctx.fma(da, db, dc)
     f = []
@@ -145,6 +179,33 @@ fn gen_operand(g: &mut Lcg) -> String {
     }
 }
 
+/// Operand generator biased toward valid logical operands: a string of `0`/`1`
+/// digits at exponent zero. The general generator almost never produces a valid
+/// logical operand, so without this the logical differential would only ever
+/// exercise the invalid-operand path. One time in eight it falls back to the
+/// general generator so the special and invalid paths stay covered too.
+fn gen_logical_operand(g: &mut Lcg) -> String {
+    if g.below(8) == 0 {
+        return gen_operand(g);
+    }
+    let ndig = 1 + g.below(12);
+    let mut s = String::new();
+    for _ in 0..ndig {
+        s.push(if g.below(2) == 0 { '0' } else { '1' });
+    }
+    s
+}
+
+/// Operand generator for the shift / rotate count: a small integer at exponent
+/// zero around the precision boundary (so in-range and just-out-of-range counts
+/// are both exercised), occasionally a general value for the invalid path.
+fn gen_shift_count(g: &mut Lcg) -> String {
+    if g.below(8) == 0 {
+        return gen_operand(g);
+    }
+    format!("{}", g.below(25) as i32 - 12)
+}
+
 fn ferrodec_flags(s: ferrodec_decimal::Status) -> String {
     let mut f = Vec::new();
     if s.invalid() {
@@ -184,7 +245,7 @@ const ROUNDINGS: [(&str, Rounding); 8] = [
 // overflow / subnormal boundaries given the operand exponent span.
 const CONTEXTS: [(u32, i32, i32); 4] = [(9, 999, -999), (7, 96, -95), (3, 9, -9), (1, 6, -6)];
 
-const OPS: [&str; 27] = [
+const OPS: [&str; 44] = [
     "add",
     "subtract",
     "multiply",
@@ -212,6 +273,23 @@ const OPS: [&str; 27] = [
     "ln",
     "log10",
     "power",
+    "logical_and",
+    "logical_or",
+    "logical_xor",
+    "logical_invert",
+    "shift",
+    "rotate",
+    "compare_signal",
+    "compare_total_mag",
+    "max_mag",
+    "min_mag",
+    "same_quantum",
+    "copy",
+    "scaleb",
+    "logb",
+    "next_plus",
+    "next_minus",
+    "next_toward",
 ];
 
 /// Whether two finite results are within one unit in the last place. The
@@ -253,8 +331,15 @@ fn differential_core_arithmetic_vs_libmpdec() {
         let op = OPS[g.below(OPS.len() as u32) as usize];
         let (prec, emax, emin) = CONTEXTS[g.below(CONTEXTS.len() as u32) as usize];
         let (rnd_name, rounding) = ROUNDINGS[g.below(8) as usize];
-        let a = gen_operand(&mut g);
-        let b = gen_operand(&mut g);
+        // Bias the operands toward each op's valid domain so the differential
+        // exercises real results, not only the invalid-operand path.
+        let (a, b) = match op {
+            "logical_and" | "logical_or" | "logical_xor" | "logical_invert" => {
+                (gen_logical_operand(&mut g), gen_logical_operand(&mut g))
+            }
+            "shift" | "rotate" | "scaleb" => (gen_operand(&mut g), gen_shift_count(&mut g)),
+            _ => (gen_operand(&mut g), gen_operand(&mut g)),
+        };
         let c = gen_operand(&mut g);
         writeln!(
             input,
@@ -333,6 +418,23 @@ fn differential_core_arithmetic_vs_libmpdec() {
             "ln" => da.ln(&case.ctx),
             "log10" => da.log10(&case.ctx),
             "power" => da.power(&db, &case.ctx),
+            "logical_and" => da.and(&db, &case.ctx),
+            "logical_or" => da.or(&db, &case.ctx),
+            "logical_xor" => da.xor(&db, &case.ctx),
+            "logical_invert" => da.invert(&case.ctx),
+            "shift" => da.shift(&db, &case.ctx),
+            "rotate" => da.rotate(&db, &case.ctx),
+            "compare_signal" => da.compare_signal(&db, &case.ctx),
+            "compare_total_mag" => (da.compare_total_mag(&db), Status::OK),
+            "max_mag" => da.max_magnitude(&db, &case.ctx),
+            "min_mag" => da.min_magnitude(&db, &case.ctx),
+            "same_quantum" => (da.same_quantum(&db), Status::OK),
+            "copy" => (da.copy(), Status::OK),
+            "scaleb" => da.scaleb(&db, &case.ctx),
+            "logb" => da.logb(&case.ctx),
+            "next_plus" => da.next_plus(&case.ctx),
+            "next_minus" => da.next_minus(&case.ctx),
+            "next_toward" => da.next_toward(&db, &case.ctx),
             _ => da.fma(&db, &dc, &case.ctx),
         };
         let got_str = r.to_string();

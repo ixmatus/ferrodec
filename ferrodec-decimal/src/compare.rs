@@ -62,6 +62,64 @@ impl Decimal {
     pub fn copy_sign(&self, other: &Self) -> Decimal {
         self.with_sign(other.is_negative())
     }
+
+    /// An unaltered copy of `self`. Unlike the other copy operations this
+    /// touches nothing, not even the sign, and a signaling NaN stays signaling;
+    /// it never signals.
+    #[must_use]
+    pub fn copy(&self) -> Decimal {
+        self.clone()
+    }
+
+    /// Like [`compare`](Self::compare) but a quiet NaN operand also signals
+    /// invalid, so every NaN raises `Invalid_operation`. The numeric result is
+    /// otherwise identical.
+    #[must_use]
+    pub fn compare_signal(&self, other: &Self, ctx: &Context) -> (Decimal, Status) {
+        if let Some((nan, _)) = nan_result(self, other, ctx) {
+            return (nan, Status::INVALID);
+        }
+        (ordering_to_decimal(numeric_cmp(self, other)), Status::OK)
+    }
+
+    /// The IEEE 754 total ordering of the magnitudes `|self|` and `|other|`:
+    /// `-1`, `0`, or `1`. Like [`compare_total`](Self::compare_total) but on the
+    /// absolute values, so it never returns a NaN and takes no context.
+    #[must_use]
+    pub fn compare_total_mag(&self, other: &Self) -> Decimal {
+        ordering_to_decimal(total_cmp(&self.copy_abs(), &other.copy_abs()))
+    }
+
+    /// The operand with the larger magnitude, rounded to the context; on equal
+    /// magnitude this is [`max`](Self::max). NaN handling matches `max` (a quiet
+    /// NaN is ignored, a signaling NaN signals invalid).
+    #[must_use]
+    pub fn max_magnitude(&self, other: &Self, ctx: &Context) -> (Decimal, Status) {
+        select_magnitude(self, other, ctx, true)
+    }
+
+    /// The operand with the smaller magnitude, rounded to the context; on equal
+    /// magnitude this is [`min`](Self::min), with the same NaN handling.
+    #[must_use]
+    pub fn min_magnitude(&self, other: &Self, ctx: &Context) -> (Decimal, Status) {
+        select_magnitude(self, other, ctx, false)
+    }
+
+    /// Whether `self` and `other` have the same quantum (exponent): the decimal
+    /// `1` if so, else `0`. Two NaNs share a quantum, as do two infinities; a
+    /// NaN and a number do not. Never signals and takes no context.
+    #[must_use]
+    pub fn same_quantum(&self, other: &Self) -> Decimal {
+        let same = match (self.finite_parts(), other.finite_parts()) {
+            (Some((_, _, ea)), Some((_, _, eb))) => ea == eb,
+            _ => (self.is_nan() && other.is_nan()) || (self.is_infinite() && other.is_infinite()),
+        };
+        if same {
+            Decimal::finite(false, DecBig::from_u32(1), 0)
+        } else {
+            Decimal::zero()
+        }
+    }
 }
 
 fn ordering_to_decimal(ord: Ordering) -> Decimal {
@@ -73,7 +131,7 @@ fn ordering_to_decimal(ord: Ordering) -> Decimal {
 }
 
 /// Numeric comparison of two non-NaN values (signed, with `-0 == +0`).
-fn numeric_cmp(a: &Decimal, b: &Decimal) -> Ordering {
+pub(crate) fn numeric_cmp(a: &Decimal, b: &Decimal) -> Ordering {
     let (sa, sb) = (a.is_negative(), b.is_negative());
     match (a.is_infinite(), b.is_infinite()) {
         (true, true) => {
@@ -233,6 +291,37 @@ fn select(a: &Decimal, b: &Decimal, ctx: &Context, is_max: bool) -> (Decimal, St
     }
 }
 
+/// Shared `maxMagnitude` / `minMagnitude`: pick the operand with the larger (or
+/// smaller) magnitude, breaking an equal-magnitude tie with the value-based
+/// `max` / `min`, then round the pick to the context. NaN handling matches
+/// [`select`].
+fn select_magnitude(a: &Decimal, b: &Decimal, ctx: &Context, is_max: bool) -> (Decimal, Status) {
+    if a.is_signaling_nan() {
+        return (quiet_from(a, ctx), Status::INVALID);
+    }
+    if b.is_signaling_nan() {
+        return (quiet_from(b, ctx), Status::INVALID);
+    }
+    match (a.is_nan(), b.is_nan()) {
+        (true, true) => return (quiet_from(a, ctx), Status::OK),
+        (true, false) => return rounded_pick(b, ctx),
+        (false, true) => return rounded_pick(a, ctx),
+        (false, false) => {}
+    }
+    let pick_a = match numeric_cmp(&a.copy_abs(), &b.copy_abs()) {
+        Ordering::Greater => is_max,
+        Ordering::Less => !is_max,
+        // Equal magnitude: defer to the value-based max / min for the sign and
+        // cohort tie-break.
+        Ordering::Equal => return select(a, b, ctx, is_max),
+    };
+    if pick_a {
+        rounded_pick(a, ctx)
+    } else {
+        rounded_pick(b, ctx)
+    }
+}
+
 /// Round the chosen operand to the context, preserving a zero's sign. `plus`
 /// rounds to the context but resolves a zero's sign through the add-from-zero
 /// rule (so `+(-0)` is `+0`); max / min return the selected operand keeping its
@@ -356,5 +445,75 @@ mod tests {
             fin(true, 0, 0).max(&fin(true, 0, -1), &c).0,
             fin(true, 0, -1)
         );
+    }
+
+    #[test]
+    fn compare_signal_invalid_on_any_nan() {
+        let c = ctx();
+        // A quiet NaN, which `compare` passes with OK, signals invalid here.
+        let qn = Decimal::quiet_nan(false, DecBig::zero());
+        let (r, s) = qn.compare_signal(&one(), &c);
+        assert!(r.is_nan() && s.invalid());
+        // A normal comparison is unaffected.
+        assert_eq!(
+            fin(false, 2, 0).compare_signal(&fin(false, 3, 0), &c).0,
+            minus_one()
+        );
+    }
+
+    #[test]
+    fn compare_total_magnitude_orders_by_abs() {
+        // |-1| > |0|; |-2| < |3|.
+        assert_eq!(fin(true, 1, 0).compare_total_mag(&zero()), one());
+        assert_eq!(
+            fin(true, 2, 0).compare_total_mag(&fin(false, 3, 0)),
+            minus_one()
+        );
+    }
+
+    #[test]
+    fn magnitude_selection() {
+        let c = ctx();
+        // maxMagnitude picks the larger magnitude regardless of sign.
+        assert_eq!(
+            fin(true, 2, 0).max_magnitude(&fin(false, 1, 0), &c).0,
+            fin(true, 2, 0)
+        );
+        // minMagnitude picks the smaller magnitude.
+        assert_eq!(
+            fin(true, 2, 0).min_magnitude(&fin(false, 1, 0), &c).0,
+            fin(false, 1, 0)
+        );
+        // Equal magnitude defers to the value-based max / min.
+        assert_eq!(
+            fin(true, 1, 0).max_magnitude(&fin(false, 1, 0), &c).0,
+            fin(false, 1, 0)
+        );
+    }
+
+    #[test]
+    fn same_quantum_compares_exponents() {
+        assert_eq!(fin(false, 100, -1).same_quantum(&fin(false, 5, -1)), one());
+        assert_eq!(fin(false, 1, 0).same_quantum(&fin(false, 1, 1)), zero());
+        // Two NaNs (any kind) share a quantum; a NaN and a number do not.
+        let qn = Decimal::quiet_nan(false, DecBig::zero());
+        assert_eq!(
+            qn.same_quantum(&Decimal::signaling_nan(false, DecBig::zero())),
+            one()
+        );
+        assert_eq!(qn.same_quantum(&one()), zero());
+        // Two infinities share a quantum.
+        assert_eq!(
+            Decimal::infinity(false).same_quantum(&Decimal::infinity(true)),
+            one()
+        );
+    }
+
+    #[test]
+    fn copy_is_pure_identity() {
+        // copy preserves sign and payload and does not quiet a signaling NaN.
+        let sn = Decimal::signaling_nan(true, DecBig::from_u32(7));
+        assert_eq!(sn.copy(), sn);
+        assert!(sn.copy().is_signaling_nan());
     }
 }

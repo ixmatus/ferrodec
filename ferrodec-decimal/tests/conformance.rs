@@ -40,10 +40,15 @@ fn expected_per_file() -> &'static [(&'static str, usize)] {
     &[
         ("abs.decTest", 89),
         ("add.decTest", 2100),
+        ("and.decTest", 279),
         ("base.decTest", 1152),
         ("clamp.decTest", 111),
+        ("class.decTest", 84),
         ("compare.decTest", 639),
+        ("comparesig.decTest", 625),
         ("comparetotal.decTest", 670),
+        ("comparetotmag.decTest", 664),
+        ("copy.decTest", 43),
         ("copyabs.decTest", 43),
         ("copynegate.decTest", 43),
         ("copysign.decTest", 111),
@@ -52,12 +57,20 @@ fn expected_per_file() -> &'static [(&'static str, usize)] {
         ("exp.decTest", 436),
         ("fma.decTest", 2612),
         ("inexact.decTest", 145),
+        ("invert.decTest", 128),
         ("ln.decTest", 410),
         ("log10.decTest", 385),
+        ("logb.decTest", 128),
         ("max.decTest", 328),
+        ("maxmag.decTest", 313),
         ("min.decTest", 317),
+        ("minmag.decTest", 303),
         ("minus.decTest", 113),
         ("multiply.decTest", 521),
+        ("nextminus.decTest", 104),
+        ("nextplus.decTest", 106),
+        ("nexttoward.decTest", 341),
+        ("or.decTest", 276),
         ("plus.decTest", 122),
         ("power.decTest", 1197),
         ("powersqrt.decTest", 2856),
@@ -65,11 +78,16 @@ fn expected_per_file() -> &'static [(&'static str, usize)] {
         ("reduce.decTest", 168),
         ("remainder.decTest", 517),
         ("remaindernear.decTest", 446),
+        ("rotate.decTest", 195),
         ("rounding.decTest", 1030),
+        ("samequantum.decTest", 333),
+        ("scaleb.decTest", 155),
+        ("shift.decTest", 200),
         ("squareroot.decTest", 3586),
         ("subtract.decTest", 681),
         ("tointegral.decTest", 168),
         ("tointegralx.decTest", 180),
+        ("xor.decTest", 277),
     ]
 }
 
@@ -314,6 +332,9 @@ fn run_case(case: &TestCase, dctx: &DirCtx) -> Outcome {
     if op == "toeng" {
         return run_toeng(case, &ctx);
     }
+    if op == "class" {
+        return run_class(case, &ctx);
+    }
 
     // Parse operands exactly. A syntactically invalid (or bare `#` null)
     // operand yields (NaN, Invalid_operation) per the specification.
@@ -380,6 +401,23 @@ fn run_case(case: &TestCase, dctx: &DirCtx) -> Outcome {
         "copyabs" => (operands[0].copy_abs(), Status::OK),
         "copynegate" => (operands[0].copy_negate(), Status::OK),
         "copysign" => (operands[0].copy_sign(&operands[1]), Status::OK),
+        "copy" => (operands[0].copy(), Status::OK),
+        "comparesig" => operands[0].compare_signal(&operands[1], &ctx),
+        "comparetotmag" => (operands[0].compare_total_mag(&operands[1]), Status::OK),
+        "maxmag" => operands[0].max_magnitude(&operands[1], &ctx),
+        "minmag" => operands[0].min_magnitude(&operands[1], &ctx),
+        "samequantum" => (operands[0].same_quantum(&operands[1]), Status::OK),
+        "and" => operands[0].and(&operands[1], &ctx),
+        "or" => operands[0].or(&operands[1], &ctx),
+        "xor" => operands[0].xor(&operands[1], &ctx),
+        "invert" => operands[0].invert(&ctx),
+        "shift" => operands[0].shift(&operands[1], &ctx),
+        "rotate" => operands[0].rotate(&operands[1], &ctx),
+        "scaleb" => operands[0].scaleb(&operands[1], &ctx),
+        "logb" => operands[0].logb(&ctx),
+        "nextplus" => operands[0].next_plus(&ctx),
+        "nextminus" => operands[0].next_minus(&ctx),
+        "nexttoward" => operands[0].next_toward(&operands[1], &ctx),
         "exp" => operands[0].exp(&ctx),
         "ln" => operands[0].ln(&ctx),
         "log10" => operands[0].log10(&ctx),
@@ -452,6 +490,23 @@ fn run_tosci(case: &TestCase, ctx: &Context) -> Outcome {
 /// decTest `toEng`: render the operand in to-engineering notation.
 fn run_toeng(case: &TestCase, ctx: &Context) -> Outcome {
     run_to_string(case, ctx, "toEng", Decimal::to_eng_string)
+}
+
+/// decTest `class`: classify the operand and compare the class string. The
+/// operand is read exactly (no context rounding) and `class` never signals.
+fn run_class(case: &TestCase, ctx: &Context) -> Outcome {
+    match Decimal::parse_str(&case.operands[0]) {
+        Ok(d) => {
+            let got = d.class(ctx);
+            if got == case.expected {
+                Outcome::Pass
+            } else {
+                Outcome::Fail(format!("class: got {got} want {}", case.expected))
+            }
+        }
+        Err(ParseDecimalError::ExponentOverflow) => Outcome::Skip,
+        Err(_) => Outcome::Fail(format!("class: unparseable operand {:?}", case.operands[0])),
+    }
 }
 
 /// Shared driver for the string-rendering operations. The operand is read

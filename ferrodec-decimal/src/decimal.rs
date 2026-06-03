@@ -35,7 +35,7 @@ enum Repr {
 /// `PartialEq` is *representation* equality: it is exact and cohort sensitive,
 /// so `1.0` and `1.00` are unequal, and a NaN equals an identically shaped
 /// NaN. This is deliberately distinct from the General Decimal Arithmetic
-/// numeric `compare`, which is a separate operation (added in a later slice).
+/// numeric [`compare`](Decimal::compare), which is a separate operation.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Decimal {
     repr: Repr,
@@ -92,6 +92,32 @@ impl Decimal {
                 payload,
             },
         }
+    }
+
+    // -- integer constructors --
+
+    /// The exact value of an unsigned 64-bit integer, at exponent zero.
+    #[must_use]
+    pub fn from_u64(value: u64) -> Self {
+        Self::finite(false, DecBig::from_u64(value), 0)
+    }
+
+    /// The exact value of an unsigned 128-bit integer, at exponent zero.
+    #[must_use]
+    pub fn from_u128(value: u128) -> Self {
+        Self::finite(false, DecBig::from_u128(value), 0)
+    }
+
+    /// The exact value of a signed 64-bit integer, at exponent zero.
+    #[must_use]
+    pub fn from_i64(value: i64) -> Self {
+        Self::finite(value < 0, DecBig::from_u64(value.unsigned_abs()), 0)
+    }
+
+    /// The exact value of a signed 128-bit integer, at exponent zero.
+    #[must_use]
+    pub fn from_i128(value: i128) -> Self {
+        Self::finite(value < 0, DecBig::from_u128(value.unsigned_abs()), 0)
     }
 
     // -- classification --
@@ -262,6 +288,33 @@ mod tests {
         let (sign, signaling, payload) = snan.nan_parts().unwrap();
         assert!(sign && signaling);
         assert_eq!(payload.to_u128(), Some(123));
+    }
+
+    #[test]
+    fn integer_constructors_are_exact() {
+        assert_eq!(Decimal::from_u64(0), Decimal::zero());
+        assert_eq!(
+            Decimal::from_u64(12345),
+            Decimal::finite(false, DecBig::from_u32(12345), 0)
+        );
+        assert_eq!(
+            Decimal::from_u128(u128::MAX),
+            Decimal::finite(false, DecBig::from_u128(u128::MAX), 0)
+        );
+        assert_eq!(
+            Decimal::from_i64(-42),
+            Decimal::finite(true, DecBig::from_u32(42), 0)
+        );
+        assert!(!Decimal::from_i64(7).is_negative());
+        // i64::MIN does not overflow: unsigned_abs gives 2^63.
+        let min64 = Decimal::from_i64(i64::MIN);
+        let (sign, coeff, exp) = min64.finite_parts().unwrap();
+        assert!(sign && exp == 0 && coeff.to_u128() == Some(1u128 << 63));
+        let min128 = Decimal::from_i128(i128::MIN);
+        assert_eq!(
+            min128.finite_parts().unwrap().1.to_u128(),
+            Some(1u128 << 127)
+        );
     }
 
     #[test]

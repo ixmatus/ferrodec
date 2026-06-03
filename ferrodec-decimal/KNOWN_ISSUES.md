@@ -6,24 +6,26 @@ general decTest conformance suite deliberately skips. The runner is
 authoritative per-file pass counts are pinned in
 `tests/conformance.rs::expected_per_file` under the ADR-0010 discipline, so the
 numbers below are a rendered summary, not the source of truth. See ADR-0039 for
-the runner and ADR-0040 for the transcendentals it now also exercises.
+the runner, ADR-0040 for the transcendentals, and ADR-0041 for the
+miscellaneous, comparison, and classification operations it now also exercises.
 
 ## Known defects
 
-None outstanding in the conformance surface. The previously recorded
-to-engineering-string gap (`fd-7la`) is resolved: [`Decimal::to_eng_string`]
-implements the General Decimal Arithmetic to-engineering-string rule, and the
-runner exercises the 174 `toEng` cases in `base.decTest`. The four
-transcendentals (`exp`, `ln`, `log10`, `power`) are implemented and conformant;
-`power` is compared within a one-ulp band, since it is correctly rounded by
-construction while the reference is only almost always correctly rounded.
+None outstanding in the conformance surface. The whole General Decimal
+Arithmetic operation set is implemented and conformant: the core arithmetic, the
+four transcendentals, and the miscellaneous tier (the logical operations,
+`shift` / `rotate`, `scaleb` / `logb`, the next-value operations, the extended
+comparisons and magnitude selections, `sameQuantum`, `class`, and the
+classification predicates). `power` is compared within a one-ulp band, since it
+is correctly rounded by construction while the reference is only almost always
+correctly rounded.
 
 ## Headline numbers
 
 | count |   share | category |
 |------:|--------:|----------|
-| 23037 | 100.0 % | total cases |
-| 22938 |  99.6 % | pass |
+| 27591 | 100.0 % | total cases |
+| 27492 |  99.6 % | pass |
 |     0 |   0.0 % | fail |
 |    99 |   0.4 % | skip |
 
@@ -80,39 +82,57 @@ the `rescale` cases are skipped.
 ## Per-file totals
 
 ```
-abs.decTest             89 pass     0 fail      0 skip
-add.decTest           2100 pass     0 fail      0 skip
-base.decTest          1152 pass     0 fail     16 skip
-clamp.decTest          111 pass     0 fail     21 skip
-compare.decTest        639 pass     0 fail      0 skip
-comparetotal.decTest   670 pass     0 fail      0 skip
-copyabs.decTest         43 pass     0 fail      0 skip
-copynegate.decTest      43 pass     0 fail      0 skip
-copysign.decTest       111 pass     0 fail      0 skip
-divide.decTest         631 pass     0 fail      0 skip
-divideint.decTest      389 pass     0 fail      0 skip
-exp.decTest            436 pass     0 fail      4 skip
-fma.decTest           2612 pass     0 fail      0 skip
-inexact.decTest        145 pass     0 fail      7 skip
-ln.decTest             410 pass     0 fail      4 skip
-log10.decTest          385 pass     0 fail      4 skip
-max.decTest            328 pass     0 fail      0 skip
-min.decTest            317 pass     0 fail      0 skip
-minus.decTest          113 pass     0 fail      0 skip
-multiply.decTest       521 pass     0 fail      0 skip
-plus.decTest           122 pass     0 fail      0 skip
-power.decTest         1197 pass     0 fail     10 skip
-powersqrt.decTest     2856 pass     0 fail      0 skip
-quantize.decTest       742 pass     0 fail     33 skip
-reduce.decTest         168 pass     0 fail      0 skip
-remainder.decTest      517 pass     0 fail      0 skip
-remaindernear.decTest  446 pass     0 fail      0 skip
-rounding.decTest      1030 pass     0 fail      0 skip
-squareroot.decTest    3586 pass     0 fail      0 skip
-subtract.decTest       681 pass     0 fail      0 skip
-tointegral.decTest     168 pass     0 fail      0 skip
-tointegralx.decTest    180 pass     0 fail      0 skip
-TOTAL: 23037 cases — 22938 pass, 0 fail, 99 skip
+abs.decTest                  89 pass     0 fail      0 skip
+add.decTest                2100 pass     0 fail      0 skip
+and.decTest                 279 pass     0 fail      0 skip
+base.decTest               1152 pass     0 fail     16 skip
+clamp.decTest               111 pass     0 fail     21 skip
+class.decTest                84 pass     0 fail      0 skip
+compare.decTest             639 pass     0 fail      0 skip
+comparesig.decTest          625 pass     0 fail      0 skip
+comparetotal.decTest        670 pass     0 fail      0 skip
+comparetotmag.decTest       664 pass     0 fail      0 skip
+copy.decTest                 43 pass     0 fail      0 skip
+copyabs.decTest              43 pass     0 fail      0 skip
+copynegate.decTest           43 pass     0 fail      0 skip
+copysign.decTest            111 pass     0 fail      0 skip
+divide.decTest              631 pass     0 fail      0 skip
+divideint.decTest           389 pass     0 fail      0 skip
+exp.decTest                 436 pass     0 fail      4 skip
+fma.decTest                2612 pass     0 fail      0 skip
+inexact.decTest             145 pass     0 fail      7 skip
+invert.decTest              128 pass     0 fail      0 skip
+ln.decTest                  410 pass     0 fail      4 skip
+log10.decTest               385 pass     0 fail      4 skip
+logb.decTest                128 pass     0 fail      0 skip
+max.decTest                 328 pass     0 fail      0 skip
+maxmag.decTest              313 pass     0 fail      0 skip
+min.decTest                 317 pass     0 fail      0 skip
+minmag.decTest              303 pass     0 fail      0 skip
+minus.decTest               113 pass     0 fail      0 skip
+multiply.decTest            521 pass     0 fail      0 skip
+nextminus.decTest           104 pass     0 fail      0 skip
+nextplus.decTest            106 pass     0 fail      0 skip
+nexttoward.decTest          341 pass     0 fail      0 skip
+or.decTest                  276 pass     0 fail      0 skip
+plus.decTest                122 pass     0 fail      0 skip
+power.decTest              1197 pass     0 fail     10 skip
+powersqrt.decTest          2856 pass     0 fail      0 skip
+quantize.decTest            742 pass     0 fail     33 skip
+reduce.decTest              168 pass     0 fail      0 skip
+remainder.decTest           517 pass     0 fail      0 skip
+remaindernear.decTest       446 pass     0 fail      0 skip
+rotate.decTest              195 pass     0 fail      0 skip
+rounding.decTest           1030 pass     0 fail      0 skip
+samequantum.decTest         333 pass     0 fail      0 skip
+scaleb.decTest              155 pass     0 fail      0 skip
+shift.decTest               200 pass     0 fail      0 skip
+squareroot.decTest         3586 pass     0 fail      0 skip
+subtract.decTest            681 pass     0 fail      0 skip
+tointegral.decTest          168 pass     0 fail      0 skip
+tointegralx.decTest         180 pass     0 fail      0 skip
+xor.decTest                 277 pass     0 fail      0 skip
+TOTAL: 27591 cases — 27492 pass, 0 fail, 99 skip
 ```
 
 Reproduce with:
@@ -123,10 +143,9 @@ cargo test -p ferrodec-decimal --test conformance -- --nocapture
 
 ## Files not vendored
 
-The operations outside this crate's surface are
-not vendored: logical `and` / `or` / `xor` / `invert`, `rotate` / `shift`,
-`scaleb` / `logb`, `nextplus` / `nextminus` / `nexttoward`, `class`,
-`samequantum`, `comparesig`, `comparetotmag`, `maxmag` / `minmag`, plain `copy`,
-and `trim`. Nor are the format-specific encoding files (`decSingle` /
-`decDouble` / `decQuad`, and the `dd*` / `dq*` / `ds*` widths) or the generated
-driver files (`testall`, `randoms`, `randombound32`).
+Of the operation files, only `trim` is outside this crate's surface: it is a
+decNumber library convenience, not a General Decimal Arithmetic specification
+operation, and has no general decTest file (see ADR-0041). Nor are the
+format-specific encoding files (`decSingle` / `decDouble` / `decQuad`, and the
+`dd*` / `dq*` / `ds*` widths) or the generated driver files (`testall`,
+`randoms`, `randombound32`) vendored.

@@ -1,6 +1,6 @@
 [package]
 name = "ferrodec-decimal"
-version = "0.2.0"
+version = "0.3.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -15,6 +15,11 @@ default = ["fmt"]
 # String parse + format (General Decimal Arithmetic to-scientific /
 # to-engineering notation). Uses core::fmt and alloc, no extra dependency.
 fmt = []
+# Lossless `TryFrom<f64>` / `TryFrom<f32>`. The conversion is exact (the precise
+# binary value of the float as a decimal, never rounded), so it needs no context
+# and no extra dependency, just the growable coefficient. Off by default to keep
+# the surface minimal for users who never bridge from binary floats.
+binary-float = []
 # Opt-in, local-only Python/libmpdec differential test. Gates
 # tests/differential.rs so the Python subprocess never runs in a default
 # `cargo test` or CI. CPython's stdlib `decimal` is libmpdec, the General

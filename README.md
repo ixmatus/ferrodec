@@ -5,20 +5,21 @@
 [![docs.rs](https://docs.rs/ferrodec/badge.svg)](https://docs.rs/ferrodec)
 [![License: MIT OR Apache-2.0](https://img.shields.io/crates/l/ferrodec.svg)](#license)
 
-An IEEE 754 (2019) Decimal128 library for Rust, designed for two audiences: embedded targets that need decimal arithmetic without surprises, and general-purpose code that wants IEEE conformance with correctly rounded arithmetic and §9.2 transcendentals.
-
-This repository hosts the ferrodec family of canonical pure-Rust IEEE 754 decimal types:
+ferrodec is a family of decimal math libraries for Rust. The family spans the three fixed-width IEEE 754-2019 interchange formats, for embedded targets and general-purpose code that want decimal arithmetic without surprises, and an arbitrary-precision type for code that needs unbounded digits. All of them implement the same General Decimal Arithmetic semantics, so a value carries consistent meaning across the family.
 
 - **[`ferrodec`](https://crates.io/crates/ferrodec)**: Decimal128 (this README's subject). 34-digit precision, exponent range `10⁻⁶¹⁴³..=10⁺⁶¹⁴⁴`. The reference implementation; production-ready.
+- **[`ferrodec-decimal64`](ferrodec-decimal64/)**: Decimal64. 16-digit precision, exponent range `10⁻³⁸³..=10⁺³⁸⁴`. The sweet spot for financial general-ledger arithmetic and scientific aggregates that outgrow Decimal32 without needing 128 bits.
 - **[`ferrodec-decimal32`](ferrodec-decimal32/)**: Decimal32. 7-digit precision, exponent range `10⁻¹⁰¹..=10⁹⁶`. Sized for embedded telemetry, small-ledger reporting, and footprint-sensitive applications.
-- **[`ferrodec-decimal64`](ferrodec-decimal64/)**: Decimal64. 16-digit precision, exponent range `10⁻³⁸³..=10⁺³⁸⁴`. The natural sweet spot for financial general-ledger arithmetic and scientific aggregates that outgrow Decimal32's 7 digits without needing Decimal128's 128 bits.
+- **[`ferrodec-decimal`](ferrodec-decimal/)**: arbitrary-precision General Decimal Arithmetic. `no_std` but `alloc`-required (the coefficient is a growable heap integer), the workspace's needs-an-allocator tier. It implements the full numerical and miscellaneous operation surface of the specification the fixed formats derive from, and stays on the `0.x` line pending a performance pass.
 
-Plus two workspace-internal crates that the three public crates share:
+Four workspace-internal crates support them:
 
-- **[`ferrodec-ieee`](ferrodec-ieee/)**: the shared IEEE 754-2019 metadata types (`Status`, `RoundingMode`, `IeeeClass`). All three sibling crates re-export from here, so values flow across precisions without conversion. See [ADR-0012](docs/decisions/0012-extract-ferrodec-ieee.md).
+- **[`ferrodec-ieee`](ferrodec-ieee/)**: the shared IEEE 754-2019 metadata types (`Status`, `RoundingMode`, `IeeeClass`), re-exported by every format so values flow across precisions without conversion. See [ADR-0012](docs/decisions/0012-extract-ferrodec-ieee.md).
+- **[`ferrodec-multiword`](ferrodec-multiword/)**: the fixed-width and growable integer primitives the formats compute on, including the `DecBig` coefficient backend that `ferrodec-decimal` is built on.
+- **[`ferrodec-transcend`](ferrodec-transcend/)**: the shared correctly-rounded transcendental kernel the fixed formats use for the §9.2 functions.
 - **[`ferrodec-test-support`](ferrodec-test-support/)**: the IBM decTest harness scaffolding (parser, directive accumulator, expectation guard, run-suite driver). Workspace-internal only (`publish = false`); not part of any consumer's published surface. See [ADR-0013](docs/decisions/0013-conformance-harness-consolidation.md).
 
-Each public sibling stands alone on crates.io with its own version cadence. They share the verification methodology documented in `docs/decisions/` and the workspace-level lint / MSRV / license discipline.
+Each public crate stands alone on crates.io with its own version cadence, and they share the verification methodology documented in `docs/decisions/` and the workspace-level lint / MSRV / license discipline. This README covers the family at a glance and then documents the ferrodec Decimal128 crate in full.
 
 ## How ferrodec is developed
 
