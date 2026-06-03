@@ -40,6 +40,7 @@ fn expected_per_file() -> &'static [(&'static str, usize)] {
     &[
         ("abs.decTest", 89),
         ("add.decTest", 2100),
+        ("and.decTest", 279),
         ("base.decTest", 1152),
         ("clamp.decTest", 111),
         ("compare.decTest", 639),
@@ -52,12 +53,14 @@ fn expected_per_file() -> &'static [(&'static str, usize)] {
         ("exp.decTest", 436),
         ("fma.decTest", 2612),
         ("inexact.decTest", 145),
+        ("invert.decTest", 128),
         ("ln.decTest", 410),
         ("log10.decTest", 385),
         ("max.decTest", 328),
         ("min.decTest", 317),
         ("minus.decTest", 113),
         ("multiply.decTest", 521),
+        ("or.decTest", 276),
         ("plus.decTest", 122),
         ("power.decTest", 1197),
         ("powersqrt.decTest", 2856),
@@ -70,6 +73,7 @@ fn expected_per_file() -> &'static [(&'static str, usize)] {
         ("subtract.decTest", 681),
         ("tointegral.decTest", 168),
         ("tointegralx.decTest", 180),
+        ("xor.decTest", 277),
     ]
 }
 
@@ -380,6 +384,10 @@ fn run_case(case: &TestCase, dctx: &DirCtx) -> Outcome {
         "copyabs" => (operands[0].copy_abs(), Status::OK),
         "copynegate" => (operands[0].copy_negate(), Status::OK),
         "copysign" => (operands[0].copy_sign(&operands[1]), Status::OK),
+        "and" => operands[0].and(&operands[1], &ctx),
+        "or" => operands[0].or(&operands[1], &ctx),
+        "xor" => operands[0].xor(&operands[1], &ctx),
+        "invert" => operands[0].invert(&ctx),
         "exp" => operands[0].exp(&ctx),
         "ln" => operands[0].ln(&ctx),
         "log10" => operands[0].log10(&ctx),

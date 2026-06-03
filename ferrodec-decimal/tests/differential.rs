@@ -96,6 +96,14 @@ for line in sys.stdin:
         r = ctx.log10(da)
     elif op == 'power':
         r = ctx.power(da, db)
+    elif op == 'logical_and':
+        r = ctx.logical_and(da, db)
+    elif op == 'logical_or':
+        r = ctx.logical_or(da, db)
+    elif op == 'logical_xor':
+        r = ctx.logical_xor(da, db)
+    elif op == 'logical_invert':
+        r = ctx.logical_invert(da)
     else:
         r = ctx.fma(da, db, dc)
     f = []
@@ -145,6 +153,23 @@ fn gen_operand(g: &mut Lcg) -> String {
     }
 }
 
+/// Operand generator biased toward valid logical operands: a string of `0`/`1`
+/// digits at exponent zero. The general generator almost never produces a valid
+/// logical operand, so without this the logical differential would only ever
+/// exercise the invalid-operand path. One time in eight it falls back to the
+/// general generator so the special and invalid paths stay covered too.
+fn gen_logical_operand(g: &mut Lcg) -> String {
+    if g.below(8) == 0 {
+        return gen_operand(g);
+    }
+    let ndig = 1 + g.below(12);
+    let mut s = String::new();
+    for _ in 0..ndig {
+        s.push(if g.below(2) == 0 { '0' } else { '1' });
+    }
+    s
+}
+
 fn ferrodec_flags(s: ferrodec_decimal::Status) -> String {
     let mut f = Vec::new();
     if s.invalid() {
@@ -184,7 +209,7 @@ const ROUNDINGS: [(&str, Rounding); 8] = [
 // overflow / subnormal boundaries given the operand exponent span.
 const CONTEXTS: [(u32, i32, i32); 4] = [(9, 999, -999), (7, 96, -95), (3, 9, -9), (1, 6, -6)];
 
-const OPS: [&str; 27] = [
+const OPS: [&str; 31] = [
     "add",
     "subtract",
     "multiply",
@@ -212,6 +237,10 @@ const OPS: [&str; 27] = [
     "ln",
     "log10",
     "power",
+    "logical_and",
+    "logical_or",
+    "logical_xor",
+    "logical_invert",
 ];
 
 /// Whether two finite results are within one unit in the last place. The
@@ -253,8 +282,19 @@ fn differential_core_arithmetic_vs_libmpdec() {
         let op = OPS[g.below(OPS.len() as u32) as usize];
         let (prec, emax, emin) = CONTEXTS[g.below(CONTEXTS.len() as u32) as usize];
         let (rnd_name, rounding) = ROUNDINGS[g.below(8) as usize];
-        let a = gen_operand(&mut g);
-        let b = gen_operand(&mut g);
+        let logical = matches!(
+            op,
+            "logical_and" | "logical_or" | "logical_xor" | "logical_invert"
+        );
+        let gen = |g: &mut Lcg| {
+            if logical {
+                gen_logical_operand(g)
+            } else {
+                gen_operand(g)
+            }
+        };
+        let a = gen(&mut g);
+        let b = gen(&mut g);
         let c = gen_operand(&mut g);
         writeln!(
             input,
@@ -333,6 +373,10 @@ fn differential_core_arithmetic_vs_libmpdec() {
             "ln" => da.ln(&case.ctx),
             "log10" => da.log10(&case.ctx),
             "power" => da.power(&db, &case.ctx),
+            "logical_and" => da.and(&db, &case.ctx),
+            "logical_or" => da.or(&db, &case.ctx),
+            "logical_xor" => da.xor(&db, &case.ctx),
+            "logical_invert" => da.invert(&case.ctx),
             _ => da.fma(&db, &dc, &case.ctx),
         };
         let got_str = r.to_string();
