@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-06-03
+
+### Added
+
+- The General Decimal Arithmetic miscellaneous, comparison, and predicate
+  surface, completing the specification's operation set. Logical `and`, `or`,
+  `xor`, `invert`; positioning `shift`, `rotate`; exponent `scaleb`, `logb`;
+  next-value `next_plus`, `next_minus`, `next_toward`; comparison
+  `compare_signal`, `compare_total_mag`, `max_magnitude`, `min_magnitude`,
+  `same_quantum`; and `class`, plain `copy`, `is_normal`, `is_subnormal`,
+  `is_canonical`, `is_signed`, `radix`. The logical operations reject every NaN
+  (a quiet NaN does not propagate); `next_toward` signals like an arithmetic
+  step while `next_plus` / `next_minus` are silent but for a signaling NaN.
+  See ADR-0041.
+- Convenience integer constructors `Decimal::from_i64` / `from_i128` /
+  `from_u64` / `from_u128` (exact, at exponent zero).
+- `TryFrom<f64>` and `TryFrom<f32>`, behind the new `binary-float` feature. The
+  conversion is lossless: the float's exact value as a decimal, never rounded,
+  so `0.1f64` yields its full binary value rather than the shortest decimal.
+  This diverges deliberately from the fixed-width siblings, which must round.
+  NaN and the infinities are rejected with `DecimalFromFloatError`.
+- Eighteen further general decTest vector files (`and`, `or`, `xor`, `invert`,
+  `shift`, `rotate`, `scaleb`, `logb`, `nextplus`, `nextminus`, `nexttoward`,
+  `comparesig`, `comparetotmag`, `maxmag`, `minmag`, `samequantum`, `class`,
+  `copy`), pinned at 27492 pass, 0 fail, 99 skip across 50 files. The libmpdec
+  differential is extended with the new value-returning operations.
+
 ## [0.2.0] - 2026-06-02
 
 ### Added

@@ -30,21 +30,31 @@ Two design choices carry over from the fixed formats, and one is new.
 
 ## The operation surface
 
-The whole General Decimal Arithmetic numerical specification. The core
-arithmetic: `add`, `subtract`, `multiply`, `divide`, `divideInteger`, the
-remainder family, `fma`, correctly rounded `squareRoot`, `quantize`, round to
-integral, `reduce`, the sign operations, `compare`, `compareTotal`, `max`,
-`min`, and the copy operations. And the four transcendentals: correctly rounded
-`exp`, `ln`, `log10`, and `power`. `exp` / `ln` / `log10` round half-even like
-`squareRoot`; `power` rounds with the context's rounding mode and is correctly
-rounded by construction, stronger than the reference (which is only almost always
-correctly rounded). An optional `interop` feature converts losslessly from and
-roundingly to the fixed width `Decimal32` / `Decimal64` / `Decimal128`.
+The whole General Decimal Arithmetic specification. The core arithmetic: `add`,
+`subtract`, `multiply`, `divide`, `divideInteger`, the remainder family, `fma`,
+correctly rounded `squareRoot`, `quantize`, round to integral, `reduce`, the
+sign operations, `compare`, `compareTotal`, `max`, `min`, and the copy
+operations. The four transcendentals: correctly rounded `exp`, `ln`, `log10`,
+and `power`; `exp` / `ln` / `log10` round half-even like `squareRoot`, and
+`power` rounds with the context's rounding mode and is correctly rounded by
+construction, stronger than the reference (which is only almost always correctly
+rounded). And the miscellaneous tier: the logical `and` / `or` / `xor` /
+`invert`, `shift` / `rotate`, `scaleb` / `logb`, `nextPlus` / `nextMinus` /
+`nextToward`, `compareSignal`, `compareTotalMagnitude`, `maxMagnitude` /
+`minMagnitude`, `sameQuantum`, `class`, the classification predicates, and
+`radix`.
+
+Values come from `parse_str`, the exact integer constructors (`from_i64` and
+its siblings), or, behind the `binary-float` feature, a lossless `TryFrom<f64>`
+/ `TryFrom<f32>` that yields the float's precise decimal value rather than the
+shortest one. An optional `interop` feature converts losslessly from and
+roundingly to the fixed-width `Decimal32` / `Decimal64` / `Decimal128`.
 
 The crate stays on the `0.x` line pending the final API settle and a performance
 pass: the public surface may still change, and the high-precision `ln` path is
-not yet optimised. See `docs/decisions/0040-arbitrary-precision-transcendentals.md`
-for the transcendental contract and `0038-arbitrary-precision-decimal.md` for the
+not yet optimised. See `docs/decisions/0041-gda-miscellaneous-operations.md` for
+the miscellaneous surface, `0040-arbitrary-precision-transcendentals.md` for the
+transcendental contract, and `0038-arbitrary-precision-decimal.md` for the
 overall design.
 
 ## Quick start
@@ -66,12 +76,15 @@ assert!(status.inexact());
 
 ## Verification
 
-Every operation is checked cohort-exact against CPython's `decimal` module,
-which is libmpdec, the General Decimal Arithmetic reference implementation, over
-a deterministic sweep that reaches the special values and the overflow,
-subnormal, and clamp boundaries (`cargo test --features differential`). The
-coefficient bignum is checked against `u128` ground truth and reconstruction
-identities.
+Every operation is checked against the General Decimal Arithmetic reference two
+ways. The vendored general decTest suite (`cargo test`) is the spec-authored,
+cohort-exact cross-check of the whole operation surface. A randomized libmpdec
+differential (`cargo test --features differential`, against CPython's `decimal`
+module) sweeps the special values and the overflow, subnormal, and clamp
+boundaries under all eight rounding modes; `power` is compared within a one-ulp
+band, since this crate's is correctly rounded by construction while the
+reference is only almost always. The coefficient bignum is checked against
+`u128` ground truth and reconstruction identities.
 
 ## How this is developed
 

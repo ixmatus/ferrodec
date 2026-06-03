@@ -35,7 +35,7 @@ enum Repr {
 /// `PartialEq` is *representation* equality: it is exact and cohort sensitive,
 /// so `1.0` and `1.00` are unequal, and a NaN equals an identically shaped
 /// NaN. This is deliberately distinct from the General Decimal Arithmetic
-/// numeric `compare`, which is a separate operation (added in a later slice).
+/// numeric [`compare`](Decimal::compare), which is a separate operation.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Decimal {
     repr: Repr,

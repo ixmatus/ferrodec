@@ -41,12 +41,17 @@ compared within a one-ulp band rather than cohort-exact, since the reference is
 only "almost always" correctly rounded while this crate's `power` is correctly
 rounded by construction.
 
+The miscellaneous operation files (ADR-0041): logical `and or xor invert`,
+positioning `rotate shift`, exponent `scaleb logb`, next-value `nextplus
+nextminus nexttoward`, `class`, `samequantum`, `comparesig`, `comparetotmag`,
+`maxmag minmag`, and plain `copy`. `class` is dispatched as a string operation
+like `toSci`.
+
 ## What is not vendored, and why
 
-- **Out of the arbitrary-precision surface**: logical `and or xor invert`,
-  positioning `rotate shift`, `scaleb logb`, `nextplus nextminus nexttoward`,
-  `class samequantum comparesig comparetotmag maxmag minmag`, plain `copy`, and
-  `trim`. These are GDA operations the crate does not expose.
+- **Out of the specification surface**: `trim`, a decNumber library convenience
+  that is not a General Decimal Arithmetic operation and has no general decTest
+  file.
 - **Format-specific**: the fixed-width `dd* dq* ds*` files and the
   `decSingle decDouble decQuad` encoding files belong to the fixed-format crates.
 - **Generated / driver files**: `testall` (a `dectest:` include driver the line
