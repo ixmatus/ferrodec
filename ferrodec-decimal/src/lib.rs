@@ -14,10 +14,14 @@
 //! returns a per-operation status, never mutating global state. See ADR-0038
 //! for the design.
 //!
-//! The v1.0 surface is the General Decimal Arithmetic core arithmetic plus
-//! `squareRoot`; the transcendental functions are a stated later phase, and
-//! the crate stays on the `0.x` line until the specification surface is
-//! complete.
+//! The implemented surface is the whole General Decimal Arithmetic numerical
+//! specification: the core arithmetic, `squareRoot`, and the four
+//! transcendentals `exp`, `ln`, `log10`, and `power`. `exp` / `ln` / `log10`
+//! are correctly rounded half-even (like `squareRoot`); `power` is correctly
+//! rounded with the context's rounding mode, stronger than the reference, which
+//! is only almost always correctly rounded. See ADR-0040 for the transcendental
+//! contract and ADR-0038 for the overall design. The crate stays on the `0.x`
+//! line pending the final API settle and the deferred performance pass.
 
 #![no_std]
 
