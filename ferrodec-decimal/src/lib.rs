@@ -31,6 +31,7 @@ mod divrem;
 mod quantize;
 mod round;
 mod sqrt;
+mod transc;
 
 #[cfg(feature = "fmt")]
 mod convert;
