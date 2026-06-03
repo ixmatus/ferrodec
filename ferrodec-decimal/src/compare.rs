@@ -210,8 +210,8 @@ fn select(a: &Decimal, b: &Decimal, ctx: &Context, is_max: bool) -> (Decimal, St
     }
     match (a.is_nan(), b.is_nan()) {
         (true, true) => return (quiet_from(a, ctx), Status::OK),
-        (true, false) => return b.plus(ctx),
-        (false, true) => return a.plus(ctx),
+        (true, false) => return rounded_pick(b, ctx),
+        (false, true) => return rounded_pick(a, ctx),
         (false, false) => {}
     }
     let pick_a = match numeric_cmp(a, b) {
@@ -227,10 +227,25 @@ fn select(a: &Decimal, b: &Decimal, ctx: &Context, is_max: bool) -> (Decimal, St
         }
     };
     if pick_a {
-        a.plus(ctx)
+        rounded_pick(a, ctx)
     } else {
-        b.plus(ctx)
+        rounded_pick(b, ctx)
     }
+}
+
+/// Round the chosen operand to the context, preserving a zero's sign. `plus`
+/// rounds to the context but resolves a zero's sign through the add-from-zero
+/// rule (so `+(-0)` is `+0`); max / min return the selected operand keeping its
+/// own sign, so a zero result is rebuilt with it (the exponent and status from
+/// the rounding stand).
+fn rounded_pick(d: &Decimal, ctx: &Context) -> (Decimal, Status) {
+    let (r, status) = d.plus(ctx);
+    if d.is_zero() {
+        if let Some((_, coeff, exp)) = r.finite_parts() {
+            return (Decimal::finite(d.is_negative(), coeff.clone(), exp), status);
+        }
+    }
+    (r, status)
 }
 
 #[cfg(test)]
@@ -324,5 +339,22 @@ mod tests {
         // Copy operates on NaNs too, touching only the sign.
         let qn = Decimal::quiet_nan(false, DecBig::from_u32(3));
         assert!(qn.copy_negate().is_negative());
+    }
+
+    #[test]
+    fn max_min_preserve_negative_zero() {
+        let c = ctx();
+        // The selected operand keeps its own sign; rounding the pick via `plus`
+        // would resolve -0 to +0, so a zero is rebuilt with the operand's sign.
+        assert_eq!(fin(true, 0, 0).max(&fin(true, 0, 0), &c).0, fin(true, 0, 0));
+        assert_eq!(
+            fin(false, 0, 0).min(&fin(true, 0, 0), &c).0,
+            fin(true, 0, 0)
+        );
+        // Equal negative zeros of different exponent: max returns -0.0 (E-1).
+        assert_eq!(
+            fin(true, 0, 0).max(&fin(true, 0, -1), &c).0,
+            fin(true, 0, -1)
+        );
     }
 }

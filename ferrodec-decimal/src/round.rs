@@ -101,6 +101,25 @@ pub(crate) fn round_finite(
         }
     }
 
+    // A nonzero intermediate that rounds away to zero (only reachable deep in
+    // the subnormal range) is still a zero whose exponent must be tidied into
+    // range, exactly as an exact zero is (the path above): clamp into
+    // [Etiny, upper], signaling Clamped when constrained. This is independent of
+    // `ctx.clamp` (zeros always tidy their exponent), and the Inexact /
+    // Underflow already accumulated from the rounding remain.
+    if c.is_zero() {
+        let mut z = exp.min(ideal_exp);
+        let upper = if ctx.clamp { etop } else { emax };
+        if z < etiny {
+            z = etiny;
+            status |= Status::CLAMPED;
+        } else if z > upper {
+            z = upper;
+            status |= Status::CLAMPED;
+        }
+        return (Decimal::finite(sign, DecBig::zero(), z as i32), status);
+    }
+
     // Step 4: shift toward the ideal exponent.
     if !c.is_zero() {
         let cur_digits = c.decimal_digit_count() as i64;
@@ -301,5 +320,17 @@ mod tests {
         );
         assert_eq!(d2, fin(123, -7));
         assert!(s2.inexact() && !s2.underflow());
+    }
+
+    #[test]
+    fn subnormal_round_to_zero_signals_clamped() {
+        // Precision 3, Emin -5: Etiny = -7. A value far below Etiny rounds away
+        // to zero; its exponent is constrained up to Etiny, so Clamped is
+        // signaled with Inexact and Underflow, independent of the clamp flag
+        // (a zero always tidies its exponent). Mirrors the exact-zero path.
+        let c = Context::new(3, 5, -5, Rounding::HalfEven);
+        let (d, s) = round_finite(false, DecBig::from_u128(1), -20, false, -20, &c, Status::OK);
+        assert_eq!(d, fin(0, -7));
+        assert!(s.clamped() && s.underflow() && s.inexact());
     }
 }

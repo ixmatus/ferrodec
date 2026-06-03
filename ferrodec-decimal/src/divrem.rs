@@ -32,8 +32,19 @@ impl Decimal {
         }
         if b_inf {
             // Finite over infinity is a signed zero at the floor exponent Etiny.
+            // The exponent is constrained to Etiny, so Clamped is signaled (as
+            // for any zero whose exponent is tidied into range, independent of
+            // ctx.clamp); seed the rounding core with it.
             let etiny = i64::from(ctx.emin) - i64::from(ctx.precision) + 1;
-            return round_finite(sign, DecBig::zero(), etiny, false, etiny, ctx, Status::OK);
+            return round_finite(
+                sign,
+                DecBig::zero(),
+                etiny,
+                false,
+                etiny,
+                ctx,
+                Status::CLAMPED,
+            );
         }
 
         let (_, ca, ea) = self.finite_parts().expect("finite");
@@ -224,6 +235,18 @@ mod tests {
         let (r, s) = fin(false, 1, 0).divide(&fin(false, 3, 0), &ctx(9));
         assert_eq!(r.to_string(), "0.333333333");
         assert!(s.inexact());
+    }
+
+    #[test]
+    fn divide_finite_over_infinity_is_clamped_zero() {
+        // x / Infinity is a signed zero at Etiny (here -10007), signaling
+        // Clamped because the exponent is constrained, with no Underflow or
+        // Inexact (the result is exact).
+        let c = ctx(9);
+        let (d, s) = fin(true, 1000, 0).divide(&Decimal::infinity(false), &c);
+        assert!(d.is_zero() && d.is_negative());
+        assert!(s.clamped() && !s.underflow() && !s.inexact());
+        assert_eq!(d.finite_parts().unwrap().2, -10007);
     }
 
     #[test]
