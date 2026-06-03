@@ -52,6 +52,9 @@ ferrodec-decimal32 = { path = "../ferrodec-decimal32", version = "3.2.0", option
 
 [dev-dependencies]
 proptest = "1"
+# The vendored-fixture integrity check only (ADR-0042); the decTest *runner*
+# stays bespoke in this crate (see tests/conformance.rs). Dev-only, path dep.
+ferrodec-test-support = { path = "../ferrodec-test-support" }
 
 [[example]]
 name = "arbitrary_precision"

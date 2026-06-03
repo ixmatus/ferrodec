@@ -23,7 +23,9 @@ These `.decTest` files come from Mike Cowlishaw's
   `ds*` files in the archive).
 
 The local copies are unmodified; the conformance runner will parse them
-at test time.
+at test time. The per-file SHA-256 of each committed file is pinned in
+`SHA256SUMS` and enforced by `tests/vendored_integrity.rs`, which fails the
+build on any byte drift or unpinned file (ADR-0042).
 
 ## Coverage scope
 
@@ -69,5 +71,6 @@ just happens to be narrower than for the larger precisions.
 
 To re-fetch the vectors, download the upstream archive from the URL
 above, verify the SHA-256, extract `dsBase.decTest` and
-`dsEncode.decTest` here, and update the retrieval date and any new
-case counts in this file.
+`dsEncode.decTest` here, update the retrieval date and any new
+case counts in this file, and regenerate the manifest with
+`shasum -a 256 *.decTest > SHA256SUMS`.
