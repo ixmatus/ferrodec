@@ -11,18 +11,35 @@ These `.decTest` files come from Mike Cowlishaw's
 > results as the tests here is not a guarantee that an implementation
 > complies with any Standard or specification.
 
+## Provenance
+
+- Source: <https://speleotrove.com/decimal/dectest.zip>
+- Suite version: 2.62
+- Archive size: 791 733 bytes
+- Archive SHA-256:
+  `b70a224cd52e82b7a8150aedac5efa2d0cb3941696fd829bdbe674f9f65c3926`
+- Retrieved: 2026-06-02 (the 0.2.0 numerical set and the 0.3.0
+  miscellaneous-operation set were extracted from the same archive)
+- Files extracted: the **general** (precision-driven) files, listed under
+  "What is vendored" below.
+
 Unlike the `dq*` / `dd*` / `ds*` files vendored at the workspace root (which
-pin the three fixed IEEE 754-2019 interchange widths), these are the **general**
-files: each one sets its own `precision`, `maxExponent`, `minExponent`,
-`rounding`, and `clamp` through in-file directives, which is exactly the
-arbitrary-precision contract `ferrodec-decimal` implements. The conformance
-runner in `tests/conformance.rs` parses the directives at test time and builds a
-`ferrodec_decimal::Context` per file (and per directive change within a file).
+pin the three fixed IEEE 754-2019 interchange widths), these general files each
+set their own `precision`, `maxExponent`, `minExponent`, `rounding`, and `clamp`
+through in-file directives, which is exactly the arbitrary-precision contract
+`ferrodec-decimal` implements. The conformance runner in `tests/conformance.rs`
+parses the directives at test time and builds a `ferrodec_decimal::Context` per
+file (and per directive change within a file).
 
 The copies are unmodified, including the upstream CRLF line endings and the
-copyright headers. New vectors are added by re-fetching the upstream archive and
-copying the relevant general files here, then pinning the per-file pass count in
-`tests/conformance.rs` (the record-then-pin discipline of ADR-0010).
+copyright headers. The per-file SHA-256 of every committed file is pinned in
+`SHA256SUMS` (the standard `shasum -a 256` format) and enforced by
+`tests/vendored_integrity.rs`, which fails the build on any byte drift or
+unpinned file (ADR-0042). New vectors are added by re-fetching the upstream
+archive, verifying its SHA-256, copying the relevant general files here, pinning
+the per-file pass count in `tests/conformance.rs` (the record-then-pin
+discipline of ADR-0010), and regenerating the manifest
+(`shasum -a 256 *.decTest > SHA256SUMS`).
 
 ## What is vendored
 

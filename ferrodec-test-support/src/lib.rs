@@ -15,6 +15,13 @@
 
 pub mod conformance;
 
+/// Content-hash integrity check for vendored decTest fixtures (ADR-0042).
+/// Re-hashes each directory's committed `*.decTest` files against its
+/// `SHA256SUMS` manifest so a silent byte drift, or an unpinned new file,
+/// fails the build. Pure std plus `sha2`; default-on, the byte-level
+/// companion to the ADR-0010 pass-count pins.
+pub mod vendored;
+
 /// Loader for the Arb/FLINT frozen hard-to-round vector corpus
 /// (Phase 2 of fd-cb6, ADR-0026). Pure std, no oracle and no C-FFI in
 /// the path: the corpus is committed data, so the per-crate

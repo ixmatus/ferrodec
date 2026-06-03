@@ -15,6 +15,12 @@ ferrodec-ieee = { path = "../ferrodec-ieee", version = "0.1.4" }
 # and is consumed solely as a dev-dependency of the decimal crates), so
 # it never reaches a shipped artifact. See ADR-0021.
 num-bigint = "0.4"
+# SHA-256 for the vendored-fixture integrity check (ADR-0042): re-hash the
+# committed decTest files against each dir's `SHA256SUMS` so a silent byte drift,
+# or an unpinned new file, fails the build. RustCrypto-orbit, pure Rust, and
+# dev-only (this crate is `publish = false` and consumed solely as a
+# dev-dependency), so it never reaches a shipped or embedded artifact.
+sha2 = "0.10"
 # Pure-Rust arbitrary-precision float for the faithful-rounding oracle
 # (ADR-0021). Optional and feature-gated: only the transcendental
 # property suites need it, so the conformance-only dev-dependents do not
