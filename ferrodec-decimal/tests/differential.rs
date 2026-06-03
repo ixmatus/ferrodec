@@ -120,6 +120,10 @@ for line in sys.stdin:
         r = decimal.Decimal(1) if da.same_quantum(db) else decimal.Decimal(0)
     elif op == 'copy':
         r = da
+    elif op == 'scaleb':
+        r = ctx.scaleb(da, db)
+    elif op == 'logb':
+        r = ctx.logb(da)
     else:
         r = ctx.fma(da, db, dc)
     f = []
@@ -235,7 +239,7 @@ const ROUNDINGS: [(&str, Rounding); 8] = [
 // overflow / subnormal boundaries given the operand exponent span.
 const CONTEXTS: [(u32, i32, i32); 4] = [(9, 999, -999), (7, 96, -95), (3, 9, -9), (1, 6, -6)];
 
-const OPS: [&str; 39] = [
+const OPS: [&str; 41] = [
     "add",
     "subtract",
     "multiply",
@@ -275,6 +279,8 @@ const OPS: [&str; 39] = [
     "min_mag",
     "same_quantum",
     "copy",
+    "scaleb",
+    "logb",
 ];
 
 /// Whether two finite results are within one unit in the last place. The
@@ -322,7 +328,7 @@ fn differential_core_arithmetic_vs_libmpdec() {
             "logical_and" | "logical_or" | "logical_xor" | "logical_invert" => {
                 (gen_logical_operand(&mut g), gen_logical_operand(&mut g))
             }
-            "shift" | "rotate" => (gen_operand(&mut g), gen_shift_count(&mut g)),
+            "shift" | "rotate" | "scaleb" => (gen_operand(&mut g), gen_shift_count(&mut g)),
             _ => (gen_operand(&mut g), gen_operand(&mut g)),
         };
         let c = gen_operand(&mut g);
@@ -415,6 +421,8 @@ fn differential_core_arithmetic_vs_libmpdec() {
             "min_mag" => da.min_magnitude(&db, &case.ctx),
             "same_quantum" => (da.same_quantum(&db), Status::OK),
             "copy" => (da.copy(), Status::OK),
+            "scaleb" => da.scaleb(&db, &case.ctx),
+            "logb" => da.logb(&case.ctx),
             _ => da.fma(&db, &dc, &case.ctx),
         };
         let got_str = r.to_string();

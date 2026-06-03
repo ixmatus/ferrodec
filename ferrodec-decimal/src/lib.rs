@@ -33,6 +33,7 @@ pub mod context;
 pub mod decimal;
 mod digits;
 mod divrem;
+mod exponent;
 mod logical;
 mod positioning;
 mod quantize;
