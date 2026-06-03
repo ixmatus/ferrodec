@@ -25,5 +25,6 @@
 
 mod consts;
 mod exp;
+mod ln;
 mod strategy;
 mod work;
