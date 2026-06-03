@@ -37,7 +37,7 @@ fn expected_per_file() -> &'static [(&'static str, usize)] {
     &[
         ("abs.decTest", 89),
         ("add.decTest", 2100),
-        ("base.decTest", 978),
+        ("base.decTest", 1152),
         ("clamp.decTest", 111),
         ("compare.decTest", 639),
         ("comparetotal.decTest", 670),
@@ -285,16 +285,14 @@ fn run_case(case: &TestCase, dctx: &DirCtx) -> Outcome {
     if case.operands.iter().any(|o| o.contains('#') && o != "#") {
         return Outcome::Skip;
     }
-    // to-engineering-string is not implemented (the fmt surface ships only
-    // to-scientific); recorded in the skip taxonomy.
-    if op == "toeng" {
-        return Outcome::Skip;
-    }
 
     let ctx = dctx.context();
 
     if op == "tosci" {
         return run_tosci(case, &ctx);
+    }
+    if op == "toeng" {
+        return run_toeng(case, &ctx);
     }
 
     // Parse operands exactly. A syntactically invalid (or bare `#` null)
@@ -361,13 +359,30 @@ fn apply(d: &Decimal, ctx: &Context) -> (Decimal, Status) {
     (r, s)
 }
 
-/// decTest `toSci` reads the operand *under the context*: a finite value is
-/// rounded to the working precision and exponent range (raising Inexact /
-/// Overflow / Underflow / Clamped as `apply` does), then rendered; a special
-/// (Infinity / NaN / sNaN) passes through unchanged and raises nothing, because
-/// reading a string never signals. The rendered string is compared directly,
-/// since `toSci` is the test of the `Display` formatting itself.
+/// decTest `toSci`: render the operand in to-scientific notation (`Display`).
 fn run_tosci(case: &TestCase, ctx: &Context) -> Outcome {
+    run_to_string(case, ctx, "toSci", Decimal::to_string)
+}
+
+/// decTest `toEng`: render the operand in to-engineering notation.
+fn run_toeng(case: &TestCase, ctx: &Context) -> Outcome {
+    run_to_string(case, ctx, "toEng", Decimal::to_eng_string)
+}
+
+/// Shared driver for the string-rendering operations. The operand is read
+/// *under the context*: a finite value is rounded to the working precision and
+/// exponent range (raising Inexact / Overflow / Underflow / Clamped as `apply`
+/// does), then rendered by `render`; a special (Infinity / NaN / sNaN) passes
+/// through unchanged and raises nothing, because reading a string never
+/// signals, except that a NaN whose payload exceeds the precision is
+/// `conversion_syntax`. The rendered string is compared directly, since these
+/// operations are the test of the formatting itself.
+fn run_to_string(
+    case: &TestCase,
+    ctx: &Context,
+    label: &str,
+    render: impl Fn(&Decimal) -> String,
+) -> Outcome {
     match Decimal::parse_str(&case.operands[0]) {
         Ok(d) => {
             let (r, status) = if d.is_finite() {
@@ -387,11 +402,12 @@ fn run_tosci(case: &TestCase, ctx: &Context) -> Outcome {
                 (d, Status::OK)
             };
             let exp_status = expected_status(&case.conditions);
-            if r.to_string() == case.expected && status == exp_status {
+            if render(&r) == case.expected && status == exp_status {
                 Outcome::Pass
             } else {
                 Outcome::Fail(format!(
-                    "toSci: got {r} [{status:?}] want {:?} [{exp_status:?}]",
+                    "{label}: got {} [{status:?}] want {:?} [{exp_status:?}]",
+                    render(&r),
                     case.expected
                 ))
             }

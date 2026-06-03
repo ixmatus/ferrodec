@@ -10,26 +10,20 @@ the decision and rationale.
 
 ## Known defects
 
-### to-engineering-string is advertised but not implemented
-
-- **Status**: open. Tracked as `fd-7la`.
-- **Symptom**: `Cargo.toml`'s `fmt` feature documents "to-scientific /
-  to-engineering notation", but only to-scientific (`Display`) is implemented.
-  The 174 `toeng` cases in `base.decTest` are skipped.
-- **Resolutions**: either implement a to-engineering rendering per the General
-  Decimal Arithmetic to-engineering-string rule (the exponent a multiple of
-  three, one to three digits before the point), or correct the feature
-  documentation to drop the claim. The first is preferred on completeness
-  grounds but adds public API, which interacts with the settled-API 1.0 gate.
+None outstanding in the conformance surface. The previously recorded
+to-engineering-string gap (`fd-7la`) is resolved: [`Decimal::to_eng_string`]
+now implements the General Decimal Arithmetic to-engineering-string rule (the
+shown exponent a multiple of three, one to three digits before the point), and
+the runner exercises the 174 `toEng` cases in `base.decTest`.
 
 ## Headline numbers
 
 | count |   share | category |
 |------:|--------:|----------|
 | 16549 | 100.0 % | total cases |
-| 16305 |  98.5 % | pass |
+| 16479 |  99.6 % | pass |
 |     0 |   0.0 % | fail |
-|   244 |   1.5 % | skip |
+|    70 |   0.4 % | skip |
 
 The 0-fail floor and the per-file pass pins are enforced by
 `tests/conformance.rs::dectest_conformance`. Any change that moves a file's pass
@@ -37,11 +31,7 @@ count off its pin, or raises the fail count above zero, fails the build.
 
 ## Skip taxonomy
 
-### 1. to-engineering output not implemented — 174 cases
-
-All in `base.decTest`. See the defect above (`fd-7la`).
-
-### 2. Exponent beyond i32 — 16 cases
+### 1. Exponent beyond i32 — 16 cases
 
 All in `base.decTest`. These `toSci` cases use extreme exponents such as
 `0.9e9999999999`, whose magnitude exceeds the `i32` exponent this crate stores.
@@ -51,7 +41,7 @@ infinity or a subnormal zero, is outside the representable domain. `parse_str`
 reports `ParseDecimalError::ExponentOverflow` for these, distinct from a
 conversion-syntax error, and the runner skips them on that signal.
 
-### 3. Fixed-width encoding literals — 54 cases
+### 2. Fixed-width encoding literals — 54 cases
 
 `clamp.decTest` (21) and `quantize.decTest` (33). These use `#hex` or `NN#`
 notation, a decimal32/64/128 bit pattern or a value tagged with the format it
@@ -65,7 +55,7 @@ runner lets it fall through to `(NaN, Invalid_operation)`.
 ```
 abs.decTest             89 pass     0 fail      0 skip
 add.decTest           2100 pass     0 fail      0 skip
-base.decTest           978 pass     0 fail    190 skip
+base.decTest          1152 pass     0 fail     16 skip
 clamp.decTest          111 pass     0 fail     21 skip
 compare.decTest        639 pass     0 fail      0 skip
 comparetotal.decTest   670 pass     0 fail      0 skip
@@ -88,7 +78,7 @@ squareroot.decTest    3586 pass     0 fail      0 skip
 subtract.decTest       681 pass     0 fail      0 skip
 tointegral.decTest     168 pass     0 fail      0 skip
 tointegralx.decTest    180 pass     0 fail      0 skip
-TOTAL: 16549 cases — 16305 pass, 0 fail, 244 skip
+TOTAL: 16549 cases — 16479 pass, 0 fail, 70 skip
 ```
 
 Reproduce with:

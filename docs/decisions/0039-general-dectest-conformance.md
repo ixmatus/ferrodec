@@ -66,13 +66,17 @@ checked against libmpdec:
   zero in the subnormal range, although the exact zero path already did; the two
   paths now agree.
 
-After the fixes the suite stands at 16305 pass, 0 fail, 244 skip across 25
-vendored files. The skip taxonomy is recorded in `ferrodec-decimal/KNOWN_ISSUES.md`;
-in brief it is three categories: to-engineering output, which the `fmt` surface
-advertises but does not yet implement (174 cases, tracked as a separate defect);
-inputs whose exponent exceeds `i32`, which is outside this crate's deliberate
-representation bound (16 cases); and fixed-width encoding literals in `#hex` or
-`NN#` notation, which an arbitrary precision value cannot reproduce (54 cases).
+After the fixes the suite stood at 16305 pass, 0 fail, 244 skip across 25
+vendored files, with the largest skip bucket being the 174 `toEng` cases in
+`base.decTest`, which the `fmt` surface advertised but did not yet implement
+(tracked as `fd-7la`). That gap is now closed on the same branch:
+`Decimal::to_eng_string` implements the General Decimal Arithmetic
+to-engineering-string rule, the runner exercises those cases, and the suite
+stands at 16479 pass, 0 fail, 70 skip. The remaining skip taxonomy, recorded in
+`ferrodec-decimal/KNOWN_ISSUES.md`, is two categories: inputs whose exponent
+exceeds `i32`, which is outside this crate's deliberate representation bound (16
+cases); and fixed-width encoding literals in `#hex` or `NN#` notation, which an
+arbitrary precision value cannot reproduce (54 cases).
 
 The conformance test runs on the default `fmt` feature, so it is part of a plain
 `cargo test`. In a debug build its runtime is dominated by the unoptimized
@@ -89,5 +93,6 @@ breadth, the static suite covers the spec authors' chosen corners.
 
 - Plan: `plans/spicy-dazzling-deer.md`
 - Commits: `684ec07` (vendor), `8fb6ee6` (fixes), `a4c561c` (runner)
-- Issues: `fd-rd0.1` / `fd-rd0.2` / `fd-rd0.3` (closed), `fd-7la` (to-engineering gap)
+- Issues: `fd-rd0.1` / `fd-rd0.2` / `fd-rd0.3` (closed); `fd-7la` (to-engineering
+  gap, closed by `Decimal::to_eng_string` on this branch)
 - Other ADRs: builds on ADR-0010 (per-file pins) and ADR-0038 (the 1.0 gates)
