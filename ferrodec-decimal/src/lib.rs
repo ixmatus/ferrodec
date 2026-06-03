@@ -34,6 +34,7 @@ pub mod decimal;
 mod digits;
 mod divrem;
 mod logical;
+mod positioning;
 mod quantize;
 mod round;
 mod sqrt;

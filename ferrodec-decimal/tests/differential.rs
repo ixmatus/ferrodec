@@ -104,6 +104,10 @@ for line in sys.stdin:
         r = ctx.logical_xor(da, db)
     elif op == 'logical_invert':
         r = ctx.logical_invert(da)
+    elif op == 'shift':
+        r = ctx.shift(da, db)
+    elif op == 'rotate':
+        r = ctx.rotate(da, db)
     else:
         r = ctx.fma(da, db, dc)
     f = []
@@ -170,6 +174,16 @@ fn gen_logical_operand(g: &mut Lcg) -> String {
     s
 }
 
+/// Operand generator for the shift / rotate count: a small integer at exponent
+/// zero around the precision boundary (so in-range and just-out-of-range counts
+/// are both exercised), occasionally a general value for the invalid path.
+fn gen_shift_count(g: &mut Lcg) -> String {
+    if g.below(8) == 0 {
+        return gen_operand(g);
+    }
+    format!("{}", g.below(25) as i32 - 12)
+}
+
 fn ferrodec_flags(s: ferrodec_decimal::Status) -> String {
     let mut f = Vec::new();
     if s.invalid() {
@@ -209,7 +223,7 @@ const ROUNDINGS: [(&str, Rounding); 8] = [
 // overflow / subnormal boundaries given the operand exponent span.
 const CONTEXTS: [(u32, i32, i32); 4] = [(9, 999, -999), (7, 96, -95), (3, 9, -9), (1, 6, -6)];
 
-const OPS: [&str; 31] = [
+const OPS: [&str; 33] = [
     "add",
     "subtract",
     "multiply",
@@ -241,6 +255,8 @@ const OPS: [&str; 31] = [
     "logical_or",
     "logical_xor",
     "logical_invert",
+    "shift",
+    "rotate",
 ];
 
 /// Whether two finite results are within one unit in the last place. The
@@ -282,19 +298,15 @@ fn differential_core_arithmetic_vs_libmpdec() {
         let op = OPS[g.below(OPS.len() as u32) as usize];
         let (prec, emax, emin) = CONTEXTS[g.below(CONTEXTS.len() as u32) as usize];
         let (rnd_name, rounding) = ROUNDINGS[g.below(8) as usize];
-        let logical = matches!(
-            op,
-            "logical_and" | "logical_or" | "logical_xor" | "logical_invert"
-        );
-        let gen = |g: &mut Lcg| {
-            if logical {
-                gen_logical_operand(g)
-            } else {
-                gen_operand(g)
+        // Bias the operands toward each op's valid domain so the differential
+        // exercises real results, not only the invalid-operand path.
+        let (a, b) = match op {
+            "logical_and" | "logical_or" | "logical_xor" | "logical_invert" => {
+                (gen_logical_operand(&mut g), gen_logical_operand(&mut g))
             }
+            "shift" | "rotate" => (gen_operand(&mut g), gen_shift_count(&mut g)),
+            _ => (gen_operand(&mut g), gen_operand(&mut g)),
         };
-        let a = gen(&mut g);
-        let b = gen(&mut g);
         let c = gen_operand(&mut g);
         writeln!(
             input,
@@ -377,6 +389,8 @@ fn differential_core_arithmetic_vs_libmpdec() {
             "logical_or" => da.or(&db, &case.ctx),
             "logical_xor" => da.xor(&db, &case.ctx),
             "logical_invert" => da.invert(&case.ctx),
+            "shift" => da.shift(&db, &case.ctx),
+            "rotate" => da.rotate(&db, &case.ctx),
             _ => da.fma(&db, &dc, &case.ctx),
         };
         let got_str = r.to_string();
