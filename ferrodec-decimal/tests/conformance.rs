@@ -17,9 +17,12 @@
 //!
 //! Comparison is cohort exact: the result must equal the expected value under
 //! `Decimal`'s representation equality (so `1.0` and `1.00` differ), and the
-//! status flags must match exactly, `Clamped` and `Underflow` included. The one
-//! exception is `toSci`, which compares the rendered string directly because it
-//! is the test of the `Display` formatting itself.
+//! status flags must match exactly, `Clamped` and `Underflow` included. Two
+//! operations relax this. `toSci` / `toEng` compare the rendered string
+//! directly, since they are the test of the formatting itself. `power` is
+//! compared within a one-ulp band, because this crate's `power` is correctly
+//! rounded by construction while the spec's reference is only "almost always"
+//! correctly rounded (see `tests/pow_oracle.rs`).
 
 #![cfg(feature = "fmt")]
 
@@ -46,16 +49,23 @@ fn expected_per_file() -> &'static [(&'static str, usize)] {
         ("copysign.decTest", 111),
         ("divide.decTest", 631),
         ("divideint.decTest", 389),
+        ("exp.decTest", 436),
         ("fma.decTest", 2612),
+        ("inexact.decTest", 145),
+        ("ln.decTest", 410),
+        ("log10.decTest", 385),
         ("max.decTest", 328),
         ("min.decTest", 317),
         ("minus.decTest", 113),
         ("multiply.decTest", 521),
         ("plus.decTest", 122),
+        ("power.decTest", 1197),
+        ("powersqrt.decTest", 2856),
         ("quantize.decTest", 742),
         ("reduce.decTest", 168),
         ("remainder.decTest", 517),
         ("remaindernear.decTest", 446),
+        ("rounding.decTest", 1030),
         ("squareroot.decTest", 3586),
         ("subtract.decTest", 681),
         ("tointegral.decTest", 168),
@@ -285,6 +295,16 @@ fn run_case(case: &TestCase, dctx: &DirCtx) -> Outcome {
     if case.operands.iter().any(|o| o.contains('#') && o != "#") {
         return Outcome::Skip;
     }
+    // The transcendental files include cases that expect Invalid_context: a
+    // precision or exponent bound beyond the reference's internal limits (a
+    // precision of 100000000, a maxExponent of 1000000). That is an
+    // implementation limit of the reference, not a spec-arithmetic result;
+    // this crate places no such ceiling, so the operation succeeds. The suite
+    // itself notes these are skippable by harnesses that do not model the
+    // restriction.
+    if case.conditions.iter().any(|c| c == "invalid_context") {
+        return Outcome::Skip;
+    }
 
     let ctx = dctx.context();
 
@@ -314,6 +334,27 @@ fn run_case(case: &TestCase, dctx: &DirCtx) -> Outcome {
         }
     }
 
+    // The reference restricts the transcendental functions' operands to an
+    // adjusted exponent in decNumber's `DEC_MAX_MATH` range (at most `999999`,
+    // and for the exponent operand down to `-1999997`); an operand outside it
+    // raises Invalid_operation. This crate places no such ceiling and computes
+    // the mathematically correct result within its `i32` exponent, so a case
+    // whose only reason for expecting Invalid_operation is an out-of-range
+    // operand is skipped. An in-range operand whose value is genuinely valid
+    // (the surrounding "operand range" cases that return a real result) still
+    // runs and is compared.
+    if matches!(op, "exp" | "ln" | "log10" | "power")
+        && case.conditions.iter().any(|c| c == "invalid_operation")
+        && operands.iter().any(|d| {
+            d.finite_parts().is_some_and(|(_, coeff, exp)| {
+                let adj = i64::from(exp) + coeff.decimal_digit_count() as i64 - 1;
+                !(-1_999_997..=999_999).contains(&adj)
+            })
+        })
+    {
+        return Outcome::Skip;
+    }
+
     let (res, status) = match op {
         "add" => operands[0].add(&operands[1], &ctx),
         "subtract" => operands[0].subtract(&operands[1], &ctx),
@@ -339,10 +380,54 @@ fn run_case(case: &TestCase, dctx: &DirCtx) -> Outcome {
         "copyabs" => (operands[0].copy_abs(), Status::OK),
         "copynegate" => (operands[0].copy_negate(), Status::OK),
         "copysign" => (operands[0].copy_sign(&operands[1]), Status::OK),
+        "exp" => operands[0].exp(&ctx),
+        "ln" => operands[0].ln(&ctx),
+        "log10" => operands[0].log10(&ctx),
+        "power" => operands[0].power(&operands[1], &ctx),
         _ => return Outcome::Skip,
     };
 
-    compare(case, &res, status)
+    // `power` is correctly rounded by construction, while the spec's reference
+    // is only "almost always" correctly rounded, so it is compared within a
+    // one-ulp band (the same allowance the differential makes); every other
+    // operation is cohort-exact.
+    if op == "power" {
+        compare_power(case, &res, status)
+    } else {
+        compare(case, &res, status)
+    }
+}
+
+/// Compare a `power` result, allowing the reference to differ by up to one unit
+/// in the last place (this crate's `power` is correctly rounded; the reference
+/// is not always). An exact cohort-and-flag match always passes; otherwise two
+/// finite results within one ulp pass with their flags allowed to differ (a
+/// zero versus the smallest subnormal at the underflow boundary).
+fn compare_power(case: &TestCase, res: &Decimal, status: Status) -> Outcome {
+    match compare(case, res, status) {
+        Outcome::Pass => Outcome::Pass,
+        other => {
+            let Ok(want) = Decimal::parse_str(&case.expected) else {
+                return other;
+            };
+            if res.is_finite() && want.is_finite() && within_one_ulp(res, &want) {
+                Outcome::Pass
+            } else {
+                other
+            }
+        }
+    }
+}
+
+/// Whether two finite values are within one unit in the last place.
+fn within_one_ulp(a: &Decimal, b: &Decimal) -> bool {
+    let wide = Context::new(60, 1_000_000, -1_000_000, Rounding::HalfEven);
+    let absdiff = a.subtract(b, &wide).0.abs(&wide).0;
+    let ea = a.finite_parts().map_or(0, |p| p.2);
+    let eb = b.finite_parts().map_or(0, |p| p.2);
+    let ulp = Decimal::finite(false, DecBig::from_u32(1), ea.max(eb));
+    let cmp = absdiff.compare(&ulp, &wide).0;
+    cmp.is_zero() || cmp.is_negative()
 }
 
 /// decTest `apply`: round the operand to the context. This is `plus` for every

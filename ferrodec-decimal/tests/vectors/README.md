@@ -34,11 +34,15 @@ min copyabs copynegate copysign`, plus `base` (the number-syntax parse and
 `toSci` / `toEng` / `apply` surface) and `clamp` (the dedicated exponent-clamping
 test, all `apply`).
 
+The transcendental files `exp ln log10 power powersqrt` (the four numerical
+transcendentals plus `power(x, 0.5)`), and the mixed-operation flag tests
+`rounding` and `inexact` that exercise them, are also vendored. `power` is
+compared within a one-ulp band rather than cohort-exact, since the reference is
+only "almost always" correctly rounded while this crate's `power` is correctly
+rounded by construction.
+
 ## What is not vendored, and why
 
-- **Transcendentals** (`exp ln log10 power powersqrt`) and the mixed-operation
-  flag tests that depend on them (`rounding inexact`) arrive with the
-  transcendental phase, not before.
 - **Out of the arbitrary-precision surface**: logical `and or xor invert`,
   positioning `rotate shift`, `scaleb logb`, `nextplus nextminus nexttoward`,
   `class samequantum comparesig comparetotmag maxmag minmag`, plain `copy`, and
