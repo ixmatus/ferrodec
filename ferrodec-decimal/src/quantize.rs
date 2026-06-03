@@ -105,7 +105,13 @@ impl Decimal {
             return (rounded, status);
         };
         if coeff.is_zero() {
-            return (Decimal::finite(sign, DecBig::zero(), 0), status);
+            // A zero reduces to a canonical zero at exponent zero, keeping the
+            // operand's own sign (`plus` above resolves -0 to +0, so take the
+            // sign from `self`, not from the rounded value).
+            return (
+                Decimal::finite(self.is_negative(), DecBig::zero(), 0),
+                status,
+            );
         }
         let mut c = coeff;
         let mut e = i64::from(exp);
@@ -195,5 +201,15 @@ mod tests {
         assert_eq!(fin(120, 0).reduce(&c).0.to_string(), "1.2E+2");
         // Zero reduces to exponent zero.
         assert_eq!(fin(0, -3).reduce(&c).0.to_string(), "0");
+    }
+
+    #[test]
+    fn reduce_preserves_negative_zero() {
+        // reduce(-0.00) = -0: a zero reduces to exponent zero keeping its sign
+        // (the internal `plus`-rounding would otherwise flip -0 to +0).
+        let r = Decimal::finite(true, DecBig::from_u128(0), -2)
+            .reduce(&ctx(9))
+            .0;
+        assert_eq!(r, Decimal::finite(true, DecBig::zero(), 0));
     }
 }
