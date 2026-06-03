@@ -82,7 +82,7 @@ impl Work {
 
     /// The adjusted exponent `exp + digits - 1`, the power of ten of the
     /// leading digit. Meaningful only for a nonzero magnitude.
-    fn adj_exp(&self) -> i64 {
+    pub(crate) fn adj_exp(&self) -> i64 {
         self.exp + self.digits() - 1
     }
 

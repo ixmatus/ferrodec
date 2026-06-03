@@ -63,10 +63,10 @@ pub(crate) fn finish<F>(
     ctx: &Context,
     err: u128,
     strat: RoundingStrategy,
-    kernel: F,
+    mut kernel: F,
 ) -> (Decimal, Status)
 where
-    F: Fn(u32) -> Work,
+    F: FnMut(u32) -> Work,
 {
     match strat {
         RoundingStrategy::BoundedZiv => {

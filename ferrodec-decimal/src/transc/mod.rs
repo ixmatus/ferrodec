@@ -24,5 +24,6 @@
 #![allow(dead_code)]
 
 mod consts;
+mod exp;
 mod strategy;
 mod work;
