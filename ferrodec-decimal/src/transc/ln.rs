@@ -135,7 +135,7 @@ impl Decimal {
 
 /// `ln(x)` to `wp` significant digits, accurate to within [`LN_ERR`] ulp.
 /// Precondition: `x` is finite, positive, and not exactly one.
-fn ln_kernel(x: &Work, wp: u32, cache: &mut ConstCache) -> Work {
+pub(super) fn ln_kernel(x: &Work, wp: u32, cache: &mut ConstCache) -> Work {
     let ip = wp + LN_GUARD;
     let half = Work::new(false, DecBig::from_u32(5), -1); // 0.5
     let two = Work::from_i64(2);
@@ -216,7 +216,7 @@ fn reduce_by_two(m: &Work) -> (i64, Work) {
 /// If `coeff * 10^exp` equals `10^n` for an integer `n`, return `Some(n)`. A
 /// value is an exact power of ten exactly when its coefficient is one after its
 /// trailing zeros are stripped.
-fn power_of_ten_exponent(coeff: &DecBig, exp: i64) -> Option<i64> {
+pub(super) fn power_of_ten_exponent(coeff: &DecBig, exp: i64) -> Option<i64> {
     if coeff.is_zero() {
         return None;
     }

@@ -92,7 +92,7 @@ impl Decimal {
 
 /// `exp(x)` to `wp` significant digits, accurate to within [`EXP_ERR`] ulp.
 /// Precondition: `x` is finite, nonzero, and within the far-field gate.
-fn exp_kernel(x: &Work, wp: u32, cache: &mut ConstCache) -> Work {
+pub(super) fn exp_kernel(x: &Work, wp: u32, cache: &mut ConstCache) -> Work {
     // Resolve the reduction multiple k = round(x / ln 10). The quotient needs
     // enough digits to carry the integer part of x/ln10 plus slack.
     let kp = u32::try_from(x.adj_exp().max(0))
