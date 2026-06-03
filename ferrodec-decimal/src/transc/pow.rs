@@ -295,10 +295,20 @@ fn one() -> Decimal {
 }
 
 /// `1` padded to the precision and flagged `Inexact`, the result of `power(1, y)`
-/// for a non-integer or infinite `y` (e.g. `1.00000000`).
+/// for a non-integer or infinite `y` (e.g. `1.00000000`). The value is exactly
+/// one, so `Inexact` is seeded directly rather than via a sticky bit; a sticky
+/// bit would make a round-away mode (ceiling / up) round the one up to two.
 fn rounded_one(ctx: &Context) -> (Decimal, Status) {
     let ideal = -i64::from(ctx.precision.saturating_sub(1));
-    round_finite(false, DecBig::from_u32(1), 0, true, ideal, ctx, Status::OK)
+    round_finite(
+        false,
+        DecBig::from_u32(1),
+        0,
+        false,
+        ideal,
+        ctx,
+        Status::INEXACT,
+    )
 }
 
 /// True when `|d|` is exactly one (any cohort).
