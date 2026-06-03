@@ -45,6 +45,8 @@ mod transc;
 
 #[cfg(feature = "fmt")]
 mod convert;
+#[cfg(feature = "binary-float")]
+mod from_float;
 #[cfg(feature = "interop")]
 mod interop;
 
@@ -53,6 +55,9 @@ pub use decimal::Decimal;
 
 #[cfg(feature = "fmt")]
 pub use convert::ParseDecimalError;
+
+#[cfg(feature = "binary-float")]
+pub use from_float::DecimalFromFloatError;
 
 #[cfg(feature = "interop")]
 pub use ferrodec_ieee::RoundingMode;
