@@ -27,6 +27,7 @@
 //! `ln(1) = 0` exact).
 
 use super::consts::ConstCache;
+use super::series::atanh_sum;
 use super::strategy::finish;
 use super::work::Work;
 use crate::arith::{invalid_nan, nan_unary};
@@ -167,26 +168,15 @@ pub(super) fn ln_kernel(x: &Work, wp: u32, cache: &mut ConstCache) -> Work {
     r
 }
 
-/// `atanh(w) = sum_{k>=0} w^(2k+1) / (2k+1)` at internal precision `ip`, for a
+/// `atanh(w) = w * sum_{k>=0} (w^2)^k / (2k+1)` at internal precision `ip`, for a
 /// `Work` argument `w` with `|w| <= 1/3` (so the series converges geometrically
-/// by `w^2`). `atanh(0) = 0`.
+/// by `w^2`). `atanh(0) = 0`. The sum is evaluated by the shared rectangular
+/// splitting in [`atanh_sum`], which cuts the full-multiply count from `O(N)` to
+/// `O(sqrt(N))` at high precision.
 fn atanh(w: &Work, ip: u32) -> Work {
-    let w_sq = w.mul_to(w, ip);
-    let mut power = w.clone(); // w^(2k+1)
-    let mut sum = w.clone();
-    let mut k: i64 = 1;
-    let max_iter = i64::from(ip) * 4 + 16;
-    while k <= max_iter {
-        power = power.mul_to(&w_sq, ip);
-        let term = power.div_to(&Work::from_i64(2 * k + 1), ip);
-        let negligible = term.is_zero() || sum.adj_exp() - i64::from(ip) - 2 > term.adj_exp();
-        sum = sum.add(&term, ip);
-        if negligible {
-            break;
-        }
-        k += 1;
-    }
-    sum
+    let z = w.mul_to(w, ip); // w^2
+    let sum = atanh_sum(&z, ip);
+    w.mul_to(&sum, ip)
 }
 
 /// Reduce a mantissa `m` in `[1, 10)` by a power of two, returning `(j, t)` with
