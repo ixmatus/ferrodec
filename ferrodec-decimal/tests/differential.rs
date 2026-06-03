@@ -108,6 +108,18 @@ for line in sys.stdin:
         r = ctx.shift(da, db)
     elif op == 'rotate':
         r = ctx.rotate(da, db)
+    elif op == 'compare_signal':
+        r = ctx.compare_signal(da, db)
+    elif op == 'compare_total_mag':
+        r = da.compare_total_mag(db)
+    elif op == 'max_mag':
+        r = ctx.max_mag(da, db)
+    elif op == 'min_mag':
+        r = ctx.min_mag(da, db)
+    elif op == 'same_quantum':
+        r = decimal.Decimal(1) if da.same_quantum(db) else decimal.Decimal(0)
+    elif op == 'copy':
+        r = da
     else:
         r = ctx.fma(da, db, dc)
     f = []
@@ -223,7 +235,7 @@ const ROUNDINGS: [(&str, Rounding); 8] = [
 // overflow / subnormal boundaries given the operand exponent span.
 const CONTEXTS: [(u32, i32, i32); 4] = [(9, 999, -999), (7, 96, -95), (3, 9, -9), (1, 6, -6)];
 
-const OPS: [&str; 33] = [
+const OPS: [&str; 39] = [
     "add",
     "subtract",
     "multiply",
@@ -257,6 +269,12 @@ const OPS: [&str; 33] = [
     "logical_invert",
     "shift",
     "rotate",
+    "compare_signal",
+    "compare_total_mag",
+    "max_mag",
+    "min_mag",
+    "same_quantum",
+    "copy",
 ];
 
 /// Whether two finite results are within one unit in the last place. The
@@ -391,6 +409,12 @@ fn differential_core_arithmetic_vs_libmpdec() {
             "logical_invert" => da.invert(&case.ctx),
             "shift" => da.shift(&db, &case.ctx),
             "rotate" => da.rotate(&db, &case.ctx),
+            "compare_signal" => da.compare_signal(&db, &case.ctx),
+            "compare_total_mag" => (da.compare_total_mag(&db), Status::OK),
+            "max_mag" => da.max_magnitude(&db, &case.ctx),
+            "min_mag" => da.min_magnitude(&db, &case.ctx),
+            "same_quantum" => (da.same_quantum(&db), Status::OK),
+            "copy" => (da.copy(), Status::OK),
             _ => da.fma(&db, &dc, &case.ctx),
         };
         let got_str = r.to_string();
