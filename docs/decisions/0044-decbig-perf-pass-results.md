@@ -24,8 +24,8 @@ the build before it could be benched for a win.
 |-------|-----------|---------|------|
 | 1 | Rectangular splitting of the logarithm value series | shipped | `ln` up to 4.5x faster; no regressions |
 | 1 | Rectangular splitting of the constant series | reverted | regressed the constants; the small-divide loop is already linear |
-| 2 | Karatsuba multiply (threshold-gated) | pending | high-precision tail |
-| 3 | Newton reciprocal division | deferred | division is not a bottleneck (ADR-0043); re-measure after Slice 2 |
+| 2 | Karatsuba multiply (threshold-gated, 32 limbs) | shipped | `mul` −27 % to −64 % at 500–4000 digits; no regressions |
+| 3 | Newton reciprocal division | deferred | re-opened: post-Slice-2, `div_rem` is now ~3x `mul` at 4000 digits (below) |
 
 ## Slice 1: rectangular splitting of the logarithm series
 
@@ -85,16 +85,72 @@ expected: Slice 1 touches only the transcendental series. No regressions.
   (`log10` / `exp` / `power` recompute `ln 2` / `ln 10` per call). The baseline
   flagged this floor; it is a small-rational binary-splitting candidate.
 
+## Slice 2: Karatsuba multiply
+
+**Technique.** `DecBig::mul` was schoolbook, `O(n^2)` in base-`10^9` limbs.
+Karatsuba (`ferrodec-multiword/src/decbig.rs`) splits both operands at limb `m`
+and forms the product from three half-size products
+(`z2*B^(2m) + z1*B^m + z0`, `z1 = (x_lo+x_hi)(y_lo+y_hi) - z0 - z2`), recursing
+through `mul` so the sub-products fall back to schoolbook once small. The
+schoolbook body is kept as the base case and the path below the threshold; the
+public `mul` signature is unchanged. The middle term is never negative, so the
+two subtractions never breach the `DecBig::sub` precondition.
+
+**Threshold.** `KARATSUBA_THRESHOLD = 32` limbs (288 digits): both operands must
+reach it or `mul` stays schoolbook. The bench puts the crossover there; below it
+the recursion's add/split overhead outweighs the saved partial product.
+
+**Result (median per call).**
+
+| `mul` width | baseline | Slice 2 | Δ |
+|-------------|---------:|--------:|--:|
+| 200 digits (23 limbs) | 944 ns | 944 ns | flat (schoolbook) |
+| 500 digits (56 limbs) | 7.10 µs | 5.17 µs | −27 % |
+| 1000 digits | 31.1 µs | 17.4 µs | −44 % |
+| 4000 digits | 521 µs | 188 µs | **−64 %** |
+
+The transcendentals' own full-width multiplies cross the threshold at high
+precision and benefit on top of Slice 1 (cumulative baseline → Slice 2):
+`ln/500` 5.16 ms → 1.03 ms (**5.0×**), `power/500` 9.83 ms → 4.82 ms (**2.0×**),
+`exp/500` 3.90 ms → 3.39 ms. Low precision, `isqrt`, and `div_rem` are unchanged
+within noise; no regressions.
+
+**Correctness.** A direct unit test cross-checks `mul` (Karatsuba) against the
+proven `mul_schoolbook` on multi-level recursive sizes; a property test
+round-trips large products through the independent `div_rem`; the decTest
+conformance stays 0-fail (its precision-400 cases drive the Karatsuba path
+through `isqrt`/`fma`/`power`) and the differential stays cohort-exact.
+
+**Measurement note (a lesson for the pass).** The first Slice-2 bench showed
+20-40 % "regressions" in the ops measured *late* in each run (`isqrt`, `log10`,
+`power`) with wide confidence intervals, while the ops measured *first* (`mul`)
+were clean. Several of those ops use operands below the Karatsuba threshold and
+so could not be affected, which flagged the swings as artifacts: sustained
+benching heats the M2 Max and the later benches throttle. Re-running each suite
+cold, alone, with a longer window gave tight intervals and the numbers above.
+The discipline held: a noisy measurement is not a result, and a "regression"
+with no causal path to the change is a measurement bug, not a code bug.
+
 ## Consequences
 
-- The headline high-precision cost ADR-0040 named (the cubic `ln` path) is cut
-  by ~4.5× at precision 500, with the common low-precision path unchanged and no
-  regression anywhere. The 1.0 performance gate is materially advanced; Slice 2
-  (Karatsuba) and the surfaced follow-ups remain.
-- A reusable rectangular-splitting series evaluator now exists
-  (`transc/series.rs`), available to any future full-precision power series.
+- The headline high-precision costs are cut substantially with no regression
+  anywhere and the common low-precision path unchanged: the cubic `ln` path is
+  5.0× faster at precision 500 (Slice 1's rectangular series plus Slice 2's
+  faster multiply), `power` 2.0×, and the bare `DecBig` multiply up to 2.8× at
+  4000 digits. The 1.0 performance gate is materially advanced.
+- Reusable primitives now exist: a rectangular-splitting series evaluator
+  (`transc/series.rs`) for any full-precision power series, and a Karatsuba
+  multiply behind the unchanged `DecBig::mul` surface.
+- **Slice 3 (Newton reciprocal division) is re-opened by the Slice-2
+  measurement.** With Karatsuba in place, `div_rem` (Knuth Algorithm D, still
+  `O(n^2)`) is now about 3× the cost of `mul` at 4000 digits (565 µs vs 188 µs),
+  the relative bottleneck for large-operand division and for `isqrt` / `sqrt` at
+  high precision. It is not the bottleneck for the transcendental headline, whose
+  inner loop is the now-accelerated multiply, so the decision of whether the
+  riskiest refactor in the pass earns its place is a separate, deliberate call.
 - The pass keeps the ADR-0008 audit-trail discipline: the reverted constant
-  attempt is recorded with its measured regression and its cause, not dropped.
+  attempt (Slice 1) and the throttling-contaminated first Slice-2 bench are both
+  recorded with their cause, not dropped.
 
 ## Related
 
