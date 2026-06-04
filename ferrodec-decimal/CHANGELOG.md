@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-06-03
+
+First stable release. The operation surface has been the complete General
+Decimal Arithmetic specification since 0.3.0; this release settles the public
+API and lands the performance pass, the last two of the four milestones ADR-0038
+set for 1.0 (the others, the transcendentals and full decTest conformance,
+landed in 0.2.0 and 0.3.0). The surface is now SemVer-stable.
+
+### Changed
+
+- The public API is settled (ADR-0045), recorded rather than altered. The
+  General Decimal Arithmetic method names (`divide`, `remainder_near`, the
+  logical `and` / `or` / `xor`, the `next_*` family, and the rest) deliberately
+  diverge from the fixed-width siblings' shorter, operator-aligned names, since
+  this crate has no operator overloads and takes its spelling from the
+  specification. `Decimal` deliberately omits `PartialOrd` / `Ord` (numeric
+  ordering is `compare` / `compare_total`), and `ParseDecimalError` stays
+  `#[non_exhaustive]`.
+
+### Performance
+
+- A measured performance pass on the coefficient bignum and the transcendental
+  kernels (ADR-0043 baseline, ADR-0044 per-candidate results). Paterson-
+  Stockmeyer rectangular splitting of the logarithm series and a threshold-gated
+  Karatsuba multiply cut the high-precision cost: at precision 500, `ln` is 5.0x
+  faster and `power` 2.0x; the coefficient multiply is 2.8x faster at 4000
+  digits. The common low-precision path and the core arithmetic are unchanged,
+  and every result stays cohort-exact against the decTest conformance suite and
+  the libmpdec differential.
+
 ## [0.3.0] - 2026-06-03
 
 ### Added

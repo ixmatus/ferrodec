@@ -10,7 +10,7 @@ ferrodec is a family of decimal math libraries for Rust. The family spans the th
 - **[`ferrodec`](https://crates.io/crates/ferrodec)**: Decimal128 (this README's subject). 34-digit precision, exponent range `10⁻⁶¹⁴³..=10⁺⁶¹⁴⁴`. The reference implementation; production-ready.
 - **[`ferrodec-decimal64`](ferrodec-decimal64/)**: Decimal64. 16-digit precision, exponent range `10⁻³⁸³..=10⁺³⁸⁴`. The sweet spot for financial general-ledger arithmetic and scientific aggregates that outgrow Decimal32 without needing 128 bits.
 - **[`ferrodec-decimal32`](ferrodec-decimal32/)**: Decimal32. 7-digit precision, exponent range `10⁻¹⁰¹..=10⁹⁶`. Sized for embedded telemetry, small-ledger reporting, and footprint-sensitive applications.
-- **[`ferrodec-decimal`](ferrodec-decimal/)**: arbitrary-precision General Decimal Arithmetic. `no_std` but `alloc`-required (the coefficient is a growable heap integer), the workspace's needs-an-allocator tier. It implements the full numerical and miscellaneous operation surface of the specification the fixed formats derive from, and stays on the `0.x` line pending a performance pass.
+- **[`ferrodec-decimal`](ferrodec-decimal/)**: arbitrary-precision General Decimal Arithmetic. `no_std` but `alloc`-required (the coefficient is a growable heap integer), the workspace's needs-an-allocator tier. It implements the full numerical and miscellaneous operation surface of the specification the fixed formats derive from; the API is settled and the performance pass is done, so it is at `1.0`.
 
 Four workspace-internal crates support them:
 

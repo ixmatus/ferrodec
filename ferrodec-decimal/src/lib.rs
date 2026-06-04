@@ -25,8 +25,9 @@
 //! the extended comparisons and magnitude selections, `sameQuantum`, `class`,
 //! the copy operations, and the classification predicates. See ADR-0038 for the
 //! overall design, ADR-0040 for the transcendental contract, and ADR-0041 for
-//! the miscellaneous surface. The crate stays on the `0.x` line pending the
-//! final API settle and the deferred performance pass.
+//! the miscellaneous surface. The operation surface is the complete
+//! specification, the public API is settled (ADR-0045), and the performance
+//! pass is done (ADR-0043, ADR-0044), so the crate is at `1.0`.
 
 #![no_std]
 

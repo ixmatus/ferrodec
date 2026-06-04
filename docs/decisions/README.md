@@ -70,3 +70,4 @@ The ADRs in number order:
 - [0042 — Hash-pinned vendored-fixture integrity](0042-vendored-fixture-integrity.md)
 - [0043 — DecBig and transcendental performance baseline](0043-decbig-perf-baseline.md)
 - [0044 — DecBig performance pass results](0044-decbig-perf-pass-results.md)
+- [0045 — ferrodec-decimal public API settle (1.0)](0045-decimal-api-settle.md)

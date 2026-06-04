@@ -50,12 +50,14 @@ its siblings), or, behind the `binary-float` feature, a lossless `TryFrom<f64>`
 shortest one. An optional `interop` feature converts losslessly from and
 roundingly to the fixed-width `Decimal32` / `Decimal64` / `Decimal128`.
 
-The crate stays on the `0.x` line pending the final API settle and a performance
-pass: the public surface may still change, and the high-precision `ln` path is
-not yet optimised. See `docs/decisions/0041-gda-miscellaneous-operations.md` for
-the miscellaneous surface, `0040-arbitrary-precision-transcendentals.md` for the
-transcendental contract, and `0038-arbitrary-precision-decimal.md` for the
-overall design.
+The operation surface is the complete specification and the public API is
+settled, so the crate is at `1.0`. The General Decimal Arithmetic spelling of the
+operation names is deliberate and differs from the shorter, operator aligned
+names the fixed width siblings use; that divergence and the rest of the settled
+surface are recorded in `docs/decisions/0045-decimal-api-settle.md`. See
+`0041-gda-miscellaneous-operations.md` for the miscellaneous surface,
+`0040-arbitrary-precision-transcendentals.md` for the transcendental contract,
+and `0038-arbitrary-precision-decimal.md` for the overall design.
 
 ## Quick start
 
@@ -73,6 +75,29 @@ let (third, status) = a.divide(&b, &ctx);
 assert_eq!(third.digits(), Some(50));
 assert!(status.inexact());
 ```
+
+## Performance
+
+The arbitrary precision kernels were optimised in a measured pass: ADR-0043
+captures the baseline and ADR-0044 the per-candidate results. Two algorithmic
+changes carry the high precision cost down. The logarithm series is evaluated by
+Paterson-Stockmeyer rectangular splitting, which trades the linear count of
+full-width multiplies for a square-root one. The coefficient bignum gains a
+Karatsuba multiply above a limb threshold, leaving the small operand path on the
+schoolbook product. On the recorded host (Apple M2 Max, `rustc` 1.95.0), against
+the pre-pass baseline:
+
+| operation        | working precision | before  | after            |
+|------------------|------------------:|--------:|------------------|
+| `ln`             |        500 digits | 5.16 ms | 1.03 ms (5.0x)   |
+| `power`          |        500 digits | 9.83 ms | 4.82 ms (2.0x)   |
+| coefficient `mul`|       4000 digits |  521 µs | 188 µs (2.8x)    |
+
+The common low precision path and the core arithmetic are unchanged; the wins are
+at high precision, where the quadratic and cubic costs dominated. The numbers are
+host specific, so reproduce them on a target with `cargo bench`. Further
+candidates (a Newton reciprocal division, splitting the `exp` and constant
+series) are filed as performance-only follow-ups.
 
 ## Verification
 
