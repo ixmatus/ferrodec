@@ -1092,7 +1092,10 @@ fn expected_status(conditions: &[String]) -> Status {
             "invalid_operation" | "division_undefined" | "division_impossible" => {
                 s |= Status::INVALID;
             }
-            // Ignore: rounded, clamped, subnormal, lost_digits, conversion_syntax
+            // §7.4 CLAMPED is now compared (fd-61r / ADR-0048): ferrodec
+            // raises it at every detectable in-operation clamp site.
+            "clamped" => s |= Status::CLAMPED,
+            // Ignore: rounded, subnormal, lost_digits, conversion_syntax
             _ => {}
         }
     }
@@ -1153,16 +1156,38 @@ fn compare(
                 ));
             }
 
-            // Status flags — compare only the IEEE 754 exception set;
-            // `mask_status` drops the informational GDA conditions.
-            let actual_relevant = mask_status(*actual_flags);
-            let expected_relevant = mask_status(expected_flags);
-            if actual_relevant.bits() != expected_relevant.bits() {
+            // Status flags. The five IEEE 754 exceptions are compared
+            // strictly via `mask_status`. The §7.4 informational CLAMPED is
+            // also compared now (fd-61r / ADR-0048), except for the
+            // BID-structural residual: when an operand was itself clamped
+            // into its cohort at parse, BID cannot store the operand's
+            // pre-clamp exponent, so the operation cannot reconstruct the
+            // ideal exponent decNumber raises CLAMPED from. Those cases are
+            // skipped (tallied under the documented structural-CLAMPED
+            // category in KNOWN_ISSUES.md), not failed.
+            let actual_ieee = mask_status(*actual_flags);
+            let expected_ieee = mask_status(expected_flags);
+            if actual_ieee.bits() != expected_ieee.bits() {
                 return Outcome::Fail(format!(
                     "status mismatch (op {}): got {:#x}, want {:#x} from conditions {:?}",
                     case.op,
-                    actual_relevant.bits(),
-                    expected_relevant.bits(),
+                    actual_ieee.bits(),
+                    expected_ieee.bits(),
+                    case.conditions,
+                ));
+            }
+            if actual_flags.clamped() != expected_flags.clamped() {
+                if expected_flags.clamped()
+                    && !actual_flags.clamped()
+                    && any_operand_clamped_at_parse(&case.operands)
+                {
+                    return Outcome::Skip;
+                }
+                return Outcome::Fail(format!(
+                    "CLAMPED mismatch (op {}): got {}, want {} from conditions {:?}",
+                    case.op,
+                    actual_flags.clamped(),
+                    expected_flags.clamped(),
                     case.conditions,
                 ));
             }
@@ -1186,6 +1211,20 @@ fn mask_status(s: Status) -> Status {
         | Status::UNDERFLOW
         | Status::INEXACT;
     Status::from_bits_truncate(s.bits() & ieee.bits())
+}
+
+/// `true` when any operand of a decTest case is itself clamped at parse,
+/// i.e. its literal quantum exceeds the format range so BID stores it in a
+/// padded cohort. Such an operand has lost its pre-clamp exponent, so the
+/// downstream operation cannot reconstruct the wide ideal exponent
+/// decNumber raises §7.4 CLAMPED from. These cases are the documented
+/// BID-structural CLAMPED residual (fd-61r / ADR-0048); the comparator
+/// skips them rather than failing.
+fn any_operand_clamped_at_parse(operands: &[String]) -> bool {
+    operands.iter().any(|op| {
+        Decimal128::parse_str(op, RoundingMode::NearestEven)
+            .is_ok_and(|(_, status)| status.clamped())
+    })
 }
 
 /// Per-file expected `passed` count for the decTest run.
@@ -1217,12 +1256,12 @@ fn expected_per_file() -> &'static [(&'static str, usize)] {
             ("dqCompare.decTest", 659),
             ("dqCompareTotal.decTest", 613),
             ("dqCompareTotalMag.decTest", 613),
-            ("dqDivide.decTest", 687),
+            ("dqDivide.decTest", 683),
             // fd-ci0.5 (ADR-0031): `divideInteger` wired. All 374
             // cases pass on first run.
             ("dqDivideInt.decTest", 374),
             ("dqEncode.decTest", 0),
-            ("dqFMA.decTest", 1425),
+            ("dqFMA.decTest", 1418),
             // fd-ci0.6 (ADR-0031): `logical_invert` wired. All 193
             // cases pass on first run after the qNaN-as-INVALID fix.
             ("dqInvert.decTest", 193),
@@ -1239,7 +1278,7 @@ fn expected_per_file() -> &'static [(&'static str, usize)] {
             // fd-ci0.4 (ADR-0031): `reduce` wired. All 134 cases pass
             // on first run; no `#`-hex skips in the dq* counterpart.
             ("dqReduce.decTest", 134),
-            ("dqRemainderNear.decTest", 530),
+            ("dqRemainderNear.decTest", 521),
             // fd-ci0.9 (ADR-0031): `rotate`. All 248 cases pass.
             ("dqRotate.decTest", 248),
             ("dqSameQuantum.decTest", 333),
@@ -1264,12 +1303,12 @@ fn expected_per_file() -> &'static [(&'static str, usize)] {
             ("dqCompare.decTest", 659),
             ("dqCompareTotal.decTest", 613),
             ("dqCompareTotalMag.decTest", 613),
-            ("dqDivide.decTest", 687),
+            ("dqDivide.decTest", 683),
             // fd-ci0.5 (ADR-0031): `divideInteger` wired. All 374
             // cases pass on first run; encoding-independent.
             ("dqDivideInt.decTest", 374),
             ("dqEncode.decTest", 368),
-            ("dqFMA.decTest", 1425),
+            ("dqFMA.decTest", 1418),
             // fd-ci0.6 (ADR-0031): `logical_invert` wired. 193 cases
             // pass; encoding-independent.
             ("dqInvert.decTest", 193),
@@ -1287,7 +1326,7 @@ fn expected_per_file() -> &'static [(&'static str, usize)] {
             // first run, same as the non-dpd build (the op is encoding-
             // independent).
             ("dqReduce.decTest", 134),
-            ("dqRemainderNear.decTest", 530),
+            ("dqRemainderNear.decTest", 521),
             // fd-ci0.9 (ADR-0031): `rotate`. Encoding-independent.
             ("dqRotate.decTest", 248),
             ("dqSameQuantum.decTest", 333),

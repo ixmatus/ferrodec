@@ -182,8 +182,20 @@ pub(crate) fn round_and_pack_finite(
         }
     }
 
-    // Step 4 + 5: pack with overflow / underflow checks.
-    finalize_finite(rounded, exp_after, sign, rm, status)
+    // Step 4 + 5: pack with overflow / underflow checks. `q_ideal` is the
+    // operation's preferred quantum before any range clamp; `finalize_finite`
+    // uses it to raise §7.4 CLAMPED when a zero result's ideal exponent fell
+    // out of range, because the Step-1 subnormal drop has already pulled
+    // `exp_after` up to qmin and the delivered exponent no longer reveals the
+    // clamp (fd-61r / ADR-0048).
+    finalize_finite(
+        rounded,
+        exp_after,
+        sign,
+        rm,
+        status,
+        q_preferred.min(unbiased_exp),
+    )
 }
 
 /// `(round_digit, sticky)` for the "drop everything" subnormal-underflow
@@ -280,14 +292,22 @@ fn finalize_finite(
     sign: bool,
     rm: RoundingMode,
     mut status: Status,
+    q_ideal: i32,
 ) -> (Decimal128, Status) {
+    let qmin = -(BIAS as i32);
+    let qmax = BIASED_EXP_MAX as i32 - BIAS as i32;
     if coef.is_zero() {
         // Never an exception path — emit canonical zero with the given exp
         // (clamped if it falls out of range).
-        let clamped_exp = unbiased_exp.clamp(-(BIAS as i32), BIASED_EXP_MAX as i32 - BIAS as i32);
-        if clamped_exp != unbiased_exp {
+        let clamped_exp = unbiased_exp.clamp(qmin, qmax);
+        if q_ideal < qmin || q_ideal > qmax {
             // §7.4 Clamped (informational): zero is exact at every
-            // exponent; the preferred quantum was clamped into range.
+            // exponent, but its preferred quantum fell outside the format
+            // range and was clamped into it. `q_ideal` is checked rather
+            // than the delivered `unbiased_exp` because a subnormal
+            // underflow that rounds to zero has already had its exponent
+            // pulled up to qmin by the Step-1 drop (e.g. dqdiv1755
+            // `1e-4277 / 1e+3311 -> 0E-6176 Clamped`).
             status |= Status::CLAMPED;
         }
         return (
@@ -322,6 +342,15 @@ fn finalize_finite(
         debug_assert!(excess <= slack, "scale check should have caught this");
         coef = coef.mul_pow10(excess as u32);
         biased_exp -= excess;
+        // §7.4 Clamped (informational): the preferred quantum exceeded the
+        // format range and was pulled down to qmax, the coefficient
+        // absorbing the difference as trailing zeros. The value is exact;
+        // only the quantum was constrained. This branch is reachable only
+        // when the ideal quantum genuinely exceeds qmax (the scale check
+        // above already returned OVERFLOW for out-of-magnitude results, and
+        // the Step 3.5 down-shift reaches qmax whenever the ideal is in
+        // range), so the clamp is never spurious (fd-61r / ADR-0048).
+        status |= Status::CLAMPED;
     }
 
     // Underflow: biased_exp < 0 means the quantum is below qmin. Try to
