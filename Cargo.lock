@@ -286,7 +286,7 @@ dependencies = [
 
 [[package]]
 name = "ferrodec-decimal"
-version = "0.3.0"
+version = "1.0.0"
 dependencies = [
  "criterion",
  "ferrodec",
