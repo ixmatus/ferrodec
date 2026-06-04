@@ -23,6 +23,7 @@
 //! and series-evaluation framing.
 
 use super::work::Work;
+use ferrodec_multiword::DecBig;
 
 /// Extra digits carried beyond a caller's requested precision so a constant is
 /// accurate to well below one unit in the last place of that precision: it
@@ -87,24 +88,48 @@ fn compute_ln10(ip: u32) -> Work {
     three_ln2.add(&a9.add(&a9, ip), ip)
 }
 
-/// `atanh(1/m) = sum_{k>=0} (1/m)^(2k+1) / (2k+1)` at internal precision `ip`,
-/// for a small integer `m`. Terms shrink by `1/m^2` each step, so the loop
-/// stops once a term falls entirely below the `ip`-digit window of the sum.
-///
-/// This keeps the term-by-term loop rather than the rectangular splitting the
-/// logarithm's value series uses: here the per-term step is a division by the
-/// small integer `m^2` (linear in the digit count), not a full-width multiply,
-/// so it is already cheap and rectangular splitting would only add full-width
-/// multiplies. Binary splitting (the small-rational accelerator) would beat this
-/// at very high precision and is a possible follow-up.
+/// Term count at or above which `atanh(1/m)` uses binary splitting rather than
+/// the term-by-term loop. Tuned against the ADR-0043 bench.
+const BS_MIN_TERMS: u64 = 32;
+
+/// `atanh(1/m) = (1/m) * sum_{k>=0} (1/m^2)^k / (2k+1)` at internal precision
+/// `ip`, for a small integer `m`. The series argument `1/m^2` is a small
+/// rational, so above a term-count threshold this uses binary splitting
+/// (`atanh_recip_bs`); below it the term-by-term loop is cheaper and is kept.
 fn atanh_recip(m: u32, ip: u32) -> Work {
+    let n_terms = atanh_recip_terms(m, ip);
+    if n_terms >= BS_MIN_TERMS {
+        atanh_recip_bs(m, ip, n_terms)
+    } else {
+        atanh_recip_simple(m, ip)
+    }
+}
+
+/// A safe upper bound on the non-negligible term count of the `atanh(1/m)`
+/// series at `ip` digits. Terms shrink by `1/m^2` each step, so `(1/m^2)^k`
+/// falls below `10^-(ip+slack)` once `k` exceeds `(ip+slack)/log10(m^2)`. The
+/// `m = 3` case (`m^2 = 9`) sits in the boundary decade, so it uses the
+/// `1/0.95 = 20/19` ratio (`log10(9) > 0.95`); larger `m` use the digit-count
+/// lower bound on the decay.
+fn atanh_recip_terms(m: u32, ip: u32) -> u64 {
+    let d = DecBig::from_u32(m * m).decimal_digit_count(); // digits of m^2
+    let bound = u64::from(ip) + 6;
+    if d >= 2 {
+        bound / (d - 1) + 6
+    } else {
+        bound * 20 / 19 + 6
+    }
+}
+
+/// The term-by-term sum, used below the binary-splitting threshold. The per-term
+/// step is a division by the small integer `m^2` (linear in the digit count),
+/// so at low precision it beats the splitting's recursion overhead.
+fn atanh_recip_simple(m: u32, ip: u32) -> Work {
     let m_sq = Work::from_i64(i64::from(m) * i64::from(m));
     // The `k = 0` term is `1/m`; `power` tracks `(1/m)^(2k+1)`.
     let mut power = Work::one().div_to(&Work::from_i64(i64::from(m)), ip);
     let mut sum = power.clone();
     let mut k: i64 = 1;
-    // Bound the iteration count generously; the geometric decay terminates the
-    // loop long before this for any `m >= 3`.
     let max_iter = i64::from(ip) * 4 + 16;
     while k <= max_iter {
         power = power.div_to(&m_sq, ip);
@@ -117,6 +142,46 @@ fn atanh_recip(m: u32, ip: u32) -> Work {
         k += 1;
     }
     sum
+}
+
+/// `atanh(1/m)` by binary splitting over `n_terms` terms (a safe upper bound on
+/// the non-negligible count). The series `S = sum_{k>=0} 1/((2k+1) M^k)` with
+/// `M = m^2` is a small-rational hypergeometric series, so the partial sum is an
+/// exact ratio of big integers `(Q + T) / Q` (the `k = 0` term is the `1`), and
+/// `atanh(1/m) = (1/m) * S = (Q + T) / (m * Q)` is one final divide at `ip`
+/// digits. Computing `T` and `Q` by a balanced product tree costs
+/// `O(M(D) log D)` rather than the loop's `O(D^2)`. Derived from the series; see
+/// Haible and Papanikolaou, "Fast multiprecision evaluation of series of
+/// rational numbers" (1998), and Brent and Zimmermann, *Modern Computer
+/// Arithmetic*, 4.9, for the method (not transcribed).
+fn atanh_recip_bs(m: u32, ip: u32, n_terms: u64) -> Work {
+    let m_sq = DecBig::from_u128(u128::from(m) * u128::from(m));
+    // P, Q, T over [1, n_terms); the k = 0 term (value 1) is added back as Q.
+    let (_p, q, t) = bs_split(1, n_terms, &m_sq);
+    let num = q.add(&t); // Q * (1 + T/Q) = Q + T = Q * S
+    let den = q.mul(&DecBig::from_u32(m)); // m * Q
+    Work::new(false, num, 0).div_to(&Work::new(false, den, 0), ip)
+}
+
+/// The Haible-Papanikolaou `(P, Q, T)` triple for the `atanh(1/m)` series over
+/// the index range `[a, b)`, with `a >= 1` and the per-term ratio
+/// `c_k / c_{k-1} = (2k-1) / (m^2 * (2k+1))`. `P` is the product of the
+/// numerators `2k-1`, `Q` the product of the denominators `m^2*(2k+1)`, and `T`
+/// the unnormalized partial sum, so `sum_{k=a}^{b-1} c_k = T / Q` relative to
+/// `c_0 = 1`. The merge is `T = T_left * Q_right + P_left * T_right`.
+fn bs_split(a: u64, b: u64, m_sq: &DecBig) -> (DecBig, DecBig, DecBig) {
+    if b - a == 1 {
+        let k = u128::from(a);
+        let p = DecBig::from_u128(2 * k - 1);
+        let q = m_sq.mul(&DecBig::from_u128(2 * k + 1));
+        (p.clone(), q, p) // single term: T = p_a
+    } else {
+        let mid = a + (b - a) / 2;
+        let (p_l, q_l, t_l) = bs_split(a, mid, m_sq);
+        let (p_r, q_r, t_r) = bs_split(mid, b, m_sq);
+        let t = t_l.mul(&q_r).add(&p_l.mul(&t_r));
+        (p_l.mul(&p_r), q_l.mul(&q_r), t)
+    }
 }
 
 /// The power of ten of a nonzero `Work`'s leading digit.
@@ -168,6 +233,22 @@ mod tests {
         let v = cache.inv_ln10(48);
         let got = sig_digits(&v);
         assert_eq!(&got[..48], &LOG10E[..48], "1/ln10 got {got}");
+    }
+
+    #[test]
+    fn bs_matches_simple() {
+        // Binary splitting and the term-by-term loop must agree to the working
+        // precision, for m = 3 (m^2 = 9, the boundary decade) and m = 9 (81),
+        // at a precision high enough to force the split.
+        for m in [3u32, 9] {
+            let ip = 200u32;
+            let mut simple = atanh_recip_simple(m, ip);
+            let mut bs = atanh_recip_bs(m, ip, atanh_recip_terms(m, ip));
+            simple.normalize_to(180);
+            bs.normalize_to(180);
+            assert_eq!(simple.coeff, bs.coeff, "coeff m={m}");
+            assert_eq!(simple.exp, bs.exp, "exp m={m}");
+        }
     }
 
     #[test]
