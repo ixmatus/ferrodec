@@ -27,6 +27,8 @@ the build before it could be benched for a win.
 | 2 | Karatsuba multiply (threshold-gated, 32 limbs) | shipped | `mul` −27 % to −64 % at 500–4000 digits; no regressions |
 | 3 | Newton reciprocal division | deferred | re-opened: post-Slice-2, `div_rem` is now ~3x `mul` at 4000 digits (below) |
 
+The three deferred candidates (Newton division, `exp`-series splitting, constant-series splitting) land after 1.0 as patch work; their results are in [ADR-0046](0046-decimal-perf-followups.md).
+
 ## Slice 1: rectangular splitting of the logarithm series
 
 **Technique.** The logarithm reduces to `atanh(w) = w * sum_{k>=0} (w^2)^k /
