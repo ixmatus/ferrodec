@@ -546,7 +546,7 @@ impl Extended {
 /// (the `U384` capacity). Inputs must each be ≤ 50 digits, which is
 /// the invariant Extended maintains after every round.
 #[inline]
-fn u256_mul_u256(a: U256, b: U256) -> U384 {
+pub(crate) fn u256_mul_u256(a: U256, b: U256) -> U384 {
     let (ll_hi, ll_lo) = widening_mul_u128(a.lo, b.lo);
     let (lh_hi, lh_lo) = widening_mul_u128(a.lo, b.hi);
     let (hl_hi, hl_lo) = widening_mul_u128(a.hi, b.lo);
