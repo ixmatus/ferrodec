@@ -169,6 +169,17 @@ MSRV: Rust 1.84.
 | Kani harnesses | Per-operation modules (addsub, mul, div, sqrt, fma, cmp) prove no-panic and IEEE 754 special-case propagation over a bounded operand set. Run via `cargo kani --package ferrodec-decimal64 --features=transcendentals`. |
 | Fuzz | Four cargo-fuzz targets (parse, arith, transcendentals, `total_cmp`) covering panic-freedom and algebraic-identity invariants over arbitrary u64 bit patterns. |
 
+## Performance
+
+Decimal64 does not maintain its own benchmark suite. Its transcendental kernels
+are the shared `ferrodec-transcend` Extended-precision kernel, identical to the
+parent's, and its core arithmetic is the same algorithms at Decimal64's narrower
+width, so the parent [`ferrodec`](https://crates.io/crates/ferrodec) crate's
+Performance section is representative of the core-op cost shape. For the
+arbitrary-precision sibling, whose high-precision kernels have a very different
+profile and a measured optimisation pass, see the
+[`ferrodec-decimal`](https://crates.io/crates/ferrodec-decimal) README.
+
 ## Why no `core::ops` (and how to opt in)
 
 By default, `Decimal64` does *not* implement `+`, `-`, `*`, `/`, `%`.
@@ -184,14 +195,15 @@ Default rounding is `NearestEven`; the `Status` is dropped. Mix and
 match: `let (sum, st) = a.add(b, mode);` and `let sum = a + b;`
 both compile when `ops` is on.
 
-## Choosing between ferrodec / ferrodec-decimal64 / `rust_decimal`
+## Choosing a decimal type
 
 | Scenario | Pick |
 | --- | --- |
 | 7-digit precision is enough, embedded / `no_std` target | [`ferrodec-decimal32`](https://crates.io/crates/ferrodec-decimal32) |
 | 16-digit precision (financial general ledger, scientific aggregates), embedded / `no_std` friendly | **ferrodec-decimal64** |
 | 34-digit precision, IEEE 754 Decimal128 surface | [`ferrodec`](https://crates.io/crates/ferrodec) |
-| Variable / arbitrary precision, no IEEE 754 conformance needed | [`rust_decimal`](https://crates.io/crates/rust_decimal) |
+| Unbounded precision, full General Decimal Arithmetic conformance (needs an allocator) | [`ferrodec-decimal`](https://crates.io/crates/ferrodec-decimal) |
+| Variable precision, no IEEE 754 / GDA conformance needed | [`rust_decimal`](https://crates.io/crates/rust_decimal) |
 
 ## Porting between the ferrodec formats
 

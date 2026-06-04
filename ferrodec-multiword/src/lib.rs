@@ -22,7 +22,17 @@
 //! Cortex-M0+ floor. The optional `alloc` feature additionally compiles
 //! in [`DecBig`], a growable base-`10^9` decimal-limb unsigned integer
 //! used as the coefficient backend for arbitrary-precision decimal; it
-//! is the only part of the crate that touches the heap.
+//! is the only part of the crate that touches the heap. `DecBig`
+//! multiplies by schoolbook below a limb threshold and Karatsuba above
+//! it, and divides by Knuth Algorithm D (TAOCP Vol 2 §4.3.1) at radix
+//! `10^9`; see the [`decbig`] module documentation for the
+//! representation invariant, the algorithm provenance, and the
+//! performance rationale (ADR-0043).
+//!
+//! This is a support crate for the ferrodec decimal family: the surface
+//! is shaped for the family's needs rather than as a general-purpose
+//! bignum library, though it is published so the public formats can
+//! depend on it.
 
 #![no_std]
 

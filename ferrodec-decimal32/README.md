@@ -71,6 +71,7 @@ to ±0 with the encoded sign and biased exponent, per IEEE 754-2019
 | `ops` | `core::ops` overloads (`Add`, `Sub`, `Mul`, `Div`, `Rem`, `Neg`, plus `*Assign`). Defaults to `RoundingMode::NearestEven`; drops `Status`. |
 | `serde` | `Serialize` / `Deserialize` via the canonical decimal string. The `serde_bid` helper module serialises the raw 32-bit BID pattern in binary formats. |
 | `num-traits` | `Zero`, `One`, `Bounded`, `Signed`, `Num`, `From\|To Primitive`. Auto-pulls `ops` + `binary-float` + `fmt`. |
+| `dpd` | `Decimal32::to_dpd_bytes` / `from_dpd_bytes` for IEEE 754-2019 Densely Packed Decimal byte-pattern interchange (IBM decNumber, z/Architecture decimal-FP hardware, the `dsEncode` vectors). Storage and arithmetic stay BID; this is a pure byte-level adapter. Off by default (ADR-0009). |
 
 ## What you can call
 
@@ -139,6 +140,17 @@ modes), proved on every committed Arb worst-case vector and
 empirically corroborated by MPFR with zero disagreements
 (ADR-0026, ADR-0032).
 
+For Decimal32 this guarantee is exhaustive, not sampled, and is the
+family's strongest correctness result. The entire canonical §9.2
+transcendental input space (about 42 billion inputs across the 18
+unary functions) and every non-negative square-root input (1.728
+billion) were walked offline through a certified two-tier Arb filter
+and proven correctly rounded, cross-checked against MPFR with zero
+disagreements (ADR-0033, ADR-0034). The wider formats cannot do this:
+their canonical input cardinalities (about 10¹⁸ for Decimal64, 10³⁶
+for Decimal128) are beyond exhaustive reach, so they keep the
+sampled-corpus margin above.
+
 ## Supported targets
 
 Tested in CI on:
@@ -160,6 +172,19 @@ MSRV: Rust 1.84.
 | Property tests | Round-trip `parse_str → Display`. |
 | Kani harnesses | Per-operation modules (addsub, mul, div, sqrt, fma, cmp) prove no-panic and IEEE 754 special-case propagation over a bounded operand set. Run via `cargo kani --package ferrodec-decimal32 --features=fmt`. |
 | Fuzz | Four cargo-fuzz targets (parse, arith, transcendentals, `total_cmp`) covering panic-freedom and algebraic-identity invariants over arbitrary bit patterns. |
+| Exhaustive (Decimal32 only) | The full canonical §9.2 transcendental input space (~42 billion) and every non-negative `sqrt` input (1.728 billion) walked offline through a certified Arb filter, proven correctly rounded and MPFR-cross-checked with zero disagreements (ADR-0033/0034; `tests/transcend_vectors_exhaustive.rs`). A separate `tests/identity_exhaustive.rs` walks the full 2³² encoding space for total-order and round-trip identities. |
+
+## Performance
+
+Decimal32 does not maintain its own benchmark suite. Its transcendental kernels
+are the shared `ferrodec-transcend` Extended-precision kernel, identical to the
+parent's, and its core arithmetic is the same algorithms at Decimal32's narrower
+width (the working precision fits in `u64`), so the parent
+[`ferrodec`](https://crates.io/crates/ferrodec) crate's Performance section is
+representative of the core-op cost shape. For the arbitrary-precision sibling,
+whose high-precision kernels have a very different profile and a measured
+optimisation pass, see the
+[`ferrodec-decimal`](https://crates.io/crates/ferrodec-decimal) README.
 
 ## Why no `core::ops` (and how to opt in)
 
@@ -176,14 +201,15 @@ Default rounding is `NearestEven`; the `Status` is dropped. Mix and
 match: `let (sum, st) = a.add(b, mode);` and `let sum = a + b;`
 both compile when `ops` is on.
 
-## Choosing between ferrodec / ferrodec-decimal32 / `rust_decimal`
+## Choosing a decimal type
 
 | Scenario | Pick |
 | --- | --- |
 | 7-digit precision is enough, embedded / `no_std` target | **ferrodec-decimal32** |
 | 16-digit precision (financial general ledger, scientific aggregates), the sweet spot between Decimal32 and Decimal128 | [`ferrodec-decimal64`](https://crates.io/crates/ferrodec-decimal64) |
 | 34-digit precision, IEEE 754 Decimal128 surface | [`ferrodec`](https://crates.io/crates/ferrodec) |
-| Variable / arbitrary precision, no IEEE 754 conformance needed | [`rust_decimal`](https://crates.io/crates/rust_decimal) |
+| Unbounded precision, full General Decimal Arithmetic conformance (needs an allocator) | [`ferrodec-decimal`](https://crates.io/crates/ferrodec-decimal) |
+| Variable precision, no IEEE 754 / GDA conformance needed | [`rust_decimal`](https://crates.io/crates/rust_decimal) |
 
 ## Porting between the ferrodec formats
 
