@@ -70,6 +70,13 @@ pub fn cbrt_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
     if sign_neg {
         result = result.neg();
     }
-    status |= Status::INEXACT;
+    // `exp_from_extended` already raised INEXACT. cbrt can land on an exact
+    // value (a perfect cube root: cbrt(8) = 2, cbrt(-27) = -3), where IEEE
+    // 754-2019 §7.5 forbids the flag. Suppress it only when the delivered
+    // result cubes back to the input exactly. Overflow / ±∞ results never
+    // enter the check (decoding a non-finite datum is undefined).
+    if !status.overflow() && !result.is_infinite() && crate::exact::cube_is_exact(result, x) {
+        status = crate::exact::clear_inexact(status);
+    }
     (result, status)
 }

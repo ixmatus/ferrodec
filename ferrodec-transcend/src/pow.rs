@@ -221,13 +221,28 @@ pub fn pow_kernel<F: DecimalFormat>(x: F, y: F, rm: RoundingMode) -> (F, Status)
     let ln_x_ext = ln_extended(abs_x);
     let y_ext = Extended::from_format(y);
     let y_ln_x_ext = y_ext.mul(ln_x_ext);
-    let (result, mut status) = exp_from_extended::<F>(y_ln_x_ext, rm);
+    let (result, status) = exp_from_extended::<F>(y_ln_x_ext, rm);
 
     let sign_neg = x.is_sign_negative() && matches!(y_int, IntegerKind::OddInteger);
     let signed = if sign_neg { result.neg() } else { result };
 
-    status |= Status::INEXACT;
-    (signed, status)
+    // `exp_from_extended` already raised INEXACT. pow can land on an exact
+    // value (an exact integer or rational power: pow(10, 300) = 1E+300,
+    // pow(4, 0.5) = 2), where IEEE 754-2019 §7.5 forbids the flag. Suppress
+    // it only when the delivered result raised back through the exponent
+    // reproduces the input exactly. Overflow / ±∞ results never enter the
+    // check (decoding a non-finite datum is undefined). Small exact integer
+    // powers are already handled by the fast path above and never reach
+    // here.
+    let final_status = if !status.overflow()
+        && !signed.is_infinite()
+        && crate::exact::power_is_exact(signed, x, y)
+    {
+        crate::exact::clear_inexact(status)
+    } else {
+        status
+    };
+    (signed, final_status)
 }
 
 /// Try the square-and-multiply fast path for integer `y` up to `±256`.

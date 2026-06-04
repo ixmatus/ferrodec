@@ -36,6 +36,11 @@ pub mod consts;
 pub mod extended;
 mod format;
 
+// Exact-result detection for cbrt / pow (§7.5 INEXACT contract). Gated on
+// `exp-log` (cbrt); `pow` implies `exp-log`, so both consumers see it.
+#[cfg(feature = "exp-log")]
+mod exact;
+
 #[cfg(feature = "trig")]
 pub mod argred;
 #[cfg(feature = "exp-log")]

@@ -26,6 +26,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   base-`10^9` growable `DecBig` integer to `ferrodec-multiword` behind a new
   `alloc` feature. See ADR-0038.
 
+### Fixed
+
+- `Decimal128::cbrt` and `Decimal128::pow` no longer raise `INEXACT` on an
+  exactly representable result (for example `cbrt(8)`, `pow(4, 0.5)`,
+  `pow(10, 300)`). IEEE 754-2019 §7.5 raises INEXACT only when the delivered
+  result differs from the infinitely precise one; the shared
+  `ferrodec-transcend` kernel previously flagged every transcendental result.
+  Exactness is now proved in fixed width integer arithmetic before the flag is
+  cleared. The value was always correct; only the flag changes. See ADR-0047
+  (fd-92w.8).
+
 ## [3.2.0] - 2026-06-01
 
 ### Added
