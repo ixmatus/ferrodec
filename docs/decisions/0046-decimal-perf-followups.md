@@ -24,7 +24,7 @@ late-bench swings with no causal path to the change.
 |-----------|---------|------|
 | Binary-split the `ln 2` / `ln 10` constant series | shipped | `log10` −47 %, `exp` −21 %, `power` −13 % at precision 500; large wins at typical precision too |
 | Speed `exp` by argument halving | shipped | `exp` −45 %, `power` −34 % at precision 500 (chosen over factorial-rectangular splitting) |
-| Newton reciprocal division | pending | |
+| Newton reciprocal division | rejected | the bench shows no win at the crate's precisions (below) |
 
 ## Binary-split the constant series
 
@@ -89,6 +89,31 @@ at precision 500 and `power` 3.5x.
 **Correctness.** A unit test checks `exp(1) = e` to 48 digits through the halving
 and squaring path; the decTest conformance stays 0-fail and the libmpdec
 differential cohort-exact.
+
+## Newton reciprocal division (rejected on the measurement)
+
+ADR-0044 deferred this and re-opened it after Karatsuba, since `div_rem` (Knuth
+Algorithm D, still `O(n^2)`) had become about 3x `mul` at 4000 digits. Re-opening
+it means measuring it, and the measurement rejects it.
+
+Newton reciprocal division replaces the long division with a reciprocal computed
+by a quadratically converging iteration, then a multiply; the standard cost is
+about three to five full-width multiplies (Brent and Zimmermann, *Modern Computer
+Arithmetic*, 1.4.3). The `decbig_ops` bench measures Knuth-D division at **3.0x**
+a Karatsuba multiply at 4000 digits (565 µs against 188 µs). So a best-case
+Newton division (about 3 `mul`) is only break-even there, and a realistic one
+(four to five `mul`) is slower. Below 4000 digits the case is worse for Newton:
+Knuth-D's `O(n^2)` carries a small constant and is very fast at the few-hundred-
+digit precisions the crate actually runs (the decTest conformance tops out near
+400 digits), where the reciprocal iteration's fixed overhead dominates. The
+crossover where Newton would win sits well beyond the crate's working range.
+
+It is also the riskiest refactor of the set (a missed final-digit correction is a
+silent wrong quotient), so the cost-benefit is firmly negative. It is therefore
+not implemented; the bench ratio is the deliverable, in the ADR-0006/0007/0008
+tradition that a non-winning candidate is recorded rather than shipped. If a
+genuine very-high-precision division or square-root workload appears later, this
+is the first place to look, with a fresh benchmark at that precision.
 
 ## Consequences
 
