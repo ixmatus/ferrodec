@@ -84,7 +84,7 @@ Three design choices shape the library by default.
 
 ```toml
 [dependencies]
-ferrodec = "2"
+ferrodec = "3"
 ```
 
 The headline case is decimal arithmetic that rounds the way humans do.
@@ -150,7 +150,7 @@ ferrodec is feature gated so the embedded floor pays only for what it uses.
 | `dpd` | no | `Decimal128::to_dpd_bytes` / `from_dpd_bytes` for IEEE 754:2019 Densely Packed Decimal byte-pattern interchange. Storage and arithmetic stay BID; this is a byte-level adapter for round-tripping with IBM decNumber, z/Architecture decimal-FP hardware, and the upstream `dqEncode` / `dqCanonical` conformance vectors. | +7 KB |
 | `kani` | no | Compile the formal verification harnesses; off in normal builds | none in production |
 
-(Sizes are the `libferrodec.rlib` delta in release mode at commit `1.3.0`. The actual `.text` section in a linked binary will be somewhat smaller. Numbers are illustrative; profile your own application before deciding.)
+(Sizes are the `libferrodec.rlib` delta in release mode, measured at the 1.3.0 release and representative since; the feature surface they cover is unchanged. The actual `.text` section in a linked binary will be somewhat smaller. Numbers are illustrative; profile your own application before deciding.)
 
 ## What you can call
 
@@ -246,9 +246,11 @@ A tight feedback loop matters more than chasing microseconds, but the criterion 
 * `sqrt`: 20 µs over five inputs (4.1 µs per call).
 * `fma`: 415 µs across a 6×6×6 matrix (1.9 µs per call).
 
-The `1.11.0` perf pass moved the headline operations 23 % to 27 % faster than `1.10.1`. See [`docs/decisions/0008-perf-results.md`](docs/decisions/0008-perf-results.md) for the per-bench delta and the full ADR-recorded methodology.
+These are the standing measured numbers since the dedicated perf pass (recorded in [`docs/decisions/0008-perf-results.md`](docs/decisions/0008-perf-results.md), which moved the headline operations 23 % to 27 % faster); the kernels have not changed since, but the numbers are host specific, so reproduce them with `cargo bench` on your target rather than relying on the absolute values.
 
 Run `cargo bench --features=transcendentals --bench transcendentals` for the math kernels, `cargo bench --features=fmt --bench conversions` for parse and format throughput, and `cargo bench --features=fmt --bench comparison` for `partial_cmp` / `total_cmp` shapes.
+
+The arbitrary-precision sibling carries its own performance story: a measured pass sped its high-precision transcendental kernels by 2.7x to 5.0x, with the before-and-after table in [`ferrodec-decimal/README.md`](ferrodec-decimal/) (and ADR-0043, ADR-0044, ADR-0046).
 
 ## Why no `core::ops` (and how to opt in)
 
@@ -277,7 +279,7 @@ The same reasoning leads us to implement `Eq` and `PartialEq` as bitwise equalit
 | Default API | Explicit `RoundingMode` + `(value, Status)` return | `core::ops` operators, banker's rounding |
 | Ergonomic operators | Opt-in via `ops` feature (`NearestEven`, `Status` discarded) | Built-in |
 | `serde` / `num-traits` | Behind feature flags | Built-in / via feature |
-| Maturity | Younger; 1.x | Established, millions of downloads |
+| Maturity | Younger; 3.x, IEEE 754-2019 conformant and SemVer-stable | Established, millions of downloads |
 
 **Pick ferrodec when**: you need 34-digit precision, IEEE 754 conformance (NaN handling, multiple rounding modes, transcendentals), formal verification, or hard `no_std`. Financial systems with regulatory requirements; scientific calculators; embedded targets.
 

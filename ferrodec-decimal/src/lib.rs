@@ -27,7 +27,9 @@
 //! overall design, ADR-0040 for the transcendental contract, and ADR-0041 for
 //! the miscellaneous surface. The operation surface is the complete
 //! specification, the public API is settled (ADR-0045), and the performance
-//! pass is done (ADR-0043, ADR-0044), so the crate is at `1.0`.
+//! pass is done (ADR-0043, ADR-0044, with post-1.0 follow-ups in ADR-0046), so
+//! the crate is at `1.0`; the README's Performance section has the measured
+//! speedups.
 
 #![no_std]
 

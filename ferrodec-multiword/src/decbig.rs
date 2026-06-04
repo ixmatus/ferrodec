@@ -241,7 +241,7 @@ impl DecBig {
     }
 
     /// `self * other`. Schoolbook for small operands; Karatsuba once both reach
-    /// [`KARATSUBA_THRESHOLD`] limbs, where its `O(n^1.585)` recurrence beats the
+    /// `KARATSUBA_THRESHOLD` limbs, where its `O(n^1.585)` recurrence beats the
     /// schoolbook `O(n^2)`.
     #[must_use]
     pub fn mul(&self, other: &Self) -> Self {

@@ -80,6 +80,8 @@
 //! - [`ferrodec`](https://crates.io/crates/ferrodec): Decimal128.
 //! - [`ferrodec-decimal64`](https://crates.io/crates/ferrodec-decimal64):
 //!   Decimal64.
+//! - [`ferrodec-decimal`](https://crates.io/crates/ferrodec-decimal):
+//!   arbitrary precision General Decimal Arithmetic (needs an allocator).
 //! - [`ferrodec-ieee`](https://crates.io/crates/ferrodec-ieee):
 //!   the shared IEEE 754 metadata types.
 //!

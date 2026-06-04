@@ -16,7 +16,8 @@ payload. The coefficient is held as an integer, so trailing zeros are
 significant and the full cohort of a value is preserved: `1.0` and `1.00` are
 distinct, and a zero carries its own sign and quantum.
 
-Two design choices carry over from the fixed formats, and one is new.
+Two design choices carry over from the fixed formats, one is new, and one fixes
+the value semantics.
 
 1. **Per operation status, never global flags.** Every operation returns
    `(Decimal, Status)`, the General Decimal Arithmetic conditions that one call
@@ -27,6 +28,13 @@ Two design choices carry over from the fixed formats, and one is new.
    supported, the five shared with IEEE plus `HalfDown`, `Up`, and `ZeroFiveUp`.
 3. **A growable coefficient.** Precision is bounded only by the context and by
    memory, not by a fixed format width.
+4. **Representation equality, and no ordering operator.** `==` (`PartialEq` /
+   `Eq`) compares the representation, so the whole cohort matters: `1.0` and
+   `1.00` are equal in value but distinct representations and compare unequal.
+   `Decimal` deliberately does not implement `PartialOrd` / `Ord`, so `<` / `>`
+   cannot be mistaken for a numeric comparison; numeric ordering is `compare` /
+   `compare_total`. The fixed-width siblings implement the ordering traits, so
+   this is a deliberate cross-family divergence, recorded in ADR-0045.
 
 ## The operation surface
 
@@ -42,22 +50,24 @@ rounded). And the miscellaneous tier: the logical `and` / `or` / `xor` /
 `invert`, `shift` / `rotate`, `scaleb` / `logb`, `nextPlus` / `nextMinus` /
 `nextToward`, `compareSignal`, `compareTotalMagnitude`, `maxMagnitude` /
 `minMagnitude`, `sameQuantum`, `class`, the classification predicates, and
-`radix`.
+`radix`. The Rust methods render these spec names in snake case
+(`divide_integer`, `next_toward`, `compare_signal`, `compare_total_magnitude`,
+`same_quantum`, and so on).
 
 Values come from `parse_str`, the exact integer constructors (`from_i64` and
 its siblings), or, behind the `binary-float` feature, a lossless `TryFrom<f64>`
 / `TryFrom<f32>` that yields the float's precise decimal value rather than the
 shortest one. An optional `interop` feature converts losslessly from and
-roundingly to the fixed-width `Decimal32` / `Decimal64` / `Decimal128`.
+roundingly to the fixed-width `Decimal32` / `Decimal64` / `Decimal128`; the
+narrowing direction takes the five IEEE rounding modes, since the three GDA-only
+modes do not apply to a format that does not define them (ADR-0005).
 
 The operation surface is the complete specification and the public API is
 settled, so the crate is at `1.0`. The General Decimal Arithmetic spelling of the
 operation names is deliberate and differs from the shorter, operator aligned
 names the fixed width siblings use; that divergence and the rest of the settled
-surface are recorded in `docs/decisions/0045-decimal-api-settle.md`. See
-`0041-gda-miscellaneous-operations.md` for the miscellaneous surface,
-`0040-arbitrary-precision-transcendentals.md` for the transcendental contract,
-and `0038-arbitrary-precision-decimal.md` for the overall design.
+surface are recorded in ADR-0045. See ADR-0041 for the miscellaneous surface,
+ADR-0040 for the transcendental contract, and ADR-0038 for the overall design.
 
 ## Quick start
 

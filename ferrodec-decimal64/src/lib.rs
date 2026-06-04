@@ -20,9 +20,10 @@
 //! - Exponent range: -383 to 384 unbiased; 0 to 767 biased; bias 398.
 //! - Maximum normal magnitude: 9.999999999999999 × 10³⁸⁴.
 //! - Minimum positive normal magnitude: 1 × 10⁻³⁸³.
-//! - Encoding: BID (binary integer significand) for arithmetic; DPD
-//!   (densely packed decimal) planned for IEEE byte-pattern
-//!   interchange.
+//! - Encoding: BID (binary integer significand) for arithmetic. DPD
+//!   (densely packed decimal) byte-pattern interchange is available on
+//!   Decimal128 and Decimal32 through their `dpd` feature; Decimal64
+//!   stores BID only.
 //! - IEEE 754-2019 §6.3 exponent clamping is honoured.
 //!
 //! # Family-wide conventions
@@ -48,8 +49,8 @@
 //!   with the `ferrodec` (Decimal128) parent. No transcendental
 //!   routes through `f64`, so `libm` is not a dependency. They ship
 //!   under the transcendental sub-features (`exp-log` / `trig` /
-//!   `hyperbolic` / `pow`); the 1.5.0 CHANGELOG records the change
-//!   from the pre-1.5.0 `f64` / `libm` baseline (ADR-0024).
+//!   `hyperbolic` / `pow`); the CHANGELOG records the move from the
+//!   earlier `f64` / `libm` baseline to the shared kernel (ADR-0024).
 //!
 //! # Cohort stability
 //!
@@ -78,6 +79,8 @@
 //! - [`ferrodec`](https://crates.io/crates/ferrodec): Decimal128.
 //! - [`ferrodec-decimal32`](https://crates.io/crates/ferrodec-decimal32):
 //!   Decimal32.
+//! - [`ferrodec-decimal`](https://crates.io/crates/ferrodec-decimal):
+//!   arbitrary precision General Decimal Arithmetic (needs an allocator).
 //! - [`ferrodec-ieee`](https://crates.io/crates/ferrodec-ieee):
 //!   the shared IEEE 754 metadata types.
 //!
