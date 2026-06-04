@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-06-03
+
+A performance patch: two further transcendental optimisations, both internal and
+cohort-exact (no API or behaviour change). See ADR-0046.
+
+### Performance
+
+- The `ln 2` / `ln 10` constants are now computed by binary splitting (their
+  series is a small rational, the case binary splitting is built for). This cuts
+  `log10`, `exp`, and `power` at every precision, most at typical precision where
+  the constants dominated: `log10` is 41 % faster at 16 digits and 47 % at 500.
+- `exp` now uses argument halving (`e^r = (e^(r/2^j))^(2^j)` with `j ~ sqrt`),
+  cutting its high-precision Taylor cost: `exp` is 45 % faster and `power` 34 %
+  at precision 500. Cumulatively since the pre-1.0 baseline, at precision 500
+  `ln` is 5.0x faster, `log10` 2.9x, `exp` 2.7x, and `power` 3.5x.
+- A Newton reciprocal division was evaluated and rejected: the benchmark shows
+  Knuth Algorithm D division already costs only about three times a Karatsuba
+  multiply at 4000 digits, below the crossover where Newton would win, so it is
+  not worth its risk at the precisions this crate runs. See ADR-0046.
+
 ## [1.0.0] - 2026-06-03
 
 First stable release. The operation surface has been the complete General

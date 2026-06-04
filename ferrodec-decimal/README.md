@@ -78,26 +78,29 @@ assert!(status.inexact());
 
 ## Performance
 
-The arbitrary precision kernels were optimised in a measured pass: ADR-0043
-captures the baseline and ADR-0044 the per-candidate results. Two algorithmic
-changes carry the high precision cost down. The logarithm series is evaluated by
-Paterson-Stockmeyer rectangular splitting, which trades the linear count of
-full-width multiplies for a square-root one. The coefficient bignum gains a
-Karatsuba multiply above a limb threshold, leaving the small operand path on the
-schoolbook product. On the recorded host (Apple M2 Max, `rustc` 1.95.0), against
-the pre-pass baseline:
+The arbitrary precision kernels were optimised in a measured pass (ADR-0043
+baseline, ADR-0044 results) and a follow-up patch (ADR-0046). Four algorithmic
+changes carry the high precision cost down: Paterson-Stockmeyer rectangular
+splitting of the logarithm series, trading the linear count of full-width
+multiplies for a square-root one; a Karatsuba multiply for the coefficient bignum
+above a limb threshold, leaving the small operand path on schoolbook; binary
+splitting of the `ln 2` / `ln 10` constants, whose series is a small rational;
+and argument halving for `exp` (`e^r = (e^(r / 2^j))^(2^j)`). On the recorded
+host (Apple M2 Max, `rustc` 1.95.0), against the pre-pass baseline:
 
 | operation        | working precision | before  | after            |
 |------------------|------------------:|--------:|------------------|
 | `ln`             |        500 digits | 5.16 ms | 1.03 ms (5.0x)   |
-| `power`          |        500 digits | 9.83 ms | 4.82 ms (2.0x)   |
+| `log10`          |        500 digits | 4.66 ms | 1.60 ms (2.9x)   |
+| `exp`            |        500 digits | 3.90 ms | 1.46 ms (2.7x)   |
+| `power`          |        500 digits | 9.83 ms | 2.77 ms (3.5x)   |
 | coefficient `mul`|       4000 digits |  521 µs | 188 µs (2.8x)    |
 
 The common low precision path and the core arithmetic are unchanged; the wins are
 at high precision, where the quadratic and cubic costs dominated. The numbers are
-host specific, so reproduce them on a target with `cargo bench`. Further
-candidates (a Newton reciprocal division, splitting the `exp` and constant
-series) are filed as performance-only follow-ups.
+host specific, so reproduce them on a target with `cargo bench`. A Newton
+reciprocal division was evaluated and not adopted: the bench puts its crossover
+beyond the precisions this crate runs (ADR-0046).
 
 ## Verification
 
