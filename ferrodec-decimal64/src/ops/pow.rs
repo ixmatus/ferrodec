@@ -349,4 +349,74 @@ mod tests {
         assert!(r.is_quiet_nan());
         assert!(s.is_ok());
     }
+
+    fn parse(s: &str) -> Decimal64 {
+        Decimal64::parse_str(s, RoundingMode::NearestEven)
+            .unwrap()
+            .0
+    }
+
+    fn value_eq(a: Decimal64, b: Decimal64) -> bool {
+        matches!(a.partial_cmp(b).0, Some(core::cmp::Ordering::Equal))
+    }
+
+    #[test]
+    fn cbrt_perfect_cubes_are_exact() {
+        // IEEE 754-2019 §7.5: a perfect cube root is exact, no INEXACT (fd-92w.8).
+        let cases = [
+            ("8", "2"),
+            ("27", "3"),
+            ("-27", "-3"),
+            ("1", "1"),
+            ("1000", "10"),
+            ("0.001", "0.1"),
+            ("1000000", "100"),
+        ];
+        for (input, want) in cases {
+            let (r, s) = parse(input).cbrt(RoundingMode::NearestEven);
+            assert!(
+                value_eq(r, parse(want)),
+                "cbrt({input}) = {r:?}, want {want}"
+            );
+            assert!(!s.inexact(), "cbrt({input}) must not raise INEXACT");
+        }
+    }
+
+    #[test]
+    fn cbrt_non_cubes_are_inexact() {
+        for input in ["2", "9", "7"] {
+            let (_, s) = parse(input).cbrt(RoundingMode::NearestEven);
+            assert!(s.inexact(), "cbrt({input}) must raise INEXACT");
+        }
+    }
+
+    #[test]
+    fn pow_exact_results_are_not_inexact() {
+        // Rational and integer exact powers must not raise INEXACT.
+        // Decimal64 E_MAX is 384, so 10^300 is in range.
+        let cases = [
+            ("4", "0.5", "2"),
+            ("9", "0.5", "3"),
+            ("100", "0.5", "10"),
+            ("4", "-0.5", "0.5"),
+            ("2", "3", "8"),
+            ("10", "300", "1E+300"),
+        ];
+        for (base, exp, want) in cases {
+            let (r, s) = parse(base).pow(parse(exp), RoundingMode::NearestEven);
+            assert!(
+                value_eq(r, parse(want)),
+                "pow({base}, {exp}) = {r:?}, want {want}"
+            );
+            assert!(!s.inexact(), "pow({base}, {exp}) must not raise INEXACT");
+        }
+    }
+
+    #[test]
+    fn pow_irrational_results_are_inexact() {
+        for (base, exp) in [("2", "0.5"), ("3", "0.5"), ("2", "0.1"), ("7", "2.5")] {
+            let (_, s) = parse(base).pow(parse(exp), RoundingMode::NearestEven);
+            assert!(s.inexact(), "pow({base}, {exp}) must raise INEXACT");
+        }
+    }
 }

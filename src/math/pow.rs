@@ -235,4 +235,39 @@ mod tests {
             "2^0.5 = {r:?}, want ≈ {target:?}"
         );
     }
+
+    #[test]
+    fn pow_exact_results_are_not_inexact() {
+        // IEEE 754-2019 §7.5: an exactly representable power must not raise
+        // INEXACT (fd-92w.8). Covers rational exponents (square roots),
+        // a negative rational exponent, the integer fast path, and an
+        // integer exponent past the |y| ≤ 256 fast path (power of ten).
+        let cases = [
+            ("4", "0.5", "2"),
+            ("9", "0.5", "3"),
+            ("100", "0.5", "10"),
+            ("4", "-0.5", "0.5"),
+            ("2", "3", "8"),
+            ("10", "300", "1E+300"),
+        ];
+        for (base, exp, want) in cases {
+            let (r, s) = parse(base).pow(parse(exp), RoundingMode::NearestEven);
+            let (cmp, _) = r.partial_cmp(parse(want));
+            assert_eq!(
+                cmp,
+                Some(core::cmp::Ordering::Equal),
+                "pow({base}, {exp}) = {r:?}, want {want}"
+            );
+            assert!(!s.inexact(), "pow({base}, {exp}) must not raise INEXACT");
+        }
+    }
+
+    #[test]
+    fn pow_irrational_results_are_inexact() {
+        // Irrational powers keep INEXACT (guard against over-suppression).
+        for (base, exp) in [("2", "0.5"), ("3", "0.5"), ("2", "0.1"), ("7", "2.5")] {
+            let (_, s) = parse(base).pow(parse(exp), RoundingMode::NearestEven);
+            assert!(s.inexact(), "pow({base}, {exp}) must raise INEXACT");
+        }
+    }
 }

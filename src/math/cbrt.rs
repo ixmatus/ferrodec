@@ -97,4 +97,38 @@ mod tests {
         assert!(r.is_nan());
         assert!(st.invalid());
     }
+
+    #[test]
+    fn cbrt_perfect_cubes_are_exact() {
+        // IEEE 754-2019 §7.5: a perfect cube root is delivered exactly, so
+        // INEXACT must not be raised (fd-92w.8).
+        let cases = [
+            ("8", "2"),
+            ("27", "3"),
+            ("-27", "-3"),
+            ("1", "1"),
+            ("1000", "10"),
+            ("0.001", "0.1"),
+            ("1000000", "100"),
+        ];
+        for (input, want) in cases {
+            let (r, s) = parse(input).cbrt(RoundingMode::NearestEven);
+            let (cmp, _) = r.partial_cmp(parse(want));
+            assert_eq!(
+                cmp,
+                Some(core::cmp::Ordering::Equal),
+                "cbrt({input}) = {r:?}, want {want}"
+            );
+            assert!(!s.inexact(), "cbrt({input}) must not raise INEXACT");
+        }
+    }
+
+    #[test]
+    fn cbrt_non_cubes_are_inexact() {
+        // Irrational cube roots keep INEXACT (guard against over-suppression).
+        for input in ["2", "9", "7"] {
+            let (_, s) = parse(input).cbrt(RoundingMode::NearestEven);
+            assert!(s.inexact(), "cbrt({input}) must raise INEXACT");
+        }
+    }
 }
