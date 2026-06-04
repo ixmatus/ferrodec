@@ -55,9 +55,15 @@ proptest = "1"
 # The vendored-fixture integrity check only (ADR-0042); the decTest *runner*
 # stays bespoke in this crate (see tests/conformance.rs). Dev-only, path dep.
 ferrodec-test-support = { path = "../ferrodec-test-support" }
+criterion = { version = "0.5", default-features = false, features = ["cargo_bench_support"] }
 
 [[example]]
 name = "arbitrary_precision"
+required-features = ["fmt"]
+
+[[bench]]
+name = "decimal_ops"
+harness = false
 required-features = ["fmt"]
 
 [lints]

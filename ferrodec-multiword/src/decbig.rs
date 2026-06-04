@@ -49,6 +49,12 @@ const B: u64 = 1_000_000_000;
 /// Number of decimal digits packed into one limb.
 const LIMB_DIGITS: u32 = 9;
 
+/// Operands with at least this many limbs multiply by Karatsuba; smaller ones
+/// use the schoolbook product. The crossover is set from the ADR-0043 bench:
+/// below it the recursion's add/sub/split overhead outweighs the saved partial
+/// products, above it the `O(n^1.585)` recurrence wins. 32 limbs is 288 digits.
+const KARATSUBA_THRESHOLD: usize = 32;
+
 /// Growable base-`10^9` decimal-limb unsigned integer. See the module
 /// documentation for the representation invariant and provenance.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
@@ -234,12 +240,24 @@ impl DecBig {
         Self::from_limbs(out)
     }
 
-    /// `self * other`, schoolbook.
+    /// `self * other`. Schoolbook for small operands; Karatsuba once both reach
+    /// [`KARATSUBA_THRESHOLD`] limbs, where its `O(n^1.585)` recurrence beats the
+    /// schoolbook `O(n^2)`.
     #[must_use]
     pub fn mul(&self, other: &Self) -> Self {
         if self.is_zero() || other.is_zero() {
             return Self::zero();
         }
+        if self.len() < KARATSUBA_THRESHOLD || other.len() < KARATSUBA_THRESHOLD {
+            self.mul_schoolbook(other)
+        } else {
+            self.mul_karatsuba(other)
+        }
+    }
+
+    /// `self * other` by the schoolbook product. The base case of [`mul`].
+    #[must_use]
+    fn mul_schoolbook(&self, other: &Self) -> Self {
         let mut out = alloc::vec![0u32; self.len() + other.len()];
         for i in 0..self.len() {
             let a = u64::from(self.limbs[i]);
@@ -259,6 +277,49 @@ impl DecBig {
             }
         }
         Self::from_limbs(out)
+    }
+
+    /// `self * other` by one Karatsuba step, recursing through [`mul`] so the
+    /// sub-products fall back to schoolbook once small. Splitting both operands
+    /// at limb `m` (`x = x_hi*B^m + x_lo`), the product is
+    /// `z2*B^(2m) + z1*B^m + z0` with `z0 = x_lo*y_lo`, `z2 = x_hi*y_hi`, and
+    /// `z1 = (x_lo+x_hi)(y_lo+y_hi) - z0 - z2`. That middle term is
+    /// `x_lo*y_hi + x_hi*y_lo`, never negative, so the two subtractions never
+    /// borrow past zero (the `DecBig::sub` precondition holds).
+    #[must_use]
+    fn mul_karatsuba(&self, other: &Self) -> Self {
+        let m = self.len().max(other.len()) / 2;
+        let (x_lo, x_hi) = self.split_at_limb(m);
+        let (y_lo, y_hi) = other.split_at_limb(m);
+        let z0 = x_lo.mul(&y_lo);
+        let z2 = x_hi.mul(&y_hi);
+        let z1 = x_lo.add(&x_hi).mul(&y_lo.add(&y_hi)).sub(&z0).sub(&z2);
+        z2.shift_limbs(2 * m).add(&z1.shift_limbs(m)).add(&z0)
+    }
+
+    /// Split into the low `m` limbs and the rest, as `(low, high)` with
+    /// `self == high*B^m + low`. Either part may be zero.
+    #[must_use]
+    fn split_at_limb(&self, m: usize) -> (Self, Self) {
+        if m >= self.len() {
+            (self.clone(), Self::zero())
+        } else {
+            (
+                Self::from_limbs(self.limbs[..m].to_vec()),
+                Self::from_limbs(self.limbs[m..].to_vec()),
+            )
+        }
+    }
+
+    /// `self * B^count`: prepend `count` zero limbs (a `10^(9*count)` shift).
+    #[must_use]
+    fn shift_limbs(&self, count: usize) -> Self {
+        if self.is_zero() {
+            return Self::zero();
+        }
+        let mut limbs = alloc::vec![0u32; count];
+        limbs.extend_from_slice(&self.limbs);
+        Self::from_limbs(limbs)
     }
 
     /// `self * small` for `small < 10^9`, normalizing.
@@ -698,5 +759,31 @@ mod tests {
         // Reconstruct: q*den + r == num, r < den.
         assert_eq!(q.mul(&den).add(&r), num);
         assert_eq!(r.cmp_ref(&den), Ordering::Less);
+    }
+
+    #[test]
+    fn karatsuba_matches_schoolbook() {
+        // `n` ascii digit bytes from a repeating, nonzero-leading pattern.
+        fn digits(pat: &[u8], n: usize) -> Vec<u8> {
+            (0..n).map(|i| pat[i % pat.len()]).collect()
+        }
+        // 900 digits = 100 limbs forces two-level Karatsuba; 300 digits = ~34
+        // limbs is one level just past the threshold; the small operand stays on
+        // schoolbook even inside `mul`.
+        let big_a = DecBig::from_ascii_digits(&digits(b"1234567890", 900));
+        let big_b = DecBig::from_ascii_digits(&digits(b"9876543219", 870));
+        let near_a = DecBig::from_ascii_digits(&digits(b"31415926535", 300));
+        let near_b = DecBig::from_ascii_digits(&digits(b"27182818284", 295));
+        let small = DecBig::from_ascii_digits(b"12345678901234567890");
+        for (a, b) in [
+            (&big_a, &big_b),   // balanced, recursive
+            (&big_a, &near_b),  // unbalanced
+            (&near_a, &near_b), // one level past the threshold
+            (&big_a, &small),   // mixed sizes
+        ] {
+            // `mul` takes the Karatsuba path; cross-check the proven schoolbook.
+            assert_eq!(a.mul(b), a.mul_schoolbook(b), "product mismatch");
+            assert_eq!(b.mul(a), a.mul_schoolbook(b), "not commutative");
+        }
     }
 }

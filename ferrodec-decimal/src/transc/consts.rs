@@ -90,6 +90,13 @@ fn compute_ln10(ip: u32) -> Work {
 /// `atanh(1/m) = sum_{k>=0} (1/m)^(2k+1) / (2k+1)` at internal precision `ip`,
 /// for a small integer `m`. Terms shrink by `1/m^2` each step, so the loop
 /// stops once a term falls entirely below the `ip`-digit window of the sum.
+///
+/// This keeps the term-by-term loop rather than the rectangular splitting the
+/// logarithm's value series uses: here the per-term step is a division by the
+/// small integer `m^2` (linear in the digit count), not a full-width multiply,
+/// so it is already cheap and rectangular splitting would only add full-width
+/// multiplies. Binary splitting (the small-rational accelerator) would beat this
+/// at very high precision and is a possible follow-up.
 fn atanh_recip(m: u32, ip: u32) -> Work {
     let m_sq = Work::from_i64(i64::from(m) * i64::from(m));
     // The `k = 0` term is `1/m`; `power` tracks `(1/m)^(2k+1)`.

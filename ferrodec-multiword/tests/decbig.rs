@@ -84,6 +84,28 @@ proptest! {
     }
 
     #[test]
+    fn prop_large_mul_roundtrips(
+        xa in prop::collection::vec(0u8..=9u8, 290..420),
+        xb in prop::collection::vec(0u8..=9u8, 290..420),
+    ) {
+        // 290..420 digits is 33..47 limbs, past KARATSUBA_THRESHOLD, so `mul`
+        // takes the Karatsuba path. `div_rem` is independent of `mul`, so
+        // recovering the factor from the product cross-checks Karatsuba on
+        // operands far wider than the u128 oracle reaches.
+        let to_decbig = |v: &[u8]| {
+            let ascii: Vec<u8> = v.iter().map(|d| d + b'0').collect();
+            DecBig::from_ascii_digits(&ascii)
+        };
+        let a = to_decbig(&xa);
+        let b = to_decbig(&xb);
+        prop_assume!(!a.is_zero() && !b.is_zero());
+        let product = a.mul(&b);
+        let (q, r) = product.div_rem(&a);
+        prop_assert_eq!(q, b);
+        prop_assert!(r.is_zero());
+    }
+
+    #[test]
     fn prop_digit_count_matches_string(a in 0u128..=u128::MAX) {
         let expected = a.to_string().len() as u64;
         prop_assert_eq!(db(a).decimal_digit_count(), expected);

@@ -288,6 +288,7 @@ dependencies = [
 name = "ferrodec-decimal"
 version = "0.3.0"
 dependencies = [
+ "criterion",
  "ferrodec",
  "ferrodec-decimal32",
  "ferrodec-decimal64",
@@ -337,6 +338,7 @@ version = "0.1.4"
 name = "ferrodec-multiword"
 version = "0.1.0"
 dependencies = [
+ "criterion",
  "proptest",
 ]
 
