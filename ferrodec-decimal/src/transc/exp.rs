@@ -105,29 +105,62 @@ pub(super) fn exp_kernel(x: &Work, wp: u32, cache: &mut ConstCache) -> Work {
 
     // Internal precision absorbs the range-reduction cancellation and a guard.
     let ip = wp.saturating_add(k_digits).saturating_add(KERNEL_GUARD);
-    let ln10 = cache.ln10(ip);
-    // r = x - k*ln10, |r| <= ln10/2.
-    let r = x.sub(&ln10.mul(&Work::from_i64(k)), ip);
 
-    // e^r by its Taylor series.
+    // Argument halving: e^r = (e^(r / 2^j))^(2^j). Reducing r by a power of two
+    // cuts the Taylor term count from about ip to about ip/j; squaring back
+    // costs j multiplies, so j ~ sqrt(ip) balances the two and the kernel runs
+    // in about O(sqrt(ip)) full-width multiplies instead of O(ip). The j
+    // squarings amplify the error by 2^j (about 0.3j digits), which the j guard
+    // digits added to the internal precision absorb.
+    let j = u32::try_from((u64::from(ip) * 10 / 3).isqrt()).unwrap_or(u32::MAX);
+    let ip2 = ip.saturating_add(j);
+    let ln10 = cache.ln10(ip2);
+    // r = x - k*ln10, |r| <= ln10/2.
+    let r = x.sub(&ln10.mul(&Work::from_i64(k)), ip2);
+    // r / 2^j, exact: multiply the coefficient by 5^j and lower the exponent.
+    let r_small = if j == 0 {
+        r
+    } else {
+        let mut rr = Work::new(r.sign, r.coeff.mul(&pow5(j)), r.exp - i64::from(j));
+        rr.sticky = r.sticky;
+        rr.normalize_to(ip2);
+        rr
+    };
+
+    // e^(r / 2^j) by its Taylor series; the tiny argument needs few terms.
     let mut term = Work::one();
     let mut sum = Work::one();
     let mut n: i64 = 1;
     loop {
-        // term *= r / n.
-        term = term.mul_to(&r, ip).div_to(&Work::from_i64(n), ip);
-        let negligible = term.is_zero() || sum.adj_exp() - i64::from(ip) - 2 > term.adj_exp();
-        sum = sum.add(&term, ip);
+        // term *= (r / 2^j) / n.
+        term = term.mul_to(&r_small, ip2).div_to(&Work::from_i64(n), ip2);
+        let negligible = term.is_zero() || sum.adj_exp() - i64::from(ip2) - 2 > term.adj_exp();
+        sum = sum.add(&term, ip2);
         if negligible {
             break;
         }
         n += 1;
     }
 
+    // Square j times to undo the halving: (e^(r / 2^j))^(2^j) = e^r.
+    for _ in 0..j {
+        sum = sum.mul_to(&sum, ip2);
+    }
+
     // exp(x) = 10^k * e^r.
     sum.scale_pow10(k);
     sum.normalize_to(wp);
     sum
+}
+
+/// `5^j` as a `DecBig`, for the exact halving `r / 2^j = r * 5^j * 10^-j`.
+fn pow5(j: u32) -> DecBig {
+    let five = DecBig::from_u32(5);
+    let mut acc = DecBig::from_u32(1);
+    for _ in 0..j {
+        acc = acc.mul(&five);
+    }
+    acc
 }
 
 /// The result when `exp` overflows: a positive magnitude past `Emax`, which
@@ -145,4 +178,25 @@ fn far_underflow(ctx: &Context) -> (Decimal, Status) {
     let etiny = i64::from(ctx.emin) - i64::from(ctx.precision) + 1;
     let e = etiny - 2;
     round_finite(false, DecBig::from_u32(1), e, true, e, ctx, Status::OK)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloc::string::ToString;
+
+    /// `exp(1) = e`, exercising the halving (`j ~ sqrt(ip)`) and the squaring
+    /// recombination at a precision well past one squaring round. The first 60
+    /// digits of `e` are
+    /// `2.71828182845904523536028747135266249775724709369995957496697...`.
+    #[test]
+    fn exp_one_matches_reference() {
+        const E: &str = "271828182845904523536028747135266249775724709369995957496697";
+        let mut cache = ConstCache::new();
+        let mut v = exp_kernel(&Work::one(), 50, &mut cache);
+        v.normalize_to(50);
+        let got = v.coeff.to_string();
+        // Compare the leading 48 digits, leaving the guard tail out of the check.
+        assert_eq!(&got[..48], &E[..48], "exp(1) got {got}");
+    }
 }
