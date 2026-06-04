@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- The `cbrt` and `pow` kernels no longer raise `INEXACT` on an exactly
+  representable result. A new `exact` module, which allocates nothing, proves
+  a perfect cube root (`cbrt(8) = 2`) or an exact integer or rational power
+  (`pow(10, 300) = 1E+300`, `pow(4, 0.5) = 2`) in fixed width `U256` / `U384`
+  integer arithmetic, and the kernel clears the flag only on that proof.
+  `exp`, `ln`, and the trigonometric and hyperbolic families are unchanged
+  (their results are irrational for every input that reaches the rounding
+  step). The value is unchanged; the fix matches IEEE 754-2019 §7.5. See
+  ADR-0047 (fd-92w.8).
+
 ## [0.1.0] - 2026-05-17
 
 Initial release. The shared faithful Extended-precision transcendental

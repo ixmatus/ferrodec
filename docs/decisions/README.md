@@ -72,3 +72,4 @@ The ADRs in number order:
 - [0044 — DecBig performance pass results](0044-decbig-perf-pass-results.md)
 - [0045 — ferrodec-decimal public API settle (1.0)](0045-decimal-api-settle.md)
 - [0046 — ferrodec-decimal performance follow-ups (post-1.0)](0046-decimal-perf-followups.md)
+- [0047 — Exact-result detection suppresses spurious INEXACT on cbrt and pow](0047-exact-flag-cbrt-pow.md)

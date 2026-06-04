@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `Decimal64::cbrt` and `Decimal64::pow` no longer raise `INEXACT` on an
+  exactly representable result (for example `cbrt(8)`, `pow(4, 0.5)`,
+  `pow(10, 300)`), matching IEEE 754-2019 §7.5. The fix lives in the shared
+  `ferrodec-transcend` kernel; the value is unchanged, only the flag. See
+  ADR-0047 (fd-92w.8).
+
 ## [3.2.0] - 2026-06-01
 
 ### Added
