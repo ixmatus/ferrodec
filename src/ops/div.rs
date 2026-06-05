@@ -118,10 +118,10 @@ fn div_special_cases(a: Decimal128, b: Decimal128) -> Option<(Decimal128, Status
         // §7.4 Clamped: the zero's preferred quantum (qa - qb) fell outside
         // the format range and was clamped in. The zero is exact (fd-61r /
         // ADR-0048; matches dqdiv497 / dqdiv498).
-        let status = if biased != q {
-            status | Status::CLAMPED
-        } else {
+        let status = if biased == q {
             status
+        } else {
+            status | Status::CLAMPED
         };
         return Some((
             Decimal128::from_bits(pack_finite(result_sign, biased as u32, 0)),

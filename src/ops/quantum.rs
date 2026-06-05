@@ -219,10 +219,10 @@ impl Decimal128 {
                 // is exact at every exponent (fd-61r / ADR-0048).
                 let shifted = biased_exp as i64 + n as i64;
                 let new_bexp = shifted.clamp(0, BIASED_EXP_MAX as i64);
-                let status = if new_bexp != shifted {
-                    Status::CLAMPED
-                } else {
+                let status = if new_bexp == shifted {
                     Status::OK
+                } else {
+                    Status::CLAMPED
                 };
                 return (
                     Self::from_bits(pack_finite(sign, new_bexp as u32, 0)),
