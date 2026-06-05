@@ -1,6 +1,6 @@
 //! IEEE 754-2019 quantum-related operations (§5.3, §5.10):
 //! `quantize`, `same_quantum`, `scaleb`, `logb`, `next_up`, `next_down`,
-//! `compare_total_magnitude`, `radix`.
+//! `next_toward`, `compare_total_magnitude`, `radix`.
 //!
 //! These operations deal with the *quantum* exponent of a `Decimal128` — the
 //! power of ten that the stored coefficient is multiplied by. For a BID-128
@@ -13,8 +13,8 @@ use crate::bid::{
 };
 use crate::decimal::Decimal128;
 use crate::multiword::U256;
-use crate::ops::nan_from;
 use crate::ops::round_and_pack_finite;
+use crate::ops::{nan_from, propagate_nan2};
 use crate::status::{RoundingMode, Status};
 use ferrodec_ieee::should_round_up;
 
@@ -432,6 +432,55 @@ impl Decimal128 {
     pub fn next_down(self) -> (Self, Status) {
         let (up, st) = self.neg().next_up();
         (up.neg(), st)
+    }
+
+    /// IEEE 754-2019 §5.3.1 / General Decimal Arithmetic `nextToward`.
+    ///
+    /// `self` stepped one representable place toward `other`. When the
+    /// two operands are numerically equal the result is `self` with the
+    /// sign of `other` and no flag is raised. Otherwise the step signals
+    /// like an arithmetic operation: a subnormal result raises
+    /// `UNDERFLOW | INEXACT`, an infinite result `OVERFLOW | INEXACT`,
+    /// and a zero result (the step crossed the subnormal gap to a signed
+    /// zero at the floor exponent) `UNDERFLOW | INEXACT | CLAMPED`; a
+    /// normal result raises nothing. A signaling NaN in either operand
+    /// raises `INVALID` and yields a quiet NaN; a quiet NaN propagates.
+    ///
+    /// Unlike the one-argument neighbours [`Decimal128::next_up`] /
+    /// [`Decimal128::next_down`], which never signal, `nextToward` is the
+    /// two-argument directed neighbour and carries the underflow /
+    /// overflow / clamp flags an arithmetic step would.
+    #[must_use]
+    pub fn next_toward(self, other: Self) -> (Self, Status) {
+        if self.is_signaling_nan() || other.is_signaling_nan() {
+            return (propagate_nan2(self, other), Status::INVALID);
+        }
+        if self.is_nan() || other.is_nan() {
+            return (propagate_nan2(self, other), Status::OK);
+        }
+        // Direction by NUMERIC comparison (not total order): numerically
+        // equal operands in different cohorts (`1.0` vs `1.00`) return
+        // the first operand, never a step.
+        let stepped = match self.partial_cmp(other).0 {
+            Some(Ordering::Less) => self.next_up().0,
+            Some(Ordering::Greater) => self.next_down().0,
+            // Equal (the `None` arm is unreachable once NaN is excluded
+            // above): the first operand with the sign of the second.
+            _ => return (self.copysign(other), Status::OK),
+        };
+        // Flags from the stepped result. The zero result lands at the
+        // subnormal floor Etiny, which is below E_MIN for every fixed
+        // format (precision >= 2), so it always clamps.
+        let status = if stepped.is_infinite() {
+            Status::OVERFLOW | Status::INEXACT
+        } else if stepped.is_zero() {
+            Status::UNDERFLOW | Status::INEXACT | Status::CLAMPED
+        } else if stepped.is_subnormal() {
+            Status::UNDERFLOW | Status::INEXACT
+        } else {
+            Status::OK
+        };
+        (stepped, status)
     }
 
     /// IEEE 754-2019 §5.10 `compareTotalMagnitude(x, y)`.
@@ -898,6 +947,79 @@ mod tests {
         let (r, st) = Decimal128::SIGNALING_NAN.next_up();
         assert!(r.is_nan() && st.invalid());
         let (r, st) = Decimal128::NAN.next_up();
+        assert!(r.is_nan() && st.is_ok());
+    }
+
+    // --- next_toward ---
+    //
+    // Exhaustively validated by the dq/ddNextToward decTest vectors;
+    // these pin the boundary regimes next to the implementation. The
+    // precision-1 degenerate (Etiny == Emin, where a zero result carries
+    // no flag) is unreachable on the fixed formats, whose precision is
+    // hardcoded at 34/16/7, so Etiny is always below Emin.
+
+    #[test]
+    fn next_toward_equal_takes_sign_of_other_no_flag() {
+        // Numerically equal: self with the sign of other, no flag.
+        let (r, st) = Decimal128::ONE.next_toward(Decimal128::ONE);
+        assert_eq!(r.to_bits(), Decimal128::ONE.to_bits());
+        assert!(st.is_ok());
+        // The sign of a zero result comes from the second operand.
+        let (r, st) = Decimal128::ZERO.next_toward(Decimal128::NEG_ZERO);
+        assert!(r.is_zero() && r.is_sign_negative() && st.is_ok());
+        let (r, _) = Decimal128::NEG_ZERO.next_toward(Decimal128::ZERO);
+        assert!(r.is_zero() && !r.is_sign_negative());
+    }
+
+    #[test]
+    fn next_toward_normal_step_raises_nothing() {
+        let (up, st) = Decimal128::ONE.next_toward(Decimal128::TEN);
+        assert_eq!(up.partial_cmp(Decimal128::ONE).0, Some(Ordering::Greater));
+        assert!(st.is_ok());
+        let (dn, st) = Decimal128::ONE.next_toward(Decimal128::ZERO);
+        assert_eq!(dn.partial_cmp(Decimal128::ONE).0, Some(Ordering::Less));
+        assert!(st.is_ok());
+    }
+
+    #[test]
+    fn next_toward_into_subnormal_underflows_without_clamp() {
+        // 0 toward +inf -> least positive subnormal: underflow + inexact,
+        // NOT clamped (the result is a nonzero subnormal).
+        let (r, st) = Decimal128::ZERO.next_toward(Decimal128::INFINITY);
+        assert_eq!(r.to_bits(), Decimal128::MIN_POSITIVE.to_bits());
+        assert!(st.underflow() && st.inexact() && !st.clamped());
+    }
+
+    #[test]
+    fn next_toward_to_zero_underflows_and_clamps() {
+        // Least positive subnormal toward 0 -> +0 at the floor Etiny:
+        // underflow, inexact, and clamped (the zero is held at the floor).
+        let (r, st) = Decimal128::MIN_POSITIVE.next_toward(Decimal128::ZERO);
+        assert!(r.is_zero() && !r.is_sign_negative());
+        assert!(st.underflow() && st.inexact() && st.clamped());
+    }
+
+    #[test]
+    fn next_toward_off_the_top_overflows() {
+        let (r, st) = Decimal128::MAX.next_toward(Decimal128::INFINITY);
+        assert!(r.is_infinite() && !r.is_sign_negative());
+        assert!(st.overflow() && st.inexact());
+        // Stepping down from +inf lands on MAX, no flag.
+        let (r, st) = Decimal128::INFINITY.next_toward(Decimal128::ZERO);
+        assert_eq!(r.to_bits(), Decimal128::MAX.to_bits());
+        assert!(st.is_ok());
+    }
+
+    #[test]
+    fn next_toward_nan() {
+        // sNaN in either operand -> quiet NaN + INVALID; qNaN -> propagate.
+        let (r, st) = Decimal128::ONE.next_toward(Decimal128::SIGNALING_NAN);
+        assert!(r.is_quiet_nan() && st.invalid());
+        let (r, st) = Decimal128::SIGNALING_NAN.next_toward(Decimal128::ONE);
+        assert!(r.is_quiet_nan() && st.invalid());
+        let (r, st) = Decimal128::ONE.next_toward(Decimal128::NAN);
+        assert!(r.is_nan() && st.is_ok());
+        let (r, st) = Decimal128::NAN.next_toward(Decimal128::ONE);
         assert!(r.is_nan() && st.is_ok());
     }
 

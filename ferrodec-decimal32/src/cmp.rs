@@ -51,6 +51,25 @@ impl Decimal32 {
         (Some(numeric_cmp_non_nan(ca, cb)), Status::OK)
     }
 
+    /// General Decimal Arithmetic `compareSignaling`.
+    ///
+    /// Identical to [`Decimal32::partial_cmp`] except that *every* NaN
+    /// operand raises `INVALID`, not only a signaling NaN: a quiet NaN,
+    /// which `partial_cmp` reports as `(None, Status::OK)`, here yields
+    /// `(None, Status::INVALID)`. Otherwise `(Some(Ordering),
+    /// Status::OK)`.
+    #[must_use]
+    pub fn compare_signaling(self, other: Self) -> (Option<Ordering>, Status) {
+        let ca = classify_bits(self.0);
+        let cb = classify_bits(other.0);
+        let a_nan = matches!(ca, Class::SignalingNaN { .. } | Class::QuietNaN { .. });
+        let b_nan = matches!(cb, Class::SignalingNaN { .. } | Class::QuietNaN { .. });
+        if a_nan || b_nan {
+            return (None, Status::INVALID);
+        }
+        (Some(numeric_cmp_non_nan(ca, cb)), Status::OK)
+    }
+
     /// IEEE 754-2019 §5.10 totalOrder predicate.
     ///
     /// Defines a unique ordering across the entire `Decimal32` value
@@ -529,6 +548,40 @@ mod tests {
 
         let (cmp, _) = from_int(1, 0).partial_cmp(Decimal32::NAN);
         assert_eq!(cmp, None);
+    }
+
+    #[test]
+    fn compare_signaling_quiet_nan_raises_invalid() {
+        // compareSignaling differs from partial_cmp only in raising
+        // INVALID on a *quiet* NaN (partial_cmp leaves the status OK).
+        let one = from_int(1, 0);
+        for (a, b) in [
+            (Decimal32::NAN, one),
+            (one, Decimal32::NAN),
+            (Decimal32::SIGNALING_NAN, one),
+            (Decimal32::NAN, Decimal32::NAN),
+        ] {
+            let (cmp, s) = a.compare_signaling(b);
+            assert_eq!(cmp, None);
+            assert!(s.invalid());
+        }
+    }
+
+    #[test]
+    fn compare_signaling_matches_partial_cmp_on_non_nan() {
+        let one = from_int(1, 0);
+        let two = from_int(2, 0);
+        for (a, b) in [
+            (one, two),
+            (two, one),
+            (one, one),
+            (Decimal32::ZERO, Decimal32::NEG_ZERO),
+            (Decimal32::NEG_INFINITY, Decimal32::INFINITY),
+        ] {
+            let (sig, s) = a.compare_signaling(b);
+            assert_eq!(sig, a.partial_cmp(b).0);
+            assert!(s.is_ok());
+        }
     }
 
     #[test]

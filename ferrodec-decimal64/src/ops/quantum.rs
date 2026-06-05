@@ -16,6 +16,7 @@ use crate::bid::{
     PRECISION,
 };
 use crate::decimal::Decimal64;
+use core::cmp::Ordering;
 use ferrodec_ieee::{should_round_up, RoundingMode, Status};
 
 use super::round::round_and_pack_finite;
@@ -465,6 +466,57 @@ impl Decimal64 {
         (r.neg(), s)
     }
 
+    /// IEEE 754-2019 §5.3.1 / General Decimal Arithmetic `nextToward`.
+    ///
+    /// `self` stepped one representable place toward `other`. When the
+    /// two operands are numerically equal the result is `self` with the
+    /// sign of `other` and no flag is raised. Otherwise the step signals
+    /// like an arithmetic operation: a subnormal result raises
+    /// `UNDERFLOW | INEXACT`, an infinite result `OVERFLOW | INEXACT`,
+    /// and a zero result (the step crossed the subnormal gap to a signed
+    /// zero at the floor exponent) `UNDERFLOW | INEXACT | CLAMPED`; a
+    /// normal result raises nothing. A signaling NaN in either operand
+    /// raises `INVALID` and yields a quiet NaN; a quiet NaN propagates.
+    ///
+    /// Unlike the one-argument neighbours [`Decimal64::next_up`] /
+    /// [`Decimal64::next_down`], which never signal, `nextToward` is the
+    /// two-argument directed neighbour and carries the underflow /
+    /// overflow / clamp flags an arithmetic step would.
+    #[must_use]
+    pub fn next_toward(self, other: Self) -> (Self, Status) {
+        if self.is_nan() || other.is_nan() {
+            let status = if self.is_signaling_nan() || other.is_signaling_nan() {
+                Status::INVALID
+            } else {
+                Status::OK
+            };
+            return (propagate_nan2(self, other), status);
+        }
+        // Direction by NUMERIC comparison (not total order): numerically
+        // equal operands in different cohorts (`1.0` vs `1.00`) return
+        // the first operand, never a step.
+        let stepped = match self.partial_cmp(other).0 {
+            Some(Ordering::Less) => self.next_up().0,
+            Some(Ordering::Greater) => self.next_down().0,
+            // Equal (the `None` arm is unreachable once NaN is excluded
+            // above): the first operand with the sign of the second.
+            _ => return (self.copysign(other), Status::OK),
+        };
+        // The zero result lands at the subnormal floor Etiny, which is
+        // below E_MIN for every fixed format (precision >= 2), so it
+        // always clamps.
+        let status = if stepped.is_infinite() {
+            Status::OVERFLOW | Status::INEXACT
+        } else if stepped.is_zero() {
+            Status::UNDERFLOW | Status::INEXACT | Status::CLAMPED
+        } else if stepped.is_subnormal() {
+            Status::UNDERFLOW | Status::INEXACT
+        } else {
+            Status::OK
+        };
+        (stepped, status)
+    }
+
     /// The radix of the format: `10`.
     ///
     /// Constant for every decimal format; provided for parity with the
@@ -528,6 +580,26 @@ impl Decimal64 {
     pub fn next_down_special_only_for_kani(self) -> Option<(Self, Status)> {
         next_down_special_cases(self)
     }
+}
+
+/// Quiet-NaN result for a binary op given at least one NaN operand:
+/// signaling-NaN priority, then operand order; sign and payload
+/// preserved with the signal cleared. Mirrors the `Decimal128`
+/// `propagate_nan2` so `next_toward` agrees across the three formats.
+fn propagate_nan2(a: Decimal64, b: Decimal64) -> Decimal64 {
+    let src = if a.is_signaling_nan() {
+        a
+    } else if b.is_signaling_nan() {
+        b
+    } else if a.is_nan() {
+        a
+    } else {
+        b
+    };
+    let bits = src.to_bits();
+    let sign = (bits >> 63) & 1 == 1;
+    let payload = bits & crate::bid::T_MASK;
+    Decimal64::from_bits(crate::bid::pack_quiet_nan(sign, payload))
 }
 
 /// Resolve every `quantize` operand combination that does not reach
@@ -950,6 +1022,55 @@ mod tests {
         assert!(r.is_quiet_nan());
         assert!(!r.is_signaling_nan());
         assert!(s.invalid());
+    }
+
+    // --- next_toward (also exhaustively validated by ddNextToward) ---
+
+    #[test]
+    fn next_toward_equal_takes_sign_of_other_no_flag() {
+        let (r, st) = Decimal64::ONE.next_toward(Decimal64::ONE);
+        assert_eq!(r.to_bits(), Decimal64::ONE.to_bits());
+        assert!(st.is_ok());
+        let (r, st) = Decimal64::ZERO.next_toward(Decimal64::NEG_ZERO);
+        assert!(r.is_zero() && r.is_sign_negative() && st.is_ok());
+    }
+
+    #[test]
+    fn next_toward_normal_step_raises_nothing() {
+        let (up, st) = Decimal64::ONE.next_toward(Decimal64::TEN);
+        assert_eq!(up.partial_cmp(Decimal64::ONE).0, Some(Ordering::Greater));
+        assert!(st.is_ok());
+    }
+
+    #[test]
+    fn next_toward_into_subnormal_underflows_without_clamp() {
+        let (r, st) = Decimal64::ZERO.next_toward(Decimal64::INFINITY);
+        assert_eq!(r.to_bits(), Decimal64::MIN_POSITIVE.to_bits());
+        assert!(st.underflow() && st.inexact() && !st.clamped());
+    }
+
+    #[test]
+    fn next_toward_to_zero_underflows_and_clamps() {
+        let (r, st) = Decimal64::MIN_POSITIVE.next_toward(Decimal64::ZERO);
+        assert!(r.is_zero() && !r.is_sign_negative());
+        assert!(st.underflow() && st.inexact() && st.clamped());
+    }
+
+    #[test]
+    fn next_toward_off_the_top_overflows() {
+        let (r, st) = Decimal64::MAX.next_toward(Decimal64::INFINITY);
+        assert!(r.is_infinite() && st.overflow() && st.inexact());
+        let (r, st) = Decimal64::INFINITY.next_toward(Decimal64::ZERO);
+        assert_eq!(r.to_bits(), Decimal64::MAX.to_bits());
+        assert!(st.is_ok());
+    }
+
+    #[test]
+    fn next_toward_nan() {
+        let (r, st) = Decimal64::ONE.next_toward(Decimal64::SIGNALING_NAN);
+        assert!(r.is_quiet_nan() && st.invalid());
+        let (r, st) = Decimal64::ONE.next_toward(Decimal64::NAN);
+        assert!(r.is_nan() && st.is_ok());
     }
 
     #[test]

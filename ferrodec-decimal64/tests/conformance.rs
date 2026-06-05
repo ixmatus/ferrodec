@@ -51,6 +51,19 @@ fn dectest_conformance() {
 /// * `ddFMA.decTest`: 2 of 1378 pass — same shape.
 ///
 /// All other files are 0 pending their dispatch arms in C9+.
+///
+/// The two DPD-hex files (`ddEncode`, `ddCanonical`) pass counts are
+/// feature-conditional: 0 with the `dpd` feature off (every `#`-hex case
+/// Skips), their observed DPD counts with it on (fd-bef.4).
+#[cfg(feature = "dpd")]
+const DD_ENCODE_PASS: usize = 376;
+#[cfg(not(feature = "dpd"))]
+const DD_ENCODE_PASS: usize = 0;
+#[cfg(feature = "dpd")]
+const DD_CANONICAL_PASS: usize = 190;
+#[cfg(not(feature = "dpd"))]
+const DD_CANONICAL_PASS: usize = 0;
+
 const fn expected_per_file() -> &'static [(&'static str, usize)] {
     &[
         // F1: `add` + `subtract` dispatch wired. `add` rises from 2
@@ -78,25 +91,27 @@ const fn expected_per_file() -> &'static [(&'static str, usize)] {
         // `ddCompareTotal` / `ddCompareTotalMag` 611 of 613 (2 `#`-hex
         // each); `ddSameQuantum` 333 of 333 (predicate, no skips);
         // `ddQuantize` 606 of 683 (77 skips: extreme exponents past
-        // the parser cap and `#`-hex). `ddCompareSig` stays 0 —
-        // `compareSignal` is unimplemented (same posture as the
-        // Decimal128 runner). Exact-match per ADR-0010.
+        // the parser cap and `#`-hex). fd-bef.1 (ADR-0049):
+        // `compareSignaling` wired — like `compare` but every NaN
+        // operand (quiet or signaling) raises INVALID; `ddCompareSig`
+        // 557 of 559 (2 `#`-hex skips). Exact-match per ADR-0010.
         ("ddCompare.decTest", 647),
+        ("ddCompareSig.decTest", 557),
         ("ddCompareTotal.decTest", 611),
         ("ddCompareTotalMag.decTest", 611),
         // fd-37z: copy family wired. Non-signaling bit ops; the
         // files have no `#`-hex or non-IEEE-rounding cases, so every
         // case dispatches and passes.
-        // fd-37z: `ddCanonical.decTest` is wholly DPD-hex encoded
-        // (every operand and expected is a `#…` DPD pattern, both
-        // the `apply` and `canonical` cases). Decimal64 has no DPD
-        // codec and no `dpd` feature, so every case Skips on the
-        // `#`-hex guard and none reaches `canonicalize`. The
-        // `canonical` dispatch arm is correct and forward-useful;
-        // this file stays at 0 until a Decimal64 DPD codec lands
-        // (fd-bef). Pinned at 0 as a regression guard: it will trip
-        // and demand a re-pin when that codec arrives.
-        ("ddCanonical.decTest", 0),
+        // fd-bef.4 (ADR-0049): `ddCanonical.decTest` is wholly DPD-hex
+        // encoded (every operand and expected is a `#…` DPD pattern). The
+        // Decimal64 DPD codec (fd-bef.3) decodes / re-encodes them via
+        // `run_dpd_case`: with `dpd` on, 190 of 230 pass; the 40 skips
+        // are non-canonical-declet preservation cases (the `copy` family
+        // and NaN non-canonical-payload cases) that a BID-backed codec
+        // cannot satisfy, the same structural residual as the d128
+        // dqCanonical 90 / 154 split. With `dpd` off every case Skips on
+        // the `#`-hex guard, so the count is 0.
+        ("ddCanonical.decTest", DD_CANONICAL_PASS),
         ("ddCopy.decTest", 43),
         ("ddCopyAbs.decTest", 43),
         ("ddCopyNegate.decTest", 43),
@@ -111,7 +126,12 @@ const fn expected_per_file() -> &'static [(&'static str, usize)] {
         // fd-ci0.5 (ADR-0031): `divideInteger` wired. 371 of 373 pass;
         // the 2 skips are the `#`-hex BID-interchange cases.
         ("ddDivideInt.decTest", 371),
-        ("ddEncode.decTest", 0),
+        // fd-bef.4 (ADR-0049): `ddEncode.decTest` is wholly DPD-hex; the
+        // codec (fd-bef.3) decodes / encodes it via `run_dpd_case`. With
+        // `dpd` on, all 376 pass (the `apply` op reports its operand's
+        // parse status, so the `value -> #hex Clamped` / `Inexact` encode
+        // cases raise their flags). With `dpd` off the count is 0.
+        ("ddEncode.decTest", DD_ENCODE_PASS),
         // F3: `fma` wired. Rises 2 → 1318 of 1378 after the fd-d47
         // FMA-side fix in `h2_borrow_and_extend` (the
         // `ddfma364xx` power-of-ten borrow-extend collapse, the FMA
@@ -130,6 +150,11 @@ const fn expected_per_file() -> &'static [(&'static str, usize)] {
         ("ddMaxMag.decTest", 241),
         ("ddMinMag.decTest", 231),
         ("ddMultiply.decTest", 444),
+        // fd-bef.2 (ADR-0049): `nextToward` wired. 302 of 304 (2 `#`-hex
+        // BID-interchange skips). The underflow / overflow / clamp flags
+        // the directed step raises are compared exactly (the subnormal,
+        // zero-at-Etiny, and overflow-to-infinity cases all pass).
+        ("ddNextToward.decTest", 302),
         // fd-ci0.7 (ADR-0031): `logical_or`. All 237 cases pass.
         ("ddOr.decTest", 237),
         ("ddQuantize.decTest", 606),
@@ -165,11 +190,27 @@ const fn expected_per_file() -> &'static [(&'static str, usize)] {
 }
 
 fn run_case(case: &TestCase, ctx: &Context) -> Outcome {
+    // DPD interchange cases (any operand or the expected is a
+    // multi-character `#hex` literal) route to the dedicated codec path
+    // (fd-bef.4). With the `dpd` feature off every `#hex` case falls
+    // through to the normal dispatch, where it Skips (operands fail to
+    // parse, `#hex` expecteds are guarded), keeping the pinned counts at
+    // 0. In decimal64 every multi-character `#hex` token is DPD (there
+    // are no BID-interchange literals; the bare `#` is the null-operand
+    // sentinel), so this detection is unambiguous.
+    #[cfg(feature = "dpd")]
+    if involves_dpd(case) {
+        return run_dpd_case(case, ctx);
+    }
     match case.op.as_str() {
         "tosci" | "apply" => run_tosci(case, ctx),
         "add" | "subtract" | "multiply" | "divide" => run_binary(case, ctx),
         "fma" => run_ternary(case, ctx),
         "compare" => run_compare(case, ctx),
+        // decTest `comparesig`: GDA `compareSignaling` — like `compare`
+        // but every NaN operand (quiet or signaling) raises INVALID
+        // (fd-bef.1).
+        "comparesig" => run_comparesig(case, ctx),
         "comparetotal" => run_total(case, ctx, false),
         // decTest spells the magnitude variant `comparetotmag`; accept
         // the longer alias too for robustness.
@@ -187,6 +228,10 @@ fn run_case(case: &TestCase, ctx: &Context) -> Outcome {
         "remainder" => run_rem(case, ctx, false),
         "remaindernear" => run_rem(case, ctx, true),
         "quantize" => run_quantize(case, ctx),
+        // decTest `nexttoward`: GDA directed neighbour. Steps `self`
+        // one ulp toward the second operand, raising underflow /
+        // overflow / clamp like an arithmetic step (fd-bef.2).
+        "nexttoward" => run_nexttoward(case, ctx),
         // decTest `divideint`: General Decimal Arithmetic truncated
         // integer quotient at exponent 0 (ADR-0031).
         "divideint" => run_divide_integer(case, ctx),
@@ -230,8 +275,10 @@ fn run_case(case: &TestCase, ctx: &Context) -> Outcome {
         // canonical, so `Decimal64::canonicalize` is effectively the
         // identity, but route through it for fidelity. Never raises
         // a flag. `ddCanonical.decTest` is a mixed-op file; its
-        // count is cumulative over every arm above (the `comparesig`
-        // cases remain Skip, no `compare_signaling` yet).
+        // count is cumulative over every arm above. `comparesig` now
+        // dispatches via `compare_signaling` (fd-bef.1), but every
+        // `ddCanonical` case is `#`-hex DPD, so those cases stay Skip
+        // until the Decimal64 DPD codec lands (fd-bef.3 / fd-bef.4).
         "canonical" => run_copy_unary(case, ctx, Decimal64::canonicalize),
         _ => Outcome::Skip,
     }
@@ -301,6 +348,17 @@ fn any_operand_clamped_at_parse(operands: &[String]) -> bool {
 }
 
 fn check(result: Decimal64, status: Status, case: &TestCase) -> Outcome {
+    // A multi-character `#hex` expected is a DPD interchange literal
+    // (ddEncode / ddCanonical / the ddToIntegral `#hex` cases, fd-bef.4):
+    // compare the result's canonical DPD encoding against the expected
+    // bytes. Reached only from `run_dpd_case`; the bare `#` null-operand
+    // sentinel never appears as an expected value.
+    #[cfg(feature = "dpd")]
+    if let Some(hex) = case.expected.strip_prefix('#') {
+        if !hex.is_empty() {
+            return check_dpd_expected(result, status, case, hex);
+        }
+    }
     let formatted = format_value(result);
     if expected_is_nan(&case.expected) {
         if !result.is_nan() {
@@ -308,6 +366,43 @@ fn check(result: Decimal64, status: Status, case: &TestCase) -> Outcome {
         }
     } else if formatted != case.expected {
         return Outcome::Fail(format!("got {formatted:?} want {:?}", case.expected));
+    }
+    let expected_status = decode_conditions(&case.conditions);
+    if !status_conformance_eq(status, expected_status) {
+        return Outcome::Fail(format!(
+            "status mismatch: got {status:?} want {expected_status:?} (conditions {:?})",
+            case.conditions
+        ));
+    }
+    clamped_outcome(status, case)
+}
+
+/// Compare a result against a DPD `#hex` expected (the `dpd`-feature
+/// path). The result's canonical DPD encoding must equal the expected
+/// bytes; the IEEE flags and CLAMPED are then compared as usual.
+#[cfg(feature = "dpd")]
+fn check_dpd_expected(result: Decimal64, status: Status, case: &TestCase, hex: &str) -> Outcome {
+    let want = match parse_dpd_hex(hex) {
+        Some(b) => b,
+        None => return Outcome::Fail(format!("bad #hex expected {:?}", case.expected)),
+    };
+    // A non-canonical DPD expected (its declets, or a NaN payload's
+    // declets, re-encode to a different pattern) tests literal bit
+    // preservation that a BID-backed codec cannot satisfy: `from_dpd_bytes`
+    // canonicalizes the declets on decode, and `to_dpd_bytes` always emits
+    // the canonical form. Such a case (the `copy` family and the NaN
+    // non-canonical-payload cases of ddCanonical) is Skipped, tallied as a
+    // structural category — the same BID-residual posture as the d128
+    // dqCanonical 90 / 154 split (ADR-0009) and the fd-61r CLAMPED residual.
+    if Decimal64::from_dpd_bytes(want).to_dpd_bytes() != want {
+        return Outcome::Skip;
+    }
+    let got = result.to_dpd_bytes();
+    if got != want {
+        return Outcome::Fail(format!(
+            "DPD mismatch: got {got:02x?} want {:?}",
+            case.expected,
+        ));
     }
     let expected_status = decode_conditions(&case.conditions);
     if !status_conformance_eq(status, expected_status) {
@@ -343,6 +438,58 @@ fn run_compare(case: &TestCase, ctx: &Context) -> Outcome {
         None => Decimal64::NAN,
         Some(o) => ord_token(o),
     };
+    check(result, status, case)
+}
+
+/// `comparesig`: GDA `compareSignaling`. Identical to `compare` except
+/// that *any* NaN operand — quiet or signaling — raises `INVALID`. The
+/// result value on a NaN operand is a NaN (sign / payload not pinned,
+/// the same NaN-result contract as `run_compare`); the status carries
+/// the `INVALID` the spec mandates.
+fn run_comparesig(case: &TestCase, ctx: &Context) -> Outcome {
+    if case.operands.len() != 2 || case.expected.starts_with('#') {
+        return Outcome::Skip;
+    }
+    let rm = match map_rounding(&ctx.rounding) {
+        Some(r) => r,
+        None => return Outcome::Skip,
+    };
+    let (a, b) = match (
+        parse_operand(&case.operands[0], rm),
+        parse_operand(&case.operands[1], rm),
+    ) {
+        (Some(a), Some(b)) => (a, b),
+        _ => return Outcome::Skip,
+    };
+    let (ord, status) = a.compare_signaling(b);
+    let result = match ord {
+        None => Decimal64::NAN,
+        Some(o) => ord_token(o),
+    };
+    check(result, status, case)
+}
+
+/// `nexttoward`: GDA directed neighbour. Parse both operands, step the
+/// first toward the second, and compare value + status (including the
+/// underflow / overflow / clamp flags the step raises). Uses the same
+/// `check` path as the arithmetic ops, so CLAMPED is compared via
+/// `clamped_outcome`.
+fn run_nexttoward(case: &TestCase, ctx: &Context) -> Outcome {
+    if case.operands.len() != 2 || case.expected.starts_with('#') {
+        return Outcome::Skip;
+    }
+    let rm = match map_rounding(&ctx.rounding) {
+        Some(r) => r,
+        None => return Outcome::Skip,
+    };
+    let (a, b) = match (
+        parse_operand(&case.operands[0], rm),
+        parse_operand(&case.operands[1], rm),
+    ) {
+        (Some(a), Some(b)) => (a, b),
+        _ => return Outcome::Skip,
+    };
+    let (result, status) = a.next_toward(b);
     check(result, status, case)
 }
 
@@ -682,6 +829,112 @@ fn parse_operand(s: &str, rm: ferrodec_decimal64::RoundingMode) -> Option<Decima
         Err(ParseDecimalError::ExponentOutOfRange | ParseDecimalError::CoefficientOverflow) => None,
         Err(_) => Some(Decimal64::NAN),
     }
+}
+
+/// `true` when a case uses DPD interchange: any operand or the expected
+/// is a multi-character `#hex` literal. The bare `#` null-operand
+/// sentinel (length 1) is excluded.
+#[cfg(feature = "dpd")]
+fn involves_dpd(case: &TestCase) -> bool {
+    is_dpd_hex(&case.expected) || case.operands.iter().any(|o| is_dpd_hex(o))
+}
+
+/// `true` for a multi-character `#hex` DPD literal (not the bare `#`).
+#[cfg(feature = "dpd")]
+fn is_dpd_hex(token: &str) -> bool {
+    token.len() > 1 && token.starts_with('#')
+}
+
+/// Parse 16 hex digits (the part after `#`) into 8 big-endian DPD bytes.
+#[cfg(feature = "dpd")]
+fn parse_dpd_hex(hex: &str) -> Option<[u8; 8]> {
+    if hex.len() != 16 {
+        return None;
+    }
+    let mut bytes = [0u8; 8];
+    for (i, b) in bytes.iter_mut().enumerate() {
+        *b = u8::from_str_radix(&hex[2 * i..2 * i + 2], 16).ok()?;
+    }
+    Some(bytes)
+}
+
+/// Decode a DPD-case operand: a `#hex` literal via the DPD codec, a
+/// decimal string via `parse_str`.
+#[cfg(feature = "dpd")]
+fn parse_dpd_operand(s: &str, rm: ferrodec_decimal64::RoundingMode) -> Option<Decimal64> {
+    if let Some(hex) = s.strip_prefix('#') {
+        return parse_dpd_hex(hex).map(Decimal64::from_dpd_bytes);
+    }
+    parse_operand(s, rm)
+}
+
+/// The status `apply` reports for its operand: `OK` for a `#hex` operand
+/// (decoding is exact), the `parse_str` rounding / clamping status for a
+/// decimal operand. The operand has already parsed in the caller, so the
+/// `Err` arm is unreachable in practice.
+#[cfg(feature = "dpd")]
+fn apply_parse_status(s: &str, rm: ferrodec_decimal64::RoundingMode) -> Status {
+    if s.starts_with('#') {
+        return Status::OK;
+    }
+    Decimal64::parse_str(s, rm).map_or(Status::INVALID, |(_, st)| st)
+}
+
+/// Run a DPD interchange case: decode every operand (DPD `#hex` or
+/// decimal), dispatch the operation, and compare via `check` (which
+/// re-encodes the result to DPD when the expected is `#hex`). Covers the
+/// `ddEncode` apply surface and the mixed-op `ddCanonical` surface
+/// (canonicalize, copy family, logical, arithmetic, quantize, integral,
+/// compare). An unhandled op or unparseable operand Skips, never fails.
+#[cfg(feature = "dpd")]
+fn run_dpd_case(case: &TestCase, ctx: &Context) -> Outcome {
+    let rm = match map_rounding(&ctx.rounding) {
+        Some(r) => r,
+        None => return Outcome::Skip,
+    };
+    let mut ops = Vec::with_capacity(case.operands.len());
+    for o in &case.operands {
+        match parse_dpd_operand(o, rm) {
+            Some(v) => ops.push(v),
+            None => return Outcome::Skip,
+        }
+    }
+    let need = |n: usize| ops.len() == n;
+    let (result, status) = match case.op.as_str() {
+        // `apply` rounds the operand to the context and reports that
+        // rounding's flags. A `#hex` operand decodes exactly (no flag);
+        // a decimal operand carries the parse status, which is how the
+        // `value -> #hex Clamped` / `... Inexact` encode cases raise
+        // their flags. The value is the already-decoded operand.
+        "apply" if need(1) => (ops[0], apply_parse_status(&case.operands[0], rm)),
+        "canonical" if need(1) => (ops[0].canonicalize(), Status::OK),
+        "copy" if need(1) => (ops[0], Status::OK),
+        "copyabs" if need(1) => (ops[0].abs(), Status::OK),
+        "copynegate" if need(1) => (ops[0].neg(), Status::OK),
+        "copysign" if need(2) => (ops[0].copysign(ops[1]), Status::OK),
+        "invert" if need(1) => ops[0].logical_invert(),
+        "and" if need(2) => ops[0].logical_and(ops[1]),
+        "or" if need(2) => ops[0].logical_or(ops[1]),
+        "xor" if need(2) => ops[0].logical_xor(ops[1]),
+        "add" if need(2) => ops[0].add(ops[1], rm),
+        "subtract" if need(2) => ops[0].sub(ops[1], rm),
+        "multiply" if need(2) => ops[0].mul(ops[1], rm),
+        "quantize" if need(2) => ops[0].quantize(ops[1], rm),
+        "tointegral" if need(1) => ops[0].round_to_integral(rm),
+        "tointegralx" if need(1) => ops[0].round_to_integral_exact(rm),
+        // A NaN operand yields the propagated NaN (canonicalized by
+        // `to_dpd_bytes`); reuse `add`'s NaN propagation for the value.
+        "compare" if need(2) => {
+            let (ord, s) = ops[0].partial_cmp(ops[1]);
+            (ord.map_or_else(|| ops[0].add(ops[1], rm).0, ord_token), s)
+        }
+        "comparesig" if need(2) => {
+            let (ord, s) = ops[0].compare_signaling(ops[1]);
+            (ord.map_or_else(|| ops[0].add(ops[1], rm).0, ord_token), s)
+        }
+        _ => return Outcome::Skip,
+    };
+    check(result, status, case)
 }
 
 /// `add` / `subtract`: parse both operands, run the op, compare the

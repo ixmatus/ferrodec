@@ -20,6 +20,10 @@ mod canonical;
 mod classify;
 mod cmp;
 mod div;
+// The DPD codec lives behind the `dpd` feature (src/dpd.rs); the
+// harness references it, so it is gated identically (ADR-0049).
+#[cfg(feature = "dpd")]
+mod dpd;
 // `exp` / `ln` live behind the `exp-log` feature (ops/exp.rs); the
 // harness references their Kani shims, so it is gated identically.
 #[cfg(feature = "exp-log")]

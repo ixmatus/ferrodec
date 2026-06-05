@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.3.0] - 2026-06-04
+
+### Added
+
+- `Decimal64::compare_signaling`, the General Decimal Arithmetic
+  `compareSignaling`: like the quiet `partial_cmp` but every NaN operand,
+  quiet or signaling, raises `INVALID`. See ADR-0049 (fd-bef.1).
+- `Decimal64::next_toward`, the GDA `nextToward`: steps the operand one
+  representable place toward the second, raising the underflow / overflow /
+  clamp flags a directed step carries (unlike the flagless `next_up` /
+  `next_down`). See ADR-0049 (fd-bef.2).
+- A `dpd` cargo feature with `Decimal64::to_dpd_bytes` / `from_dpd_bytes`,
+  the IEEE 754 Densely Packed Decimal byte-pattern codec for interchange
+  with decNumber, z/Architecture decimal-FP hardware, and the `ddEncode` /
+  `ddCanonical` conformance vectors. Pure boolean equations, no lookup
+  tables, off by default to preserve the embedded code-size floor. See
+  ADR-0049 (fd-bef.3) and ADR-0009 (the decimal128 predecessor).
+
 ### Fixed
 
 - `Decimal64::cbrt` and `Decimal64::pow` no longer raise `INEXACT` on an

@@ -1,6 +1,6 @@
 [package]
 name = "ferrodec-decimal64"
-version = "3.2.0"
+version = "3.3.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -105,6 +105,17 @@ serde = ["fmt", "dep:serde"]
 # was removed as a dependency (it had been retained only for the
 # pre-fd-r0l f64 transcendental detour, fd-17 / M5).
 num-traits = ["fmt", "ops", "binary-float", "dep:num-traits"]
+# DPD (Densely Packed Decimal) byte-pattern interchange:
+# `Decimal64::to_dpd_bytes` / `from_dpd_bytes`. ferrodec stores the
+# BID encoding internally for arithmetic; DPD is the interchange
+# encoding used by IBM decNumber, z/Architecture decimal-FP hardware,
+# and the upstream `ddEncode.decTest` / `ddCanonical.decTest`
+# conformance vectors. The codec is pure boolean equations from IEEE
+# 754-2008 §3.5.2 — no lookup tables, 5 declets over 8 bytes for the
+# 64-bit format. Off by default to preserve the embedded code-size
+# floor. See ADR-0001 (BID for arithmetic), ADR-0009 (DPD interchange),
+# and ADR-0049 (the decimal64 codec).
+dpd = []
 
 [dependencies]
 ferrodec-ieee = { path = "../ferrodec-ieee", version = "0.1.4" }
