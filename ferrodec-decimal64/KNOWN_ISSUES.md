@@ -64,35 +64,29 @@ documented limitations remain and are described after them.
   by the type system rather than a debug assertion. The §6.3 plus
   §7.4 clamp now raises `Status::CLAMPED`.
 
-## Documented limitation: GDA ideal-exponent Clamped on pre-normalised operands
+## §7.4 CLAMPED: resolved, with a BID-structural residual
 
-* **Status**: documented limitation, not a value error. Recorded at
-  H9 of the decimal64 correctness train; deferred beyond 1.4.0.
-* **Symptom**: a few decTest cases whose operands carry an exponent
-  outside the format's quantum range (e.g. `dddiv497`
-  `0E+380 / 1000E-13 -> 0E+369 Clamped`, `ddrem422`
-  `1E+384 % 1E+383 -> 0E+369 Clamped`, `ddrem424`) mark the IEEE
-  754-2019 §7.4 `Clamped` condition, but `ferrodec-decimal64`
-  returns the bit exact correct value with `Clamped` not raised.
-* **Mechanism**: `Decimal64::parse_str` normalises an out of range
-  operand quantum into the cohort at parse time (`1E+384` is stored
-  as coefficient `10^15`, exponent `+369`). The downstream operation
-  then sees in range operand exponents and performs no
-  representational clamp, so it raises no flag. GDA's reference
-  computes `Clamped` from an extended precision ideal exponent that
-  predates this normalisation. Replicating that bookkeeping is a
-  large change with no value impact.
-* **Why deferred**: the conformance harness classifies `Clamped` as
-  informational (`status_conformance_eq` masks it, mirroring
-  `decode_conditions`), so per file pass counts are unaffected and
-  the returned values are exact. The §7.4 flag is raised at genuine
-  in operation clamp sites (the `round.rs` §6.3 coefficient pad and
-  zero exponent clamp, and `div.rs`'s finite or zero over Infinity
-  Etiny path); regression tests pin those in
-  `tests/regression_h9_clamped.rs`.
-* **Fix landing**: a follow up may thread an ideal exponent
-  accumulator through the arithmetic paths if a downstream consumer
-  needs the informational flag on these cases.
+* **Status**: resolved for the detectable surface (fd-61r / ADR-0048); a
+  small structural residual remains, documented below. Not a value error.
+* **Resolved**: `Decimal64` now raises the IEEE 754-2019 §7.4 CLAMPED
+  informational flag at every clamp site the BID cohort model can detect,
+  and the conformance runner compares it (it was previously masked). This
+  includes zero results whose ideal exponent fell outside the quantum
+  range, e.g. `dddiv497` `0E+380 / 1000E-13 -> 0E+369 Clamped`, alongside
+  the original §6.3 coefficient pad, zero-exponent clamp, and
+  divide-by-Infinity Etiny sites.
+* **Residual (will not fix)**: cases whose operand's own exponent exceeds
+  the format quantum range cannot raise CLAMPED. `parse_str` normalises
+  such an operand into a padded cohort (`1E+384` is stored as coefficient
+  `10^15`, exponent `+369`), losing the pre-clamp exponent decNumber keeps
+  in a wide working exponent, so the downstream operation has no signal
+  that its result was clamped (`ddadd380` `1E+384 + 1E+384`, `ddrem424`
+  `1E+384 % 3E+383`). This is intrinsic to BID, not a defect; the value is
+  always exact. The conformance runner detects these by re-parsing
+  operands and skips them (35 cases: ddAdd 5, ddDivide 5, ddFMA 7,
+  ddRemainder 9, ddRemainderNear 9), tallied as the structural-CLAMPED
+  category. The §7.4 rule and the residual are recorded in ADR-0048;
+  `tests/regression_h9_clamped.rs` pins the detectable sites.
 
 ## Documented limitation: conformance dispatch is arithmetic plus tosci / apply
 

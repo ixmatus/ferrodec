@@ -541,6 +541,9 @@ mod tests {
         );
         assert!(!s.overflow());
         assert!(!s.inexact());
+        // §7.4 Clamped: the quantum was pulled down to qmax by padding
+        // (fd-61r / ADR-0048).
+        assert!(s.clamped());
     }
 
     #[test]
@@ -562,6 +565,9 @@ mod tests {
         assert!(d.is_zero(), "expected zero, got {d:?}");
         assert!(!d.is_sign_negative());
         assert!(!s.overflow());
+        // §7.4 Clamped: the zero's ideal quantum (200) is far above qmax,
+        // so it is clamped into range (fd-61r / ADR-0048).
+        assert!(s.clamped());
     }
 
     #[test]

@@ -14,6 +14,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   matching IEEE 754-2019 §7.5. The fix lives in the shared
   `ferrodec-transcend` kernel; the value is unchanged, only the flag. See
   ADR-0047 (fd-92w.8).
+- `Decimal32` now raises the IEEE 754-2019 §7.4 CLAMPED informational flag at
+  every clamp site the BID cohort model can detect (it was previously
+  under-raised), and the decTest conformance runner compares CLAMPED instead of
+  masking it (Decimal32 has no BID-structural residual). Values are unchanged;
+  only the informational flag moves. See ADR-0048 (fd-61r).
 
 ## [3.2.0] - 2026-06-01
 

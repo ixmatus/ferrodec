@@ -1,11 +1,12 @@
 #![cfg(all(feature = "fmt", feature = "binary-float"))]
-//! H9 regression: `Status::CLAMPED` (IEEE 754-2019 §7.4,
-//! informational) is raised at the in-operation clamp sites the
-//! Phase 1 review named. Agent 1 F7 (round.rs §6.3 pad + zero-exponent
-//! clamp), Agent 2 M6 (div finite/Inf -> +-0 at Etiny). The flag is
-//! informational: the conformance harness masks it
-//! (`status_conformance_eq`), so per-file pass counts are unaffected;
-//! these direct unit checks are the regression guard.
+//! H9 / fd-61r regression: `Status::CLAMPED` (IEEE 754-2019 §7.4,
+//! informational) is raised at every in-operation clamp site the BID
+//! cohort model can detect. The original H9 sites: round.rs §6.3 pad +
+//! zero-exponent clamp (Agent 1 F7), div finite/Inf -> +-0 at Etiny
+//! (Agent 2 M6). fd-61r (ADR-0048) extended this to zero results whose
+//! ideal exponent fell outside the quantum range, and unmasked CLAMPED in
+//! the conformance runner so it is compared there too; these direct unit
+//! checks remain as a focused guard.
 
 use ferrodec_decimal64::{Decimal64, RoundingMode};
 
@@ -47,14 +48,31 @@ fn mul_overflowing_preferred_exponent_pads_and_clamps() {
     assert!(!s.overflow(), "§6.3 pad is not an overflow");
 }
 
-// NOTE on residual scope: decTest also marks Clamped on cases whose
-// operands are pre-normalised by `parse_str` (e.g. dddiv497
-// `0E+380 / 1000E-13`, ddrem422/424). There the §7.4 condition is an
-// artifact of GDA's extended-precision ideal-exponent bookkeeping,
-// not an in-operation representational clamp in our BID cohort model;
-// the value is exact and the conformance harness filters Clamped, so
-// full ideal-exponent accounting is deferred (no value error, no
-// conformance impact). See KNOWN_ISSUES.md.
+// NOTE on the BID-structural residual (fd-61r / ADR-0048): one small
+// class of Clamped cases cannot be raised in the BID cohort model. When
+// an operand's own exponent exceeds the format quantum range it is
+// normalised into a padded cohort at parse (`1E+384` is stored at qmax),
+// losing the pre-clamp exponent decNumber keeps in a wide working
+// exponent. The downstream operation then has no signal that the result
+// was clamped (ddadd380 `1E+384 + 1E+384`, ddrem424 `1E+384 % 3E+383`).
+// The conformance runner detects these by re-parsing operands and skips
+// them, tallied as the structural-CLAMPED category in KNOWN_ISSUES.md.
+// The zero-result cases the old note listed here (dddiv497
+// `0E+380 / 1000E-13`) are now raised, exercised below.
+
+#[test]
+fn zero_result_with_out_of_range_ideal_is_clamped() {
+    // fd-61r: a zero whose ideal quantum falls outside [Qmin, Qmax] is
+    // delivered at the boundary and raises Clamped. dddiv497:
+    // 0E+380 / 1000E-13 -> 0E+369 Clamped (ideal 393 > Qmax 369).
+    let (r, s) = p("0E+380").div(p("1000E-13"), RM);
+    assert!(r.is_zero());
+    assert!(s.clamped(), "zero with ideal exponent above Qmax clamps");
+    // A product that underflows to zero, ideal below Etiny (ddmul755 shape).
+    let (r, s) = p("1e-277").mul(p("1e-311"), RM);
+    assert!(r.is_zero());
+    assert!(s.clamped() && s.underflow());
+}
 
 #[test]
 fn ordinary_arithmetic_is_not_clamped() {
