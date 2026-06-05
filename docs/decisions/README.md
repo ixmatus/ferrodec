@@ -74,3 +74,4 @@ The ADRs in number order:
 - [0046 — ferrodec-decimal performance follow-ups (post-1.0)](0046-decimal-perf-followups.md)
 - [0047 — Exact-result detection suppresses spurious INEXACT on cbrt and pow](0047-exact-flag-cbrt-pow.md)
 - [0048 — §7.4 CLAMPED fidelity, and the BID structural residual](0048-clamped-fidelity-and-bid-residual.md)
+- [0049 — Closing the GDA decNumber extension residue (compareSignaling, nextToward, Decimal64 DPD)](0049-gda-extension-residue-closure.md)

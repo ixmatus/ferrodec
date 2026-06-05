@@ -16,14 +16,14 @@ flag is cleared. See ADR-0047.
 
 ## Headline numbers
 
-As of ferrodec 2.1.0:
+As of ferrodec 3.3.0 (default features):
 
 | count |  share | category |
 |------:|-------:|----------|
-| 10 964 | 100.0 % | total cases |
-| 10 845 |  98.9 % | pass |
+| 11 827 | 100.0 % | total cases |
+| 11 708 |  99.0 % | pass |
 |      0 |   0.0 % | fail |
-|    119 |   1.1 % | skip |
+|    119 |   1.0 % | skip |
 
 The 0-fail floor is enforced by `tests/conformance.rs::dectest_conformance`,
 which pins the expected pass count per file under the ADR-0010
@@ -50,8 +50,11 @@ case. The 2.0 cycle then extended the dispatcher with eight GDA
 decNumber extension operations (`and`, `or`, `xor`, `invert`,
 `divideInteger`, `reduce`, `rotate`, `shift`, per ADR-0031), adding
 2 243 newly-passing `dq*` cases on first run and lifting the parent
-total from 8 721 to 10 964 vectors. The residual 99 skips still fall
-under the single will-not-fix non-IEEE rounding category.
+total from 8 721 to 10 964 vectors. The fd-bef closure (ADR-0049) then
+added `compareSignaling` and `nextToward`, vendoring `dqCompareSig`
+(559) and `dqNextToward` (304) and lifting the total to 11 827. The
+residual 99 skips still fall under the single will-not-fix non-IEEE
+rounding category.
 
 ## Skip taxonomy
 
@@ -67,7 +70,7 @@ attributes. Cases in directive blocks selecting the GDA modes are
 skipped rather than coerced onto a kernel mode that doesn't match the
 spec.
 
-Per-file: `dqQuantize` 66, `dqFMA` 26, `dqAdd` 8, `dqDivide` 1.
+Per-file: `dqQuantize` 64, `dqFMA` 26, `dqAdd` 8, `dqDivide` 1.
 
 **Will not fix.** ferrodec is positioned as IEEE 754 conformant, not
 GDA conformant. Adding `half_down` / `05up` would expand the
@@ -109,12 +112,13 @@ dqAnd.decTest                   357 pass     0 fail     0 skip
 dqCanonical.decTest               0 pass     0 fail     0 skip
 dqClass.decTest                  42 pass     0 fail     0 skip
 dqCompare.decTest               659 pass     0 fail     0 skip
+dqCompareSig.decTest            559 pass     0 fail     0 skip
 dqCompareTotal.decTest          613 pass     0 fail     0 skip
 dqCompareTotalMag.decTest       613 pass     0 fail     0 skip
-dqDivide.decTest                687 pass     0 fail     1 skip
+dqDivide.decTest                683 pass     0 fail     5 skip
 dqDivideInt.decTest             374 pass     0 fail     0 skip
 dqEncode.decTest                  0 pass     0 fail     0 skip
-dqFMA.decTest                  1425 pass     0 fail    26 skip
+dqFMA.decTest                  1418 pass     0 fail    33 skip
 dqInvert.decTest                193 pass     0 fail     0 skip
 dqLogB.decTest                  109 pass     0 fail     0 skip
 dqMax.decTest                   257 pass     0 fail     0 skip
@@ -123,22 +127,24 @@ dqMinus.decTest                  43 pass     0 fail     0 skip
 dqMultiply.decTest              473 pass     0 fail     0 skip
 dqNextMinus.decTest              84 pass     0 fail     0 skip
 dqNextPlus.decTest               84 pass     0 fail     0 skip
+dqNextToward.decTest            304 pass     0 fail     0 skip
 dqOr.decTest                    341 pass     0 fail     0 skip
 dqQuantize.decTest              622 pass     0 fail    64 skip
 dqReduce.decTest                134 pass     0 fail     0 skip
-dqRemainderNear.decTest         530 pass     0 fail     0 skip
+dqRemainderNear.decTest         521 pass     0 fail     9 skip
 dqRotate.decTest                248 pass     0 fail     0 skip
 dqSameQuantum.decTest           333 pass     0 fail     0 skip
 dqScaleB.decTest                202 pass     0 fail     0 skip
 dqShift.decTest                 248 pass     0 fail     0 skip
 dqSubtract.decTest              520 pass     0 fail     0 skip
 dqXor.decTest                   348 pass     0 fail     0 skip
-TOTAL: 10964 cases — 10865 pass, 0 fail, 99 skip
+TOTAL: 11827 cases — 11708 pass, 0 fail, 119 skip
 ```
 
 Default-feature build (no `dpd`); `dqCanonical` and `dqEncode` route
-to skip without the `dpd` feature and pin to 90 / 368 pass when it
-is enabled (see `tests/conformance.rs::expected_per_file`).
+to skip without the `dpd` feature and pin to 95 / 368 pass when it
+is enabled (`dqCanonical` rose 90 to 95 as its 5 `comparesig` cases
+now dispatch, fd-bef.1; see `tests/conformance.rs::expected_per_file`).
 
 Reproduce with:
 
@@ -196,12 +202,15 @@ across the full BID-128 encoding range, including:
 - All §5.3 quantum operations (`quantize`, `scaleb`, `logb`,
   `nextplus`, `nextminus`) and §5.10 total-order operations
   (`comparetotal`, `comparetotmag`).
-- All GDA decNumber extension operations wired in the 2.0 cycle
-  (ADR-0031): `and`, `or`, `xor`, `invert`, `divideInteger`,
-  `reduce`, `rotate`, `shift`. Every one passes its full `dq*`
-  decTest file on first run.
+- All GDA decNumber extension operations: `and`, `or`, `xor`,
+  `invert`, `divideInteger`, `reduce`, `rotate`, `shift` (ADR-0031),
+  and `compareSignaling`, `nextToward` (ADR-0049, the fd-bef closure).
+  Every one passes its full `dq*` decTest file. With ADR-0049 the
+  GDA-extension dispatcher gap is closed: the only `Skip` sources left
+  are the non-IEEE rounding directives and the BID-structural CLAMPED
+  residual.
 
-10 865 vectors at 0 fail across that surface is the meaningful number
+11 708 vectors at 0 fail across that surface is the meaningful number
 to look at; the residual 99 skips fall under a single will-not-fix
 category (non-IEEE rounding directives), with no concrete fix path
 in scope.

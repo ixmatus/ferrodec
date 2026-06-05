@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.3.0] - 2026-06-04
+
+### Added
+
+- `Decimal32::compare_signaling`, the General Decimal Arithmetic
+  `compareSignaling`: like the quiet `partial_cmp` but every NaN operand,
+  quiet or signaling, raises `INVALID`. See ADR-0049 (fd-bef.1).
+- `Decimal32::next_toward`, the GDA `nextToward`: steps the operand one
+  representable place toward the second, raising the underflow / overflow /
+  clamp flags a directed step carries (unlike the flagless `next_up` /
+  `next_down`). See ADR-0049 (fd-bef.2).
+
 ### Fixed
 
 - `Decimal32::cbrt` and `Decimal32::pow` no longer raise `INEXACT` on an
