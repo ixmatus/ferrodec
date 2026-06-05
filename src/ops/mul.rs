@@ -83,13 +83,18 @@ fn mul_special_cases(a: Decimal128, b: Decimal128) -> Option<(Decimal128, Status
     if zero_a || zero_b {
         // Quantum of the result is the sum of operand quanta. We pick
         // `q_a + q_b` and clamp to the storable range; non-canonical
-        // quantum after clamp is fine for ±0.
+        // quantum after clamp is fine for ±0. If the clamp moved the
+        // quantum, raise §7.4 Clamped (informational); the zero is exact
+        // at every exponent (fd-61r / ADR-0048; matches dqmul504 / dqmul505).
         let (_, ea, _) = decompose_finite_or_zero(cls_a);
         let (_, eb, _) = decompose_finite_or_zero(cls_b);
-        let exp = (ea as i32 + eb as i32 - BIAS as i32).clamp(0, crate::bid::BIASED_EXP_MAX as i32)
-            as u32;
+        let q_biased = ea as i32 + eb as i32 - BIAS as i32;
+        let exp = q_biased.clamp(0, crate::bid::BIASED_EXP_MAX as i32);
+        if exp != q_biased {
+            status |= Status::CLAMPED;
+        }
         return Some((
-            Decimal128::from_bits(pack_finite(result_sign, exp, 0)),
+            Decimal128::from_bits(pack_finite(result_sign, exp as u32, 0)),
             status,
         ));
     }

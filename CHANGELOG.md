@@ -36,6 +36,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Exactness is now proved in fixed width integer arithmetic before the flag is
   cleared. The value was always correct; only the flag changes. See ADR-0047
   (fd-92w.8).
+- `Decimal128` now raises the IEEE 754-2019 §7.4 CLAMPED informational flag at
+  every clamp site the BID cohort model can detect (it was previously
+  under-raised), and the decTest conformance runner compares CLAMPED instead of
+  masking it. One structural class cannot be raised in BID, where an operand's
+  own exponent exceeds the quantum range and is normalised away at parse (for
+  example `divide(9e6144, 1)`); those cases are a documented, counted skip
+  category. Values are unchanged; only the informational flag moves. See
+  ADR-0048 (fd-61r).
 
 ## [3.2.0] - 2026-06-01
 

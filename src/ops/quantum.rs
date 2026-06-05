@@ -214,10 +214,20 @@ impl Decimal128 {
         }
         let (sign, bexp, coef) = match classify_bits(self.0) {
             Class::Zero { sign, biased_exp } => {
-                // Zero: shift the quantum, clamped to the storable range.
-                let new_bexp =
-                    (biased_exp as i64 + n as i64).clamp(0, BIASED_EXP_MAX as i64) as u32;
-                return (Self::from_bits(pack_finite(sign, new_bexp, 0)), Status::OK);
+                // Zero: shift the quantum, clamped to the storable range. If
+                // the clamp moved the quantum, raise §7.4 Clamped: the zero
+                // is exact at every exponent (fd-61r / ADR-0048).
+                let shifted = biased_exp as i64 + n as i64;
+                let new_bexp = shifted.clamp(0, BIASED_EXP_MAX as i64);
+                let status = if new_bexp == shifted {
+                    Status::OK
+                } else {
+                    Status::CLAMPED
+                };
+                return (
+                    Self::from_bits(pack_finite(sign, new_bexp as u32, 0)),
+                    status,
+                );
             }
             Class::Finite {
                 sign,

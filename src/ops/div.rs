@@ -114,9 +114,17 @@ fn div_special_cases(a: Decimal128, b: Decimal128) -> Option<(Decimal128, Status
         let (_, ea, _) = decompose_finite(cls_a);
         let (_, eb, _) = decompose_finite(cls_b);
         let q = (ea as i32 - eb as i32) + BIAS as i32;
-        let biased = q.clamp(0, crate::bid::BIASED_EXP_MAX as i32) as u32;
+        let biased = q.clamp(0, crate::bid::BIASED_EXP_MAX as i32);
+        // §7.4 Clamped: the zero's preferred quantum (qa - qb) fell outside
+        // the format range and was clamped in. The zero is exact (fd-61r /
+        // ADR-0048; matches dqdiv497 / dqdiv498).
+        let status = if biased == q {
+            status
+        } else {
+            status | Status::CLAMPED
+        };
         return Some((
-            Decimal128::from_bits(pack_finite(result_sign, biased, 0)),
+            Decimal128::from_bits(pack_finite(result_sign, biased as u32, 0)),
             status,
         ));
     }

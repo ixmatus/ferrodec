@@ -75,6 +75,12 @@ pub(crate) fn round_and_pack_finite(
         // q_clamped is in the representable unbiased range by construction.
         let biased_exp = BiasedExp::try_from_unbiased(q_clamped)
             .expect("q_clamped in [-BIAS, BIASED_EXP_MAX - BIAS]");
+        if q_clamped != q {
+            // §7.4 Clamped (informational): the zero is exact at every
+            // exponent, but its preferred quantum fell outside the format
+            // range and was clamped into it (fd-61r / ADR-0048).
+            status |= Status::CLAMPED;
+        }
         return (
             Decimal64::from_bits(pack_finite(sign, biased_exp, Coefficient::ZERO)),
             status,
@@ -182,7 +188,14 @@ pub(crate) fn round_and_pack_finite(
         }
     }
 
-    finalise_finite(rounded, exp_after, sign, rm, status)
+    finalise_finite(
+        rounded,
+        exp_after,
+        sign,
+        rm,
+        status,
+        q_preferred.min(unbiased_exp),
+    )
 }
 
 fn drop_excess_digits(
@@ -213,6 +226,7 @@ fn finalise_finite(
     sign: bool,
     rm: RoundingMode,
     mut status: Status,
+    q_ideal: i32,
 ) -> (Decimal64, Status) {
     let bias = BIAS as i32;
     let biased_exp_max = BIASED_EXP_MAX as i32;
@@ -232,12 +246,15 @@ fn finalise_finite(
         // clamped is in [0, BIASED_EXP_MAX] by clamp() above.
         let biased_exp =
             BiasedExp::try_from_biased(clamped as u32).expect("clamped in [0, BIASED_EXP_MAX]");
-        if clamped != biased {
-            // The zero's preferred exponent fell outside the format
-            // range and was clamped into it. IEEE 754-2019 §7.4
-            // Clamped — informational; a zero is exact at every
-            // exponent. Matches decTest cases like dddiv497
-            // (`0E+380 / 1000E-13 -> 0E+369 Clamped`).
+        if q_ideal < -bias || q_ideal > biased_exp_max - bias {
+            // The zero's preferred exponent fell outside the format range
+            // and was clamped into it. IEEE 754-2019 §7.4 Clamped —
+            // informational; a zero is exact at every exponent. `q_ideal`
+            // is checked rather than the delivered `biased` exponent because
+            // a subnormal underflow that rounds to zero has already had its
+            // exponent pulled up to qmin upstream (fd-61r / ADR-0048;
+            // matches dddiv497 `0E+380 / 1000E-13 -> 0E+369 Clamped` and the
+            // ddmul755 underflow band).
             status |= Status::CLAMPED;
         }
         return (

@@ -14,6 +14,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `pow(10, 300)`), matching IEEE 754-2019 §7.5. The fix lives in the shared
   `ferrodec-transcend` kernel; the value is unchanged, only the flag. See
   ADR-0047 (fd-92w.8).
+- `Decimal64` now raises the IEEE 754-2019 §7.4 CLAMPED informational flag at
+  every clamp site the BID cohort model can detect (it was previously
+  under-raised), and the decTest conformance runner compares CLAMPED instead of
+  masking it. One structural class (operands whose exponent exceeds the quantum
+  range, e.g. `add(1E+384, 1E+384)`) cannot be raised in BID and is a
+  documented, counted skip category. Values are unchanged; only the flag moves.
+  See ADR-0048 (fd-61r).
 
 ## [3.2.0] - 2026-06-01
 

@@ -21,9 +21,9 @@ As of ferrodec 2.1.0:
 | count |  share | category |
 |------:|-------:|----------|
 | 10 964 | 100.0 % | total cases |
-| 10 865 |  99.1 % | pass |
+| 10 845 |  98.9 % | pass |
 |      0 |   0.0 % | fail |
-|     99 |   0.9 % | skip |
+|    119 |   1.1 % | skip |
 
 The 0-fail floor is enforced by `tests/conformance.rs::dectest_conformance`,
 which pins the expected pass count per file under the ADR-0010
@@ -32,10 +32,13 @@ discipline (the authoritative table lives at
 pass count below the per-file pin or raises the fail count above 0
 fails the build.
 
-All 99 residual skips fall under a single category — non-IEEE
-rounding directives — that ferrodec deliberately doesn't support.
-Every other operation, encoding, and special-value combination in
-the suite passes.
+The 119 residual skips fall under two categories: 99 non-IEEE
+rounding directives that ferrodec deliberately doesn't support, and
+20 BID-structural CLAMPED cases that cannot be raised in this
+encoding (fd-61r / ADR-0048). Every other operation, encoding, and
+special-value combination in the suite passes, now including the
+§7.4 CLAMPED informational flag (compared, not masked) at every clamp
+site the BID cohort model can detect.
 
 For context: 1.7.1 sat at 8 149 / 0 / 572 (93.4 % pass). The 1.9.0
 through 1.10.1 trail closed five of the original six skip
@@ -71,6 +74,30 @@ GDA conformant. Adding `half_down` / `05up` would expand the
 `RoundingMode` surface beyond the spec's five-direction enumeration,
 and embedded callers paying the kernel size already get every
 direction the standard defines.
+
+### 2. BID-structural CLAMPED residual — 20 cases (Decimal128)
+
+The §7.4 / GDA CLAMPED informational flag is now raised and compared at
+every clamp site the BID cohort model can detect (fd-61r / ADR-0048).
+One class cannot be raised: cases whose operand's own exponent exceeds
+the format quantum range. BID normalises such an operand into a padded
+cohort at parse (`9e6144` is stored at qmax), losing the pre-clamp
+exponent the decNumber reference keeps in a wide working exponent, so the
+operation has no signal that its result was clamped. Examples:
+`divide(9e6144, 1)`, `add(1E+384, 1E+384)`, `1E+384 % 3E+383`.
+
+The conformance runner detects these by re-parsing operands (an operand
+that itself raises CLAMPED at parse is pre-clamped) and skips them rather
+than failing. Per-file on Decimal128: `dqRemainderNear` 9, `dqFMA` 7,
+`dqDivide` 4. The siblings carry the same category: Decimal64 35 (ddAdd 5,
+ddDivide 5, ddFMA 7, ddRemainder 9, ddRemainderNear 9), Decimal32 0.
+
+**Will not fix.** The residual is intrinsic to BID, not a defect:
+raising these cases would require a working exponent wider than the
+storage format (decNumber's model), a different library. The value is
+always exact; only the informational flag is absent. The per-file pass
+pins (ADR-0010) record the residual exactly, so a regression in either
+direction fails the build.
 
 
 ## Per-file totals
