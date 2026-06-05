@@ -150,7 +150,38 @@ fn run_tosci(case: &TestCase, ctx: &Context) -> Outcome {
             case.conditions
         ));
     }
+    clamped_outcome(status, case)
+}
+
+/// Compare the §7.4 CLAMPED flag (fd-61r / ADR-0048), separately from the
+/// five IEEE flags (which `status_conformance_eq` masks CLAMPED out of).
+/// Returns `Pass` on a match, `Skip` for the BID-structural residual (an
+/// operand clamped into its cohort at parse, whose pre-clamp exponent BID
+/// cannot keep), and `Fail` for a genuine under- or over-raise.
+fn clamped_outcome(status: Status, case: &TestCase) -> Outcome {
+    let expected_clamped = case.conditions.iter().any(|c| c == "clamped");
+    if status.clamped() != expected_clamped {
+        if expected_clamped && !status.clamped() && any_operand_clamped_at_parse(&case.operands) {
+            return Outcome::Skip;
+        }
+        return Outcome::Fail(format!(
+            "CLAMPED mismatch: got {} want {expected_clamped} (conditions {:?})",
+            status.clamped(),
+            case.conditions
+        ));
+    }
     Outcome::Pass
+}
+
+/// `true` when any operand of a decTest case is itself clamped at parse
+/// (its literal quantum exceeds the format range, so it is stored in a
+/// padded cohort and loses its pre-clamp exponent). The documented
+/// BID-structural CLAMPED residual (fd-61r / ADR-0048).
+fn any_operand_clamped_at_parse(operands: &[String]) -> bool {
+    operands.iter().any(|op| {
+        Decimal32::parse_str(op, ferrodec_decimal32::RoundingMode::NearestEven)
+            .is_ok_and(|(_, s)| s.clamped())
+    })
 }
 
 /// Handle a `dsEncode` `apply` case that touches the DPD interchange

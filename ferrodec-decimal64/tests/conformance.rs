@@ -62,7 +62,7 @@ const fn expected_per_file() -> &'static [(&'static str, usize)] {
         // BID interchange), never failures. `subtract` is 514 of 516
         // (2 `#`-hex skips). Exact-match per-file counts per ADR-0010
         // / feedback_regression_guard_exact_match.
-        ("ddAdd.decTest", 973),
+        ("ddAdd.decTest", 968),
         // fd-ci0.7 (ADR-0031): `logical_and`. All 287 cases pass.
         ("ddAnd.decTest", 287),
         ("ddBase.decTest", 708),
@@ -107,7 +107,7 @@ const fn expected_per_file() -> &'static [(&'static str, usize)] {
         // skips), `ddDivide.decTest` 702 of 717 (15 skips, extreme
         // exponents / `#`-hex). `ddDivideInt.decTest` is a distinct
         // operation, not wired here.
-        ("ddDivide.decTest", 702),
+        ("ddDivide.decTest", 697),
         // fd-ci0.5 (ADR-0031): `divideInteger` wired. 371 of 373 pass;
         // the 2 skips are the `#`-hex BID-interchange cases.
         ("ddDivideInt.decTest", 371),
@@ -118,7 +118,7 @@ const fn expected_per_file() -> &'static [(&'static str, usize)] {
         // analogue of the addsub boundary family). The H3 case
         // `ddfma2504` is among the passers. 60 skips are
         // unrepresentable operands / `#`-hex.
-        ("ddFMA.decTest", 1318),
+        ("ddFMA.decTest", 1311),
         // fd-ci0.6 (ADR-0031): `logical_invert` wired. All 151 cases
         // pass on first run after the qNaN-as-INVALID fix.
         ("ddInvert.decTest", 151),
@@ -143,8 +143,8 @@ const fn expected_per_file() -> &'static [(&'static str, usize)] {
         // 529 (2 `#`-hex BID-interchange skips each, never failures).
         // Counts pinned exactly from the run per ADR-0010 /
         // feedback_regression_guard_exact_match.
-        ("ddRemainder.decTest", 503),
-        ("ddRemainderNear.decTest", 527),
+        ("ddRemainder.decTest", 494),
+        ("ddRemainderNear.decTest", 518),
         // fd-ci0.9 (ADR-0031): `rotate`. All 212 cases pass.
         ("ddRotate.decTest", 212),
         ("ddSameQuantum.decTest", 333),
@@ -268,6 +268,38 @@ fn expected_is_nan(expected: &str) -> bool {
 /// NaN, and `Display` does not render a payload). The status is still
 /// compared exactly, so the signaling-NaN `INVALID` distinction is
 /// preserved.
+/// Compare the §7.4 CLAMPED flag (fd-61r / ADR-0048). Returns `Pass` when
+/// it matches the expectation, `Skip` for the BID-structural residual (an
+/// operand clamped into its cohort at parse, whose pre-clamp exponent BID
+/// cannot keep, so the operation cannot reconstruct decNumber's wide ideal
+/// exponent), and `Fail` for a genuine under- or over-raise. The five IEEE
+/// flags are compared separately by the caller.
+fn clamped_outcome(status: Status, case: &TestCase) -> Outcome {
+    let expected_clamped = case.conditions.iter().any(|c| c == "clamped");
+    if status.clamped() != expected_clamped {
+        if expected_clamped && !status.clamped() && any_operand_clamped_at_parse(&case.operands) {
+            return Outcome::Skip;
+        }
+        return Outcome::Fail(format!(
+            "CLAMPED mismatch: got {} want {expected_clamped} (conditions {:?})",
+            status.clamped(),
+            case.conditions
+        ));
+    }
+    Outcome::Pass
+}
+
+/// `true` when any operand of a decTest case is itself clamped at parse.
+/// Such an operand has lost its pre-clamp exponent (BID stores it in a
+/// padded cohort), so the operation cannot raise §7.4 CLAMPED the way
+/// decNumber does from a wide working exponent.
+fn any_operand_clamped_at_parse(operands: &[String]) -> bool {
+    operands.iter().any(|op| {
+        Decimal64::parse_str(op, ferrodec_decimal64::RoundingMode::NearestEven)
+            .is_ok_and(|(_, s)| s.clamped())
+    })
+}
+
 fn check(result: Decimal64, status: Status, case: &TestCase) -> Outcome {
     let formatted = format_value(result);
     if expected_is_nan(&case.expected) {
@@ -284,7 +316,7 @@ fn check(result: Decimal64, status: Status, case: &TestCase) -> Outcome {
             case.conditions
         ));
     }
-    Outcome::Pass
+    clamped_outcome(status, case)
 }
 
 /// `compare`: GDA quiet comparison. A NaN operand yields a NaN result
@@ -628,7 +660,7 @@ fn run_ternary(case: &TestCase, ctx: &Context) -> Outcome {
             case.conditions
         ));
     }
-    Outcome::Pass
+    clamped_outcome(status, case)
 }
 
 /// Parse one decTest operand at the active rounding mode. Returns
@@ -690,7 +722,7 @@ fn run_binary(case: &TestCase, ctx: &Context) -> Outcome {
             case.conditions
         ));
     }
-    Outcome::Pass
+    clamped_outcome(status, case)
 }
 
 /// `toSci` and `apply`: parse the operand string at the active
@@ -743,7 +775,7 @@ fn run_tosci(case: &TestCase, ctx: &Context) -> Outcome {
             case.conditions
         ));
     }
-    Outcome::Pass
+    clamped_outcome(status, case)
 }
 
 fn format_value(d: Decimal64) -> String {
