@@ -78,10 +78,12 @@ const fn expected_per_file() -> &'static [(&'static str, usize)] {
         // `ddCompareTotal` / `ddCompareTotalMag` 611 of 613 (2 `#`-hex
         // each); `ddSameQuantum` 333 of 333 (predicate, no skips);
         // `ddQuantize` 606 of 683 (77 skips: extreme exponents past
-        // the parser cap and `#`-hex). `ddCompareSig` stays 0 —
-        // `compareSignal` is unimplemented (same posture as the
-        // Decimal128 runner). Exact-match per ADR-0010.
+        // the parser cap and `#`-hex). fd-bef.1 (ADR-0049):
+        // `compareSignaling` wired — like `compare` but every NaN
+        // operand (quiet or signaling) raises INVALID; `ddCompareSig`
+        // 557 of 559 (2 `#`-hex skips). Exact-match per ADR-0010.
         ("ddCompare.decTest", 647),
+        ("ddCompareSig.decTest", 557),
         ("ddCompareTotal.decTest", 611),
         ("ddCompareTotalMag.decTest", 611),
         // fd-37z: copy family wired. Non-signaling bit ops; the
@@ -170,6 +172,10 @@ fn run_case(case: &TestCase, ctx: &Context) -> Outcome {
         "add" | "subtract" | "multiply" | "divide" => run_binary(case, ctx),
         "fma" => run_ternary(case, ctx),
         "compare" => run_compare(case, ctx),
+        // decTest `comparesig`: GDA `compareSignaling` — like `compare`
+        // but every NaN operand (quiet or signaling) raises INVALID
+        // (fd-bef.1).
+        "comparesig" => run_comparesig(case, ctx),
         "comparetotal" => run_total(case, ctx, false),
         // decTest spells the magnitude variant `comparetotmag`; accept
         // the longer alias too for robustness.
@@ -230,8 +236,10 @@ fn run_case(case: &TestCase, ctx: &Context) -> Outcome {
         // canonical, so `Decimal64::canonicalize` is effectively the
         // identity, but route through it for fidelity. Never raises
         // a flag. `ddCanonical.decTest` is a mixed-op file; its
-        // count is cumulative over every arm above (the `comparesig`
-        // cases remain Skip, no `compare_signaling` yet).
+        // count is cumulative over every arm above. `comparesig` now
+        // dispatches via `compare_signaling` (fd-bef.1), but every
+        // `ddCanonical` case is `#`-hex DPD, so those cases stay Skip
+        // until the Decimal64 DPD codec lands (fd-bef.3 / fd-bef.4).
         "canonical" => run_copy_unary(case, ctx, Decimal64::canonicalize),
         _ => Outcome::Skip,
     }
@@ -339,6 +347,34 @@ fn run_compare(case: &TestCase, ctx: &Context) -> Outcome {
         _ => return Outcome::Skip,
     };
     let (ord, status) = a.partial_cmp(b);
+    let result = match ord {
+        None => Decimal64::NAN,
+        Some(o) => ord_token(o),
+    };
+    check(result, status, case)
+}
+
+/// `comparesig`: GDA `compareSignaling`. Identical to `compare` except
+/// that *any* NaN operand — quiet or signaling — raises `INVALID`. The
+/// result value on a NaN operand is a NaN (sign / payload not pinned,
+/// the same NaN-result contract as `run_compare`); the status carries
+/// the `INVALID` the spec mandates.
+fn run_comparesig(case: &TestCase, ctx: &Context) -> Outcome {
+    if case.operands.len() != 2 || case.expected.starts_with('#') {
+        return Outcome::Skip;
+    }
+    let rm = match map_rounding(&ctx.rounding) {
+        Some(r) => r,
+        None => return Outcome::Skip,
+    };
+    let (a, b) = match (
+        parse_operand(&case.operands[0], rm),
+        parse_operand(&case.operands[1], rm),
+    ) {
+        (Some(a), Some(b)) => (a, b),
+        _ => return Outcome::Skip,
+    };
+    let (ord, status) = a.compare_signaling(b);
     let result = match ord {
         None => Decimal64::NAN,
         Some(o) => ord_token(o),

@@ -606,6 +606,9 @@ enum OpKind {
     Plus,
     Apply,
     Compare,
+    /// fd-bef.1 (ADR-0049): GDA `compareSignaling` — like `Compare`
+    /// but every NaN operand (quiet or signaling) raises `INVALID`.
+    CompareSig,
     CompareTotal,
     CompareTotalMag,
     Min,
@@ -665,6 +668,8 @@ fn dispatch_op(name: &str) -> Option<OpKind> {
         // becomes identity at this layer.
         "apply" => OpKind::Apply,
         "compare" => OpKind::Compare,
+        // decTest `comparesig`: GDA `compareSignaling` (ADR-0049).
+        "comparesig" => OpKind::CompareSig,
         "comparetotal" => OpKind::CompareTotal,
         // decTest spells the magnitude variant `comparetotmag` (no `al`).
         "comparetotmag" | "comparetotalmag" => OpKind::CompareTotalMag,
@@ -790,6 +795,22 @@ fn invoke(op: OpKind, operands: &[String], rm: RoundingMode, enc: Encoding) -> O
                 // returns that NaN propagated (sNaN-priority, sign and
                 // payload preserved, signaling quietened) — exactly the
                 // arithmetic NaN-propagation rule, so reuse `add`.
+                None => a.add(b, RoundingMode::NearestEven).0,
+                Some(core::cmp::Ordering::Less) => Decimal128::NEG_ONE,
+                Some(core::cmp::Ordering::Equal) => Decimal128::ZERO,
+                Some(core::cmp::Ordering::Greater) => Decimal128::ONE,
+            };
+            Some(OpResult::Value(v, s))
+        }
+        OpKind::CompareSig => {
+            let a = parse_value(&operands[0], rm, enc)?.0;
+            let b = parse_value(&operands[1], rm, enc)?.0;
+            // `compareSignaling` differs from `compare` only in the
+            // status: a quiet NaN raises INVALID here too. The result
+            // value is the same propagated NaN (the GDA NaN-propagation
+            // rule, reusing `add`) on an unordered comparison.
+            let (ord, s) = a.compare_signaling(b);
+            let v = match ord {
                 None => a.add(b, RoundingMode::NearestEven).0,
                 Some(core::cmp::Ordering::Less) => Decimal128::NEG_ONE,
                 Some(core::cmp::Ordering::Equal) => Decimal128::ZERO,
@@ -1254,6 +1275,9 @@ fn expected_per_file() -> &'static [(&'static str, usize)] {
             ("dqCanonical.decTest", 0),
             ("dqClass.decTest", 42),
             ("dqCompare.decTest", 659),
+            // fd-bef.1 (ADR-0049): `compareSignaling` wired. All 559
+            // cases pass; like `compare` but every NaN raises INVALID.
+            ("dqCompareSig.decTest", 559),
             ("dqCompareTotal.decTest", 613),
             ("dqCompareTotalMag.decTest", 613),
             ("dqDivide.decTest", 683),
@@ -1298,9 +1322,17 @@ fn expected_per_file() -> &'static [(&'static str, usize)] {
             // fd-ci0.7 (ADR-0031): logical and/or/xor wired;
             // encoding-independent.
             ("dqAnd.decTest", 357),
-            ("dqCanonical.decTest", 90),
+            // fd-bef.1 (ADR-0049): rises 90 -> 95 as the 5 `comparesig`
+            // cases in this mixed-op DPD file now dispatch via
+            // `compare_signaling` (the other 149 skips are GDA bit ops
+            // not yet dispatched on the DPD path, e.g. copy / logical /
+            // nexttoward).
+            ("dqCanonical.decTest", 95),
             ("dqClass.decTest", 42),
             ("dqCompare.decTest", 659),
+            // fd-bef.1 (ADR-0049): `compareSignaling` wired. All 559
+            // cases pass; like `compare` but every NaN raises INVALID.
+            ("dqCompareSig.decTest", 559),
             ("dqCompareTotal.decTest", 613),
             ("dqCompareTotalMag.decTest", 613),
             ("dqDivide.decTest", 683),

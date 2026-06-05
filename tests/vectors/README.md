@@ -17,7 +17,7 @@ These `.decTest` files come from Mike Cowlishaw's
 - Archive size: 791 733 bytes
 - Archive SHA-256:
   `b70a224cd52e82b7a8150aedac5efa2d0cb3941696fd829bdbe674f9f65c3926`
-- Retrieved: 2026-05-03
+- Retrieved: 2026-05-03 (initial set); 2026-06-04 (`dqCompareSig.decTest`, fd-bef.1)
 - Files extracted: the `dq*.decTest` decimal128-specific variants (precision 34,
   emax 6144, emin -6143).
 

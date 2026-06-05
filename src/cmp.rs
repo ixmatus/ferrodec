@@ -1,10 +1,13 @@
 //! IEEE 754 comparison predicates: `partial_cmp`, `total_cmp`, `min`, `max`.
 //!
-//! Two distinct comparisons are exposed:
+//! Three distinct comparisons are exposed:
 //!
 //! * [`Decimal128::partial_cmp`] is the IEEE 754 §5.11 numeric comparison.
 //!   NaN inputs yield `None`. A signaling NaN raises `INVALID`. `+0` and
 //!   `−0` compare equal, as do members of the same numeric cohort.
+//! * [`Decimal128::compare_signaling`] is the General Decimal Arithmetic
+//!   `compareSignaling`: the same numeric comparison, but *every* NaN
+//!   operand raises `INVALID`, including a quiet NaN.
 //! * [`Decimal128::total_cmp`] is the IEEE 754 §5.10 `totalOrder` predicate.
 //!   Every bit pattern has a unique position. `−sNaN < −qNaN < −∞ < … <
 //!   −0 < +0 < … < +∞ < +qNaN < +sNaN`. Equal-magnitude finite cohorts are
@@ -52,6 +55,26 @@ impl Decimal128 {
             return (None, status);
         }
         (Some(numeric_cmp(self, other)), status)
+    }
+
+    /// IEEE 754-2019 / General Decimal Arithmetic `compareSignaling`.
+    ///
+    /// Identical to [`Decimal128::partial_cmp`] except that *every* NaN
+    /// operand raises `INVALID`, not only a signaling NaN. A quiet NaN,
+    /// which `partial_cmp` reports as unordered with `Status::OK`, here
+    /// raises `INVALID` as well. Returns `None` whenever either operand
+    /// is NaN (the comparison is unordered); otherwise `Some(ordering)`
+    /// with `Status::OK`. Where `partial_cmp` is the IEEE 754 §5.11
+    /// *quiet* comparison (signaling only on an sNaN), this is the
+    /// *signaling* comparison: it raises `INVALID` on every unordered
+    /// comparison.
+    #[inline]
+    #[must_use]
+    pub fn compare_signaling(self, other: Self) -> (Option<Ordering>, Status) {
+        if self.is_nan() || other.is_nan() {
+            return (None, Status::INVALID);
+        }
+        (Some(numeric_cmp(self, other)), Status::OK)
     }
 
     /// IEEE 754 §5.10 `totalOrder` predicate, returned as an [`Ordering`].
@@ -612,6 +635,43 @@ mod tests {
         let (ord, st) = Decimal128::SIGNALING_NAN.partial_cmp(Decimal128::ONE);
         assert_eq!(ord, None);
         assert!(st.invalid());
+    }
+
+    #[test]
+    fn compare_signaling_matches_partial_cmp_on_non_nan() {
+        // On non-NaN operands compareSignaling agrees with partial_cmp
+        // exactly (same ordering, OK status).
+        for (a, b) in [
+            (Decimal128::NEG_ONE, Decimal128::ONE),
+            (Decimal128::ONE, Decimal128::NEG_ONE),
+            (Decimal128::ONE, Decimal128::ONE),
+            (Decimal128::ZERO, Decimal128::NEG_ZERO),
+            (Decimal128::NEG_INFINITY, Decimal128::INFINITY),
+            (Decimal128::INFINITY, Decimal128::MAX),
+        ] {
+            let (sig, ssig) = a.compare_signaling(b);
+            assert_eq!(sig, a.partial_cmp(b).0);
+            assert!(ssig.is_ok());
+        }
+    }
+
+    #[test]
+    fn compare_signaling_quiet_nan_raises_invalid() {
+        // The defining difference from partial_cmp: a *quiet* NaN raises
+        // INVALID, where partial_cmp leaves the status OK.
+        for (a, b) in [
+            (Decimal128::ONE, Decimal128::NAN),
+            (Decimal128::NAN, Decimal128::ONE),
+            (Decimal128::ONE, Decimal128::SIGNALING_NAN),
+            (Decimal128::NAN, Decimal128::NAN),
+        ] {
+            let (ord, st) = a.compare_signaling(b);
+            assert_eq!(ord, None);
+            assert!(
+                st.invalid(),
+                "compareSignaling must raise INVALID on any NaN"
+            );
+        }
     }
 
     #[test]
