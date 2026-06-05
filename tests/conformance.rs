@@ -620,6 +620,10 @@ enum OpKind {
     LogB,
     NextPlus,
     NextMinus,
+    /// fd-bef.2 (ADR-0049): GDA `nextToward` — `self` stepped one ulp
+    /// toward the second operand, signalling underflow / overflow /
+    /// clamp like an arithmetic step.
+    NextToward,
     /// fd-ci0.4 (ADR-0031): General Decimal Arithmetic `reduce` —
     /// strip non-significant trailing zeros from a finite coefficient.
     Reduce,
@@ -682,6 +686,8 @@ fn dispatch_op(name: &str) -> Option<OpKind> {
         "logb" => OpKind::LogB,
         "nextplus" => OpKind::NextPlus,
         "nextminus" => OpKind::NextMinus,
+        // decTest `nexttoward`: GDA directed neighbour (ADR-0049).
+        "nexttoward" => OpKind::NextToward,
         // decTest `reduce`: General Decimal Arithmetic trailing-zero
         // strip (ADR-0031). Exact; never raises INEXACT. Zero of any
         // cohort normalises to exponent 0.
@@ -913,6 +919,12 @@ fn invoke(op: OpKind, operands: &[String], rm: RoundingMode, enc: Encoding) -> O
         OpKind::NextMinus => {
             let a = parse_value(&operands[0], rm, enc)?.0;
             let (v, s) = a.next_down();
+            Some(OpResult::Value(v, s))
+        }
+        OpKind::NextToward => {
+            let a = parse_value(&operands[0], rm, enc)?.0;
+            let b = parse_value(&operands[1], rm, enc)?.0;
+            let (v, s) = a.next_toward(b);
             Some(OpResult::Value(v, s))
         }
         OpKind::CompareTotalMag => {
@@ -1296,6 +1308,10 @@ fn expected_per_file() -> &'static [(&'static str, usize)] {
             ("dqMultiply.decTest", 473),
             ("dqNextMinus.decTest", 84),
             ("dqNextPlus.decTest", 84),
+            // fd-bef.2 (ADR-0049): `nextToward` wired. All 304 cases
+            // pass; the directed step's underflow / overflow / clamp
+            // flags are compared exactly.
+            ("dqNextToward.decTest", 304),
             // fd-ci0.7 (ADR-0031): `logical_or`.
             ("dqOr.decTest", 341),
             ("dqQuantize.decTest", 622),
@@ -1351,6 +1367,10 @@ fn expected_per_file() -> &'static [(&'static str, usize)] {
             ("dqMultiply.decTest", 473),
             ("dqNextMinus.decTest", 84),
             ("dqNextPlus.decTest", 84),
+            // fd-bef.2 (ADR-0049): `nextToward` wired. All 304 cases
+            // pass; the directed step's underflow / overflow / clamp
+            // flags are compared exactly.
+            ("dqNextToward.decTest", 304),
             // fd-ci0.7 (ADR-0031): `logical_or`.
             ("dqOr.decTest", 341),
             ("dqQuantize.decTest", 622),

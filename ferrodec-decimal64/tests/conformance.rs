@@ -132,6 +132,11 @@ const fn expected_per_file() -> &'static [(&'static str, usize)] {
         ("ddMaxMag.decTest", 241),
         ("ddMinMag.decTest", 231),
         ("ddMultiply.decTest", 444),
+        // fd-bef.2 (ADR-0049): `nextToward` wired. 302 of 304 (2 `#`-hex
+        // BID-interchange skips). The underflow / overflow / clamp flags
+        // the directed step raises are compared exactly (the subnormal,
+        // zero-at-Etiny, and overflow-to-infinity cases all pass).
+        ("ddNextToward.decTest", 302),
         // fd-ci0.7 (ADR-0031): `logical_or`. All 237 cases pass.
         ("ddOr.decTest", 237),
         ("ddQuantize.decTest", 606),
@@ -193,6 +198,10 @@ fn run_case(case: &TestCase, ctx: &Context) -> Outcome {
         "remainder" => run_rem(case, ctx, false),
         "remaindernear" => run_rem(case, ctx, true),
         "quantize" => run_quantize(case, ctx),
+        // decTest `nexttoward`: GDA directed neighbour. Steps `self`
+        // one ulp toward the second operand, raising underflow /
+        // overflow / clamp like an arithmetic step (fd-bef.2).
+        "nexttoward" => run_nexttoward(case, ctx),
         // decTest `divideint`: General Decimal Arithmetic truncated
         // integer quotient at exponent 0 (ADR-0031).
         "divideint" => run_divide_integer(case, ctx),
@@ -379,6 +388,30 @@ fn run_comparesig(case: &TestCase, ctx: &Context) -> Outcome {
         None => Decimal64::NAN,
         Some(o) => ord_token(o),
     };
+    check(result, status, case)
+}
+
+/// `nexttoward`: GDA directed neighbour. Parse both operands, step the
+/// first toward the second, and compare value + status (including the
+/// underflow / overflow / clamp flags the step raises). Uses the same
+/// `check` path as the arithmetic ops, so CLAMPED is compared via
+/// `clamped_outcome`.
+fn run_nexttoward(case: &TestCase, ctx: &Context) -> Outcome {
+    if case.operands.len() != 2 || case.expected.starts_with('#') {
+        return Outcome::Skip;
+    }
+    let rm = match map_rounding(&ctx.rounding) {
+        Some(r) => r,
+        None => return Outcome::Skip,
+    };
+    let (a, b) = match (
+        parse_operand(&case.operands[0], rm),
+        parse_operand(&case.operands[1], rm),
+    ) {
+        (Some(a), Some(b)) => (a, b),
+        _ => return Outcome::Skip,
+    };
+    let (result, status) = a.next_toward(b);
     check(result, status, case)
 }
 
