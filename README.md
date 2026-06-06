@@ -264,27 +264,6 @@ The `num-traits` feature transitively enables `ops` because `num_traits::Num` re
 
 The same reasoning leads us to implement `Eq` and `PartialEq` as bitwise equality. `partial_cmp` returns the IEEE numeric comparison; `total_cmp` returns the IEEE 754:2019 totalOrder predicate; `==` returns whether the two `u128` representations are identical. That trade keeps `Decimal128` usable as a `HashMap` key, predictable in tests, and trivially `const` comparable.
 
-## Choosing between ferrodec and `rust_decimal`
-
-`rust_decimal` is the established Rust decimal library and the right choice for many projects. Where ferrodec adds value is the IEEE 754 conformance, the precision width, and the verification posture; the cost is the smaller ecosystem and a more deliberate API by default. Honest comparison:
-
-| | ferrodec | `rust_decimal` |
-|---|---|---|
-| Format | IEEE 754:2019 BID-128 | 96-bit fixed-point |
-| Precision | 34 decimal digits | 28 decimal digits |
-| Exponent range | 10⁻⁶¹⁴³ … 10⁺⁶¹⁴⁴ | 10⁻²⁸ … 10⁺²⁸ |
-| Conformance | Full IEEE 754:2019 (NaN, ±∞, signaling NaN, all five rounding modes, total order, quantum ops, correctly rounded §9.2 transcendentals) | None: different model, no NaN/Inf, single banker's-rounding mode |
-| Formal verification | Kani harnesses plus the full Speleotrove decTest conformance suite | None |
-| `no_std` | Real (forbid unsafe, no alloc, fixed-size buffers) | Available with feature flag |
-| Default API | Explicit `RoundingMode` + `(value, Status)` return | `core::ops` operators, banker's rounding |
-| Ergonomic operators | Opt-in via `ops` feature (`NearestEven`, `Status` discarded) | Built-in |
-| `serde` / `num-traits` | Behind feature flags | Built-in / via feature |
-| Maturity | Younger; 3.x, IEEE 754-2019 conformant and SemVer-stable | Established, millions of downloads |
-
-**Pick ferrodec when**: you need 34-digit precision, IEEE 754 conformance (NaN handling, multiple rounding modes, transcendentals), formal verification, or hard `no_std`. Financial systems with regulatory requirements; scientific calculators; embedded targets.
-
-**Pick `rust_decimal` when**: you need fast, well-trodden, ecosystem-rich decimal arithmetic for typical money math; you're happy with 28 digits and banker's rounding; you want operators by default without thinking about it.
-
 ## Porting between the ferrodec formats
 
 `ferrodec` (Decimal128), `ferrodec-decimal64`, and `ferrodec-decimal32` share an API shape but diverge in a few places a maintainer would otherwise rediscover the hard way. Every divergence is named here and in an architecture decision record rather than left implicit.
