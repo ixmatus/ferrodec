@@ -114,6 +114,11 @@ pub fn log10_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
     ) {
         return (F::ZERO, Status::OK);
     }
+    // Exact powers of ten (fd-aqs.8): `log10(10^k) = k` exactly, at
+    // every rounding direction, with no INEXACT (IEEE 754-2019 §7.5).
+    if let Some(exact) = crate::exact::log10_exact::<F>(x, rm) {
+        return exact;
+    }
     // log10(x) = ln(x) · (1/ln(10)) at extended precision.
     let ln_ext = ln_extended(x);
     let result_ext = ln_ext.mul(inv_ln10_ext());
@@ -130,6 +135,11 @@ pub fn log2_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
         Some(core::cmp::Ordering::Equal)
     ) {
         return (F::ZERO, Status::OK);
+    }
+    // Exact powers of two (fd-aqs.8): `log2(2^k) = k` exactly, at
+    // every rounding direction, with no INEXACT (IEEE 754-2019 §7.5).
+    if let Some(exact) = crate::exact::log2_exact::<F>(x, rm) {
+        return exact;
     }
     let ln_ext = ln_extended(x);
     let result_ext = ln_ext.mul(inv_ln2_ext());

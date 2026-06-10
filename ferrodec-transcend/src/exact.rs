@@ -1,4 +1,5 @@
-//! Exact-result detection for `cbrt` and `pow` (IEEE 754-2019 §7.5).
+//! Exact-result detection for `cbrt`, `pow`, `exp2`, `log2`, and
+//! `log10` (IEEE 754-2019 §7.5).
 //!
 //! ## Why
 //!
@@ -8,12 +9,18 @@
 //! of a transcendental value almost never lands exactly and its own
 //! round-step inexact bit reflects "rounded 50 digits down to the format
 //! width", not "the true result differs from the delivered one". For
-//! `exp`, `ln`, the trig and hyperbolic families that is correct: the
-//! true result is irrational for every non-special input, and the special
-//! inputs short-circuit. `cbrt` and `pow` are the exceptions: they can
-//! land on an exact, representable value (a perfect cube root, an exact
-//! integer or rational power), and §7.5 forbids `INEXACT` there. This
-//! module proves exactness so the two kernels can clear the flag.
+//! `exp`, `ln`, and the trig and hyperbolic families that is correct:
+//! their values at non-special representable inputs are irrational
+//! (Lindemann for the base-`e` family at rational arguments), and the
+//! special inputs short-circuit. Five functions are the exceptions.
+//! `cbrt` and `pow` can land on an exact, representable value (a perfect
+//! cube root, an exact integer or rational power) and are proved exact
+//! *post-hoc* from the rounded result (ADR-0047). `exp2`, `log2`, and
+//! `log10` have exact cases detectable from the *input* alone
+//! (`exp2(n)` with `2^n` representable, `log2(2^k)`, `log10(10^k)`;
+//! fd-aqs.8) and short-circuit before the kernel, which both clears the
+//! flag and delivers the exact value at every rounding direction —
+//! §7.5 forbids `INEXACT` on all of them.
 //!
 //! ## Soundness (the invariant the whole module is built around)
 //!
@@ -33,7 +40,7 @@
 use crate::extended::{u256_mul_u256, Extended};
 use crate::format::DecimalFormat;
 use core::cmp::Ordering;
-use ferrodec_ieee::Status;
+use ferrodec_ieee::{RoundingMode, Status};
 use ferrodec_multiword::{U256, U384};
 
 /// Drop the `INEXACT` flag after a positive exactness proof. All other
@@ -278,6 +285,132 @@ pub(crate) fn power_is_exact<F: DecimalFormat>(result: F, x: F, y: F) -> bool {
         // result = x^{a/b}, so result^b == x^a.
         value_eq(p, ep, q, eq)
     }
+}
+
+// ----------------------------------------------------------------------------
+// Exact-input detection for `exp2`, `log2`, and `log10` (fd-aqs.8).
+//
+// Unlike `cbrt` / `pow` above, which need the *rounded result* to prove
+// exactness post-hoc, these three functions can detect the exact cases
+// from the input alone: `exp2(n)` is exact iff `n` is an integer with
+// `2^n` representable at the format precision (`2^n` for `n ≥ 0`,
+// `5^{-n} · 10^n` for `n < 0`), `log10(x)` iff `x = 10^k`, and
+// `log2(x)` iff `x = 2^k`. Pre-detection delivers the exact value at
+// every rounding direction (an exact result rounds to itself) and the
+// clean `OK` status in one move — repairing both the spurious INEXACT
+// (§7.5) and the directed-mode misround of the 50-digit approximation
+// landing on the wrong side of the exact value (the 2026-06-09 review:
+// `exp2(3)` at `TowardNegative` returned `7.999999…`).
+//
+// The same soundness posture as the rest of this module: every
+// predicate bails to `None` (kernel path, today's behaviour) on any
+// width or range it cannot prove; the only dangerous outcome would be
+// `Some` on an inexact case, and the bounds make that unreachable.
+
+/// Pack a small exact `coef · 10^exp` with `sign` into the format.
+/// Caller guarantees the coefficient fits the format precision and the
+/// exponent its range, so the status comes back `OK` and the value is
+/// identical at every rounding direction.
+fn pack_exact<F: DecimalFormat>(coef: u128, exp: i32, sign: bool, rm: RoundingMode) -> (F, Status) {
+    F::round_and_pack_finite(U256::from_u128(coef), exp, 0, sign, false, rm, Status::OK)
+}
+
+/// Decode `x` as a small signed integer, or `None` if it is not an
+/// integer or its magnitude exceeds `limit`. Caller has filtered the
+/// non-finite and zero classes.
+fn as_small_int<F: DecimalFormat>(x: F, limit: u128) -> Option<(u128, bool)> {
+    let (coef, exp, sign) = x.to_extended_parts();
+    let (c, e) = strip_trailing_zeros(coef, exp);
+    // After stripping, a residual negative exponent means fractional
+    // digits remain: not an integer.
+    if e < 0 || c.hi != 0 {
+        return None;
+    }
+    // `n = c · 10^e`; anything past `limit` (≤ 200 for every caller)
+    // cannot be exact, so coarse bails are fine.
+    if e > 3 || c.lo > limit {
+        return None;
+    }
+    let n = c.lo.checked_mul(10u128.checked_pow(e as u32)?)?;
+    if n > limit {
+        return None;
+    }
+    Some((n, sign))
+}
+
+/// The exact `exp2(x)` when `x` is an integer `n` with `2^n`
+/// representable at the format precision; `None` routes to the kernel.
+pub(crate) fn exp2_exact<F: DecimalFormat>(x: F, rm: RoundingMode) -> Option<(F, Status)> {
+    let (n, neg) = as_small_int(x, 127)?;
+    let n32 = n as u32;
+    if neg {
+        // `2^{-n} = 5^n · 10^{-n}`. `5^55` is the last power of five
+        // inside `u128`; the digit gate below is the real bound
+        // (`5^48` is the widest that fits 34 digits).
+        if n32 > 55 {
+            return None;
+        }
+        let p = 5u128.pow(n32);
+        if U256::from_u128(p).decimal_digit_count() > F::PRECISION {
+            return None;
+        }
+        Some(pack_exact(p, -(n as i32), false, rm))
+    } else {
+        let p = 2u128.checked_pow(n32)?;
+        if U256::from_u128(p).decimal_digit_count() > F::PRECISION {
+            return None;
+        }
+        Some(pack_exact(p, 0, false, rm))
+    }
+}
+
+/// The exact `log10(x)` when `x = 10^k`; `None` routes to the kernel.
+/// Caller has filtered non-finite, zero, and negative inputs.
+pub(crate) fn log10_exact<F: DecimalFormat>(x: F, rm: RoundingMode) -> Option<(F, Status)> {
+    let (coef, exp, _) = x.to_extended_parts();
+    let (c, e) = strip_trailing_zeros(coef, exp);
+    // A power of ten strips to coefficient exactly 1; `k` is the
+    // remaining exponent. The format exponent range keeps `|k|` well
+    // inside five digits, always representable.
+    if c.hi != 0 || c.lo != 1 {
+        return None;
+    }
+    Some(pack_exact(u128::from(e.unsigned_abs()), 0, e < 0, rm))
+}
+
+/// The exact `log2(x)` when `x = 2^k`; `None` routes to the kernel.
+/// Caller has filtered non-finite, zero, and negative inputs.
+pub(crate) fn log2_exact<F: DecimalFormat>(x: F, rm: RoundingMode) -> Option<(F, Status)> {
+    let (coef, exp, _) = x.to_extended_parts();
+    let (c, e) = strip_trailing_zeros(coef, exp);
+    if c.hi != 0 {
+        return None;
+    }
+    let k: i32 = if e >= 0 {
+        // Integer `x = c · 10^e` must be a power of two. A
+        // representable power of two is at most `2^112` (34 digits),
+        // so `e ≤ 38` keeps the multiply inside `u128` with room.
+        if e > 38 {
+            return None;
+        }
+        let n = c.lo.checked_mul(10u128.checked_pow(e as u32)?)?;
+        if n == 0 || (n & (n - 1)) != 0 {
+            return None;
+        }
+        i32::try_from(n.trailing_zeros()).ok()?
+    } else {
+        // `x = c · 10^e` with no trailing zeros: `x = 2^e` iff
+        // `c = 5^{-e}` exactly (then `x = 5^{-e} · 10^e = 2^e`).
+        let m = e.unsigned_abs();
+        if m > 55 {
+            return None;
+        }
+        if c.lo != 5u128.pow(m) {
+            return None;
+        }
+        e
+    };
+    Some(pack_exact(u128::from(k.unsigned_abs()), 0, k < 0, rm))
 }
 
 #[cfg(test)]

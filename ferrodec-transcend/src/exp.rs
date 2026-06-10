@@ -109,6 +109,15 @@ pub fn exp2_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
         Class::Zero { .. } => return (F::ONE, Status::OK),
         Class::Finite { .. } => {}
     }
+    // Exact integer cases (fd-aqs.8): `2^n` representable at the
+    // format precision returns exactly, at every rounding direction,
+    // with no INEXACT (IEEE 754-2019 §7.5). Pre-detection also repairs
+    // the directed-mode hazard of the 50-digit approximation landing
+    // on the wrong side of the exact value (`exp2(3)` at
+    // `TowardNegative` returned `7.999999…` before this).
+    if let Some(exact) = crate::exact::exp2_exact::<F>(x, rm) {
+        return exact;
+    }
     let arg_ext = Extended::from_format(x).mul(ln2_ext());
     exp_from_extended(arg_ext, rm)
 }
