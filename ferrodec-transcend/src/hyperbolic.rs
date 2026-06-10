@@ -22,11 +22,17 @@
 //!
 //! ## Inverse
 //!
-//! * `asinh(x) = ln(x + √(x² + 1))` for all real `x`. Stable for
-//!   any sign because `x² + 1 ≥ 1`.
-//! * `acosh(x) = ln(x + √(x² − 1))` for `x ≥ 1`; NaN otherwise.
-//! * `atanh(x) = ½·ln((1 + x) / (1 − x))` for `|x| < 1`; ±∞ at
-//!   `±1`; NaN otherwise.
+//! * `asinh(x) = ln(x + √(x² + 1))` for `|x| ≥ 0.3`; for the small
+//!   band, `log1p(|x| + x²/(1 + √(1 + x²)))` with the sign
+//!   re-applied, so the result stays *relative*-accurate where the
+//!   ln form would absorb the argument into the `1` anchor
+//!   (ADR-0050).
+//! * `acosh(x) = ln(x + √(x² − 1))` for `x ≥ 1.01`; the log1p form
+//!   with the factored `(x−1)(x+1)` radicand below that; NaN under
+//!   the domain.
+//! * `atanh(x) = ½·ln((1 + x) / (1 − x))` for `0.15 ≤ |x| < 1`; the
+//!   equivalent `½·log1p(2x/(1 − x))` in the small band (ADR-0050);
+//!   ±∞ at `±1`; NaN otherwise.
 //!
 //! All routines run at [`Extended`] precision and round once at the
 //! format boundary.
@@ -76,7 +82,12 @@
 //! figures are sampled corpus minima from
 //! `tests/vectors/transcend/{sinh,cosh,tanh,asinh,acosh,atanh}.prov`
 //! (ADR-0026 fd-97a) under the ADR-0033 Slice A corpus integrity
-//! discipline.
+//! discipline. For `asinh` and `atanh` the margin-to-every-input
+//! inference additionally relies on the relative error model the
+//! small-band log1p forms restore (ADR-0050; the 2026-06-09 review
+//! found the previous ln forms absorbing small arguments at the `1`
+//! anchor, and the band corpus
+//! `tests/vectors/transcend/anchor_bands/` is the standing witness).
 //!
 //! The tightest empirical margin across the campaign is the
 //! `asinh`/`acosh` shared `1.528369e-10`. At 50 digit kernel working
@@ -125,6 +136,12 @@ pub fn sinh_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
     }
     let x_ext = Extended::from_format(x);
     let result_ext = sinh_ext::<F>(x_ext);
+    // Grid-stuck at the input (ADR-0051): `|sinh x| > |x|` is a
+    // theorem, so the residual side is the growing one.
+    if result_ext.sticks_to(x_ext) {
+        let (result, status) = x_ext.to_format_with_residual::<F>(true, rm);
+        return (result, status | Status::INEXACT);
+    }
     let (result, status) = result_ext.to_format::<F>(0, rm);
     (result, status | Status::INEXACT)
 }
@@ -140,6 +157,12 @@ pub fn cosh_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
     }
     let x_ext = Extended::from_format(x).abs();
     let result_ext = cosh_ext::<F>(x_ext);
+    // Grid-stuck at the 1 anchor (ADR-0051): `cosh x > 1` for every
+    // finite nonzero `x`, so the residual side is the growing one.
+    if result_ext.sticks_to(Extended::ONE) {
+        let (result, status) = Extended::ONE.to_format_with_residual::<F>(true, rm);
+        return (result, status | Status::INEXACT);
+    }
     let (result, status) = result_ext.to_format::<F>(0, rm);
     (result, status | Status::INEXACT)
 }
@@ -155,34 +178,51 @@ pub fn tanh_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
         Class::Zero { .. } => return (x, Status::OK),
         Class::Finite { .. } => {}
     }
-    // For |x| ≳ 35 ln(10) ≈ 80, tanh saturates to ±1 within
-    // Decimal128 precision. The eˣ branch would overflow well
-    // before that anyway.
+    // Saturation band, |x| > 45: here `1 − |tanh x| = 2e^{−2|x|} /
+    // (1 + e^{−2|x|}) < 2e^{−90} ≈ 1.7 × 10^{−39}`, so the true
+    // magnitude lies strictly inside `(1 − 2×10^{−39}, 1)`. Every
+    // value in that interval — and in the `(1 − 10^{−50}, 1)`
+    // interval the proxy below denotes — rounds identically at every
+    // format precision (≤ 34 digits) and every direction: to 1 at
+    // the nearest modes and toward the result's own sign of
+    // infinity, to the all-nines neighbour toward zero. Feeding the
+    // 50-nines coefficient with a sticky residue through the format
+    // rounder therefore delivers the §4.3.3 answer per mode, where
+    // the previous mode-blind `±1` return mis-rounded `TowardZero`
+    // and the directed mode on the result's own side (fd-aqs.5).
     //
-    // The 80 threshold is conservative; the actual `|tanh(x) − 1|
-    // < ulp(1)` boundary at 34-digit precision is `|x| ≳ 38`
-    // (≈ 17 × ln(10), since the relative error of tanh past x is
-    // bounded by `2 e^(−2x)` and 1 ULP at unity is `10^−33`).
-    // Tightening would save a few exp calls in the (38, 80] strip
-    // without affecting correctness, but the strip is rarely hit
-    // and the current threshold composes safely with sinh / cosh
-    // which use the format's `exp_overflow_limit` ceiling upstream.
+    // Below the threshold the quotient path is decisive on its own:
+    // at |x| ≤ 45 the extended quotient sits below 1 by at least
+    // `~1.6 × 10^{−39}`, four orders of magnitude above the 10^{−50}
+    // working resolution and the Newton division error, so its
+    // boundary round cannot collapse to exactly 1. (The previous 80
+    // threshold left a `~58 < |x| ≤ 80` band where the quotient
+    // rounded to 1 at 50 digits and reproduced the saturation defect.)
     let abs_ext = Extended::from_format::<F>(x).abs();
-    if abs_ext.cmp(Extended::parse_str("80")) == core::cmp::Ordering::Greater {
-        return (
-            if x.is_sign_negative() {
-                F::NEG_ONE
-            } else {
-                F::ONE
-            },
-            Status::INEXACT,
+    if abs_ext.cmp(Extended::parse_str("45")) == core::cmp::Ordering::Greater {
+        let nines = Extended::parse_str("0.99999999999999999999999999999999999999999999999999");
+        let (result, status) = F::round_and_pack_finite(
+            nines.coef,
+            nines.exp,
+            0,
+            x.is_sign_negative(),
+            true,
+            rm,
+            Status::OK,
         );
+        return (result, status | Status::INEXACT);
     }
     let x_ext = Extended::from_format(x);
     let s = sinh_ext::<F>(x_ext);
     let c = cosh_ext::<F>(x_ext.abs());
     // tanh inherits the sign of x via sinh; cosh is symmetric.
     let result_ext = s.div::<F>(c);
+    // Grid-stuck at the input (ADR-0051): `|tanh x| < |x|` is a
+    // theorem, so the residual side is the shrinking one.
+    if result_ext.sticks_to(x_ext) {
+        let (result, status) = x_ext.to_format_with_residual::<F>(false, rm);
+        return (result, status | Status::INEXACT);
+    }
     let (result, status) = result_ext.to_format::<F>(0, rm);
     (result, status | Status::INEXACT)
 }
@@ -200,14 +240,44 @@ pub fn asinh_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
     // Working on |x| keeps the inner sum strictly positive.
     let neg = x.is_sign_negative();
     let abs_x_ext = Extended::from_format(x).abs();
-    let x_sq_plus_one = abs_x_ext.square().add(Extended::ONE);
-    let inner = abs_x_ext.add(x_sq_plus_one.sqrt::<F>());
-    // Pass `inner` to `ln_from_extended` directly — keeping the
-    // argument at 50-digit working precision avoids a 34-digit
-    // round trip that would propagate ≤ 1 ULP through `ln` to the
-    // result.
-    let result_ext = ln_from_extended(inner);
+    // Small-|x| band (fd-aqs.6): `|x| + sqrt(x² + 1)` hands `1 + |x|`
+    // to the 50-significant-digit representation, absorbing the
+    // argument once it sinks below the working resolution (up to
+    // ~3e8 ULP of error in the band, exact `+0` for tiny arguments;
+    // the 2026-06-09 review). The equivalent
+    // `asinh(x) = log1p(|x| + x² / (1 + sqrt(1 + x²)))` builds the
+    // log1p argument from `|x|` directly, so its accuracy — and the
+    // series result's — stays *relative* however small `x` is. The
+    // 0.3 threshold keeps `u ≤ ~0.344` inside the series budget;
+    // above it the original path is well-conditioned
+    // (`asinh 0.3 ≈ 0.296` against ~1e-49 absolute error).
+    const LOG1P_THRESHOLD: Extended = Extended {
+        coef: U256::from_u128(3),
+        exp: -1,
+        sign: false,
+    };
+    let result_ext = if abs_x_ext.cmp(LOG1P_THRESHOLD) == core::cmp::Ordering::Less {
+        let x_sq = abs_x_ext.square();
+        let denom = Extended::ONE.add(x_sq.add(Extended::ONE).sqrt::<F>());
+        let u = abs_x_ext.add(x_sq.div::<F>(denom));
+        log1p_extended(u)
+    } else {
+        let x_sq_plus_one = abs_x_ext.square().add(Extended::ONE);
+        let inner = abs_x_ext.add(x_sq_plus_one.sqrt::<F>());
+        // Pass `inner` to `ln_from_extended` directly — keeping the
+        // argument at 50-digit working precision avoids a 34-digit
+        // round trip that would propagate ≤ 1 ULP through `ln` to
+        // the result.
+        ln_from_extended(inner)
+    };
     let signed_ext = if neg { result_ext.neg() } else { result_ext };
+    // Grid-stuck at the input (ADR-0051): `|asinh x| < |x|` is a
+    // theorem, so the residual side is the shrinking one.
+    let x_anchor = Extended::from_format(x);
+    if signed_ext.sticks_to(x_anchor) {
+        let (result, status) = x_anchor.to_format_with_residual::<F>(false, rm);
+        return (result, status | Status::INEXACT);
+    }
     let (result, status) = signed_ext.to_format::<F>(0, rm);
     (result, status | Status::INEXACT)
 }
@@ -306,14 +376,45 @@ pub fn atanh_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
         }
         _ => {}
     }
-    // atanh(x) = ½·ln((1 + x) / (1 − x)) — ratio stays at extended
-    // precision through the ln call.
     let x_ext = Extended::from_format(x);
-    let one_plus = Extended::ONE.add(x_ext);
-    let one_minus = Extended::ONE.sub(x_ext);
-    let ratio = one_plus.div::<F>(one_minus);
-    let ln_ratio_ext = ln_from_extended(ratio);
-    let result_ext = ln_ratio_ext.div_u32(2);
+    // Small-|x| band (fd-aqs.6): the ratio form hands `1 ± x` to the
+    // 50-significant-digit representation, absorbing `x` (and the
+    // `x²`-order correction) once `|x|` sinks below the working
+    // resolution — the 2026-06-09 review measured up to ~3e8 ULP of
+    // error in the band and exact `+0` for tiny arguments. The
+    // equivalent `atanh(x) = ½·log1p(2x / (1 − x))` keeps the
+    // argument's accuracy *relative*: `2x` is exact, `1 − x` is
+    // exact for format-sourced coefficients (and its absorption for
+    // tiny `x` perturbs `u` only by `x` *relatively*), so the series
+    // result is relative-accurate however small `x` is. The 0.15
+    // threshold keeps `|u| ≤ 0.3/0.85 ≈ 0.353`, comfortably inside
+    // the log1p series' convergence budget; above it the ratio path
+    // is well-conditioned (`|atanh x| ≥ 0.15` against ~1e-49
+    // absolute error).
+    const LOG1P_THRESHOLD: Extended = Extended {
+        coef: U256::from_u128(15),
+        exp: -2,
+        sign: false,
+    };
+    let result_ext = if x_ext.abs().cmp(LOG1P_THRESHOLD) == core::cmp::Ordering::Less {
+        let two_x = x_ext.add(x_ext);
+        let one_minus = Extended::ONE.sub(x_ext);
+        let u = two_x.div::<F>(one_minus);
+        log1p_extended(u).div_u32(2)
+    } else {
+        // atanh(x) = ½·ln((1 + x) / (1 − x)) — ratio stays at
+        // extended precision through the ln call.
+        let one_plus = Extended::ONE.add(x_ext);
+        let one_minus = Extended::ONE.sub(x_ext);
+        let ratio = one_plus.div::<F>(one_minus);
+        ln_from_extended(ratio).div_u32(2)
+    };
+    // Grid-stuck at the input (ADR-0051): `|atanh x| > |x|` is a
+    // theorem, so the residual side is the growing one.
+    if result_ext.sticks_to(x_ext) {
+        let (result, status) = x_ext.to_format_with_residual::<F>(true, rm);
+        return (result, status | Status::INEXACT);
+    }
     let (result, status) = result_ext.to_format::<F>(0, rm);
     (result, status | Status::INEXACT)
 }

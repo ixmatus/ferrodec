@@ -24,9 +24,14 @@
 //!
 //! ## asin / acos
 //!
-//! `asin(x) = atan(x / sqrt(1 − x²))` near zero; uses the numerically-
-//! stable `2 · atan(x / (1 + sqrt(1 − x²)))` form near `|x| = 1`.
-//! `acos(x) = π/2 − asin(x)`.
+//! `asin(x) = 2 · atan(x / (1 + sqrt(1 − x²)))` with the radicand
+//! factored exactly as `(1 − |x|)(1 + |x|)` (ADR-0050: squaring
+//! first leaves an absolute rounding residue that dominates the
+//! small radicand near `|x| = 1`).
+//! `acos(x) = 2 · atan(sqrt((1 − x) / (1 + x)))` across the open
+//! domain (ADR-0050: the previous `π/2 − asin(x)` form cancelled
+//! catastrophically near `x = 1`, where the result is far smaller
+//! than either operand).
 //!
 //! ## atan2
 //!
@@ -62,15 +67,22 @@
 //! the `Decimal64` and `Decimal128` figures are sampled corpus
 //! minima from `tests/vectors/transcend/{atan,asin,acos}.prov`
 //! (ADR-0026 fd-97a) under the ADR-0033 Slice A corpus integrity
-//! discipline.
+//! discipline. For `asin` and `acos` the margin-to-every-input
+//! inference additionally relies on the relative error model the
+//! factored radicand and the direct `acos` form restore (ADR-0050;
+//! the 2026-06-09 review measured up to ~1.5e6 ULP for `acos` near
+//! 1 at `Decimal128` under the previous forms, and the band corpus
+//! `tests/vectors/transcend/anchor_bands/` is the standing witness).
 //!
 //! At 50 digit kernel working precision, the cumulative two stage
 //! argument reduction and Taylor series error (`atan`) and the
 //! composition error (`asin`, `acos`, `atan2`) clears the smallest
 //! margin by more than thirty orders of magnitude on every format.
-//! `asin` near `|x| = 1` uses the numerically stable
-//! `2 · atan(x / (1 + sqrt(1 − x²)))` form so the cancellation
-//! that would otherwise tighten the bound is structurally absent.
+//! `asin` uses the `2 · atan(x / (1 + sqrt(1 − x²)))` form with the
+//! radicand factored exactly, and `acos` the direct
+//! `2 · atan(sqrt((1 − x)/(1 + x)))` form, so the cancellations
+//! that would otherwise break the bound near `|x| = 1` are
+//! structurally absent (ADR-0050).
 //!
 //! None of `atan`, `asin`, `acos` has a TMD hard candidate in the
 //! Plan C4 enumeration. `asin(0) = 0`, `atan(0) = 0`, `acos(1) = 0`
@@ -101,7 +113,12 @@ pub fn atan_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
         Class::SignalingNaN { .. } => return (x.nan_from(), Status::INVALID),
         Class::QuietNaN { .. } => return (x, Status::OK),
         Class::Infinity { sign } => {
-            let half_pi = pi_over_two_ext().to_format::<F>(0, rm).0;
+            // atan(−∞) = −π/2: round the magnitude under the
+            // negation-reflected mode before flipping the sign, so the
+            // two directed modes land on the correct neighbour (the
+            // cbrt `for_negation` rule; fd-aqs.5).
+            let rm_mag = if sign { rm.for_negation() } else { rm };
+            let half_pi = pi_over_two_ext().to_format::<F>(0, rm_mag).0;
             return (if sign { half_pi.neg() } else { half_pi }, Status::INEXACT);
         }
         Class::Zero { .. } => return (x, Status::OK),
@@ -109,6 +126,13 @@ pub fn atan_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
     }
     let x_ext = Extended::from_format(x);
     let result_ext = atan_ext::<F>(x_ext);
+    // Grid-stuck at the input (ADR-0051): a small argument absorbs
+    // every correction and the result is exactly `x`; the directed
+    // modes need the side, and `|atan x| < |x|` is a theorem.
+    if result_ext.sticks_to(x_ext) {
+        let (result, status) = x_ext.to_format_with_residual::<F>(false, rm);
+        return (result, status | Status::INEXACT);
+    }
     let (result, status) = result_ext.to_format::<F>(0, rm);
     (result, status | Status::INEXACT)
 }
@@ -128,19 +152,25 @@ pub fn asin_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
     match cmp_one {
         Some(core::cmp::Ordering::Greater) => return (F::NAN, Status::INVALID),
         Some(core::cmp::Ordering::Equal) => {
-            // asin(±1) = ±π/2.
-            let half_pi = pi_over_two_ext().to_format::<F>(0, rm).0;
-            let signed = if x.is_sign_negative() {
-                half_pi.neg()
-            } else {
-                half_pi
-            };
+            // asin(±1) = ±π/2. Round the magnitude under the
+            // negation-reflected mode before flipping the sign
+            // (fd-aqs.5).
+            let neg = x.is_sign_negative();
+            let rm_mag = if neg { rm.for_negation() } else { rm };
+            let half_pi = pi_over_two_ext().to_format::<F>(0, rm_mag).0;
+            let signed = if neg { half_pi.neg() } else { half_pi };
             return (signed, Status::INEXACT);
         }
         _ => {}
     }
     let x_ext = Extended::from_format(x);
     let result_ext = asin_ext::<F>(x_ext);
+    // Grid-stuck at the input (ADR-0051): `|asin x| > |x|` is a
+    // theorem, so the residual side is the growing one.
+    if result_ext.sticks_to(x_ext) {
+        let (result, status) = x_ext.to_format_with_residual::<F>(true, rm);
+        return (result, status | Status::INEXACT);
+    }
     let (result, status) = result_ext.to_format::<F>(0, rm);
     (result, status | Status::INEXACT)
 }
@@ -173,9 +203,25 @@ pub fn acos_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
         _ => {}
     }
     let x_ext = Extended::from_format(x);
-    // acos(x) = π/2 - asin(x).
-    let asin_ext_v = asin_ext::<F>(x_ext);
-    let result_ext = pi_over_two_ext().sub(asin_ext_v);
+    // acos(x) = 2 · atan(sqrt((1 − x) / (1 + x))) (fd-aqs.6). The
+    // previous `π/2 − asin(x)` form cancelled catastrophically for
+    // x near 1, where the result `≈ sqrt(2(1−x))` is tiny against
+    // two ~π/2-magnitude operands each carrying ~1e-49 absolute
+    // rounding error (up to ~1.5e6 ULP measured at Decimal128 by
+    // the 2026-06-09 review). Here both factors are exact for
+    // format-sourced coefficients — `1 − x` near x = 1 and `1 + x`
+    // near x = −1 cancel exactly — and `atan` preserves relative
+    // accuracy at both ends (small-argument Taylor on one side, the
+    // `π/2 − atan(1/t)` inversion against a result of comparable
+    // magnitude on the other), so the result is relative-accurate
+    // across the whole open domain. (cos(2·atan t) with
+    // t² = (1−x)/(1+x) reduces to x exactly, so the identity is the
+    // same function.)
+    let num = Extended::ONE.sub(x_ext);
+    let den = Extended::ONE.add(x_ext);
+    let t = num.div::<F>(den).sqrt::<F>();
+    let half = atan_ext::<F>(t);
+    let result_ext = half.add(half);
     let (result, status) = result_ext.to_format::<F>(0, rm);
     (result, status | Status::INEXACT)
 }
@@ -190,33 +236,39 @@ pub fn atan2_kernel<F: DecimalFormat>(y: F, x: F, rm: RoundingMode) -> (F, Statu
     if y.is_nan() || x.is_nan() {
         return (y.propagate_nan2(x), Status::OK);
     }
-    let pi_d = pi_ext().to_format::<F>(0, rm).0;
-    let half_pi = pi_over_two_ext().to_format::<F>(0, rm).0;
-    let three_quarter_pi = pi_over_four_ext()
-        .mul(Extended::from_i32(3))
-        .to_format::<F>(0, rm)
-        .0;
-    let quarter_pi = pi_over_four_ext().to_format::<F>(0, rm).0;
-
     let y_neg = y.is_sign_negative();
-    let signed = |v: F| if y_neg { v.neg() } else { v };
+    // Round a positive π-family constant at the point of use, carrying
+    // y's sign. The magnitude is rounded under the negation-reflected
+    // mode when the result will be negated, so the two directed modes
+    // land on the correct neighbour (the cbrt `for_negation` rule;
+    // fd-aqs.5). Rounding eagerly under the caller's `rm` and negating
+    // afterwards — the previous shape — was wrong by one ULP for
+    // negative `y` at `TowardPositive` / `TowardNegative`.
+    let signed_const = |c: Extended| {
+        if y_neg {
+            c.to_format::<F>(0, rm.for_negation()).0.neg()
+        } else {
+            c.to_format::<F>(0, rm).0
+        }
+    };
 
     // Inf handling.
     if x.is_infinite() && y.is_infinite() {
         // ±π/4 or ±3π/4 depending on signs.
         return if x.is_sign_negative() {
-            (signed(three_quarter_pi), Status::INEXACT)
+            let three_quarter_pi = pi_over_four_ext().mul(Extended::from_i32(3));
+            (signed_const(three_quarter_pi), Status::INEXACT)
         } else {
-            (signed(quarter_pi), Status::INEXACT)
+            (signed_const(pi_over_four_ext()), Status::INEXACT)
         };
     }
     if y.is_infinite() {
         // ±π/2.
-        return (signed(half_pi), Status::INEXACT);
+        return (signed_const(pi_over_two_ext()), Status::INEXACT);
     }
     if x.is_infinite() {
         return if x.is_sign_negative() {
-            (signed(pi_d), Status::INEXACT)
+            (signed_const(pi_ext()), Status::INEXACT)
         } else {
             (if y_neg { F::NEG_ZERO } else { F::ZERO }, Status::OK)
         };
@@ -224,18 +276,21 @@ pub fn atan2_kernel<F: DecimalFormat>(y: F, x: F, rm: RoundingMode) -> (F, Statu
     // Both finite. Cover x = 0.
     if x.is_zero() {
         if y.is_zero() {
-            // atan2(±0, +0) = ±0; atan2(±0, -0) = ±π.
+            // atan2(±0, +0) = ±0; atan2(±0, -0) = ±π. The ±π result is
+            // a rounded irrational and raises INEXACT like the finite
+            // x < 0 arm below (fd-aqs.5 flag-fidelity fix; the zero
+            // result is exact and stays OK).
             if x.is_sign_negative() {
-                return (signed(pi_d), Status::OK);
+                return (signed_const(pi_ext()), Status::INEXACT);
             }
             return (if y_neg { F::NEG_ZERO } else { F::ZERO }, Status::OK);
         }
-        return (signed(half_pi), Status::INEXACT);
+        return (signed_const(pi_over_two_ext()), Status::INEXACT);
     }
     if y.is_zero() {
         // atan2(±0, x): 0 if x > 0, ±π if x < 0.
         return if x.is_sign_negative() {
-            (signed(pi_d), Status::INEXACT)
+            (signed_const(pi_ext()), Status::INEXACT)
         } else {
             (if y_neg { F::NEG_ZERO } else { F::ZERO }, Status::OK)
         };
@@ -317,13 +372,25 @@ fn atan_ext<F: DecimalFormat>(x: Extended) -> Extended {
 }
 
 /// `asin(x)` at extended precision for `|x| < 1`. Uses
-/// `2 · atan(x / (1 + sqrt(1 - x²)))` — numerically stable across
-/// the full domain (no blow-up at `|x| = 1`).
+/// `2 · atan(x / (1 + sqrt(1 - x²)))` with the radicand factored
+/// exactly as `(1 − |x|)(1 + |x|)` — numerically stable across the
+/// full domain (no blow-up and no absolute-error residue at
+/// `|x| = 1`; ADR-0050).
 fn asin_ext<F: DecimalFormat>(x: Extended) -> Extended {
     if x.is_zero() {
         return x;
     }
-    let one_minus_x_sq = Extended::ONE.sub(x.square());
+    // `1 − x²` factored as `(1 − |x|)(1 + |x|)` (fd-aqs.6): squaring
+    // first rounds `x²` at 50 significant digits, and for `|x|` near
+    // 1 the subsequent subtraction turns that absolute ~1e-50 residue
+    // into a *relative* error of the small radicand — ~1e-50/(2δ)
+    // for `|x| = 1 − δ` — which the 2026-06-09 review measured
+    // breaching the proof envelope. The factors are exact for
+    // format-sourced coefficients (leading-digit cancellation only
+    // shortens `1 − |x|`), so the product, and everything downstream,
+    // stays relative-accurate.
+    let abs_x = x.abs();
+    let one_minus_x_sq = Extended::ONE.sub(abs_x).mul(Extended::ONE.add(abs_x));
     let sqrt_term = one_minus_x_sq.sqrt::<F>();
     let denom = Extended::ONE.add(sqrt_term);
     let inner = x.div::<F>(denom);

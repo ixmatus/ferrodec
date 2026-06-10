@@ -8,11 +8,27 @@ are recorded first, under "Known defects".
 
 ## Known defects
 
-None currently open. The `cbrt` / `pow` spurious-INEXACT defect
-(`fd-92w.8`) was fixed in `ferrodec-transcend`: a perfect cube root and
-an exact integer or rational power now clear INEXACT per IEEE 754-2019
-§7.5, by proving exactness in fixed-width integer arithmetic before the
-flag is cleared. See ADR-0047.
+None currently open. The 2026-06-09 review's transcendental findings
+are all fixed: the anchor band value defects (`ln`/`log10`/`log2`
+below 1, `atanh`/`asinh` small arguments, `asin`/`acos` near ±1,
+`pow` near-1 bases) by the ADR-0050 reformulations, with
+`tests/vectors/transcend/anchor_bands/` pinning the class; the
+directed-mode special paths (overflow/underflow gates,
+negate-after-round, `tanh` saturation, `atan2(±0, −0)` flags) in
+fd-aqs.5; the exactly representable `exp2`/`log2`/`log10` cases
+(spurious INEXACT plus directed-mode misrounds) by the ADR-0047
+amendment in fd-aqs.8; and the directed modes for grid-stuck small
+arguments (e.g. `sin(1E-40)` at `Decimal32` under `TowardNegative`)
+by the ADR-0051 residual seam in fd-aqs.7. The `cbrt` / `pow`
+spurious-INEXACT defect (`fd-92w.8`) was fixed earlier (ADR-0047).
+
+One verification (not behaviour) note from ADR-0051 stands: directed
+mode results whose correction sits below ~10^-100 relative (e.g.
+`atanh(1.000001E-95)` at `Decimal32`) are delivered by the same
+proven seam but pinned only at the nearest modes, because the band
+corpus generator's mpmath oracle cannot independently certify the
+side there. Certifying those few decades needs a higher-precision
+offline oracle pass; it is bookkeeping, not a suspected defect.
 
 ## Headline numbers
 

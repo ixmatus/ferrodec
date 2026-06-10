@@ -95,9 +95,13 @@ impl Extended {
     };
 
     /// An `Extended` whose magnitude exceeds `Decimal128::MAX` (`10^6144`)
-    /// by enough that the boundary `to_format` round produces `±∞ +
-    /// OVERFLOW` with `sign`. Used by `sinh` / `cosh` to signal
-    /// saturation when `|x|` is past the `exp` convergence window.
+    /// by enough that the boundary `to_format` round produces the IEEE
+    /// 754-2019 §7.4 overflow disposition for the rounding direction
+    /// (`±∞` at the nearest modes and toward the overflowing side, the
+    /// largest finite magnitude toward zero and the opposite side),
+    /// with `OVERFLOW` raised by the format rounder. Used by `sinh` /
+    /// `cosh` and the `exp` family gate to signal saturation when `|x|`
+    /// is past the `exp` convergence window.
     ///
     /// The exponent (`7000`) is chosen comfortably above `E_MAX = 6144`;
     /// any value past `MAX` rounds the same way at the boundary, so the
@@ -108,6 +112,25 @@ impl Extended {
             coef: U256::from_u128(1),
             exp: 7000,
             sign,
+        }
+    }
+
+    /// The underflow counterpart of [`Self::saturate_overflow`]: a
+    /// positive magnitude (`10^-7000`) below every format's smallest
+    /// subnormal (`Decimal128`'s floor is `1 × 10^-6176`). Routed
+    /// through `round_and_pack_finite` with `pre_sticky = true`, the
+    /// format rounder delivers the §7.4 underflow disposition for the
+    /// rounding direction (`+0` at the nearest modes and toward zero
+    /// or `-∞`, the smallest subnormal toward `+∞`) and raises
+    /// `UNDERFLOW`. Callers must only saturate when the true result is
+    /// already below half the smallest subnormal, so the nearest-mode
+    /// answer is genuinely zero; the gate thresholds encode that.
+    #[inline]
+    pub const fn saturate_underflow() -> Self {
+        Self {
+            coef: U256::from_u128(1),
+            exp: -7000,
+            sign: false,
         }
     }
 
@@ -308,6 +331,79 @@ impl Extended {
             rm,
             Status::OK,
         )
+    }
+
+    /// The ADR-0051 grid-stuck snap test: `true` when `self` lies
+    /// within ~10^-47 relative of `anchor` (a signed comparison; the
+    /// caller passes the anchor with the result's sign).
+    ///
+    /// The threshold separates two regimes by a wide margin on each
+    /// side. Composition noise — the few units in the 50th
+    /// significant digit that a multi-step derivation (division,
+    /// series, halving) can leave around an anchor it mathematically
+    /// hugs — is at most ~10 such units (~10^-49 relative), so any
+    /// result whose *side* relative to the anchor is unreliable is
+    /// snapped. A genuinely separated result sits at least one format
+    /// half-ULP from the nearest grid point by the ADR-0033 empirical
+    /// worst-case margins (≥ ~10^-9 ULP, i.e. ≥ ~10^-42 relative at
+    /// the widest format), so it is never snapped and the bare value
+    /// decides every mode itself. In between, both treatments agree:
+    /// a snapped value within the threshold rounds identically to the
+    /// true result at every direction and format precision, because
+    /// both lie strictly between the same format grid points on the
+    /// theorem side of the anchor.
+    #[must_use]
+    pub fn sticks_to(self, anchor: Extended) -> bool {
+        let d = self.sub(anchor);
+        if d.is_zero() {
+            return true;
+        }
+        let d_adj = d.exp + d.coef.decimal_digit_count() as i32 - 1;
+        let a_adj = anchor.exp + anchor.coef.decimal_digit_count() as i32 - 1;
+        d_adj <= a_adj - 47
+    }
+
+    /// Convert to a format datum an *anchor* value (the kernel's
+    /// grid point: the input `x` for the `f(x) ≈ x` family, ±1 for
+    /// the families anchored there) whose true result lies strictly
+    /// on the `magnitude_grows` side, within the [`Self::sticks_to`]
+    /// snap band (ADR-0051).
+    ///
+    /// The bare [`Self::to_format`] cannot express that knowledge:
+    /// the anchor sits exactly on a format grid point, so the four
+    /// directed rounding directions need the residual's side to pick
+    /// between the grid point and its neighbour. The encoding reuses
+    /// the rounding kernel's own enclosure channel: the coefficient
+    /// is widened to the full `EXT_PRECISION` digits (exact), and
+    /// `pre_sticky = true` then denotes the open interval one
+    /// unit-in-the-last-place wide on the chosen side
+    /// (`magnitude_grows`: above `self`; otherwise the widened
+    /// coefficient is first decremented, denoting the interval
+    /// below). The denoted interval and the true result round
+    /// identically at every direction and format precision: both lie
+    /// strictly between the same format grid points on the same side
+    /// of the anchor, since the snap band (~10^-47 relative) is at
+    /// least thirteen orders of magnitude narrower than any format's
+    /// ULP.
+    ///
+    /// Caller guarantees `self` is nonzero, on-grid-or-anchor, and
+    /// the side theorem (`|sin x| < |x|`, `cosh x > 1`, ...).
+    pub fn to_format_with_residual<F: DecimalFormat>(
+        self,
+        magnitude_grows: bool,
+        rm: RoundingMode,
+    ) -> (F, Status) {
+        debug_assert!(!self.is_zero(), "residual rounding needs a nonzero value");
+        let dig = self.coef.decimal_digit_count();
+        let scale = EXT_PRECISION - dig;
+        let coef50 = self.coef.mul_pow10(scale);
+        let exp50 = self.exp - scale as i32;
+        let coef = if magnitude_grows {
+            coef50
+        } else {
+            coef50.sub(U256::from_u128(1))
+        };
+        F::round_and_pack_finite(coef, exp50, 0, self.sign, true, rm, Status::OK)
     }
 
     /// Magnitude comparison (ignoring sign). Useful for branching in

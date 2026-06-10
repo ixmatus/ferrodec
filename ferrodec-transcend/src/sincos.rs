@@ -147,6 +147,14 @@ pub fn tan_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
         );
     }
     let tan_ext = sin_ext.div::<F>(cos_ext);
+    // Grid-stuck at the input (ADR-0051): a small argument absorbs
+    // every correction and the quotient is exactly `x`; the directed
+    // modes need the side, and `|tan x| > |x|` is a theorem.
+    let x_anchor = Extended::from_format(x);
+    if tan_ext.sticks_to(x_anchor) {
+        let (tan_d, st) = x_anchor.to_format_with_residual::<F>(true, rm);
+        return (tan_d, st | status_red | Status::INEXACT);
+    }
     let (tan_d, st) = tan_ext.to_format::<F>(0, rm);
     (tan_d, st | status_red | Status::INEXACT)
 }
@@ -155,8 +163,37 @@ pub fn tan_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
 /// reduction. Returns them as `((sin, sin_status), (cos, cos_status))`.
 fn sincos_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> ((F, Status), (F, Status)) {
     let (sin_x_ext, cos_x_ext, status_red) = sincos_extended(x);
-    let (sin_d, sin_status) = sin_x_ext.to_format::<F>(0, rm);
-    let (cos_d, cos_status) = cos_x_ext.to_format::<F>(0, rm);
+    // Grid-stuck anchors (ADR-0051). `sin`: a small argument absorbs
+    // every correction and the result is exactly `x` (`|sin x| < |x|`
+    // is a theorem), and an argument within ~10^-25 of `±π/2 + 2πk`
+    // (e.g. the 34-digit truncation of π/2 itself) collapses the
+    // result to exactly `±1` (`|sin x| < 1` strictly at every finite
+    // decimal). `cos`: the result collapses to exactly `1` for small
+    // arguments and near even multiples of π, and to exactly `-1`
+    // near the odd multiples (`|cos x| < 1` strictly likewise). The
+    // magnitude shrinks in every case, so the residual side is a
+    // theorem, not a measurement.
+    let x_anchor = Extended::from_format(x);
+    let sin_one = Extended {
+        sign: sin_x_ext.sign,
+        ..Extended::ONE
+    };
+    let (sin_d, sin_status) = if sin_x_ext.sticks_to(x_anchor) {
+        x_anchor.to_format_with_residual::<F>(false, rm)
+    } else if sin_x_ext.sticks_to(sin_one) {
+        sin_one.to_format_with_residual::<F>(false, rm)
+    } else {
+        sin_x_ext.to_format::<F>(0, rm)
+    };
+    let cos_one = Extended {
+        sign: cos_x_ext.sign,
+        ..Extended::ONE
+    };
+    let (cos_d, cos_status) = if cos_x_ext.sticks_to(cos_one) {
+        cos_one.to_format_with_residual::<F>(false, rm)
+    } else {
+        cos_x_ext.to_format::<F>(0, rm)
+    };
     let status = status_red | Status::INEXACT;
     ((sin_d, sin_status | status), (cos_d, cos_status | status))
 }

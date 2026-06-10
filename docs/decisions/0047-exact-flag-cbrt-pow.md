@@ -1,6 +1,6 @@
 # ADR-0047: Exact-result detection suppresses spurious INEXACT on cbrt and pow
 
-- **Status**: accepted
+- **Status**: accepted (amended 2026-06-10, fd-aqs.8: extended to exp2 / log2 / log10; see Amendment)
 - **Date**: 2026-06-04
 
 ## Context
@@ -98,3 +98,34 @@ crate's `[Unreleased]` until the next release.
 - Commits: `a969b8b` (cbrt), `acde146` (pow), `93800f4` (cross-format tests).
 - Removes the "cbrt and pow raise INEXACT on exact results" entry from
   `KNOWN_ISSUES.md`.
+
+## Amendment (2026-06-10, fd-aqs.8)
+
+The Context above claims `exp`, `ln`, and the trigonometric and
+hyperbolic families irrational "for every non-special input". That is
+false as stated for three derived functions this ADR never named:
+`exp2(n)` is exact whenever `n` is an integer with `2^n` representable
+at the format precision (`2^n` for `n >= 0`, `5^{-n} * 10^n` below;
+up to `2^112` and `5^48` at Decimal128), `log10(10^k) = k`, and
+`log2(2^k) = k`. The 2026-06-09 review found both consequences: every
+such case raised a spurious INEXACT, and the directed modes could
+deliver the wrong value outright when the 50-digit approximation
+landed on the wrong side of the exact result (`exp2(3)` at
+`TowardNegative` returned `7.999999...`; `log2(1024)` returned
+`9.999...9`). It also left `exp2(10)` and `pow(2, 10)` disagreeing on
+flags, an inconsistency invisible to the metamorphic suite because
+`exp2 == pow(2, x)` was dropped as a value tautology (ADR-0025) and
+the flag dimension went with it.
+
+Unlike `cbrt` and `pow`, whose exactness needs the rounded result,
+these three are decidable from the input alone, so the extension
+short-circuits *before* the kernel (`exact::exp2_exact`,
+`log2_exact`, `log10_exact`), repairing the value at every rounding
+direction and the flag in one move, under the same
+default-to-not-proven soundness posture as the rest of the module.
+`tests/transcend_exact.rs` and the sibling mirrors pin the exact
+cases, the representability boundaries on both sides (`2^112`/`2^113`,
+`5^48`/`5^49` at Decimal128), and the `exp2`/`pow` flag parity.
+Decimal32's `exp2(-11)` stays on the kernel path by design: `5^11`
+has 8 digits, so the result is inexact at 7-digit precision — the
+ADR-0033 exhaustive sweep's exact-NE-tie case is unchanged.
