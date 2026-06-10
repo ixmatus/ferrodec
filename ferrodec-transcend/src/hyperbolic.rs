@@ -22,11 +22,17 @@
 //!
 //! ## Inverse
 //!
-//! * `asinh(x) = ln(x + √(x² + 1))` for all real `x`. Stable for
-//!   any sign because `x² + 1 ≥ 1`.
-//! * `acosh(x) = ln(x + √(x² − 1))` for `x ≥ 1`; NaN otherwise.
-//! * `atanh(x) = ½·ln((1 + x) / (1 − x))` for `|x| < 1`; ±∞ at
-//!   `±1`; NaN otherwise.
+//! * `asinh(x) = ln(x + √(x² + 1))` for `|x| ≥ 0.3`; for the small
+//!   band, `log1p(|x| + x²/(1 + √(1 + x²)))` with the sign
+//!   re-applied, so the result stays *relative*-accurate where the
+//!   ln form would absorb the argument into the `1` anchor
+//!   (ADR-0050).
+//! * `acosh(x) = ln(x + √(x² − 1))` for `x ≥ 1.01`; the log1p form
+//!   with the factored `(x−1)(x+1)` radicand below that; NaN under
+//!   the domain.
+//! * `atanh(x) = ½·ln((1 + x) / (1 − x))` for `0.15 ≤ |x| < 1`; the
+//!   equivalent `½·log1p(2x/(1 − x))` in the small band (ADR-0050);
+//!   ±∞ at `±1`; NaN otherwise.
 //!
 //! All routines run at [`Extended`] precision and round once at the
 //! format boundary.
@@ -76,7 +82,12 @@
 //! figures are sampled corpus minima from
 //! `tests/vectors/transcend/{sinh,cosh,tanh,asinh,acosh,atanh}.prov`
 //! (ADR-0026 fd-97a) under the ADR-0033 Slice A corpus integrity
-//! discipline.
+//! discipline. For `asinh` and `atanh` the margin-to-every-input
+//! inference additionally relies on the relative error model the
+//! small-band log1p forms restore (ADR-0050; the 2026-06-09 review
+//! found the previous ln forms absorbing small arguments at the `1`
+//! anchor, and the band corpus
+//! `tests/vectors/transcend/anchor_bands/` is the standing witness).
 //!
 //! The tightest empirical margin across the campaign is the
 //! `asinh`/`acosh` shared `1.528369e-10`. At 50 digit kernel working
@@ -211,13 +222,36 @@ pub fn asinh_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
     // Working on |x| keeps the inner sum strictly positive.
     let neg = x.is_sign_negative();
     let abs_x_ext = Extended::from_format(x).abs();
-    let x_sq_plus_one = abs_x_ext.square().add(Extended::ONE);
-    let inner = abs_x_ext.add(x_sq_plus_one.sqrt::<F>());
-    // Pass `inner` to `ln_from_extended` directly — keeping the
-    // argument at 50-digit working precision avoids a 34-digit
-    // round trip that would propagate ≤ 1 ULP through `ln` to the
-    // result.
-    let result_ext = ln_from_extended(inner);
+    // Small-|x| band (fd-aqs.6): `|x| + sqrt(x² + 1)` hands `1 + |x|`
+    // to the 50-significant-digit representation, absorbing the
+    // argument once it sinks below the working resolution (up to
+    // ~3e8 ULP of error in the band, exact `+0` for tiny arguments;
+    // the 2026-06-09 review). The equivalent
+    // `asinh(x) = log1p(|x| + x² / (1 + sqrt(1 + x²)))` builds the
+    // log1p argument from `|x|` directly, so its accuracy — and the
+    // series result's — stays *relative* however small `x` is. The
+    // 0.3 threshold keeps `u ≤ ~0.344` inside the series budget;
+    // above it the original path is well-conditioned
+    // (`asinh 0.3 ≈ 0.296` against ~1e-49 absolute error).
+    const LOG1P_THRESHOLD: Extended = Extended {
+        coef: U256::from_u128(3),
+        exp: -1,
+        sign: false,
+    };
+    let result_ext = if abs_x_ext.cmp(LOG1P_THRESHOLD) == core::cmp::Ordering::Less {
+        let x_sq = abs_x_ext.square();
+        let denom = Extended::ONE.add(x_sq.add(Extended::ONE).sqrt::<F>());
+        let u = abs_x_ext.add(x_sq.div::<F>(denom));
+        log1p_extended(u)
+    } else {
+        let x_sq_plus_one = abs_x_ext.square().add(Extended::ONE);
+        let inner = abs_x_ext.add(x_sq_plus_one.sqrt::<F>());
+        // Pass `inner` to `ln_from_extended` directly — keeping the
+        // argument at 50-digit working precision avoids a 34-digit
+        // round trip that would propagate ≤ 1 ULP through `ln` to
+        // the result.
+        ln_from_extended(inner)
+    };
     let signed_ext = if neg { result_ext.neg() } else { result_ext };
     let (result, status) = signed_ext.to_format::<F>(0, rm);
     (result, status | Status::INEXACT)
@@ -317,14 +351,39 @@ pub fn atanh_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
         }
         _ => {}
     }
-    // atanh(x) = ½·ln((1 + x) / (1 − x)) — ratio stays at extended
-    // precision through the ln call.
     let x_ext = Extended::from_format(x);
-    let one_plus = Extended::ONE.add(x_ext);
-    let one_minus = Extended::ONE.sub(x_ext);
-    let ratio = one_plus.div::<F>(one_minus);
-    let ln_ratio_ext = ln_from_extended(ratio);
-    let result_ext = ln_ratio_ext.div_u32(2);
+    // Small-|x| band (fd-aqs.6): the ratio form hands `1 ± x` to the
+    // 50-significant-digit representation, absorbing `x` (and the
+    // `x²`-order correction) once `|x|` sinks below the working
+    // resolution — the 2026-06-09 review measured up to ~3e8 ULP of
+    // error in the band and exact `+0` for tiny arguments. The
+    // equivalent `atanh(x) = ½·log1p(2x / (1 − x))` keeps the
+    // argument's accuracy *relative*: `2x` is exact, `1 − x` is
+    // exact for format-sourced coefficients (and its absorption for
+    // tiny `x` perturbs `u` only by `x` *relatively*), so the series
+    // result is relative-accurate however small `x` is. The 0.15
+    // threshold keeps `|u| ≤ 0.3/0.85 ≈ 0.353`, comfortably inside
+    // the log1p series' convergence budget; above it the ratio path
+    // is well-conditioned (`|atanh x| ≥ 0.15` against ~1e-49
+    // absolute error).
+    const LOG1P_THRESHOLD: Extended = Extended {
+        coef: U256::from_u128(15),
+        exp: -2,
+        sign: false,
+    };
+    let result_ext = if x_ext.abs().cmp(LOG1P_THRESHOLD) == core::cmp::Ordering::Less {
+        let two_x = x_ext.add(x_ext);
+        let one_minus = Extended::ONE.sub(x_ext);
+        let u = two_x.div::<F>(one_minus);
+        log1p_extended(u).div_u32(2)
+    } else {
+        // atanh(x) = ½·ln((1 + x) / (1 − x)) — ratio stays at
+        // extended precision through the ln call.
+        let one_plus = Extended::ONE.add(x_ext);
+        let one_minus = Extended::ONE.sub(x_ext);
+        let ratio = one_plus.div::<F>(one_minus);
+        ln_from_extended(ratio).div_u32(2)
+    };
     let (result, status) = result_ext.to_format::<F>(0, rm);
     (result, status | Status::INEXACT)
 }

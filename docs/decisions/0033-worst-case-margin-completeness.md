@@ -1,6 +1,6 @@
 # ADR-0033: Worst case margin completeness via exhaustive decimal32 enumeration
 
-- **Status**: accepted
+- **Status**: accepted (amended by ADR-0050: the universal Decimal32 claim is re-scoped)
 - **Date**: 2026-05-26 (proposed); 2026-05-28 (accepted, post Plan C4 + C5 close)
 
 ## Context

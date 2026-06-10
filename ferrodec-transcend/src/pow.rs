@@ -64,7 +64,12 @@
 //!
 //! The shared error model lives in ADR-0032 §Decision; the corpus
 //! test (`tests/transcend_vectors.rs`) is the standing empirical
-//! witness.
+//! witness. For bases near 1 with large exponents the composed
+//! bound additionally relies on `ln`'s near-1 direct path
+//! (ADR-0050): `y · ln x` amplifies an *absolute* `ln` error by
+//! `y`, and before the repair that broke the relative model for
+//! `|y|` past ~10^15 at `Decimal128` (2026-06-09 review; the band
+//! corpus `tests/vectors/transcend/anchor_bands/` pins the class).
 
 use crate::exp::exp_from_extended;
 use crate::extended::Extended;

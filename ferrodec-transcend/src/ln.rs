@@ -12,18 +12,26 @@
 //!    * `ln(negative_finite) = NaN + INVALID`.
 //!    * `ln(+∞) = +∞`. `ln(−∞) = NaN + INVALID`.
 //!    * `ln(1) = +0`.
-//! 2. Decompose `x = m · 10^q` with `m ∈ [1, 10)`. Then
+//! 2. Near-1 direct path (ADR-0050): for `x ∈ (0.5, 1.5)`, feed
+//!    `u = x − 1` (exact at Extended width) straight to the log1p
+//!    series. This keeps the result's accuracy *relative* to
+//!    `ln x` however small that is; the decade route below would
+//!    reconstruct a near-zero result from ~2-magnitude addends and
+//!    turn the kernel's relative error model absolute (the
+//!    2026-06-09 review measured up to ~4e7 ULP just below 1 at
+//!    `Decimal128`).
+//! 3. Otherwise decompose `x = m · 10^q` with `m ∈ [1, 10)`. Then
 //!
 //!    ```text
 //!    ln(x) = ln(m) + q · ln(10)
 //!    ```
 //!
-//! 3. Reduce `m` further: while `m > 1.5`, divide by 2 and add `ln(2)`
+//! 4. Reduce `m` further: while `m > 1.5`, divide by 2 and add `ln(2)`
 //!    (and below `2/3` for the symmetric branch). After this,
 //!    `m ∈ [2/3, 3/2]`, so the Taylor series for
 //!    `ln(1 + u)` (`u = m − 1`, `|u| ≤ 1/2`) converges to
 //!    `EXT_PRECISION` = 50 digits in well under 200 terms.
-//! 4. `ln(1 + u) = u − u²/2 + u³/3 − u⁴/4 + …`. Halt when terms fall
+//! 5. `ln(1 + u) = u − u²/2 + u³/3 − u⁴/4 + …`. Halt when terms fall
 //!    below `EXT_PRECISION` significance.
 //!
 //! All intermediate work runs at extended precision (`Extended`, see
@@ -44,7 +52,12 @@
 //! cardinalities are beyond exhaustive reach). The 50 digit kernel
 //! clears the smallest margin by more than thirty orders of magnitude
 //! on every format. The shared error model lives in ADR-0032
-//! §Decision; the sampled corpus test, the ADR-0033 exhaustive
+//! §Decision; the inference from margin to every input relies on the
+//! error model's *relative* form, which the near-1 direct path
+//! restores after the 2026-06-09 review falsified it in the anchor
+//! band (ADR-0050; the band corpus
+//! `tests/vectors/transcend/anchor_bands/` is the standing witness
+//! there). The sampled corpus test, the ADR-0033 exhaustive
 //! worst case kernel verification test
 //! (`ferrodec-decimal32/tests/transcend_vectors_exhaustive.rs`,
 //! 18/18 exact), and the MPFR cross-validation gate
@@ -155,6 +168,24 @@ pub fn ln_extended<F: DecimalFormat>(x: F) -> Extended {
 /// Caller guarantees `x_ext > 0` and finite. Sign and zero are *not*
 /// handled here — they are domain errors at the public-API boundary.
 pub fn ln_from_extended(x_ext: Extended) -> Extended {
+    // Near-1 direct path (fd-aqs.6): for x ∈ (0.5, 1.5) feed
+    // u = x − 1 straight to the log1p series. The subtraction is
+    // exact at Extended width (leading-digit cancellation only
+    // shortens the coefficient), so the result's accuracy is
+    // *relative* to `ln x` however small that is. The decade
+    // route below reconstructs a near-zero result as
+    // `taylor + k·ln 2 − ln 10`, a cancellation of ~2-magnitude
+    // addends each carrying ~1e-49 absolute rounding error, which
+    // turned the kernel's relative error model absolute just below
+    // 1 and mis-rounded `ln`/`log10`/`log2`/`pow` there (the
+    // 2026-06-09 review; the band corpus pins the class). Above
+    // 1 the old route happened to stay relative because `u = m − 1`
+    // was exact with `q = 0`; routing both sides here makes the
+    // near-1 neighbourhood symmetric.
+    let u = x_ext.sub(Extended::ONE);
+    if u.abs().cmp(Extended::HALF) == core::cmp::Ordering::Less {
+        return taylor_log1p_ext(u);
+    }
     let (m_ext, q) = decompose_extended_to_decade(x_ext);
 
     // Reduce m into [2/3, 3/2] by halving/doubling.

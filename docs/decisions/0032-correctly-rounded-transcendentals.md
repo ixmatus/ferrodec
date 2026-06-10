@@ -1,6 +1,6 @@
 # ADR-0032: Correctly rounded §9.2 transcendentals via Lefèvre / Muller fixed precision bounds
 
-- **Status**: accepted
+- **Status**: accepted (amended by ADR-0050: the anchor band error-model repair)
 - **Date**: 2026-05-21
 
 ## Context

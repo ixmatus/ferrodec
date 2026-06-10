@@ -24,9 +24,14 @@
 //!
 //! ## asin / acos
 //!
-//! `asin(x) = atan(x / sqrt(1 − x²))` near zero; uses the numerically-
-//! stable `2 · atan(x / (1 + sqrt(1 − x²)))` form near `|x| = 1`.
-//! `acos(x) = π/2 − asin(x)`.
+//! `asin(x) = 2 · atan(x / (1 + sqrt(1 − x²)))` with the radicand
+//! factored exactly as `(1 − |x|)(1 + |x|)` (ADR-0050: squaring
+//! first leaves an absolute rounding residue that dominates the
+//! small radicand near `|x| = 1`).
+//! `acos(x) = 2 · atan(sqrt((1 − x) / (1 + x)))` across the open
+//! domain (ADR-0050: the previous `π/2 − asin(x)` form cancelled
+//! catastrophically near `x = 1`, where the result is far smaller
+//! than either operand).
 //!
 //! ## atan2
 //!
@@ -62,15 +67,22 @@
 //! the `Decimal64` and `Decimal128` figures are sampled corpus
 //! minima from `tests/vectors/transcend/{atan,asin,acos}.prov`
 //! (ADR-0026 fd-97a) under the ADR-0033 Slice A corpus integrity
-//! discipline.
+//! discipline. For `asin` and `acos` the margin-to-every-input
+//! inference additionally relies on the relative error model the
+//! factored radicand and the direct `acos` form restore (ADR-0050;
+//! the 2026-06-09 review measured up to ~1.5e6 ULP for `acos` near
+//! 1 at `Decimal128` under the previous forms, and the band corpus
+//! `tests/vectors/transcend/anchor_bands/` is the standing witness).
 //!
 //! At 50 digit kernel working precision, the cumulative two stage
 //! argument reduction and Taylor series error (`atan`) and the
 //! composition error (`asin`, `acos`, `atan2`) clears the smallest
 //! margin by more than thirty orders of magnitude on every format.
-//! `asin` near `|x| = 1` uses the numerically stable
-//! `2 · atan(x / (1 + sqrt(1 − x²)))` form so the cancellation
-//! that would otherwise tighten the bound is structurally absent.
+//! `asin` uses the `2 · atan(x / (1 + sqrt(1 − x²)))` form with the
+//! radicand factored exactly, and `acos` the direct
+//! `2 · atan(sqrt((1 − x)/(1 + x)))` form, so the cancellations
+//! that would otherwise break the bound near `|x| = 1` are
+//! structurally absent (ADR-0050).
 //!
 //! None of `atan`, `asin`, `acos` has a TMD hard candidate in the
 //! Plan C4 enumeration. `asin(0) = 0`, `atan(0) = 0`, `acos(1) = 0`
@@ -178,9 +190,25 @@ pub fn acos_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
         _ => {}
     }
     let x_ext = Extended::from_format(x);
-    // acos(x) = π/2 - asin(x).
-    let asin_ext_v = asin_ext::<F>(x_ext);
-    let result_ext = pi_over_two_ext().sub(asin_ext_v);
+    // acos(x) = 2 · atan(sqrt((1 − x) / (1 + x))) (fd-aqs.6). The
+    // previous `π/2 − asin(x)` form cancelled catastrophically for
+    // x near 1, where the result `≈ sqrt(2(1−x))` is tiny against
+    // two ~π/2-magnitude operands each carrying ~1e-49 absolute
+    // rounding error (up to ~1.5e6 ULP measured at Decimal128 by
+    // the 2026-06-09 review). Here both factors are exact for
+    // format-sourced coefficients — `1 − x` near x = 1 and `1 + x`
+    // near x = −1 cancel exactly — and `atan` preserves relative
+    // accuracy at both ends (small-argument Taylor on one side, the
+    // `π/2 − atan(1/t)` inversion against a result of comparable
+    // magnitude on the other), so the result is relative-accurate
+    // across the whole open domain. (cos(2·atan t) with
+    // t² = (1−x)/(1+x) reduces to x exactly, so the identity is the
+    // same function.)
+    let num = Extended::ONE.sub(x_ext);
+    let den = Extended::ONE.add(x_ext);
+    let t = num.div::<F>(den).sqrt::<F>();
+    let half = atan_ext::<F>(t);
+    let result_ext = half.add(half);
     let (result, status) = result_ext.to_format::<F>(0, rm);
     (result, status | Status::INEXACT)
 }
@@ -331,13 +359,25 @@ fn atan_ext<F: DecimalFormat>(x: Extended) -> Extended {
 }
 
 /// `asin(x)` at extended precision for `|x| < 1`. Uses
-/// `2 · atan(x / (1 + sqrt(1 - x²)))` — numerically stable across
-/// the full domain (no blow-up at `|x| = 1`).
+/// `2 · atan(x / (1 + sqrt(1 - x²)))` with the radicand factored
+/// exactly as `(1 − |x|)(1 + |x|)` — numerically stable across the
+/// full domain (no blow-up and no absolute-error residue at
+/// `|x| = 1`; ADR-0050).
 fn asin_ext<F: DecimalFormat>(x: Extended) -> Extended {
     if x.is_zero() {
         return x;
     }
-    let one_minus_x_sq = Extended::ONE.sub(x.square());
+    // `1 − x²` factored as `(1 − |x|)(1 + |x|)` (fd-aqs.6): squaring
+    // first rounds `x²` at 50 significant digits, and for `|x|` near
+    // 1 the subsequent subtraction turns that absolute ~1e-50 residue
+    // into a *relative* error of the small radicand — ~1e-50/(2δ)
+    // for `|x| = 1 − δ` — which the 2026-06-09 review measured
+    // breaching the proof envelope. The factors are exact for
+    // format-sourced coefficients (leading-digit cancellation only
+    // shortens `1 − |x|`), so the product, and everything downstream,
+    // stays relative-accurate.
+    let abs_x = x.abs();
+    let one_minus_x_sq = Extended::ONE.sub(abs_x).mul(Extended::ONE.add(abs_x));
     let sqrt_term = one_minus_x_sq.sqrt::<F>();
     let denom = Extended::ONE.add(sqrt_term);
     let inner = x.div::<F>(denom);

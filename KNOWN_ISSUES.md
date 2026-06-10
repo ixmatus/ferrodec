@@ -8,11 +8,32 @@ are recorded first, under "Known defects".
 
 ## Known defects
 
-None currently open. The `cbrt` / `pow` spurious-INEXACT defect
-(`fd-92w.8`) was fixed in `ferrodec-transcend`: a perfect cube root and
-an exact integer or rational power now clear INEXACT per IEEE 754-2019
-§7.5, by proving exactness in fixed-width integer arithmetic before the
-flag is cleared. See ADR-0047.
+Two related limitations from the 2026-06-09 review remain open on the
+transcendental surface, both bounded at one ULP and both confined to
+the four directed rounding modes (`NearestEven` and `NearestAway` are
+unaffected):
+
+- **Directed modes for grid-exact small arguments (fd-aqs.7).** When
+  `f(x) = x + c·x³ + …` and the correction sits below the kernel's 50
+  significant digit resolution (e.g. `sin(1E-40)` at `Decimal32`
+  under `TowardNegative`), the working value lands exactly on a
+  format grid point and the directed modes round to it instead of
+  the correct neighbour. The fix is an enclosure (a signed residual)
+  across the rounding seam; until it lands, the anchor band corpus
+  carries nearest-mode lines only for these cases.
+- **Directed modes for exactly representable `exp2`/`log2`/`log10`
+  results (fd-aqs.8).** `exp2(3)` under `TowardNegative` returns
+  `7.999999…` instead of 8, and the exact cases also raise a
+  spurious INEXACT; the ADR-0047 exactness machinery extends to
+  these three functions.
+
+The anchor band value defects the same review found (`ln`/`log10`/
+`log2` below 1, `atanh`/`asinh` small arguments, `asin`/`acos` near
+±1, `pow` near-1 bases) were fixed by the ADR-0050 reformulations;
+`tests/vectors/transcend/anchor_bands/` pins the class. The `cbrt` /
+`pow` spurious-INEXACT defect (`fd-92w.8`) was fixed earlier: a
+perfect cube root and an exact integer or rational power clear
+INEXACT per IEEE 754-2019 §7.5 (ADR-0047).
 
 ## Headline numbers
 

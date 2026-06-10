@@ -13,7 +13,7 @@
 //! correctly-rounded value.
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Corpus file stems that carry binary `func(input, input2)` vectors
 /// (fd-97a); every other stem is unary.
@@ -57,9 +57,33 @@ fn corpus_dir() -> PathBuf {
 /// skip).
 #[must_use]
 pub fn load(prec: u32) -> Vec<FrozenVec> {
-    let dir = corpus_dir();
+    load_from(&corpus_dir(), prec)
+}
+
+/// Every near-anchor band vector (fd-aqs.6) for `prec` significant
+/// digits, from the `tests/vectors/transcend/anchor_bands/`
+/// subdirectory. Same line format as the sampled corpus (`pow`
+/// lines are binary). The band corpus pins the hazard decades
+/// around the additive anchors 0 and 1, where the 2026-06-09 review
+/// found the kernel's relative error model collapsing to absolute
+/// (mis-rounding `ln`/`log10`/`log2` just below 1, `atanh`/`asinh`
+/// small arguments, `asin`/`acos` near ±1, and `pow` through
+/// `y · ln x`). See `tools/gen_anchor_band_vectors.py` for the
+/// oracle and acceptance rule; directed-mode lines appear only
+/// where a 50-digit-correct kernel can decide them (the rest are
+/// the fd-aqs.7 enclosure contract). Panics if the subdirectory is
+/// missing, matching the `load` semantics.
+#[must_use]
+pub fn load_anchor_bands(prec: u32) -> Vec<FrozenVec> {
+    load_from(&corpus_dir().join("anchor_bands"), prec)
+}
+
+/// Shared directory walk for [`load`] and [`load_anchor_bands`]:
+/// every `*.txt` in `dir`, filtered to `prec`, unary or binary line
+/// shape by [`BINARY_FUNCS`] stem.
+fn load_from(dir: &Path, prec: u32) -> Vec<FrozenVec> {
     let mut out = Vec::new();
-    let mut files: Vec<PathBuf> = fs::read_dir(&dir)
+    let mut files: Vec<PathBuf> = fs::read_dir(dir)
         .unwrap_or_else(|e| panic!("frozen corpus directory {}: {e}", dir.display()))
         .filter_map(Result::ok)
         .map(|e| e.path())
