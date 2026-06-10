@@ -8,32 +8,27 @@ are recorded first, under "Known defects".
 
 ## Known defects
 
-Two related limitations from the 2026-06-09 review remain open on the
-transcendental surface, both bounded at one ULP and both confined to
-the four directed rounding modes (`NearestEven` and `NearestAway` are
-unaffected):
+None currently open. The 2026-06-09 review's transcendental findings
+are all fixed: the anchor band value defects (`ln`/`log10`/`log2`
+below 1, `atanh`/`asinh` small arguments, `asin`/`acos` near ±1,
+`pow` near-1 bases) by the ADR-0050 reformulations, with
+`tests/vectors/transcend/anchor_bands/` pinning the class; the
+directed-mode special paths (overflow/underflow gates,
+negate-after-round, `tanh` saturation, `atan2(±0, −0)` flags) in
+fd-aqs.5; the exactly representable `exp2`/`log2`/`log10` cases
+(spurious INEXACT plus directed-mode misrounds) by the ADR-0047
+amendment in fd-aqs.8; and the directed modes for grid-stuck small
+arguments (e.g. `sin(1E-40)` at `Decimal32` under `TowardNegative`)
+by the ADR-0051 residual seam in fd-aqs.7. The `cbrt` / `pow`
+spurious-INEXACT defect (`fd-92w.8`) was fixed earlier (ADR-0047).
 
-- **Directed modes for grid-exact small arguments (fd-aqs.7).** When
-  `f(x) = x + c·x³ + …` and the correction sits below the kernel's 50
-  significant digit resolution (e.g. `sin(1E-40)` at `Decimal32`
-  under `TowardNegative`), the working value lands exactly on a
-  format grid point and the directed modes round to it instead of
-  the correct neighbour. The fix is an enclosure (a signed residual)
-  across the rounding seam; until it lands, the anchor band corpus
-  carries nearest-mode lines only for these cases.
-- **Directed modes for exactly representable `exp2`/`log2`/`log10`
-  results (fd-aqs.8).** `exp2(3)` under `TowardNegative` returns
-  `7.999999…` instead of 8, and the exact cases also raise a
-  spurious INEXACT; the ADR-0047 exactness machinery extends to
-  these three functions.
-
-The anchor band value defects the same review found (`ln`/`log10`/
-`log2` below 1, `atanh`/`asinh` small arguments, `asin`/`acos` near
-±1, `pow` near-1 bases) were fixed by the ADR-0050 reformulations;
-`tests/vectors/transcend/anchor_bands/` pins the class. The `cbrt` /
-`pow` spurious-INEXACT defect (`fd-92w.8`) was fixed earlier: a
-perfect cube root and an exact integer or rational power clear
-INEXACT per IEEE 754-2019 §7.5 (ADR-0047).
+One verification (not behaviour) note from ADR-0051 stands: directed
+mode results whose correction sits below ~10^-100 relative (e.g.
+`atanh(1.000001E-95)` at `Decimal32`) are delivered by the same
+proven seam but pinned only at the nearest modes, because the band
+corpus generator's mpmath oracle cannot independently certify the
+side there. Certifying those few decades needs a higher-precision
+offline oracle pass; it is bookkeeping, not a suspected defect.
 
 ## Headline numbers
 

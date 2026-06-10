@@ -126,6 +126,13 @@ pub fn atan_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
     }
     let x_ext = Extended::from_format(x);
     let result_ext = atan_ext::<F>(x_ext);
+    // Grid-stuck at the input (ADR-0051): a small argument absorbs
+    // every correction and the result is exactly `x`; the directed
+    // modes need the side, and `|atan x| < |x|` is a theorem.
+    if result_ext.sticks_to(x_ext) {
+        let (result, status) = x_ext.to_format_with_residual::<F>(false, rm);
+        return (result, status | Status::INEXACT);
+    }
     let (result, status) = result_ext.to_format::<F>(0, rm);
     (result, status | Status::INEXACT)
 }
@@ -158,6 +165,12 @@ pub fn asin_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
     }
     let x_ext = Extended::from_format(x);
     let result_ext = asin_ext::<F>(x_ext);
+    // Grid-stuck at the input (ADR-0051): `|asin x| > |x|` is a
+    // theorem, so the residual side is the growing one.
+    if result_ext.sticks_to(x_ext) {
+        let (result, status) = x_ext.to_format_with_residual::<F>(true, rm);
+        return (result, status | Status::INEXACT);
+    }
     let (result, status) = result_ext.to_format::<F>(0, rm);
     (result, status | Status::INEXACT)
 }

@@ -168,6 +168,19 @@ pub fn exp_from_extended<F: DecimalFormat>(x_ext: Extended, rm: RoundingMode) ->
     }
 
     let result_ext = exp_extended(x_ext);
+    // Grid-stuck at the 1 anchor (ADR-0051): for `|x|` below the
+    // working resolution the series absorbs every term and the
+    // result is exactly 1, a format grid point at every precision;
+    // the directed modes then need the side, which is the sign of
+    // `x` (`e^x > 1` iff `x > 0`). The residual seam carries it.
+    // `exp2`, `pow`, and `cbrt` inherit the path through this
+    // function. An exactly-zero argument is excluded: there the true
+    // result IS 1 (`cbrt(1)` arrives here as `ln(1)/3 = 0`), and the
+    // plain path plus the caller's exactness machinery handle it.
+    if !x_ext.is_zero() && result_ext.sticks_to(Extended::ONE) {
+        let (result, status) = Extended::ONE.to_format_with_residual::<F>(!x_ext.sign, rm);
+        return (result, status | Status::INEXACT);
+    }
     let (result, status) = result_ext.to_format::<F>(0, rm);
     (result, status | Status::INEXACT)
 }

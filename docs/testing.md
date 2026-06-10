@@ -175,10 +175,11 @@ review found the proof envelope's error model itself failing in the
 near anchor bands (absorption at 0 and 1 turned the kernel's
 relative error absolute, outside every layer's coverage). ADR-0050
 records the reformulations that repaired it and the committed band
-corpus that now pins the class; the one named residue, directed
-mode results that land exactly on a 50 digit grid point, is bounded
-at one ULP, leaves the nearest modes untouched, and is tracked as
-fd-aqs.7 until an enclosure crosses the rounding seam.
+corpus that now pins the class; ADR-0051 closed the residue
+(directed mode results grid stuck on an anchor) by carrying a
+signed residual across the rounding seam, with the band corpus
+extended over the small argument trigonometric, hyperbolic, and
+exponential families as the standing witness.
 
 ## The layered oracle stack
 
@@ -345,10 +346,10 @@ and `pow` at `NearestEven`, and exact per (function, mode) count
 pins so a silent corpus trim cannot hide. Its power is the class the
 Arb corpus could not see; its blind spots are the same finitude as
 the Arb layer's, plus a scoping one stated in the generator:
-directed mode lines appear only where a 50 digit correct kernel can
-decide them, so the grid exact small argument cases carry nearest
-mode lines only until the enclosure crosses the rounding seam
-(fd-aqs.7).
+directed mode lines appear wherever the oracle can certify the side
+(the ADR-0051 residual seam decides the grid stuck cases in the
+kernel), and only corrections below the generator's 10^-100 oracle
+floor stay pinned at the nearest modes alone.
 
 ### 8. The MPFR dev gate
 

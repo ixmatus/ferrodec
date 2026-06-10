@@ -136,6 +136,12 @@ pub fn sinh_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
     }
     let x_ext = Extended::from_format(x);
     let result_ext = sinh_ext::<F>(x_ext);
+    // Grid-stuck at the input (ADR-0051): `|sinh x| > |x|` is a
+    // theorem, so the residual side is the growing one.
+    if result_ext.sticks_to(x_ext) {
+        let (result, status) = x_ext.to_format_with_residual::<F>(true, rm);
+        return (result, status | Status::INEXACT);
+    }
     let (result, status) = result_ext.to_format::<F>(0, rm);
     (result, status | Status::INEXACT)
 }
@@ -151,6 +157,12 @@ pub fn cosh_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
     }
     let x_ext = Extended::from_format(x).abs();
     let result_ext = cosh_ext::<F>(x_ext);
+    // Grid-stuck at the 1 anchor (ADR-0051): `cosh x > 1` for every
+    // finite nonzero `x`, so the residual side is the growing one.
+    if result_ext.sticks_to(Extended::ONE) {
+        let (result, status) = Extended::ONE.to_format_with_residual::<F>(true, rm);
+        return (result, status | Status::INEXACT);
+    }
     let (result, status) = result_ext.to_format::<F>(0, rm);
     (result, status | Status::INEXACT)
 }
@@ -205,6 +217,12 @@ pub fn tanh_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
     let c = cosh_ext::<F>(x_ext.abs());
     // tanh inherits the sign of x via sinh; cosh is symmetric.
     let result_ext = s.div::<F>(c);
+    // Grid-stuck at the input (ADR-0051): `|tanh x| < |x|` is a
+    // theorem, so the residual side is the shrinking one.
+    if result_ext.sticks_to(x_ext) {
+        let (result, status) = x_ext.to_format_with_residual::<F>(false, rm);
+        return (result, status | Status::INEXACT);
+    }
     let (result, status) = result_ext.to_format::<F>(0, rm);
     (result, status | Status::INEXACT)
 }
@@ -253,6 +271,13 @@ pub fn asinh_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
         ln_from_extended(inner)
     };
     let signed_ext = if neg { result_ext.neg() } else { result_ext };
+    // Grid-stuck at the input (ADR-0051): `|asinh x| < |x|` is a
+    // theorem, so the residual side is the shrinking one.
+    let x_anchor = Extended::from_format(x);
+    if signed_ext.sticks_to(x_anchor) {
+        let (result, status) = x_anchor.to_format_with_residual::<F>(false, rm);
+        return (result, status | Status::INEXACT);
+    }
     let (result, status) = signed_ext.to_format::<F>(0, rm);
     (result, status | Status::INEXACT)
 }
@@ -384,6 +409,12 @@ pub fn atanh_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
         let ratio = one_plus.div::<F>(one_minus);
         ln_from_extended(ratio).div_u32(2)
     };
+    // Grid-stuck at the input (ADR-0051): `|atanh x| > |x|` is a
+    // theorem, so the residual side is the growing one.
+    if result_ext.sticks_to(x_ext) {
+        let (result, status) = x_ext.to_format_with_residual::<F>(true, rm);
+        return (result, status | Status::INEXACT);
+    }
     let (result, status) = result_ext.to_format::<F>(0, rm);
     (result, status | Status::INEXACT)
 }

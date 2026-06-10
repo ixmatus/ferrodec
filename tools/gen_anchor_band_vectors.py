@@ -28,12 +28,16 @@ Oracle and acceptance rule:
   at every emitted mode, mirroring the corpus accept rule of two
   independent references agreeing.
 
-Directed-mode lines are emitted only where a kernel that is correct
-to 50 significant digits can decide them: when the true value rounded
-to 50 digits does not sit exactly on the format grid. Where it does
-(the pure small-argument cases, e.g. `atanh(1e-95)` at Decimal32),
-only the nearest modes are emitted; the directed decision there needs
-an enclosure across the rounding seam and is fd-aqs.7's contract.
+Directed-mode lines are emitted wherever the oracle can certify the
+side (boundary distance above the 1e-100 ULP floor); the kernel's
+ADR-0051 residual seam decides the grid-hugging cases, so they get
+directed lines too. Only cases whose correction sits below the oracle
+floor (e.g. `atanh(1.000001e-95)` at Decimal32, ~1e-191 relative)
+keep nearest-mode-only lines: the same seam delivers their directed
+neighbours, but this tooling cannot independently certify them. The
+small-argument trigonometric, hyperbolic, and exponential families
+(`sin`, `cos`, `tan`, `atan`, `sinh`, `cosh`, `tanh`, `exp`, `exp2`)
+are covered alongside the ADR-0050 anchor-band functions.
 
 Mathematical facts, not copyrightable expression. Regenerate with:
     python3 tools/gen_anchor_band_vectors.py
@@ -71,6 +75,15 @@ def true_value(func, x, y=None):
         "asinh": mp.asinh,
         "asin": mp.asin,
         "acos": mp.acos,
+        "sin": mp.sin,
+        "cos": mp.cos,
+        "tan": mp.tan,
+        "atan": mp.atan,
+        "sinh": mp.sinh,
+        "cosh": mp.cosh,
+        "tanh": mp.tanh,
+        "exp": mp.exp,
+        "exp2": lambda v: mp.power(2, v),
     }
     if func == "pow":
         return mp.power(mp.mpmathify(x), mp.mpmathify(y))
@@ -87,14 +100,16 @@ def classify_margin(d, prec):
     boundaries, in ULP-fraction units.
 
     Returns `"full"` when the value clears both the grid points and
-    the half-ULP boundary by more than 1e-90 ULP (every mode decided
-    with certainty by the 140-digit oracle rendering, whose own error
-    is below 1e-100 ULP at every format precision); `"nearest_only"`
-    when the value hugs a grid point closer than that (the nearest
-    modes still round to the hugged point regardless of side, but the
-    directed modes need the side, which is the fd-aqs.7 enclosure
-    contract); and `None` when the value hugs the half-ULP boundary,
-    where no mode is decidable and the input must be replaced.
+    the half-ULP boundary by more than the 1e-100 ULP oracle floor
+    (every mode decided with certainty by the 140-digit rendering of
+    the 160-dps computation); `"nearest_only"` when the value hugs a
+    grid point closer than the floor (the nearest modes still round
+    to the hugged point regardless of side; the kernel's ADR-0051
+    residual seam delivers the directed neighbours too, but this
+    tooling cannot independently certify them, and an uncertified pin
+    would be faith, not verification); and `None` when the value hugs
+    the half-ULP boundary below the floor, where the nearest modes
+    are also undecidable and the input must be replaced.
 
     `copy_abs` (not `abs`) and an explicit wide local context: the
     unary Decimal operations apply the *ambient* context precision,
@@ -107,10 +122,10 @@ def classify_margin(d, prec):
     ulp = Decimal(10) ** (a.adjusted() - prec + 1)
     with localcontext(Context(prec=250)):
         frac = (a / ulp) % 1
-        eps = Decimal("1e-90")
-        if abs(frac - Decimal("0.5")) <= eps:
+        floor = Decimal("1e-100")
+        if abs(frac - Decimal("0.5")) <= floor:
             return None
-        if frac <= eps or (1 - frac) <= eps:
+        if frac <= floor or (1 - frac) <= floor:
             return "nearest_only"
         return "full"
 
@@ -168,14 +183,10 @@ def emit(lines, func, x, prec, y=None):
     d = to_decimal(v)
     margin = classify_margin(d, prec)
     assert margin is not None, f"{func}({x}) prec {prec}: hugs the half-ULP boundary"
-    # A 50-digit-correct kernel decides the directed modes only when
-    # the 50-digit rounding is off the format grid; and a grid-hugging
-    # true value leaves the directed side undecidable by the oracle
-    # rendering itself. Either way the directed lines wait for the
-    # fd-aqs.7 enclosure seam.
-    v50 = rounded(d, 50, ROUND_HALF_EVEN)
-    grid_exact = rounded(d, prec, ROUND_HALF_EVEN) == v50
-    nearest_only = grid_exact or margin == "nearest_only"
+    # Grid-hugging values get directed lines too: the kernel's
+    # residual seam (ADR-0051) decides them. The only narrowing left
+    # is the oracle floor in the classifier.
+    nearest_only = margin == "nearest_only"
     for mode_name, rounding in MODES:
         if nearest_only and mode_name not in ("NearestEven", "NearestAway"):
             continue
@@ -237,6 +248,42 @@ SMALL_ARG = {
     ],
 }
 
+# Small arguments for the even (anchored at 1) and exponential
+# families. The deep decades exercise the ADR-0051 residual seam
+# (the 50-digit value is grid-exact and the directed neighbour comes
+# from the carried residual direction); the shallow decades stay on
+# the series path as controls on both sides of the absorption
+# boundary.
+EVEN_SMALL = {
+    34: [
+        ("3141592653589793238462643383279502", -73),  # ~3.1e-40
+        ("9876543210987654321098765432109876", -58),  # ~9.9e-25, near the boundary
+        ("1234567890123456789012345678901234", -47),  # ~1.2e-14, series path
+    ],
+    16: [
+        ("3141592653589793", -55),  # ~3.1e-40
+        ("9876543210987654", -25),  # ~9.9e-10, series path
+    ],
+    7: [
+        ("3141593", -46),  # ~3.1e-40
+        ("9876543", -10),  # ~9.9e-4, series path
+    ],
+}
+EXP_SMALL = {
+    34: [
+        ("3141592653589793238462643383279502", -94),  # ~3.1e-61
+        ("1414213562373095048801688724209698", -80),  # ~1.4e-47, series path
+    ],
+    16: [
+        ("2718281828459045", -75),  # ~2.7e-60
+        ("1618033988749894", -40),  # ~1.6e-25, series path
+    ],
+    7: [
+        ("1234567", -66),  # ~1.2e-60
+        ("7654321", -20),  # ~7.7e-14, series path
+    ],
+}
+
 # pow near-1 bases (as below-one offsets at the working precision)
 # crossed with large integer exponents.
 POW_CASES = {
@@ -289,6 +336,28 @@ def main():
             if func == "acos":
                 for m in BELOW_ONE_M[prec][:3]:
                     emit(lines, func, "-" + below_one(prec, m), prec)
+        # The odd small-argument family shares the atanh/asinh input
+        # lists (f(x) = x + c3 x^3 + ..., both signs).
+        for func in ("sin", "tan", "atan", "sinh", "tanh"):
+            lines = per_func.setdefault(func, [])
+            for coef, e in SMALL_ARG[prec]:
+                emit(lines, func, f"{coef}e{e}", prec)
+                emit(lines, func, f"-{coef}e{e}", prec)
+        # The even family is anchored at 1; one negative input per
+        # precision pins the symmetry.
+        for func in ("cos", "cosh"):
+            lines = per_func.setdefault(func, [])
+            for coef, e in EVEN_SMALL[prec]:
+                emit(lines, func, f"{coef}e{e}", prec)
+            neg_coef, neg_e = EVEN_SMALL[prec][0]
+            emit(lines, func, f"-{neg_coef}e{neg_e}", prec)
+        # The exponential family crosses the 1 anchor in both
+        # directions (exp(x) > 1 for x > 0, < 1 for x < 0).
+        for func in ("exp", "exp2"):
+            lines = per_func.setdefault(func, [])
+            for coef, e in EXP_SMALL[prec]:
+                emit(lines, func, f"{coef}e{e}", prec)
+                emit(lines, func, f"-{coef}e{e}", prec)
         lines = per_func.setdefault("pow", [])
         for x, y in POW_CASES[prec]:
             emit(lines, "pow", x, prec, y)
