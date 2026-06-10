@@ -95,9 +95,13 @@ impl Extended {
     };
 
     /// An `Extended` whose magnitude exceeds `Decimal128::MAX` (`10^6144`)
-    /// by enough that the boundary `to_format` round produces `±∞ +
-    /// OVERFLOW` with `sign`. Used by `sinh` / `cosh` to signal
-    /// saturation when `|x|` is past the `exp` convergence window.
+    /// by enough that the boundary `to_format` round produces the IEEE
+    /// 754-2019 §7.4 overflow disposition for the rounding direction
+    /// (`±∞` at the nearest modes and toward the overflowing side, the
+    /// largest finite magnitude toward zero and the opposite side),
+    /// with `OVERFLOW` raised by the format rounder. Used by `sinh` /
+    /// `cosh` and the `exp` family gate to signal saturation when `|x|`
+    /// is past the `exp` convergence window.
     ///
     /// The exponent (`7000`) is chosen comfortably above `E_MAX = 6144`;
     /// any value past `MAX` rounds the same way at the boundary, so the
@@ -108,6 +112,25 @@ impl Extended {
             coef: U256::from_u128(1),
             exp: 7000,
             sign,
+        }
+    }
+
+    /// The underflow counterpart of [`Self::saturate_overflow`]: a
+    /// positive magnitude (`10^-7000`) below every format's smallest
+    /// subnormal (`Decimal128`'s floor is `1 × 10^-6176`). Routed
+    /// through `round_and_pack_finite` with `pre_sticky = true`, the
+    /// format rounder delivers the §7.4 underflow disposition for the
+    /// rounding direction (`+0` at the nearest modes and toward zero
+    /// or `-∞`, the smallest subnormal toward `+∞`) and raises
+    /// `UNDERFLOW`. Callers must only saturate when the true result is
+    /// already below half the smallest subnormal, so the nearest-mode
+    /// answer is genuinely zero; the gate thresholds encode that.
+    #[inline]
+    pub const fn saturate_underflow() -> Self {
+        Self {
+            coef: U256::from_u128(1),
+            exp: -7000,
+            sign: false,
         }
     }
 

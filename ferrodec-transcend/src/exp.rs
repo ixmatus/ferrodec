@@ -27,8 +27,10 @@
 //!
 //! Correctly rounded across the supported domain `|x| ≤ 14149`
 //! (ADR-0032; supersedes ADR-0024's faithful contract). Values past
-//! the domain short circuit to ±∞ / ±0 with the appropriate IEEE 754
-//! flags.
+//! the domain saturate through the format rounder, which applies the
+//! IEEE 754-2019 §7.4 overflow / underflow disposition per rounding
+//! direction (largest finite toward zero on overflow, smallest
+//! subnormal toward `+∞` on underflow) with the appropriate flags.
 //!
 //! The worst case half ULP margins per format precision are
 //! `5.350453e-09` at `Decimal32` (proven across the full canonical
@@ -69,10 +71,6 @@ pub fn exp_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
         }
         Class::Zero { .. } => return (F::ONE, Status::OK),
         Class::Finite { .. } => {}
-    }
-
-    if let Some(early) = saturate_extreme(x) {
-        return early;
     }
 
     let x_ext = Extended::from_format(x);
@@ -139,11 +137,25 @@ pub fn exp_from_extended<F: DecimalFormat>(x_ext: Extended, rm: RoundingMode) ->
         F::exp_overflow_limit()
     };
     if abs.cmp(limit) == core::cmp::Ordering::Greater {
-        return if x_ext.sign {
-            (F::ZERO, Status::UNDERFLOW | Status::INEXACT)
+        // Saturate through the format rounder rather than returning a
+        // hardwired `+∞` / `+0`, so the IEEE 754-2019 §7.4 disposition
+        // applies per rounding direction: overflow delivers the largest
+        // finite number toward zero and `-∞`, and underflow-to-zero
+        // delivers the smallest subnormal toward `+∞`. The gate
+        // thresholds guarantee the true result is past the largest
+        // finite magnitude (overflow side) or below half the smallest
+        // subnormal (underflow side), so every mode's answer is decided
+        // by the saturated proxy exactly as by the true value. The
+        // `pre_sticky = true` residue marks the proxy inexact; the
+        // rounder raises OVERFLOW / UNDERFLOW itself (fd-aqs.5).
+        let sat = if x_ext.sign {
+            Extended::saturate_underflow()
         } else {
-            (F::INFINITY, Status::OVERFLOW | Status::INEXACT)
+            Extended::saturate_overflow(false)
         };
+        let (result, status) =
+            F::round_and_pack_finite(sat.coef, sat.exp, 0, sat.sign, true, rm, Status::OK);
+        return (result, status | Status::INEXACT);
     }
 
     let result_ext = exp_extended(x_ext);
@@ -250,26 +262,4 @@ fn taylor_exp_ext(r: Extended) -> Extended {
         }
     }
     sum
-}
-
-/// Coarse extreme-magnitude detection. Returns `Some((±∞ or ±0, status))`
-/// when the input is way outside the convergence window. Asymmetric
-/// thresholds — see [`DecimalFormat::exp_overflow_limit`] /
-/// [`DecimalFormat::exp_underflow_limit`] for why.
-fn saturate_extreme<F: DecimalFormat>(x: F) -> Option<(F, Status)> {
-    let positive = !x.is_sign_negative();
-    let abs_ext = Extended::from_format::<F>(x).abs();
-    let threshold = if positive {
-        F::exp_overflow_limit()
-    } else {
-        F::exp_underflow_limit()
-    };
-    if abs_ext.cmp(threshold) != core::cmp::Ordering::Greater {
-        return None;
-    }
-    if positive {
-        Some((F::INFINITY, Status::OVERFLOW | Status::INEXACT))
-    } else {
-        Some((F::ZERO, Status::UNDERFLOW | Status::INEXACT))
-    }
 }

@@ -101,7 +101,12 @@ pub fn atan_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
         Class::SignalingNaN { .. } => return (x.nan_from(), Status::INVALID),
         Class::QuietNaN { .. } => return (x, Status::OK),
         Class::Infinity { sign } => {
-            let half_pi = pi_over_two_ext().to_format::<F>(0, rm).0;
+            // atan(−∞) = −π/2: round the magnitude under the
+            // negation-reflected mode before flipping the sign, so the
+            // two directed modes land on the correct neighbour (the
+            // cbrt `for_negation` rule; fd-aqs.5).
+            let rm_mag = if sign { rm.for_negation() } else { rm };
+            let half_pi = pi_over_two_ext().to_format::<F>(0, rm_mag).0;
             return (if sign { half_pi.neg() } else { half_pi }, Status::INEXACT);
         }
         Class::Zero { .. } => return (x, Status::OK),
@@ -128,13 +133,13 @@ pub fn asin_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
     match cmp_one {
         Some(core::cmp::Ordering::Greater) => return (F::NAN, Status::INVALID),
         Some(core::cmp::Ordering::Equal) => {
-            // asin(±1) = ±π/2.
-            let half_pi = pi_over_two_ext().to_format::<F>(0, rm).0;
-            let signed = if x.is_sign_negative() {
-                half_pi.neg()
-            } else {
-                half_pi
-            };
+            // asin(±1) = ±π/2. Round the magnitude under the
+            // negation-reflected mode before flipping the sign
+            // (fd-aqs.5).
+            let neg = x.is_sign_negative();
+            let rm_mag = if neg { rm.for_negation() } else { rm };
+            let half_pi = pi_over_two_ext().to_format::<F>(0, rm_mag).0;
+            let signed = if neg { half_pi.neg() } else { half_pi };
             return (signed, Status::INEXACT);
         }
         _ => {}
@@ -190,33 +195,39 @@ pub fn atan2_kernel<F: DecimalFormat>(y: F, x: F, rm: RoundingMode) -> (F, Statu
     if y.is_nan() || x.is_nan() {
         return (y.propagate_nan2(x), Status::OK);
     }
-    let pi_d = pi_ext().to_format::<F>(0, rm).0;
-    let half_pi = pi_over_two_ext().to_format::<F>(0, rm).0;
-    let three_quarter_pi = pi_over_four_ext()
-        .mul(Extended::from_i32(3))
-        .to_format::<F>(0, rm)
-        .0;
-    let quarter_pi = pi_over_four_ext().to_format::<F>(0, rm).0;
-
     let y_neg = y.is_sign_negative();
-    let signed = |v: F| if y_neg { v.neg() } else { v };
+    // Round a positive π-family constant at the point of use, carrying
+    // y's sign. The magnitude is rounded under the negation-reflected
+    // mode when the result will be negated, so the two directed modes
+    // land on the correct neighbour (the cbrt `for_negation` rule;
+    // fd-aqs.5). Rounding eagerly under the caller's `rm` and negating
+    // afterwards — the previous shape — was wrong by one ULP for
+    // negative `y` at `TowardPositive` / `TowardNegative`.
+    let signed_const = |c: Extended| {
+        if y_neg {
+            c.to_format::<F>(0, rm.for_negation()).0.neg()
+        } else {
+            c.to_format::<F>(0, rm).0
+        }
+    };
 
     // Inf handling.
     if x.is_infinite() && y.is_infinite() {
         // ±π/4 or ±3π/4 depending on signs.
         return if x.is_sign_negative() {
-            (signed(three_quarter_pi), Status::INEXACT)
+            let three_quarter_pi = pi_over_four_ext().mul(Extended::from_i32(3));
+            (signed_const(three_quarter_pi), Status::INEXACT)
         } else {
-            (signed(quarter_pi), Status::INEXACT)
+            (signed_const(pi_over_four_ext()), Status::INEXACT)
         };
     }
     if y.is_infinite() {
         // ±π/2.
-        return (signed(half_pi), Status::INEXACT);
+        return (signed_const(pi_over_two_ext()), Status::INEXACT);
     }
     if x.is_infinite() {
         return if x.is_sign_negative() {
-            (signed(pi_d), Status::INEXACT)
+            (signed_const(pi_ext()), Status::INEXACT)
         } else {
             (if y_neg { F::NEG_ZERO } else { F::ZERO }, Status::OK)
         };
@@ -224,18 +235,21 @@ pub fn atan2_kernel<F: DecimalFormat>(y: F, x: F, rm: RoundingMode) -> (F, Statu
     // Both finite. Cover x = 0.
     if x.is_zero() {
         if y.is_zero() {
-            // atan2(±0, +0) = ±0; atan2(±0, -0) = ±π.
+            // atan2(±0, +0) = ±0; atan2(±0, -0) = ±π. The ±π result is
+            // a rounded irrational and raises INEXACT like the finite
+            // x < 0 arm below (fd-aqs.5 flag-fidelity fix; the zero
+            // result is exact and stays OK).
             if x.is_sign_negative() {
-                return (signed(pi_d), Status::OK);
+                return (signed_const(pi_ext()), Status::INEXACT);
             }
             return (if y_neg { F::NEG_ZERO } else { F::ZERO }, Status::OK);
         }
-        return (signed(half_pi), Status::INEXACT);
+        return (signed_const(pi_over_two_ext()), Status::INEXACT);
     }
     if y.is_zero() {
         // atan2(±0, x): 0 if x > 0, ±π if x < 0.
         return if x.is_sign_negative() {
-            (signed(pi_d), Status::INEXACT)
+            (signed_const(pi_ext()), Status::INEXACT)
         } else {
             (if y_neg { F::NEG_ZERO } else { F::ZERO }, Status::OK)
         };

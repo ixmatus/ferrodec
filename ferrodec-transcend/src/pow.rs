@@ -221,9 +221,15 @@ pub fn pow_kernel<F: DecimalFormat>(x: F, y: F, rm: RoundingMode) -> (F, Status)
     let ln_x_ext = ln_extended(abs_x);
     let y_ext = Extended::from_format(y);
     let y_ln_x_ext = y_ext.mul(ln_x_ext);
-    let (result, status) = exp_from_extended::<F>(y_ln_x_ext, rm);
 
+    // The pipeline evaluates |x|^y and re-applies the sign for an odd
+    // integer y over a negative base. Round the magnitude under the
+    // negation-reflected mode so the directed modes land on the
+    // correct neighbour after the sign flip (the cbrt `for_negation`
+    // rule; fd-aqs.5).
     let sign_neg = x.is_sign_negative() && matches!(y_int, IntegerKind::OddInteger);
+    let eff_rm = if sign_neg { rm.for_negation() } else { rm };
+    let (result, status) = exp_from_extended::<F>(y_ln_x_ext, eff_rm);
     let signed = if sign_neg { result.neg() } else { result };
 
     // `exp_from_extended` already raised INEXACT. pow can land on an exact

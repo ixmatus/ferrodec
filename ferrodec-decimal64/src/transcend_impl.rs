@@ -224,8 +224,9 @@ impl DecimalFormat for Decimal64 {
     /// Overflow threshold for `exp(x)`. `Decimal64` has `E_MAX = 384`,
     /// so `MAX ≈ 10^385`; `e^x` overflows once `x > ln(10^385) =
     /// 385 · ln(10) ≈ +886.49`. The first integer strictly past that
-    /// boundary is `887`, so any `|x| > 887` short-circuits to
-    /// `+∞ + OVERFLOW`. `Extended::from_u128(887)` is `coef = 887`,
+    /// boundary is `887`, so any `|x| > 887` short-circuits through
+    /// the kernel's saturation gate (§7.4 disposition per rounding
+    /// direction, plus `OVERFLOW`). `Extended::from_u128(887)` is `coef = 887`,
     /// `exp = 0`, `sign = false` — the analogue of `Decimal128`'s
     /// `14150` figure, scaled to `Decimal64`'s exponent envelope.
     fn exp_overflow_limit() -> Extended {

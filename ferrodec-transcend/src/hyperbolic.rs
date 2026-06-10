@@ -155,28 +155,39 @@ pub fn tanh_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
         Class::Zero { .. } => return (x, Status::OK),
         Class::Finite { .. } => {}
     }
-    // For |x| ≳ 35 ln(10) ≈ 80, tanh saturates to ±1 within
-    // Decimal128 precision. The eˣ branch would overflow well
-    // before that anyway.
+    // Saturation band, |x| > 45: here `1 − |tanh x| = 2e^{−2|x|} /
+    // (1 + e^{−2|x|}) < 2e^{−90} ≈ 1.7 × 10^{−39}`, so the true
+    // magnitude lies strictly inside `(1 − 2×10^{−39}, 1)`. Every
+    // value in that interval — and in the `(1 − 10^{−50}, 1)`
+    // interval the proxy below denotes — rounds identically at every
+    // format precision (≤ 34 digits) and every direction: to 1 at
+    // the nearest modes and toward the result's own sign of
+    // infinity, to the all-nines neighbour toward zero. Feeding the
+    // 50-nines coefficient with a sticky residue through the format
+    // rounder therefore delivers the §4.3.3 answer per mode, where
+    // the previous mode-blind `±1` return mis-rounded `TowardZero`
+    // and the directed mode on the result's own side (fd-aqs.5).
     //
-    // The 80 threshold is conservative; the actual `|tanh(x) − 1|
-    // < ulp(1)` boundary at 34-digit precision is `|x| ≳ 38`
-    // (≈ 17 × ln(10), since the relative error of tanh past x is
-    // bounded by `2 e^(−2x)` and 1 ULP at unity is `10^−33`).
-    // Tightening would save a few exp calls in the (38, 80] strip
-    // without affecting correctness, but the strip is rarely hit
-    // and the current threshold composes safely with sinh / cosh
-    // which use the format's `exp_overflow_limit` ceiling upstream.
+    // Below the threshold the quotient path is decisive on its own:
+    // at |x| ≤ 45 the extended quotient sits below 1 by at least
+    // `~1.6 × 10^{−39}`, four orders of magnitude above the 10^{−50}
+    // working resolution and the Newton division error, so its
+    // boundary round cannot collapse to exactly 1. (The previous 80
+    // threshold left a `~58 < |x| ≤ 80` band where the quotient
+    // rounded to 1 at 50 digits and reproduced the saturation defect.)
     let abs_ext = Extended::from_format::<F>(x).abs();
-    if abs_ext.cmp(Extended::parse_str("80")) == core::cmp::Ordering::Greater {
-        return (
-            if x.is_sign_negative() {
-                F::NEG_ONE
-            } else {
-                F::ONE
-            },
-            Status::INEXACT,
+    if abs_ext.cmp(Extended::parse_str("45")) == core::cmp::Ordering::Greater {
+        let nines = Extended::parse_str("0.99999999999999999999999999999999999999999999999999");
+        let (result, status) = F::round_and_pack_finite(
+            nines.coef,
+            nines.exp,
+            0,
+            x.is_sign_negative(),
+            true,
+            rm,
+            Status::OK,
         );
+        return (result, status | Status::INEXACT);
     }
     let x_ext = Extended::from_format(x);
     let s = sinh_ext::<F>(x_ext);

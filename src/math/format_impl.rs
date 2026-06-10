@@ -130,9 +130,12 @@ impl DecimalFormat for Decimal128 {
         self.to_i32(rm)
     }
 
-    /// Overflow threshold for `exp(x)`. `e^x` overflows to `+∞` at
+    /// Overflow threshold for `exp(x)`. `e^x` overflows at
     /// `x ≈ ln(MAX) ≈ +14149.4`; values strictly above this
-    /// short-circuit to `+∞ + OVERFLOW`. `Extended::from_u128(14150)`
+    /// short-circuit through the kernel's saturation gate, which
+    /// applies the §7.4 overflow disposition per rounding direction
+    /// (`+∞` at the nearest modes and toward `+∞`, `MAX` toward zero
+    /// and `−∞`) plus `OVERFLOW`. `Extended::from_u128(14150)`
     /// reproduces the pre-relocation `Extended::EXP_OVERFLOW_LIMIT`
     /// const exactly (`coef = 14150`, `exp = 0`, `sign = false`), so
     /// the Decimal128 magnitude gate is bit-identical.
@@ -144,7 +147,10 @@ impl DecimalFormat for Decimal128 {
     /// subnormal is `1 × 10⁻⁶¹⁷⁶`, and round-to-nearest-even maps
     /// any `exp(x) < ½ × MIN_SUBNORMAL` to `+0`. That boundary sits
     /// at `x ≈ ln(0.5 × 10⁻⁶¹⁷⁶) ≈ −14220.85`, so `+14221` is the
-    /// first integer past which the saturate short-circuit is safe.
+    /// first integer past which the saturate short-circuit is safe:
+    /// below half the smallest subnormal every rounding direction's
+    /// answer is decided (`+0`, or the smallest subnormal toward
+    /// `+∞`) and the kernel's saturation gate delivers it per mode.
     /// Setting the underflow threshold at `+14150` (matching the
     /// overflow side) was too tight — it discarded every
     /// subnormal-range result for `x ∈ (−14221, −14150]`, which the

@@ -225,7 +225,9 @@ impl DecimalFormat for Decimal32 {
     /// so `MAX ≈ 10^(E_MAX+1) = 10^97`; `e^x` overflows once
     /// `x > ln(10^97) = 97 · ln(10) ≈ +223.35`. The first integer
     /// strictly past that boundary is `224`, so any `|x| > 224`
-    /// short-circuits to `+∞ + OVERFLOW`. `Extended::from_u128(224)`
+    /// short-circuits through the kernel's saturation gate (§7.4
+    /// disposition per rounding direction, plus `OVERFLOW`).
+    /// `Extended::from_u128(224)`
     /// is `coef = 224`, `exp = 0`, `sign = false` — the analogue of
     /// `Decimal64`'s `887` and `Decimal128`'s `14150` figures, scaled
     /// to `Decimal32`'s exponent envelope.
