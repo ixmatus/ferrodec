@@ -3,14 +3,26 @@
 One line per entry; the entry file is the single home for every fact
 (schema and ritual: [SCHEMA.md](SCHEMA.md), mechanism: ADR-0052).
 
-- [cowlishaw-dectest](cowlishaw-dectest.md) — conformance — General Decimal Arithmetic Testcases suite 2.62, vendored with hash pins, with the coverage-gap statement
-- [cowlishaw-gda-arith](cowlishaw-gda-arith.md) — spec — General Decimal Arithmetic Specification 1.70, the GDA semantic authority
-- [decnumber](decnumber.md) — oracle — decNumber 3.68, the GDA reference implementation consulted as a behavioral model
-- [ieee-754-2008](ieee-754-2008.md) — spec — the revision that brought decimal and the BID/DPD encodings into IEEE 754 (lineage)
-- [ieee-754-2019](ieee-754-2019.md) — spec — IEEE Std 754-2019, the storage and operation authority for the fixed formats
 - [arb-flint](arb-flint.md) — oracle — Arb certified ball enclosures (FLINT 3), the proof-tier corpus generator
 - [astro-float](astro-float.md) — oracle — pure Rust faithful oracle for the transcendental property suites
+- [brent-zimmermann-mca](brent-zimmermann-mca.md) — algorithm — Modern Computer Arithmetic, the DecBig performance algorithms handbook
+- [cowlishaw-dectest](cowlishaw-dectest.md) — conformance — General Decimal Arithmetic Testcases suite 2.62, vendored with hash pins, with the coverage-gap statement
+- [cowlishaw-gda-arith](cowlishaw-gda-arith.md) — spec — General Decimal Arithmetic Specification 1.70, the GDA semantic authority
+- [crlibm](crlibm.md) — algorithm — CRlibm correctly rounded libm, rejected alternative whose original host died
+- [decnumber](decnumber.md) — oracle — decNumber 3.68, the GDA reference implementation consulted as a behavioral model
+- [goldberg-1991](goldberg-1991.md) — algorithm — What Every Computer Scientist Should Know About Floating-Point Arithmetic
+- [haible-papanikolaou-1998](haible-papanikolaou-1998.md) — algorithm — binary splitting for series of rationals, the constants speedup source
+- [ieee-754-2008](ieee-754-2008.md) — spec — the revision that brought decimal and the BID/DPD encodings into IEEE 754 (lineage)
+- [ieee-754-2019](ieee-754-2019.md) — spec — IEEE Std 754-2019, the storage and operation authority for the fixed formats
+- [karatsuba-1962](karatsuba-1962.md) — algorithm — divide and conquer multiplication, consulted through Knuth §4.3.3
+- [knuth-taocp-v2](knuth-taocp-v2.md) — algorithm — TAOCP volume 2, Algorithm D long division and the Karatsuba treatment
+- [lefevre-2000](lefevre-2000.md) — algorithm — hardest-to-round search thesis, the proof shape behind ADR-0032
 - [mpdecimal](mpdecimal.md) — oracle — libmpdec via CPython decimal, the differential oracle
 - [mpfr](mpfr.md) — oracle — MPFR via rug behind mpfr-gate, the independent corpus re-derivation
 - [mpmath](mpmath.md) — oracle — adaptive precision breadth oracle and anchor band corpus generator
+- [muller-elementary-functions](muller-elementary-functions.md) — algorithm — Elementary Functions, the per-function range reduction playbook
+- [muller-handbook-2018](muller-handbook-2018.md) — algorithm — Handbook of Floating-Point Arithmetic, the fixed precision envelope proofs
 - [num-bigint](num-bigint.md) — oracle — exact integer oracle for the closed arithmetic operations
+- [paterson-stockmeyer-1973](paterson-stockmeyer-1973.md) — algorithm — rectangular polynomial evaluation behind the ln series kernel
+- [payne-hanek-1983](payne-hanek-1983.md) — algorithm — windowed radian reduction for full range sin and cos
+- [ziv-1991](ziv-1991.md) — algorithm — adaptive precision correct rounding, rejected for the fixed formats
