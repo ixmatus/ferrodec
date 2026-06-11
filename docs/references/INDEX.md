@@ -10,6 +10,7 @@ One line per entry; the entry file is the single home for every fact
 - [cowlishaw-gda-arith](cowlishaw-gda-arith.md) — spec — General Decimal Arithmetic Specification 1.70, the GDA semantic authority
 - [crlibm](crlibm.md) — algorithm — CRlibm correctly rounded libm, rejected alternative whose original host died
 - [decnumber](decnumber.md) — oracle — decNumber 3.68, the GDA reference implementation consulted as a behavioral model
+- [glossary](glossary.md) — glossary — the decimal-754 vocabulary, defined against the GDA spec and IEEE 754-2019
 - [goldberg-1991](goldberg-1991.md) — algorithm — What Every Computer Scientist Should Know About Floating-Point Arithmetic
 - [haible-papanikolaou-1998](haible-papanikolaou-1998.md) — algorithm — binary splitting for series of rationals, the constants speedup source
 - [ieee-754-2008](ieee-754-2008.md) — spec — the revision that brought decimal and the BID/DPD encodings into IEEE 754 (lineage)
