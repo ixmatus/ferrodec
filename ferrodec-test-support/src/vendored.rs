@@ -29,7 +29,22 @@ use sha2::{Digest, Sha256};
 /// `SHA256SUMS` manifest itself carries no extension match, so it is neither
 /// pinned nor scanned.
 pub fn verify(dir: impl AsRef<Path>) {
-    let dir = dir.as_ref();
+    verify_with(dir.as_ref(), "*.decTest", &|path| {
+        path.extension().and_then(|s| s.to_str()) == Some("decTest")
+    });
+}
+
+/// Verify every file in `dir` (except the manifest itself) against
+/// `dir/SHA256SUMS`. The whole-directory variant of [`verify`], used by the
+/// `docs/references/vendor/` guard (ADR-0052) where the vendored payload is
+/// not `*.decTest`.
+pub fn verify_all(dir: impl AsRef<Path>) {
+    verify_with(dir.as_ref(), "*", &|path| {
+        path.file_name().and_then(|s| s.to_str()) != Some("SHA256SUMS")
+    });
+}
+
+fn verify_with(dir: &Path, glob_hint: &str, scan: &dyn Fn(&Path) -> bool) {
     let manifest_path = dir.join("SHA256SUMS");
     let manifest = fs::read_to_string(&manifest_path)
         .unwrap_or_else(|e| panic!("read {}: {e}", manifest_path.display()));
@@ -54,11 +69,11 @@ pub fn verify(dir: impl AsRef<Path>) {
         pinned.insert(name, hex.to_string());
     }
 
-    // Computed name -> hex for every `*.decTest` actually on disk.
+    // Computed name -> hex for every in-scope file actually on disk.
     let mut on_disk: BTreeMap<String, String> = BTreeMap::new();
     for entry in fs::read_dir(dir).unwrap_or_else(|e| panic!("read_dir {}: {e}", dir.display())) {
         let path = entry.expect("dir entry").path();
-        if path.extension().and_then(|s| s.to_str()) != Some("decTest") {
+        if path.is_dir() || !scan(&path) {
             continue;
         }
         let name = path.file_name().unwrap().to_string_lossy().into_owned();
@@ -88,7 +103,7 @@ pub fn verify(dir: impl AsRef<Path>) {
         problems.is_empty(),
         "vendored fixture integrity failed for {} ({} mismatch(es)):\n  {}\n\
          If the change is intended, regenerate the manifest:\n  \
-         (cd {} && shasum -a 256 *.decTest > SHA256SUMS)\n\
+         (cd {} && shasum -a 256 {glob_hint} > SHA256SUMS)\n\
          and confirm the upstream archive SHA-256 in the directory README still \
          holds (ADR-0042).",
         dir.display(),
