@@ -152,8 +152,7 @@ impl Decimal128 {
     ///
     /// Numbers below this magnitude (but above zero) are subnormal —
     /// representable but with reduced precision.
-    pub const MIN_POSITIVE_NORMAL: Self =
-        Self(bid::pack_finite(false, bid::BIAS - bid::PRECISION + 1, 1));
+    pub const MIN_POSITIVE_NORMAL: Self = Self(bid::pack_finite(false, bid::PRECISION - 1, 1));
 
     /// Canonical quiet NaN with sign bit clear and a zero payload.
     pub const NAN: Self = Self(bid::pack_quiet_nan(false, 0));
@@ -276,6 +275,19 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn min_positive_normal_pins_to_one_e_minus_6143() {
+        // Pin by value, not class: 1 × 10^-6143 is the smallest positive
+        // normal, and the value one ulp below it must be subnormal.
+        let expected = Decimal128::try_new(1, -6143).unwrap();
+        assert_eq!(
+            Decimal128::MIN_POSITIVE_NORMAL.to_bits(),
+            expected.to_bits()
+        );
+        let (below, _) = Decimal128::MIN_POSITIVE_NORMAL.next_down();
+        assert!(below.is_subnormal());
     }
 
     #[test]

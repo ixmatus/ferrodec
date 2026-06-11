@@ -134,7 +134,7 @@ impl Decimal64 {
     /// Smallest positive normal value: `1 × 10⁻³⁸³`.
     pub const MIN_POSITIVE_NORMAL: Self = Self(bid::pack_finite(
         false,
-        bid::BiasedExp::try_from_biased(bid::BIAS - bid::PRECISION + 1).unwrap(),
+        bid::BiasedExp::try_from_biased(bid::PRECISION - 1).unwrap(),
         bid::Coefficient::ONE,
     ));
 
@@ -276,6 +276,16 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn min_positive_normal_pins_to_one_e_minus_383() {
+        // Pin by value, not class: 1 × 10^-383 is the smallest positive
+        // normal, and the value one ulp below it must be subnormal.
+        let expected = Decimal64::try_new(1, -383).unwrap();
+        assert_eq!(Decimal64::MIN_POSITIVE_NORMAL.to_bits(), expected.to_bits());
+        let (below, _) = Decimal64::MIN_POSITIVE_NORMAL.next_down();
+        assert!(below.is_subnormal());
     }
 
     #[test]
