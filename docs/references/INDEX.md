@@ -8,13 +8,16 @@ One line per entry; the entry file is the single home for every fact
 - [brent-zimmermann-mca](brent-zimmermann-mca.md) — algorithm — Modern Computer Arithmetic, the DecBig performance algorithms handbook
 - [cowlishaw-dectest](cowlishaw-dectest.md) — conformance — General Decimal Arithmetic Testcases suite 2.62, vendored with hash pins, with the coverage-gap statement
 - [cowlishaw-gda-arith](cowlishaw-gda-arith.md) — spec — General Decimal Arithmetic Specification 1.70, the GDA semantic authority
+- [cowlishaw-algorism-2003](cowlishaw-algorism-2003.md) — history — the ARITH-16 case-for-decimal paper behind the 754-2008 formats
 - [crlibm](crlibm.md) — algorithm — CRlibm correctly rounded libm, rejected alternative whose original host died
+- [decimal-thread](decimal-thread.md) — history — the REXX to GDA to 754-2008 lineage and its load bearing consequence
 - [decnumber](decnumber.md) — oracle — decNumber 3.68, the GDA reference implementation consulted as a behavioral model
 - [glossary](glossary.md) — glossary — the decimal-754 vocabulary, defined against the GDA spec and IEEE 754-2019
 - [goldberg-1991](goldberg-1991.md) — algorithm — What Every Computer Scientist Should Know About Floating-Point Arithmetic
 - [haible-papanikolaou-1998](haible-papanikolaou-1998.md) — algorithm — binary splitting for series of rationals, the constants speedup source
 - [ieee-754-2008](ieee-754-2008.md) — spec — the revision that brought decimal and the BID/DPD encodings into IEEE 754 (lineage)
 - [ieee-754-2019](ieee-754-2019.md) — spec — IEEE Std 754-2019, the storage and operation authority for the fixed formats
+- [ieee-854-1987](ieee-854-1987.md) — spec — the radix independent ancestor GDA's context model descends from (lineage)
 - [karatsuba-1962](karatsuba-1962.md) — algorithm — divide and conquer multiplication, consulted through Knuth §4.3.3
 - [knuth-taocp-v2](knuth-taocp-v2.md) — algorithm — TAOCP volume 2, Algorithm D long division and the Karatsuba treatment
 - [lefevre-2000](lefevre-2000.md) — algorithm — hardest-to-round search thesis, the proof shape behind ADR-0032
