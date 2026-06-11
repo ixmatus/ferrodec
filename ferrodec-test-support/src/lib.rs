@@ -22,6 +22,14 @@ pub mod conformance;
 /// companion to the ADR-0010 pass-count pins.
 pub mod vendored;
 
+/// Schema guard for the `docs/references/` registry (ADR-0052). Parses
+/// each entry's constrained frontmatter and exposes the checks asserted
+/// by the default-on `tests/references_integrity.rs`: per-category field
+/// requirements, INDEX.md synchronization in both directions, consumer
+/// path existence, and vendored-copy hash integrity. Pure std plus the
+/// existing `sha2` path; no network.
+pub mod references;
+
 /// Loader for the Arb/FLINT frozen hard-to-round vector corpus
 /// (Phase 2 of fd-cb6, ADR-0026). Pure std, no oracle and no C-FFI in
 /// the path: the corpus is committed data, so the per-crate

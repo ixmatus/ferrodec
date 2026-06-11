@@ -13,6 +13,10 @@ These `.decTest` files come from Mike Cowlishaw's
 
 ## Provenance
 
+Registry entry: [`cowlishaw-dectest`](../../../docs/references/cowlishaw-dectest.md) holds the registry-level
+provenance (license, archive capture, coverage-gap statement) for this
+suite across all four vendored directories (ADR-0052).
+
 - Source: <https://speleotrove.com/decimal/dectest.zip>
 - Suite version: 2.62
 - Archive size: 791 733 bytes

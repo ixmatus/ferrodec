@@ -15,7 +15,7 @@
 //!
 //! ## Algorithm
 //!
-//! Payne and Hanek (1983, [doi:10.1145/29380.29384]) observed that the
+//! Payne and Hanek (1983, [doi:10.1145/1057600.1057602]) observed that the
 //! cancellation is itself the reduction — multiplying `x` by an
 //! extended-precision `2/π` and discarding the integer part gives the
 //! reduced argument *without* any catastrophic subtraction. The product
