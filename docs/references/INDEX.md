@@ -12,6 +12,12 @@ One line per entry; the entry file is the single home for every fact
 - [crlibm](crlibm.md) — algorithm — CRlibm correctly rounded libm, rejected alternative whose original host died
 - [decimal-thread](decimal-thread.md) — history — the REXX to GDA to 754-2008 lineage and its load bearing consequence
 - [decnumber](decnumber.md) — oracle — decNumber 3.68, the GDA reference implementation consulted as a behavioral model
+- [failure-anchor-band-cancellation](failure-anchor-band-cancellation.md) — failure — anchor absorption collapsed the relative error model in bands (fixed, ADR-0050)
+- [failure-comparator-masking](failure-comparator-masking.md) — failure — the conformance comparator accepted any NaN and masked CLAMPED (fixed, fd-92w.1)
+- [failure-d64-quantize-pow10](failure-d64-quantize-pow10.md) — failure — Decimal64 quantize pads above 9 returned NaN (open, fd-aqs.2)
+- [failure-directed-rounding-seam](failure-directed-rounding-seam.md) — failure — grid-stuck directed rounding lost the residual's sign (fixed, ADR-0051)
+- [failure-min-positive-normal](failure-min-positive-normal.md) — failure — MIN_POSITIVE_NORMAL wrong on all three formats (open, fd-aqs.1)
+- [failure-self-referential-metamorphic](failure-self-referential-metamorphic.md) — failure — identities whose both sides shared one kernel verified nothing (ADR-0025)
 - [glossary](glossary.md) — glossary — the decimal-754 vocabulary, defined against the GDA spec and IEEE 754-2019
 - [goldberg-1991](goldberg-1991.md) — algorithm — What Every Computer Scientist Should Know About Floating-Point Arithmetic
 - [haible-papanikolaou-1998](haible-papanikolaou-1998.md) — algorithm — binary splitting for series of rationals, the constants speedup source
