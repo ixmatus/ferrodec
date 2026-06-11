@@ -386,6 +386,26 @@ pub fn vendor_problems(entries: &[Entry]) -> Vec<String> {
     problems
 }
 
+/// Extract the text between `<!-- BEGIN GENERATED: name -->` and
+/// `<!-- END GENERATED: name -->` in a registry document, for the
+/// generator-pinned registry entries (category `registry`): the pin test
+/// renders the canonical block from the `ferrodec-ieee` types and asserts
+/// byte equality with the committed block.
+pub fn generated_block(entry_stem: &str, name: &str) -> String {
+    let path = registry_dir().join(format!("{entry_stem}.md"));
+    let text = fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+    let begin = format!("<!-- BEGIN GENERATED: {name} -->\n");
+    let end = format!("<!-- END GENERATED: {name} -->");
+    let start = text
+        .find(&begin)
+        .unwrap_or_else(|| panic!("{}: missing {begin:?}", path.display()))
+        + begin.len();
+    let stop = text[start..]
+        .find(&end)
+        .unwrap_or_else(|| panic!("{}: missing {end:?}", path.display()));
+    text[start..start + stop].to_string()
+}
+
 fn is_iso_date(s: &str) -> bool {
     let b = s.as_bytes();
     b.len() == 10

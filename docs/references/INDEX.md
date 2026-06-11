@@ -25,4 +25,7 @@ One line per entry; the entry file is the single home for every fact
 - [num-bigint](num-bigint.md) — oracle — exact integer oracle for the closed arithmetic operations
 - [paterson-stockmeyer-1973](paterson-stockmeyer-1973.md) — algorithm — rectangular polynomial evaluation behind the ln series kernel
 - [payne-hanek-1983](payne-hanek-1983.md) — algorithm — windowed radian reduction for full range sin and cos
+- [registry-ieee-classes](registry-ieee-classes.md) — registry — the ten §5.7.2 classes, pinned to ferrodec_ieee::IeeeClass
+- [registry-rounding-modes](registry-rounding-modes.md) — registry — the five rounding directions, pinned to ferrodec_ieee::RoundingMode
+- [registry-status-flags](registry-status-flags.md) — registry — the six exception flags, pinned to ferrodec_ieee::Status
 - [ziv-1991](ziv-1991.md) — algorithm — adaptive precision correct rounding, rejected for the fixed formats
