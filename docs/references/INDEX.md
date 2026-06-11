@@ -29,4 +29,5 @@ One line per entry; the entry file is the single home for every fact
 - [registry-ieee-classes](registry-ieee-classes.md) — registry — the ten §5.7.2 classes, pinned to ferrodec_ieee::IeeeClass
 - [registry-rounding-modes](registry-rounding-modes.md) — registry — the five rounding directions, pinned to ferrodec_ieee::RoundingMode
 - [registry-status-flags](registry-status-flags.md) — registry — the six exception flags, pinned to ferrodec_ieee::Status
+- [verification-map](verification-map.md) — verification — claim to mechanism to artifact, the how-is-this-known table
 - [ziv-1991](ziv-1991.md) — algorithm — adaptive precision correct rounding, rejected for the fixed formats
