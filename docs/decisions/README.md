@@ -75,3 +75,6 @@ The ADRs in number order:
 - [0047 — Exact-result detection suppresses spurious INEXACT on cbrt and pow](0047-exact-flag-cbrt-pow.md)
 - [0048 — §7.4 CLAMPED fidelity, and the BID structural residual](0048-clamped-fidelity-and-bid-residual.md)
 - [0049 — Closing the GDA decNumber extension residue (compareSignaling, nextToward, Decimal64 DPD)](0049-gda-extension-residue-closure.md)
+- [0050 — Anchor band reformulations restore the kernel's relative error model](0050-anchor-band-reformulations.md) *(amends 0032, 0033)*
+- [0051 — A signed residual crosses the kernel's rounding seam for grid-exact small arguments](0051-residual-across-rounding-seam.md) *(completes 0050)*
+- [0052 — Reference registry under docs/references/ with a default-on schema guard](0052-reference-registry.md)
