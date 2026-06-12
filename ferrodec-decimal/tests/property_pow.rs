@@ -625,7 +625,12 @@ fn power_reference_sample() {
         ("6162", "25.5", 12, "ceiling", "4.34413383390E+96"),
     ];
     for &(base, exp, prec, rm, expected) in cases {
-        let c = Context::new(prec, 999, -999, mode(rm));
+        let c = Context::new(
+            core::num::NonZeroU32::new(prec).unwrap(),
+            999,
+            -999,
+            mode(rm),
+        );
         let x = Decimal::parse_str(base).expect("base");
         let y = Decimal::parse_str(exp).expect("exp");
         let (got, _) = x.power(&y, &c);

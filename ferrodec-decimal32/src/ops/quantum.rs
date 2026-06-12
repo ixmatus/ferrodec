@@ -34,6 +34,11 @@ const POW10_U64: [u64; 10] = [
     1_000_000_000,
 ];
 
+// quantize pads a nonzero coefficient by at most PRECISION - 1 digits
+// (digits >= 1 and digits + pad <= PRECISION), so the table must cover
+// indices 0..=PRECISION-1.
+const _: () = assert!(POW10_U64.len() >= PRECISION as usize);
+
 impl Decimal32 {
     /// IEEE 754-2019 §5.3.3 `quantize(self, target)`: returns a value
     /// numerically equal to `self` (after rounding by `rm`) but with
@@ -215,10 +220,8 @@ impl Decimal32 {
             // target quantum: INVALID per GDA.
             return (Decimal32::NAN, Status::INVALID);
         }
-        if (pad as usize) >= POW10_U64.len() {
-            // Cannot pad that much without u64 overflow; INVALID.
-            return (Decimal32::NAN, Status::INVALID);
-        }
+        // new_digits <= PRECISION with digits >= 1 bounds pad at
+        // PRECISION - 1, inside the table (compile-time assert above).
         let new_coef = coef * POW10_U64[pad as usize];
         // new_digits <= PRECISION (checked above), so new_coef < 10^PRECISION = COEFFICIENT_LIMIT.
         let new_coefficient = crate::bid::Coefficient::try_new(new_coef as u32)

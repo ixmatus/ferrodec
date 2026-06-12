@@ -192,6 +192,12 @@ fn add_sub(a: &Decimal, b: &Decimal, subtract: bool, ctx: &Context) -> (Decimal,
 /// the context. Aligns to the smaller exponent, adds like signs or subtracts
 /// by magnitude for opposite signs, and rounds toward the ideal exponent
 /// `min(ea, eb)`. Exponents are `i64` so a fused product's exponent fits.
+///
+/// Alignment is bounded by `precision + digits` (ADR-0053): a gap wider than
+/// `precision + digits(lo) + 2` leaves the smaller operand strictly below the
+/// round digit, so it is folded into the sticky bit instead of materialized.
+/// Without the bound, an fma gap (up to ~6.4e9) wrapped the `u32` shift and
+/// an add/subtract gap (up to `u32::MAX`) allocated gigabytes.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn combine_finite(
     sa: bool,
@@ -203,8 +209,68 @@ pub(crate) fn combine_finite(
     ctx: &Context,
 ) -> (Decimal, Status) {
     let min_e = ea.min(eb);
-    let ca2 = ca.mul_pow10((ea - min_e) as u32);
-    let cb2 = cb.mul_pow10((eb - min_e) as u32);
+
+    // Zero coefficients short-circuit before any alignment; shifting across
+    // the gap to a zero's exponent does arbitrary work for no information.
+    // Two zeros resolve by the subtraction sign rule; one zero leaves the
+    // other operand as the exact result (round_finite pads toward the ideal
+    // exponent within the precision budget).
+    match (ca.is_zero(), cb.is_zero()) {
+        (true, true) => {
+            let sign = if sa == sb {
+                sa
+            } else {
+                ctx.rounding == Rounding::Floor
+            };
+            return round_finite(sign, DecBig::zero(), min_e, false, min_e, ctx, Status::OK);
+        }
+        (false, true) => return round_finite(sa, ca.clone(), ea, false, min_e, ctx, Status::OK),
+        (true, false) => return round_finite(sb, cb.clone(), eb, false, min_e, ctx, Status::OK),
+        (false, false) => {}
+    }
+
+    // Both nonzero: beyond `precision + digits(lo) + 2` the smaller operand
+    // cannot reach the round digit and only feeds the sticky bit. The
+    // surrogate keeps at least `precision + 2` digits of the larger operand
+    // (borrowing one unit when the signs differ), so the exact sum lies in
+    // the open one-unit interval above the surrogate coefficient, strictly
+    // below the round digit: kept digits, round digit, sticky bit, and the
+    // pre-rounding adjusted exponent all match exact alignment (ADR-0053).
+    let (hi_s, hi_c, hi_e, lo_s, lo_c) = if ea >= eb {
+        (sa, ca, ea, sb, cb)
+    } else {
+        (sb, cb, eb, sa, ca)
+    };
+    let p = i64::from(ctx.precision.get());
+    let d_lo = lo_c.decimal_digit_count() as i64;
+    if hi_e - min_e > p + d_lo + 2 {
+        let d_hi = hi_c.decimal_digit_count() as i64;
+        // shift <= precision + 1; a precision within one of u32::MAX is
+        // unusable long before this point (the working coefficient alone
+        // would exceed addressable memory).
+        let shift = u32::try_from((p + 2 - d_hi).max(0)).expect("shift <= precision + 1");
+        let mut coeff = hi_c.mul_pow10(shift);
+        if hi_s != lo_s {
+            // hi*10^gap - lo = (hi*10^shift - 1)*10^(gap-shift) + r with
+            // 0 < r < 10^(gap-shift): borrow one unit, the rest is sticky.
+            coeff = coeff.sub(&DecBig::from_u32(1));
+        }
+        return round_finite(
+            hi_s,
+            coeff,
+            hi_e - i64::from(shift),
+            true,
+            min_e,
+            ctx,
+            Status::OK,
+        );
+    }
+
+    // In-bounds gaps fit u32: the guard above caps them at
+    // `precision + digits + 2`, both far below u32::MAX for any operand
+    // that fits in memory.
+    let ca2 = ca.mul_pow10(u32::try_from(ea - min_e).expect("gap bounded by the guard above"));
+    let cb2 = cb.mul_pow10(u32::try_from(eb - min_e).expect("gap bounded by the guard above"));
 
     let (sign, coeff) = if sa == sb {
         (sa, ca2.add(&cb2))
@@ -258,7 +324,7 @@ pub(crate) fn nan_unary(a: &Decimal, ctx: &Context) -> Option<(Decimal, Status)>
 /// `ctx.precision` digits.
 pub(crate) fn quiet_from(d: &Decimal, ctx: &Context) -> Decimal {
     let (sign, _signaling, payload) = d.nan_parts().expect("nan");
-    let truncated = payload.div_rem_pow10(ctx.precision).1;
+    let truncated = payload.div_rem_pow10(ctx.precision.get()).1;
     Decimal::quiet_nan(sign, truncated)
 }
 
@@ -272,7 +338,12 @@ mod tests {
     use super::*;
 
     fn ctx(precision: u32) -> Context {
-        Context::new(precision, 9999, -9999, Rounding::HalfEven)
+        Context::new(
+            core::num::NonZeroU32::new(precision).unwrap(),
+            9999,
+            -9999,
+            Rounding::HalfEven,
+        )
     }
 
     fn fin(sign: bool, coeff: u128, exp: i32) -> Decimal {
@@ -322,6 +393,84 @@ mod tests {
         let (r, s) = fin(false, 999, 0).add(&fin(false, 2, 0), &c);
         assert_eq!(r, fin(false, 100, 1));
         assert!(s.inexact());
+    }
+
+    #[test]
+    fn fma_extreme_exponent_gap_overflows_per_spec() {
+        // fd-aqs.3 witness: the exact product's exponent is the i64 sum of
+        // two i32 exponents, so the gap to the addend reaches ~6.4e9. The
+        // old `as u32` wrapped and returned a wrong finite value; the
+        // result must overflow per the rounding mode, with no gigabyte
+        // intermediate.
+        let c = Context::new(
+            core::num::NonZeroU32::new(9).unwrap(),
+            i32::MAX,
+            i32::MIN,
+            Rounding::HalfEven,
+        );
+        let big = fin(false, 1, i32::MAX);
+        let tiny = fin(false, 1, i32::MIN);
+        let (r, s) = big.fma(&big, &tiny, &c);
+        assert!(r.is_infinite() && !r.is_negative(), "got {r:?}");
+        assert!(s.overflow() && s.inexact());
+        // Round-toward-zero overflow lands on Nmax, not infinity.
+        let (r2, s2) = big.fma(&big, &tiny, &c.with_rounding(Rounding::Down));
+        assert!(!r2.is_infinite() && s2.overflow(), "got {r2:?}");
+    }
+
+    #[test]
+    fn fma_tiny_product_folds_into_sticky() {
+        // The product's adjusted exponent sits ~4.3e9 below the addend's:
+        // the addend dominates and the product only feeds the sticky bit,
+        // exercising the same-sign and opposite-sign surrogate paths.
+        let c = ctx(9);
+        let tiny = fin(false, 1, i32::MIN);
+        let one = fin(false, 1, 0);
+        // 1 + tiny^2: just above 1.
+        let (r, s) = tiny.fma(&tiny, &one, &c);
+        assert_eq!(r, fin(false, 100_000_000, -8), "got {r:?}");
+        assert!(s.inexact() && !s.overflow() && !s.underflow());
+        let (r_up, _) = tiny.fma(&tiny, &one, &c.with_rounding(Rounding::Up));
+        assert_eq!(r_up, fin(false, 100_000_001, -8), "got {r_up:?}");
+        // 1 - tiny^2: just below 1.
+        let neg_tiny = fin(true, 1, i32::MIN);
+        let (r2, s2) = neg_tiny.fma(&tiny, &one, &c);
+        assert_eq!(r2, fin(false, 100_000_000, -8), "got {r2:?}");
+        assert!(s2.inexact());
+        let (r2_dn, _) = neg_tiny.fma(&tiny, &one, &c.with_rounding(Rounding::Floor));
+        assert_eq!(r2_dn, fin(false, 999_999_999, -9), "got {r2_dn:?}");
+    }
+
+    #[test]
+    fn add_oversize_gap_rounds_like_exact_alignment() {
+        // Moderate-but-oversize gap (1E+100 vs 1E0 at precision 5): the
+        // surrogate path must reproduce exact alignment in every direction.
+        let c = Context::new(
+            core::num::NonZeroU32::new(5).unwrap(),
+            9999,
+            -9999,
+            Rounding::HalfEven,
+        );
+        let big = fin(false, 1, 100);
+        let one = fin(false, 1, 0);
+        let (r, s) = big.add(&one, &c);
+        assert_eq!(r, fin(false, 10_000, 96), "got {r:?}");
+        assert!(s.inexact());
+        let (r_up, _) = big.add(&one, &c.with_rounding(Rounding::Up));
+        assert_eq!(r_up, fin(false, 10_001, 96), "got {r_up:?}");
+        // 1E+100 - 1 = 99...9 (100 nines): half-even carries back to 1E+100,
+        // floor exposes the nines.
+        let (d, ds) = big.subtract(&one, &c);
+        assert_eq!(d, fin(false, 10_000, 96), "got {d:?}");
+        assert!(ds.inexact());
+        let (d_fl, _) = big.subtract(&one, &c.with_rounding(Rounding::Floor));
+        assert_eq!(d_fl, fin(false, 99_999, 95), "got {d_fl:?}");
+        // A zero across a huge gap costs nothing: the nonzero operand pads
+        // toward the ideal exponent within the precision budget, exactly as
+        // exact alignment would have.
+        let (z, zs) = big.add(&fin(true, 0, i32::MIN), &c);
+        assert_eq!(z, fin(false, 10_000, 96), "got {z:?}");
+        assert!(zs.is_ok());
     }
 
     #[test]

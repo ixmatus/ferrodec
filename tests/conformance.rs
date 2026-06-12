@@ -120,11 +120,20 @@ fn dectest_conformance() {
     }
 
     eprintln!(
-        "\nTOTAL: {} cases — {} pass, {} fail, {} skip",
+        "\nTOTAL: {} cases — {} pass, {} fail, {} skip, {} unparsed",
         totals.passed + totals.failed + totals.skipped,
         totals.passed,
         totals.failed,
         totals.skipped,
+        totals.unparsed,
+    );
+
+    // Pinned at zero: every non-empty, non-directive line must tokenise,
+    // so a parser regression cannot drop cases silently (fd-aqs.9).
+    assert_eq!(
+        totals.unparsed, 0,
+        "{} non-directive lines failed to parse (see UNPARSED lines above)",
+        totals.unparsed
     );
 
     // Print up to 200 failures for triage. The skipped cases (currently
@@ -218,6 +227,7 @@ struct Totals {
     passed: usize,
     failed: usize,
     skipped: usize,
+    unparsed: usize,
 }
 
 impl Totals {
@@ -225,6 +235,7 @@ impl Totals {
         self.passed += other.passed;
         self.failed += other.failed;
         self.skipped += other.skipped;
+        self.unparsed += other.unparsed;
     }
 }
 
@@ -232,6 +243,9 @@ struct FileResult {
     passed: usize,
     failed: usize,
     skipped: usize,
+    /// Non-empty, non-directive lines the parser could not tokenise;
+    /// pinned at zero so a parser regression cannot drop cases silently.
+    unparsed: usize,
 }
 
 struct Failure {
@@ -266,6 +280,7 @@ fn run_file(path: &Path, failures: &mut Vec<Failure>) -> FileResult {
             passed: 0,
             failed: 0,
             skipped: 0,
+            unparsed: 0,
         };
     }
     let content = fs::read_to_string(path).expect("read file");
@@ -280,6 +295,7 @@ fn run_file(path: &Path, failures: &mut Vec<Failure>) -> FileResult {
     let mut passed = 0;
     let mut failed = 0;
     let mut skipped = 0;
+    let mut unparsed = 0;
 
     for (line_no, raw_line) in content.lines().enumerate() {
         let line = strip_comment(raw_line).trim();
@@ -292,7 +308,15 @@ fn run_file(path: &Path, failures: &mut Vec<Failure>) -> FileResult {
         }
         let case = match parse_test_case(line) {
             Some(c) => c,
-            None => continue,
+            None => {
+                unparsed += 1;
+                eprintln!(
+                    "UNPARSED {}:{}: {raw_line}",
+                    path.file_name().unwrap_or_default().to_string_lossy(),
+                    line_no + 1,
+                );
+                continue;
+            }
         };
         let outcome = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             run_case(&case, &ctx)
@@ -319,14 +343,40 @@ fn run_file(path: &Path, failures: &mut Vec<Failure>) -> FileResult {
         passed,
         failed,
         skipped,
+        unparsed,
     }
 }
 
 // ---------------------------------------------------------------------------
 // Parsing
 
+/// Strip an end-of-line `--` comment, ignoring `--` inside single- or
+/// double-quoted operands (the same quoting rules as `tokenise`); a
+/// position-blind cut silently dropped quoted adversarial vectors like
+/// `'--1'` from every bucket (fd-aqs.9). Mirrors
+/// `ferrodec-test-support`'s copy.
 fn strip_comment(line: &str) -> &str {
-    line.find("--").map_or(line, |i| &line[..i])
+    let bytes = line.as_bytes();
+    let mut quote: Option<u8> = None;
+    let mut i = 0;
+    while i < bytes.len() {
+        match quote {
+            Some(q) => {
+                if bytes[i] == q {
+                    quote = None;
+                }
+            }
+            None => match bytes[i] {
+                b'\'' | b'"' => quote = Some(bytes[i]),
+                b'-' if i + 1 < bytes.len() && bytes[i + 1] == b'-' => {
+                    return &line[..i];
+                }
+                _ => {}
+            },
+        }
+        i += 1;
+    }
+    line
 }
 
 fn parse_directive(line: &str) -> Option<(String, String)> {

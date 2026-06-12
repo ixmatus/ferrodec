@@ -304,7 +304,12 @@ fn within_one_ulp(got: &Decimal, want_str: &str) -> bool {
         // No band across the finite/infinite boundary; require an exact match.
         return got.to_string() == want_str;
     }
-    let wide = Context::new(60, 1_000_000, -1_000_000, Rounding::HalfEven);
+    let wide = Context::new(
+        core::num::NonZeroU32::new(60).unwrap(),
+        1_000_000,
+        -1_000_000,
+        Rounding::HalfEven,
+    );
     let absdiff = got.subtract(&want, &wide).0.abs(&wide).0;
     let ge = got.finite_parts().map_or(0, |p| p.2);
     let we = want.finite_parts().map_or(0, |p| p.2);
@@ -348,7 +353,12 @@ fn differential_core_arithmetic_vs_libmpdec() {
         .unwrap();
         cases.push(Case {
             op,
-            ctx: Context::new(prec, emax, emin, rounding),
+            ctx: Context::new(
+                core::num::NonZeroU32::new(prec).unwrap(),
+                emax,
+                emin,
+                rounding,
+            ),
             rnd_name,
             a,
             b,

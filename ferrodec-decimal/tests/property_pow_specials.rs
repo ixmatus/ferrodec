@@ -9,7 +9,12 @@
 use ferrodec_decimal::{Context, Decimal, Rounding};
 
 fn ctx(prec: u32) -> Context {
-    Context::new(prec, 999, -999, Rounding::HalfEven)
+    Context::new(
+        core::num::NonZeroU32::new(prec).unwrap(),
+        999,
+        -999,
+        Rounding::HalfEven,
+    )
 }
 
 /// `(rendered result, raised Invalid_operation)`.
@@ -85,10 +90,20 @@ fn base_one() {
     assert_eq!(pow("1", "-Infinity", &c), ("1.00000000".to_string(), false));
     // The value is exactly one, so a round-away mode must not push it up: the
     // result is `1.00`, never `2.00`.
-    let ceil = Context::new(3, 999, -999, Rounding::Ceiling);
+    let ceil = Context::new(
+        core::num::NonZeroU32::new(3).unwrap(),
+        999,
+        -999,
+        Rounding::Ceiling,
+    );
     assert_eq!(pow("1", "1.01", &ceil), ("1.00".to_string(), false));
     assert_eq!(pow("1", "12.3", &ceil), ("1.00".to_string(), false));
-    let up = Context::new(3, 999, -999, Rounding::Up);
+    let up = Context::new(
+        core::num::NonZeroU32::new(3).unwrap(),
+        999,
+        -999,
+        Rounding::Up,
+    );
     assert_eq!(pow("1", "1.01", &up), ("1.00".to_string(), false));
 }
 

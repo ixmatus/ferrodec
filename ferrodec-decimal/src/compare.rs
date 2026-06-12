@@ -343,7 +343,12 @@ mod tests {
     use crate::Rounding;
 
     fn ctx() -> Context {
-        Context::new(9, 9999, -9999, Rounding::HalfEven)
+        Context::new(
+            core::num::NonZeroU32::new(9).unwrap(),
+            9999,
+            -9999,
+            Rounding::HalfEven,
+        )
     }
 
     fn fin(sign: bool, coeff: u128, exp: i32) -> Decimal {

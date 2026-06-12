@@ -61,6 +61,11 @@ mod interop;
 pub use context::{Context, Rounding};
 pub use decimal::Decimal;
 
+/// Re-exported for [`Context::new`], whose precision is a `NonZeroU32`
+/// (ADR-0054: a zero working precision is unrepresentable, not merely
+/// documented).
+pub use core::num::NonZeroU32;
+
 #[cfg(feature = "fmt")]
 pub use convert::ParseDecimalError;
 

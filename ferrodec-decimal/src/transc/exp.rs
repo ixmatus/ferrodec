@@ -74,7 +74,7 @@ impl Decimal {
         // [Etiny*ln10, (Emax+1)*ln10]; past a generous margin the result is
         // unambiguously +Infinity (x > 0) or rounds to +0 / the smallest
         // subnormal (x < 0), and the reduction multiple k would be huge.
-        let span = i64::from(ctx.emax) - i64::from(ctx.emin) + i64::from(ctx.precision) + 16;
+        let span = i64::from(ctx.emax) - i64::from(ctx.emin) + i64::from(ctx.precision.get()) + 16;
         let bound = cache.ln10(24).mul(&Work::from_i64(span));
         if x.cmp_magnitude(&bound) == Ordering::Greater {
             return if neg {
@@ -175,7 +175,7 @@ fn far_overflow(ctx: &Context) -> (Decimal, Status) {
 /// positive magnitude below `Etiny`, which `round_finite` resolves to `+0`
 /// (half-even) with `Underflow`, `Inexact`, and `Clamped`.
 fn far_underflow(ctx: &Context) -> (Decimal, Status) {
-    let etiny = i64::from(ctx.emin) - i64::from(ctx.precision) + 1;
+    let etiny = i64::from(ctx.emin) - i64::from(ctx.precision.get()) + 1;
     let e = etiny - 2;
     round_finite(false, DecBig::from_u32(1), e, true, e, ctx, Status::OK)
 }

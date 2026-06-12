@@ -20,7 +20,12 @@ use ferrodec_decimal::{Context, DecBig, Decimal, Rounding};
 const PRECISIONS: [u32; 5] = [16, 34, 50, 100, 500];
 
 fn context(precision: u32) -> Context {
-    Context::new(precision, 999_999, -999_999, Rounding::HalfEven)
+    Context::new(
+        core::num::NonZeroU32::new(precision).unwrap(),
+        999_999,
+        -999_999,
+        Rounding::HalfEven,
+    )
 }
 
 fn parse(s: &str) -> Decimal {

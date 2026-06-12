@@ -187,7 +187,7 @@ fn integer_power(
 fn general_power(x: &Decimal, y: &Decimal, result_sign: bool, ctx: &Context) -> (Decimal, Status) {
     let x_abs = Work::from_decimal(&x.copy_abs());
     let y_work = Work::from_decimal(y);
-    let span = i64::from(ctx.emax) - i64::from(ctx.emin) + i64::from(ctx.precision) + 16;
+    let span = i64::from(ctx.emax) - i64::from(ctx.emin) + i64::from(ctx.precision.get()) + 16;
     let amp = digit_count(span);
     let mut cache = ConstCache::new();
 
@@ -284,7 +284,7 @@ fn far_overflow(sign: bool, ctx: &Context) -> (Decimal, Status) {
 /// to the smallest subnormal even under round-away (the near-`Etiny` cases that
 /// do round per mode go through the general Ziv path, not this gate).
 fn far_underflow(sign: bool, ctx: &Context) -> (Decimal, Status) {
-    let etiny = i64::from(ctx.emin) - i64::from(ctx.precision) + 1;
+    let etiny = i64::from(ctx.emin) - i64::from(ctx.precision.get()) + 1;
     let status = Status::UNDERFLOW | Status::INEXACT | Status::CLAMPED;
     (Decimal::finite(sign, DecBig::zero(), etiny as i32), status)
 }
@@ -299,7 +299,7 @@ fn one() -> Decimal {
 /// one, so `Inexact` is seeded directly rather than via a sticky bit; a sticky
 /// bit would make a round-away mode (ceiling / up) round the one up to two.
 fn rounded_one(ctx: &Context) -> (Decimal, Status) {
-    let ideal = -i64::from(ctx.precision.saturating_sub(1));
+    let ideal = -i64::from(ctx.precision.get().saturating_sub(1));
     round_finite(
         false,
         DecBig::from_u32(1),

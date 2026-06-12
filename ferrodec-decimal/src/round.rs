@@ -36,7 +36,7 @@ pub(crate) fn round_finite(
     ctx: &Context,
     mut status: Status,
 ) -> (Decimal, Status) {
-    let p = i64::from(ctx.precision);
+    let p = i64::from(ctx.precision.get());
     let emax = i64::from(ctx.emax);
     let emin = i64::from(ctx.emin);
     let etiny = emin - (p - 1);
@@ -155,7 +155,7 @@ pub(crate) fn round_finite(
             (Decimal::infinity(sign), status)
         } else {
             // Largest finite magnitude Nmax = (10^p - 1) * 10^Etop.
-            let nmax = DecBig::pow10(ctx.precision).sub(&DecBig::from_u32(1));
+            let nmax = DecBig::pow10(ctx.precision.get()).sub(&DecBig::from_u32(1));
             (Decimal::finite(sign, nmax, etop as i32), status)
         };
     }
@@ -193,7 +193,12 @@ mod tests {
 
     /// A wide context that never overflows or underflows for these inputs.
     fn ctx(precision: u32, rounding: Rounding) -> Context {
-        Context::new(precision, 1_000_000, -1_000_000, rounding)
+        Context::new(
+            core::num::NonZeroU32::new(precision).unwrap(),
+            1_000_000,
+            -1_000_000,
+            rounding,
+        )
     }
 
     fn round(coeff: u128, exp: i64, ideal: i64, ctx: &Context) -> Decimal {
@@ -261,7 +266,12 @@ mod tests {
     #[test]
     fn overflow_to_infinity_and_nmax() {
         // Precision 3, Emax 5: Nmax = 999 E3 (= 9.99e5), Etop = 3.
-        let inf_ctx = Context::new(3, 5, -5, Rounding::HalfEven);
+        let inf_ctx = Context::new(
+            core::num::NonZeroU32::new(3).unwrap(),
+            5,
+            -5,
+            Rounding::HalfEven,
+        );
         // 1 E6 overflows: half-even -> +Infinity.
         let (d, s) = round_finite(
             false,
@@ -291,7 +301,12 @@ mod tests {
     #[test]
     fn subnormal_single_rounding_and_underflow() {
         // Precision 3, Emin -5: Etiny = Emin - (p-1) = -7.
-        let c = Context::new(3, 5, -5, Rounding::HalfEven);
+        let c = Context::new(
+            core::num::NonZeroU32::new(3).unwrap(),
+            5,
+            -5,
+            Rounding::HalfEven,
+        );
         // 12345 E-10 has adjusted exponent -6 < Emin (subnormal) and exponent
         // -10 < Etiny, so it drops three digits to reach Etiny (-7): 12|345 ->
         // 12 (round digit 3 keeps it), a subnormal inexact result -> Underflow.
@@ -328,7 +343,12 @@ mod tests {
         // to zero; its exponent is constrained up to Etiny, so Clamped is
         // signaled with Inexact and Underflow, independent of the clamp flag
         // (a zero always tidies its exponent). Mirrors the exact-zero path.
-        let c = Context::new(3, 5, -5, Rounding::HalfEven);
+        let c = Context::new(
+            core::num::NonZeroU32::new(3).unwrap(),
+            5,
+            -5,
+            Rounding::HalfEven,
+        );
         let (d, s) = round_finite(false, DecBig::from_u128(1), -20, false, -20, &c, Status::OK);
         assert_eq!(d, fin(0, -7));
         assert!(s.clamped() && s.underflow() && s.inexact());

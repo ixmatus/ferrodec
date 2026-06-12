@@ -50,14 +50,14 @@ fn positioning(a: &Decimal, b: &Decimal, ctx: &Context, wrap: bool) -> (Decimal,
     // most the precision; a fraction, a non-zero exponent, an infinity, or an
     // out-of-range magnitude is invalid. This is checked before the first
     // operand's infinity passes through, so `shift Inf Inf` is invalid.
-    let Some(n) = shift_count(b, ctx.precision) else {
+    let Some(n) = shift_count(b, ctx.precision.get()) else {
         return (invalid_nan(), Status::INVALID);
     };
     if a.is_infinite() {
         return (Decimal::infinity(a.is_negative()), Status::OK);
     }
     let (sign, coeff, exp) = a.finite_parts().expect("finite after NaN and infinity");
-    let width = ctx.precision as usize;
+    let width = ctx.precision.get() as usize;
     let src = coeff_to_digits(coeff, width);
     let p = width as i64;
     let mut out = vec![0u8; width];
@@ -107,7 +107,12 @@ mod tests {
     use ferrodec_multiword::DecBig;
 
     fn ctx() -> Context {
-        Context::new(9, 999, -999, Rounding::HalfEven)
+        Context::new(
+            core::num::NonZeroU32::new(9).unwrap(),
+            999,
+            -999,
+            Rounding::HalfEven,
+        )
     }
 
     fn parse(s: &str) -> Decimal {

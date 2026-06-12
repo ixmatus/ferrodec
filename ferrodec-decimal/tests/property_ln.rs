@@ -9,7 +9,12 @@
 use ferrodec_decimal::{Context, Decimal, Rounding, Status};
 
 fn wide(prec: u32) -> Context {
-    Context::new(prec, 99_999, -99_999, Rounding::HalfEven)
+    Context::new(
+        core::num::NonZeroU32::new(prec).unwrap(),
+        99_999,
+        -99_999,
+        Rounding::HalfEven,
+    )
 }
 
 fn parse(s: &str) -> Decimal {

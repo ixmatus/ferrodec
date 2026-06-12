@@ -41,7 +41,10 @@ fn expected_per_file() -> &'static [(&'static str, usize)] {
         ("abs.decTest", 89),
         ("add.decTest", 2100),
         ("and.decTest", 279),
-        ("base.decTest", 1152),
+        // 1152 -> 1154: the quote-aware strip_comment fix recovered the
+        // adversarial parse vectors basx504 ('--1') and basx555 ('1E--1'),
+        // which a position-blind comment cut had silently dropped (fd-aqs.9).
+        ("base.decTest", 1154),
         ("clamp.decTest", 111),
         ("class.decTest", 84),
         ("compare.decTest", 639),
@@ -105,11 +108,13 @@ fn dectest_conformance() {
         .collect();
     paths.sort();
 
+    let mut total_unparsed = 0;
     for path in &paths {
-        let (passed, failed, skipped) = run_file(path, &mut failures);
+        let (passed, failed, skipped, unparsed) = run_file(path, &mut failures);
         totals.0 += passed;
         totals.1 += failed;
         totals.2 += skipped;
+        total_unparsed += unparsed;
         eprintln!(
             "{:<24}  {passed:>5} pass  {failed:>4} fail  {skipped:>5} skip",
             path.file_name().unwrap().to_string_lossy(),
@@ -121,11 +126,19 @@ fn dectest_conformance() {
     }
 
     eprintln!(
-        "\nTOTAL: {} cases — {} pass, {} fail, {} skip",
+        "\nTOTAL: {} cases — {} pass, {} fail, {} skip, {} unparsed",
         totals.0 + totals.1 + totals.2,
         totals.0,
         totals.1,
         totals.2,
+        total_unparsed,
+    );
+
+    // Pinned at zero: every non-empty, non-directive line must tokenise,
+    // so a parser regression cannot drop cases silently (fd-aqs.9).
+    assert_eq!(
+        total_unparsed, 0,
+        "{total_unparsed} non-directive lines failed to parse (see UNPARSED lines above)"
     );
 
     if !failures.is_empty() {
@@ -175,10 +188,10 @@ struct Failure {
     reason: String,
 }
 
-fn run_file(path: &Path, failures: &mut Vec<Failure>) -> (usize, usize, usize) {
+fn run_file(path: &Path, failures: &mut Vec<Failure>) -> (usize, usize, usize, usize) {
     let content = fs::read_to_string(path).expect("read file");
     let mut ctx = DirCtx::default();
-    let (mut passed, mut failed, mut skipped) = (0, 0, 0);
+    let (mut passed, mut failed, mut skipped, mut unparsed) = (0, 0, 0, 0);
 
     for (line_no, raw) in content.lines().enumerate() {
         let line = strip_comment(raw).trim();
@@ -190,6 +203,12 @@ fn run_file(path: &Path, failures: &mut Vec<Failure>) -> (usize, usize, usize) {
             continue;
         }
         let Some(case) = parse_test_case(line) else {
+            unparsed += 1;
+            eprintln!(
+                "UNPARSED {}:{}: {raw}",
+                path.file_name().unwrap_or_default().to_string_lossy(),
+                line_no + 1,
+            );
             continue;
         };
         let outcome = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -212,7 +231,7 @@ fn run_file(path: &Path, failures: &mut Vec<Failure>) -> (usize, usize, usize) {
             }
         }
     }
-    (passed, failed, skipped)
+    (passed, failed, skipped, unparsed)
 }
 
 // ---------------------------------------------------------------------------
@@ -269,7 +288,13 @@ impl DirCtx {
     }
 
     fn context(&self) -> Context {
-        Context::new(self.precision, self.emax, self.emin, self.rounding).with_clamp(self.clamp)
+        Context::new(
+            core::num::NonZeroU32::new(self.precision).unwrap(),
+            self.emax,
+            self.emin,
+            self.rounding,
+        )
+        .with_clamp(self.clamp)
     }
 }
 
@@ -459,7 +484,12 @@ fn compare_power(case: &TestCase, res: &Decimal, status: Status) -> Outcome {
 
 /// Whether two finite values are within one unit in the last place.
 fn within_one_ulp(a: &Decimal, b: &Decimal) -> bool {
-    let wide = Context::new(60, 1_000_000, -1_000_000, Rounding::HalfEven);
+    let wide = Context::new(
+        core::num::NonZeroU32::new(60).unwrap(),
+        1_000_000,
+        -1_000_000,
+        Rounding::HalfEven,
+    );
     let absdiff = a.subtract(b, &wide).0.abs(&wide).0;
     let ea = a.finite_parts().map_or(0, |p| p.2);
     let eb = b.finite_parts().map_or(0, |p| p.2);
@@ -531,7 +561,7 @@ fn run_to_string(
                 // A NaN read under the context is conversion_syntax if its
                 // payload exceeds the precision; an Infinity passes through.
                 if let Some((_, _, payload)) = d.nan_parts() {
-                    if payload.decimal_digit_count() > u64::from(ctx.precision) {
+                    if payload.decimal_digit_count() > u64::from(ctx.precision.get()) {
                         return compare(
                             case,
                             &Decimal::quiet_nan(false, DecBig::zero()),
@@ -614,8 +644,33 @@ struct TestCase {
     conditions: Vec<String>,
 }
 
+/// Strip an end-of-line `--` comment, ignoring `--` inside single- or
+/// double-quoted operands (the same quoting rules as `tokenise`); a
+/// position-blind cut silently dropped the quoted adversarial vectors
+/// basx504 (`'--1'`) and basx555 (`'1E--1'`) from every bucket
+/// (fd-aqs.9). Mirrors `ferrodec-test-support`'s copy.
 fn strip_comment(line: &str) -> &str {
-    line.find("--").map_or(line, |i| &line[..i])
+    let bytes = line.as_bytes();
+    let mut quote: Option<u8> = None;
+    let mut i = 0;
+    while i < bytes.len() {
+        match quote {
+            Some(q) => {
+                if bytes[i] == q {
+                    quote = None;
+                }
+            }
+            None => match bytes[i] {
+                b'\'' | b'"' => quote = Some(bytes[i]),
+                b'-' if i + 1 < bytes.len() && bytes[i + 1] == b'-' => {
+                    return &line[..i];
+                }
+                _ => {}
+            },
+        }
+        i += 1;
+    }
+    line
 }
 
 fn parse_directive(line: &str) -> Option<(String, String)> {

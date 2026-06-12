@@ -27,7 +27,7 @@ impl Decimal {
         }
         let (sa, ca, ea) = self.finite_parts().expect("finite");
         let (_, _, eb) = other.finite_parts().expect("finite");
-        let p = i64::from(ctx.precision);
+        let p = i64::from(ctx.precision.get());
         let emax = i64::from(ctx.emax);
         let etiny = i64::from(ctx.emin) - (p - 1);
         let eb_i = i64::from(eb);
@@ -38,7 +38,15 @@ impl Decimal {
         }
 
         let (coeff, status) = if ea >= eb {
-            // Pad with trailing zeros: exact, no rounding.
+            // Pad with trailing zeros: exact, no rounding. Bound the pad by
+            // the digit budget BEFORE materializing 10^gap: an oversize pad
+            // is the same INVALID the post-check below reports, minus a
+            // potentially multi-gigabyte intermediate (ADR-0053). The cast
+            // cannot wrap: both exponents are i32.
+            let gap = i64::from(ea) - eb_i;
+            if !ca.is_zero() && ca.decimal_digit_count() as i64 + gap > p {
+                return (invalid_nan(), Status::INVALID);
+            }
             (ca.mul_pow10((ea - eb) as u32), Status::OK)
         } else {
             // Round away the digits below the target exponent.
@@ -155,7 +163,12 @@ mod tests {
     use alloc::string::ToString;
 
     fn ctx(precision: u32) -> Context {
-        Context::new(precision, 9999, -9999, Rounding::HalfEven)
+        Context::new(
+            core::num::NonZeroU32::new(precision).unwrap(),
+            9999,
+            -9999,
+            Rounding::HalfEven,
+        )
     }
 
     fn fin(coeff: u128, exp: i32) -> Decimal {
@@ -181,6 +194,28 @@ mod tests {
         // 217 quantized to 1E-2 needs 5 digits; precision 3 cannot hold it.
         let (r, s) = fin(217, 0).quantize(&fin(1, -2), &ctx(3));
         assert!(r.is_nan() && s.invalid());
+    }
+
+    #[test]
+    fn quantize_rejects_oversize_pad_without_materializing() {
+        // fd-aqs.3 witness: the pad direction used to materialize 10^gap
+        // (multi-gigabyte for i32-range exponents) before the digit-budget
+        // check rejected it. The INVALID must come first.
+        let c = Context::new(
+            core::num::NonZeroU32::new(9).unwrap(),
+            i32::MAX,
+            i32::MIN,
+            crate::Rounding::HalfEven,
+        );
+        let (r, s) = fin(1, i32::MAX).quantize(&fin(1, i32::MIN), &c);
+        assert!(r.is_nan() && s.invalid());
+        // Moderate oversize pad: same early INVALID.
+        let (r2, s2) = fin(1, 1_000_000).quantize(&fin(1, 0), &ctx(9));
+        assert!(r2.is_nan() && s2.invalid());
+        // The largest in-budget pad still materializes and succeeds.
+        let (r3, s3) = fin(1, 8).quantize(&fin(1, 0), &ctx(9));
+        assert_eq!(r3, fin(100_000_000, 0));
+        assert!(s3.is_ok());
     }
 
     #[test]
