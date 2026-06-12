@@ -107,9 +107,11 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: model-checking/kani-github-action@v1.1
       - run: cargo kani --package ferrodec-ieee
-      - run: cargo kani --features=transcendentals
+      # The dpd feature gates the DPD codec harnesses on the root and
+      # decimal64 crates; without it those proofs never ran in CI (fd-aqs.9).
+      - run: cargo kani --features=transcendentals,dpd
       - run: cargo kani --package ferrodec-decimal32 --features=fmt,dpd
-      - run: cargo kani --package ferrodec-decimal64 --features=transcendentals
+      - run: cargo kani --package ferrodec-decimal64 --features=transcendentals,dpd
 
   # ---------- ferrodec-ieee (shared metadata crate) ----------
   ieee:
@@ -126,6 +128,59 @@ jobs:
       - run: cargo build --package ferrodec-ieee --target thumbv6m-none-eabi --verbose
       - run: cargo clippy --package ferrodec-ieee --all-targets -- -D warnings
       - run: cargo test --package ferrodec-ieee --verbose
+
+  # ---------- ferrodec-multiword (shared multiword-integer crate) ----------
+  multiword:
+    name: ferrodec-multiword
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+          targets: thumbv6m-none-eabi
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --package ferrodec-multiword --verbose
+      - run: cargo build --package ferrodec-multiword --all-features --verbose
+      - run: cargo build --package ferrodec-multiword --target thumbv6m-none-eabi --verbose
+      - run: cargo clippy --package ferrodec-multiword --all-features --all-targets -- -D warnings
+      - run: cargo test --package ferrodec-multiword --all-features --verbose
+
+  # ---------- ferrodec-transcend (shared 50-digit kernel) ----------
+  transcend:
+    name: ferrodec-transcend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --package ferrodec-transcend --verbose
+      - run: cargo build --package ferrodec-transcend --all-features --verbose
+      - run: cargo clippy --package ferrodec-transcend --all-features --all-targets -- -D warnings
+      - run: cargo test --package ferrodec-transcend --all-features --verbose
+
+  # ---------- ferrodec-decimal (arbitrary-precision crate) ----------
+  decimal:
+    name: ferrodec-decimal
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+          targets: thumbv6m-none-eabi
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --package ferrodec-decimal --verbose
+      - run: cargo build --package ferrodec-decimal --no-default-features --verbose
+      - run: cargo build --package ferrodec-decimal --all-features --verbose
+      - run: cargo build --package ferrodec-decimal --target thumbv6m-none-eabi --no-default-features --verbose
+      - run: cargo clippy --package ferrodec-decimal --all-features --all-targets -- -D warnings
+      # Runs the 27k-vector decTest conformance suite, the vendored-corpus
+      # integrity hashes, and the unit/property suites (fd-aqs.9: this
+      # crate previously had no CI lane at all).
+      - run: cargo test --package ferrodec-decimal --all-features --verbose
 
   # ---------- ferrodec-test-support (workspace-internal dev crate) ----------
   test_support:

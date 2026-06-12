@@ -34,10 +34,34 @@ pub struct TestCase {
     pub conditions: Vec<String>,
 }
 
-/// Strip an end-of-line `--` comment.
+/// Strip an end-of-line `--` comment, ignoring `--` inside single- or
+/// double-quoted operands (the same quoting rules as [`tokenise`]). The
+/// vendored corpora carry adversarial parse vectors whose operands are
+/// quoted strings like `'--1'` and `'1E--1'`; a position-blind cut at the
+/// first `--` silently dropped them from every bucket (fd-aqs.9).
 #[must_use]
 pub fn strip_comment(line: &str) -> &str {
-    line.find("--").map_or(line, |i| &line[..i])
+    let bytes = line.as_bytes();
+    let mut quote: Option<u8> = None;
+    let mut i = 0;
+    while i < bytes.len() {
+        match quote {
+            Some(q) => {
+                if bytes[i] == q {
+                    quote = None;
+                }
+            }
+            None => match bytes[i] {
+                b'\'' | b'"' => quote = Some(bytes[i]),
+                b'-' if i + 1 < bytes.len() && bytes[i + 1] == b'-' => {
+                    return &line[..i];
+                }
+                _ => {}
+            },
+        }
+        i += 1;
+    }
+    line
 }
 
 /// Parse a directive line of the form `name: value`. Returns
@@ -270,12 +294,16 @@ pub fn status_conformance_eq(actual: Status, expected: Status) -> bool {
 // ---------------------------------------------------------------------------
 // Driver
 
-/// Per-file pass/fail/skip counts.
+/// Per-file pass/fail/skip counts, plus the count of non-empty,
+/// non-directive lines the parser could not tokenise. Unparseable lines
+/// are pinned at zero by [`run_suite`]: a parser regression that starts
+/// dropping cases must fail loudly, not shrink the buckets silently.
 #[derive(Default, Clone, Copy, Debug)]
 pub struct FileResult {
     pub passed: usize,
     pub failed: usize,
     pub skipped: usize,
+    pub unparsed: usize,
 }
 
 /// Aggregate counts across every file in the suite.
@@ -284,6 +312,7 @@ pub struct Totals {
     pub passed: usize,
     pub failed: usize,
     pub skipped: usize,
+    pub unparsed: usize,
 }
 
 impl Totals {
@@ -291,6 +320,7 @@ impl Totals {
         self.passed += other.passed;
         self.failed += other.failed;
         self.skipped += other.skipped;
+        self.unparsed += other.unparsed;
     }
 }
 
@@ -356,11 +386,21 @@ pub fn run_suite<F>(
     }
 
     eprintln!(
-        "\nTOTAL: {} cases — {} pass, {} fail, {} skip",
+        "\nTOTAL: {} cases — {} pass, {} fail, {} skip, {} unparsed",
         totals.passed + totals.failed + totals.skipped,
         totals.passed,
         totals.failed,
         totals.skipped,
+        totals.unparsed,
+    );
+
+    // Pinned at zero: every non-empty, non-directive line must tokenise.
+    // A parser regression that silently drops cases shrinks the buckets
+    // without failing anything; this is the loud counterpart (fd-aqs.9).
+    assert_eq!(
+        totals.unparsed, 0,
+        "{} non-directive lines failed to parse (see UNPARSED lines above)",
+        totals.unparsed
     );
 
     if !failures.is_empty() {
@@ -428,6 +468,7 @@ where
     let mut passed = 0;
     let mut failed = 0;
     let mut skipped = 0;
+    let mut unparsed = 0;
 
     for (line_no, raw_line) in content.lines().enumerate() {
         let line = strip_comment(raw_line).trim();
@@ -440,7 +481,15 @@ where
         }
         let case = match parse_test_case(line) {
             Some(c) => c,
-            None => continue,
+            None => {
+                unparsed += 1;
+                eprintln!(
+                    "UNPARSED {}:{}: {raw_line}",
+                    path.file_name().unwrap_or_default().to_string_lossy(),
+                    line_no + 1,
+                );
+                continue;
+            }
         };
         let outcome = dispatch(&case, &ctx);
         match outcome {
@@ -462,6 +511,7 @@ where
         passed,
         failed,
         skipped,
+        unparsed,
     }
 }
 
@@ -502,6 +552,38 @@ mod tests {
     fn strip_comment_removes_double_dash_tail() {
         assert_eq!(strip_comment("foo -- bar"), "foo ");
         assert_eq!(strip_comment("no comment here"), "no comment here");
+    }
+
+    #[test]
+    fn strip_comment_ignores_quoted_dashes() {
+        // The adversarial parse vectors: '--1' and '1E--1' are operands,
+        // not comments (ddBase 532/583, dsBase 496/547, base 548/599).
+        assert_eq!(
+            strip_comment("ddbas532 toSci '--1' -> NaN Conversion_syntax"),
+            "ddbas532 toSci '--1' -> NaN Conversion_syntax"
+        );
+        let full = "x toSci \"1E--1\" -> NaN";
+        assert_eq!(strip_comment(full), full);
+        // A real comment after a quoted operand still strips.
+        assert_eq!(
+            strip_comment("x toSci '--1' -> NaN -- why"),
+            "x toSci '--1' -> NaN "
+        );
+        // An apostrophe inside a comment does not arm quote mode.
+        assert_eq!(
+            strip_comment("x add 1 2 -> 3 -- don't care"),
+            "x add 1 2 -> 3 "
+        );
+    }
+
+    #[test]
+    fn quoted_dash_case_parses() {
+        let case = parse_test_case(strip_comment(
+            "ddbas532 toSci '--1' -> NaN Conversion_syntax",
+        ))
+        .unwrap();
+        assert_eq!(case.operands, vec!["--1"]);
+        assert_eq!(case.expected, "NaN");
     }
 
     #[test]

@@ -53,12 +53,14 @@ fn dectest_conformance() {
 /// editing this table (see ADR-0010 in the workspace root for the
 /// rationale).
 ///
-/// - `dsBase.decTest`: 698 of 909 cases pass. The 211 skips break
-///   down as ~7 pathologically large exponents (deferred, see
-///   `ParseDecimalError::ExponentOutOfRange`) plus ~204 cases under
-///   non-IEEE rounding directives (`half_down`, `05up`) which we
-///   won't coerce onto an IEEE mode (mirrors ferrodec's ADR-0005
-///   posture). Unchanged by the DPD work.
+/// - `dsBase.decTest`: 700 of 909 cases pass (the quote-aware
+///   `strip_comment` fix recovered the two adversarial parse vectors
+///   dsbas504 `'--1'` and dsbas555 `'1E--1'`, fd-aqs.9). The 209
+///   skips break down as a handful of pathologically large exponents
+///   (deferred, see `ParseDecimalError::ExponentOutOfRange`) plus
+///   cases under non-IEEE rounding directives (`half_down`, `05up`)
+///   which we won't coerce onto an IEEE mode (mirrors ferrodec's
+///   ADR-0005 posture). Unchanged by the DPD work.
 /// - `dsEncode.decTest`: the count is feature-conditional. With the
 ///   `dpd` feature off, only the 2 string-to-string `apply` cases
 ///   pass and every `#hex` case is skipped at the dispatcher. With
@@ -73,11 +75,11 @@ fn dectest_conformance() {
 const fn expected_per_file() -> &'static [(&'static str, usize)] {
     #[cfg(not(feature = "dpd"))]
     {
-        &[("dsBase.decTest", 698), ("dsEncode.decTest", 2)]
+        &[("dsBase.decTest", 700), ("dsEncode.decTest", 2)]
     }
     #[cfg(feature = "dpd")]
     {
-        &[("dsBase.decTest", 698), ("dsEncode.decTest", 250)]
+        &[("dsBase.decTest", 700), ("dsEncode.decTest", 250)]
     }
 }
 

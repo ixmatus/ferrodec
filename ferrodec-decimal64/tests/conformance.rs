@@ -43,9 +43,11 @@ fn dectest_conformance() {
 /// Baseline after C7 + C8 (toSci wiring + `parse_str` + Display +
 /// IEEE 754 exponent clamping): the harness dispatches `tosci` and
 /// `apply`. Files with non-zero passes:
-/// * `ddBase.decTest`: 708 of 945 pass. Skips are extreme exponents
-///   (deferred), non-IEEE rounding directives, and a few
-///   format-precision conditional cases.
+/// * `ddBase.decTest`: 710 of 945 pass (the quote-aware
+///   `strip_comment` fix recovered the two adversarial parse vectors
+///   ddbas504 `'--1'` and ddbas555 `'1E--1'`, fd-aqs.9). Skips are
+///   extreme exponents (deferred), non-IEEE rounding directives, and
+///   a few format-precision conditional cases.
 /// * `ddAdd.decTest`: 2 of 1091 pass — both are toSci-only edge
 ///   cases that route via parse / format without exercising add.
 /// * `ddFMA.decTest`: 2 of 1378 pass — same shape.
@@ -78,7 +80,7 @@ const fn expected_per_file() -> &'static [(&'static str, usize)] {
         ("ddAdd.decTest", 968),
         // fd-ci0.7 (ADR-0031): `logical_and`. All 287 cases pass.
         ("ddAnd.decTest", 287),
-        ("ddBase.decTest", 708),
+        ("ddBase.decTest", 710),
         // F4 (S10, fd-7n8): `compare` / `comparetotal` /
         // `comparetotmag` / `samequantum` / `quantize` wired. No
         // ferrodec correctness defect surfaced — the 22 `ddCompare`
