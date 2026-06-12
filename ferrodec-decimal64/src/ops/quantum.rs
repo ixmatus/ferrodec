@@ -31,7 +31,7 @@ use super::round::round_and_pack_finite;
 /// finding Q2 / M2.
 const SCALEB_N_LIMIT: u32 = 2 * (E_MAX as u32 + PRECISION);
 
-const POW10_U64: [u64; 10] = [
+const POW10_U64: [u64; 16] = [
     1,
     10,
     100,
@@ -42,7 +42,18 @@ const POW10_U64: [u64; 10] = [
     10_000_000,
     100_000_000,
     1_000_000_000,
+    10_000_000_000,
+    100_000_000_000,
+    1_000_000_000_000,
+    10_000_000_000_000,
+    100_000_000_000_000,
+    1_000_000_000_000_000,
 ];
+
+// quantize pads a nonzero coefficient by at most PRECISION - 1 digits
+// (digits >= 1 and digits + pad <= PRECISION), so the table must cover
+// indices 0..=PRECISION-1.
+const _: () = assert!(POW10_U64.len() >= PRECISION as usize);
 
 impl Decimal64 {
     /// IEEE 754-2019 §5.3.3 `quantize(self, target)`: returns a value
@@ -223,10 +234,8 @@ impl Decimal64 {
             // target quantum: INVALID per GDA.
             return (Decimal64::NAN, Status::INVALID);
         }
-        if (pad as usize) >= POW10_U64.len() {
-            // Cannot pad that much without u64 overflow; INVALID.
-            return (Decimal64::NAN, Status::INVALID);
-        }
+        // new_digits <= PRECISION with digits >= 1 bounds pad at
+        // PRECISION - 1, inside the table (compile-time assert above).
         let new_coef = coef * POW10_U64[pad as usize];
         // new_digits <= PRECISION (checked above), so new_coef < 10^PRECISION = COEFFICIENT_LIMIT.
         let new_coefficient =
@@ -804,6 +813,30 @@ mod tests {
         let expected_min = Decimal64::try_new(0, -398).unwrap();
         assert_eq!(r.to_bits(), expected_min.to_bits());
         assert!(status.is_ok());
+    }
+
+    #[test]
+    fn quantize_pads_above_nine_digits() {
+        // decimal64 legitimately pads up to PRECISION - 1 = 15 trailing
+        // zeros (digits + pad <= 16); the vendored ddQuantize corpus never
+        // exercises a successful pad above 9, so pin pads 10 and 15
+        // directly (2026-06-09 review finding 2, fd-aqs.2).
+        let (r, s) = from_int(1, 0).quantize(from_int(1, -10), RoundingMode::NearestEven);
+        let expected = Decimal64::try_new(10_000_000_000, -10).unwrap();
+        assert_eq!(r.to_bits(), expected.to_bits(), "pad 10: got {r:?}");
+        assert!(s.is_ok(), "pad 10 is exact, got {s:?}");
+
+        let (r, s) = from_int(1, 0).quantize(from_int(1, -15), RoundingMode::NearestEven);
+        let expected = Decimal64::try_new(1_000_000_000_000_000, -15).unwrap();
+        assert_eq!(r.to_bits(), expected.to_bits(), "pad 15: got {r:?}");
+        assert!(s.is_ok(), "pad 15 is exact, got {s:?}");
+
+        // The digit budget still binds: 2 digits + pad 15 needs 17 digits.
+        let (r, s) = from_int(12, 0).quantize(from_int(1, -15), RoundingMode::NearestEven);
+        assert!(
+            r.is_nan() && s == Status::INVALID,
+            "17 digits must be INVALID"
+        );
     }
 
     #[test]
