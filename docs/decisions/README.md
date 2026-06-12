@@ -78,3 +78,4 @@ The ADRs in number order:
 - [0050 — Anchor band reformulations restore the kernel's relative error model](0050-anchor-band-reformulations.md) *(amends 0032, 0033)*
 - [0051 — A signed residual crosses the kernel's rounding seam for grid-exact small arguments](0051-residual-across-rounding-seam.md) *(completes 0050)*
 - [0052 — Reference registry under docs/references/ with a default-on schema guard](0052-reference-registry.md)
+- [0053 — Exponent-gap guards in ferrodec-decimal alignment paths](0053-exponent-gap-guards.md)
