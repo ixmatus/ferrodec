@@ -61,8 +61,18 @@ fn power_matches_high_precision_oracle() {
         let y = parse(e);
         for prec in [7u32, 16, 28, 34] {
             for mode in MODES {
-                let hi = Context::new(prec + 50, 99_999, -99_999, mode);
-                let lo = Context::new(prec, 99_999, -99_999, mode);
+                let hi = Context::new(
+                    core::num::NonZeroU32::new(prec + 50).unwrap(),
+                    99_999,
+                    -99_999,
+                    mode,
+                );
+                let lo = Context::new(
+                    core::num::NonZeroU32::new(prec).unwrap(),
+                    99_999,
+                    -99_999,
+                    mode,
+                );
                 // High-precision power, then rounded down to the target.
                 let oracle = x.power(&y, &hi).0.plus(&lo).0;
                 let direct = x.power(&y, &lo).0;

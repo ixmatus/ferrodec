@@ -5,6 +5,7 @@
 //! operation, which returns a per-operation `Status` rather than mutating
 //! global state, following ADR-0002 and ADR-0003.
 
+use core::num::NonZeroU32;
 use ferrodec_ieee::{should_round_up, RoundingMode};
 
 /// The eight General Decimal Arithmetic rounding modes.
@@ -98,14 +99,16 @@ impl Rounding {
 
 /// The arithmetic context.
 ///
-/// `precision` is the working precision in decimal digits (at least one).
-/// `emax` and `emin` bound the *adjusted* exponent of a finite result (the
-/// adjusted exponent is `exponent + digits - 1`). `clamp` enables IEEE-style
-/// exponent clamping of the result's quantum into the representable range.
+/// `precision` is the working precision in decimal digits; the
+/// [`NonZeroU32`] type makes a zero precision unrepresentable rather than
+/// documented-away (ADR-0054). `emax` and `emin` bound the *adjusted*
+/// exponent of a finite result (the adjusted exponent is
+/// `exponent + digits - 1`). `clamp` enables IEEE-style exponent clamping
+/// of the result's quantum into the representable range.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Context {
-    /// Working precision in decimal digits. Must be at least one.
-    pub precision: u32,
+    /// Working precision in decimal digits.
+    pub precision: NonZeroU32,
     /// Maximum adjusted exponent.
     pub emax: i32,
     /// Minimum adjusted exponent.
@@ -119,8 +122,19 @@ pub struct Context {
 impl Context {
     /// Build a context from a precision, an adjusted-exponent range, and a
     /// rounding mode, with clamping off.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use core::num::NonZeroU32;
+    /// use ferrodec_decimal::{Context, Rounding};
+    ///
+    /// const P34: NonZeroU32 = NonZeroU32::new(34).unwrap();
+    /// let ctx = Context::new(P34, 6144, -6143, Rounding::HalfEven);
+    /// assert_eq!(ctx.precision.get(), 34);
+    /// ```
     #[must_use]
-    pub const fn new(precision: u32, emax: i32, emin: i32, rounding: Rounding) -> Self {
+    pub const fn new(precision: NonZeroU32, emax: i32, emin: i32, rounding: Rounding) -> Self {
         Self {
             precision,
             emax,
@@ -179,10 +193,15 @@ mod tests {
 
     #[test]
     fn context_builders() {
-        let ctx = Context::new(34, 6144, -6143, Rounding::HalfEven)
-            .with_rounding(Rounding::Down)
-            .with_clamp(true);
-        assert_eq!(ctx.precision, 34);
+        let ctx = Context::new(
+            core::num::NonZeroU32::new(34).unwrap(),
+            6144,
+            -6143,
+            Rounding::HalfEven,
+        )
+        .with_rounding(Rounding::Down)
+        .with_clamp(true);
+        assert_eq!(ctx.precision.get(), 34);
         assert_eq!(ctx.rounding, Rounding::Down);
         assert!(ctx.clamp);
     }

@@ -49,7 +49,7 @@ where
 {
     let mut guard = INITIAL_GUARD;
     for _ in 0..MAX_DOUBLINGS {
-        let v = kernel(ctx.precision + guard);
+        let v = kernel(ctx.precision.get() + guard);
         if let Some(result) = try_round(&v, err, ctx) {
             return result;
         }
@@ -57,7 +57,7 @@ where
     }
     // Cap reached: round the widest computation faithfully, correct to within
     // the bracket.
-    let v = kernel(ctx.precision + guard);
+    let v = kernel(ctx.precision.get() + guard);
     faithful_round(v, ctx)
 }
 
@@ -105,7 +105,12 @@ mod tests {
     use alloc::string::ToString;
 
     fn ctx(precision: u32, rounding: Rounding) -> Context {
-        Context::new(precision, 9999, -9999, rounding)
+        Context::new(
+            core::num::NonZeroU32::new(precision).unwrap(),
+            9999,
+            -9999,
+            rounding,
+        )
     }
 
     /// A kernel computing `num / den` to the requested precision; a stand-in

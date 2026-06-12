@@ -130,7 +130,7 @@ fn round_ceiling(x: &Decimal, ctx: &Context) -> Decimal {
 /// The next larger magnitude above the on-grid magnitude `coeff * 10^exp`,
 /// returned as a non-negative value (`+Infinity` past the largest finite).
 fn succ_mag(coeff: &DecBig, exp: i32, ctx: &Context) -> Decimal {
-    let p = i64::from(ctx.precision);
+    let p = i64::from(ctx.precision.get());
     let et = i64::from(etiny_of(ctx));
     let digits = coeff.decimal_digit_count() as i64;
     let adj = i64::from(exp) + digits - 1;
@@ -153,7 +153,7 @@ fn succ_mag(coeff: &DecBig, exp: i32, ctx: &Context) -> Decimal {
 /// The next smaller magnitude below the on-grid magnitude `coeff * 10^exp`,
 /// returned as a non-negative value (zero past the least positive subnormal).
 fn pred_mag(coeff: &DecBig, exp: i32, ctx: &Context) -> Decimal {
-    let p = i64::from(ctx.precision);
+    let p = i64::from(ctx.precision.get());
     let et = i64::from(etiny_of(ctx));
     let digits = coeff.decimal_digit_count() as i64;
     let adj = i64::from(exp) + digits - 1;
@@ -161,8 +161,8 @@ fn pred_mag(coeff: &DecBig, exp: i32, ctx: &Context) -> Decimal {
     let c_q = coeff.mul_pow10((i64::from(exp) - q) as u32);
     // Crossing below a power of ten refines the quantum by one decade, unless
     // already at the subnormal floor.
-    if q > et && c_q.cmp_ref(&DecBig::pow10(ctx.precision - 1)) == Ordering::Equal {
-        let nines = DecBig::pow10(ctx.precision).sub(&DecBig::from_u32(1));
+    if q > et && c_q.cmp_ref(&DecBig::pow10(ctx.precision.get() - 1)) == Ordering::Equal {
+        let nines = DecBig::pow10(ctx.precision.get()).sub(&DecBig::from_u32(1));
         return Decimal::finite(false, nines, (q - 1) as i32);
     }
     let c1 = c_q.sub(&DecBig::from_u32(1));
@@ -174,14 +174,14 @@ fn pred_mag(coeff: &DecBig, exp: i32, ctx: &Context) -> Decimal {
 
 /// The largest finite magnitude `Nmax = (10^precision - 1) * 10^Etop`, signed.
 fn nmax(ctx: &Context, negative: bool) -> Decimal {
-    let etop = ctx.emax - (ctx.precision as i32 - 1);
-    let coeff = DecBig::pow10(ctx.precision).sub(&DecBig::from_u32(1));
+    let etop = ctx.emax - (ctx.precision.get() as i32 - 1);
+    let coeff = DecBig::pow10(ctx.precision.get()).sub(&DecBig::from_u32(1));
     Decimal::finite(negative, coeff, etop)
 }
 
 /// The subnormal floor quantum `Etiny = emin - (precision - 1)`.
 fn etiny_of(ctx: &Context) -> i32 {
-    ctx.emin - (ctx.precision as i32 - 1)
+    ctx.emin - (ctx.precision.get() as i32 - 1)
 }
 
 /// The flags a `next_toward` step raises, classified from its result: overflow
@@ -218,7 +218,12 @@ mod tests {
 
     fn ctx() -> Context {
         // Matches the nextplus / nextminus suite: Etiny = -383 - 8 = -391.
-        Context::new(9, 384, -383, Rounding::HalfEven)
+        Context::new(
+            core::num::NonZeroU32::new(9).unwrap(),
+            384,
+            -383,
+            Rounding::HalfEven,
+        )
     }
 
     fn parse(s: &str) -> Decimal {
@@ -292,7 +297,12 @@ mod tests {
         assert_eq!(r, parse("-0E-391"));
         assert!(s.underflow() && s.inexact() && s.clamped());
         // At precision one Etiny equals Emin, so a zero result carries no flag.
-        let c1 = Context::new(1, 6, -6, Rounding::HalfEven);
+        let c1 = Context::new(
+            core::num::NonZeroU32::new(1).unwrap(),
+            6,
+            -6,
+            Rounding::HalfEven,
+        );
         let (r, s) = parse("-1E-50").next_toward(&Decimal::infinity(false), &c1);
         assert!(r.is_zero() && r.is_negative() && s == Status::OK);
         // Stepping off the top raises overflow and inexact.

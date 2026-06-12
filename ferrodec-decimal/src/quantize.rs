@@ -27,7 +27,7 @@ impl Decimal {
         }
         let (sa, ca, ea) = self.finite_parts().expect("finite");
         let (_, _, eb) = other.finite_parts().expect("finite");
-        let p = i64::from(ctx.precision);
+        let p = i64::from(ctx.precision.get());
         let emax = i64::from(ctx.emax);
         let etiny = i64::from(ctx.emin) - (p - 1);
         let eb_i = i64::from(eb);
@@ -163,7 +163,12 @@ mod tests {
     use alloc::string::ToString;
 
     fn ctx(precision: u32) -> Context {
-        Context::new(precision, 9999, -9999, Rounding::HalfEven)
+        Context::new(
+            core::num::NonZeroU32::new(precision).unwrap(),
+            9999,
+            -9999,
+            Rounding::HalfEven,
+        )
     }
 
     fn fin(coeff: u128, exp: i32) -> Decimal {
@@ -196,7 +201,12 @@ mod tests {
         // fd-aqs.3 witness: the pad direction used to materialize 10^gap
         // (multi-gigabyte for i32-range exponents) before the digit-budget
         // check rejected it. The INVALID must come first.
-        let c = Context::new(9, i32::MAX, i32::MIN, crate::Rounding::HalfEven);
+        let c = Context::new(
+            core::num::NonZeroU32::new(9).unwrap(),
+            i32::MAX,
+            i32::MIN,
+            crate::Rounding::HalfEven,
+        );
         let (r, s) = fin(1, i32::MAX).quantize(&fin(1, i32::MIN), &c);
         assert!(r.is_nan() && s.invalid());
         // Moderate oversize pad: same early INVALID.

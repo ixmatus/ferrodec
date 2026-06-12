@@ -241,7 +241,7 @@ pub(crate) fn combine_finite(
     } else {
         (sb, cb, eb, sa, ca)
     };
-    let p = i64::from(ctx.precision);
+    let p = i64::from(ctx.precision.get());
     let d_lo = lo_c.decimal_digit_count() as i64;
     if hi_e - min_e > p + d_lo + 2 {
         let d_hi = hi_c.decimal_digit_count() as i64;
@@ -324,7 +324,7 @@ pub(crate) fn nan_unary(a: &Decimal, ctx: &Context) -> Option<(Decimal, Status)>
 /// `ctx.precision` digits.
 pub(crate) fn quiet_from(d: &Decimal, ctx: &Context) -> Decimal {
     let (sign, _signaling, payload) = d.nan_parts().expect("nan");
-    let truncated = payload.div_rem_pow10(ctx.precision).1;
+    let truncated = payload.div_rem_pow10(ctx.precision.get()).1;
     Decimal::quiet_nan(sign, truncated)
 }
 
@@ -338,7 +338,12 @@ mod tests {
     use super::*;
 
     fn ctx(precision: u32) -> Context {
-        Context::new(precision, 9999, -9999, Rounding::HalfEven)
+        Context::new(
+            core::num::NonZeroU32::new(precision).unwrap(),
+            9999,
+            -9999,
+            Rounding::HalfEven,
+        )
     }
 
     fn fin(sign: bool, coeff: u128, exp: i32) -> Decimal {
@@ -397,7 +402,12 @@ mod tests {
         // old `as u32` wrapped and returned a wrong finite value; the
         // result must overflow per the rounding mode, with no gigabyte
         // intermediate.
-        let c = Context::new(9, i32::MAX, i32::MIN, Rounding::HalfEven);
+        let c = Context::new(
+            core::num::NonZeroU32::new(9).unwrap(),
+            i32::MAX,
+            i32::MIN,
+            Rounding::HalfEven,
+        );
         let big = fin(false, 1, i32::MAX);
         let tiny = fin(false, 1, i32::MIN);
         let (r, s) = big.fma(&big, &tiny, &c);
@@ -435,7 +445,12 @@ mod tests {
     fn add_oversize_gap_rounds_like_exact_alignment() {
         // Moderate-but-oversize gap (1E+100 vs 1E0 at precision 5): the
         // surrogate path must reproduce exact alignment in every direction.
-        let c = Context::new(5, 9999, -9999, Rounding::HalfEven);
+        let c = Context::new(
+            core::num::NonZeroU32::new(5).unwrap(),
+            9999,
+            -9999,
+            Rounding::HalfEven,
+        );
         let big = fin(false, 1, 100);
         let one = fin(false, 1, 0);
         let (r, s) = big.add(&one, &c);

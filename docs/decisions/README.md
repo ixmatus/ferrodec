@@ -79,3 +79,4 @@ The ADRs in number order:
 - [0051 — A signed residual crosses the kernel's rounding seam for grid-exact small arguments](0051-residual-across-rounding-seam.md) *(completes 0050)*
 - [0052 — Reference registry under docs/references/ with a default-on schema guard](0052-reference-registry.md)
 - [0053 — Exponent-gap guards in ferrodec-decimal alignment paths](0053-exponent-gap-guards.md)
+- [0054 — Context precision becomes NonZeroU32 (2.0.0)](0054-nonzero-precision.md)

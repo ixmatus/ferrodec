@@ -72,10 +72,16 @@ ADR-0040 for the transcendental contract, and ADR-0038 for the overall design.
 ## Quick start
 
 ```rust
-use ferrodec_decimal::{Context, Decimal, Rounding};
+use ferrodec_decimal::{Context, Decimal, NonZeroU32, Rounding};
 
-// A context with 50 working digits, rounding half to even.
-let ctx = Context::new(50, 1_000_000, -1_000_000, Rounding::HalfEven);
+// A context with 50 working digits, rounding half to even. The precision
+// is a NonZeroU32: a zero working precision is unrepresentable.
+let ctx = Context::new(
+    NonZeroU32::new(50).unwrap(),
+    1_000_000,
+    -1_000_000,
+    Rounding::HalfEven,
+);
 
 let a = Decimal::parse_str("1").unwrap();
 let b = Decimal::parse_str("3").unwrap();

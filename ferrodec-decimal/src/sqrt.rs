@@ -67,7 +67,7 @@ impl Decimal {
 
         // Scale by an even power of ten so the integer root has at least
         // precision + 1 digits.
-        let p = i64::from(ctx.precision);
+        let p = i64::from(ctx.precision.get());
         let dc = cc.decimal_digit_count() as i64;
         let mut twos = (2 * p + 2 - dc).max(0);
         if twos & 1 != 0 {
@@ -96,7 +96,12 @@ mod tests {
     use alloc::string::ToString;
 
     fn ctx(precision: u32) -> Context {
-        Context::new(precision, 9999, -9999, Rounding::HalfEven)
+        Context::new(
+            core::num::NonZeroU32::new(precision).unwrap(),
+            9999,
+            -9999,
+            Rounding::HalfEven,
+        )
     }
 
     fn fin(coeff: u128, exp: i32) -> Decimal {
@@ -124,7 +129,12 @@ mod tests {
     #[test]
     fn sqrt_ignores_context_rounding() {
         // Even under round-up, the square root rounds half-even.
-        let up = Context::new(9, 9999, -9999, Rounding::Up);
+        let up = Context::new(
+            core::num::NonZeroU32::new(9).unwrap(),
+            9999,
+            -9999,
+            Rounding::Up,
+        );
         assert_eq!(fin(2, 0).sqrt(&up).0.to_string(), "1.41421356");
     }
 

@@ -73,7 +73,7 @@ fn scaleb_amount(b: &Decimal, ctx: &Context) -> Option<i64> {
         return None;
     }
     let mag = coeff.to_u128()?;
-    let bound = 2 * (i64::from(ctx.emax) + i64::from(ctx.precision));
+    let bound = 2 * (i64::from(ctx.emax) + i64::from(ctx.precision.get()));
     if mag > bound as u128 {
         return None;
     }
@@ -88,7 +88,12 @@ mod tests {
     use alloc::string::ToString;
 
     fn ctx() -> Context {
-        Context::new(9, 999, -999, Rounding::HalfEven)
+        Context::new(
+            core::num::NonZeroU32::new(9).unwrap(),
+            999,
+            -999,
+            Rounding::HalfEven,
+        )
     }
 
     fn parse(s: &str) -> Decimal {
@@ -178,7 +183,12 @@ mod tests {
     #[test]
     fn logb_rounds_to_narrow_context() {
         // At precision 2 a three-digit exponent is rounded.
-        let c = Context::new(2, 999, -999, Rounding::HalfEven);
+        let c = Context::new(
+            core::num::NonZeroU32::new(2).unwrap(),
+            999,
+            -999,
+            Rounding::HalfEven,
+        );
         let (r, s) = parse("1E+999").logb(&c);
         assert_eq!(r.to_string(), "1.0E+3");
         assert!(s.inexact());

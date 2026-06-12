@@ -8,7 +8,12 @@ use ferrodec_decimal::{Context, Decimal, Rounding};
 
 fn main() {
     // Sixty working digits, rounding half to even.
-    let ctx = Context::new(60, 1_000_000, -1_000_000, Rounding::HalfEven);
+    let ctx = Context::new(
+        core::num::NonZeroU32::new(60).unwrap(),
+        1_000_000,
+        -1_000_000,
+        Rounding::HalfEven,
+    );
 
     let one = Decimal::parse_str("1").unwrap();
     let three = Decimal::parse_str("3").unwrap();

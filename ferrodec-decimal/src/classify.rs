@@ -94,7 +94,12 @@ mod tests {
     use crate::Rounding;
 
     fn ctx() -> Context {
-        Context::new(9, 999, -999, Rounding::HalfEven)
+        Context::new(
+            core::num::NonZeroU32::new(9).unwrap(),
+            999,
+            -999,
+            Rounding::HalfEven,
+        )
     }
 
     fn parse(s: &str) -> Decimal {

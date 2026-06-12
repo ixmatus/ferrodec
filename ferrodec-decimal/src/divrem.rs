@@ -35,7 +35,7 @@ impl Decimal {
             // The exponent is constrained to Etiny, so Clamped is signaled (as
             // for any zero whose exponent is tidied into range, independent of
             // ctx.clamp); seed the rounding core with it.
-            let etiny = i64::from(ctx.emin) - i64::from(ctx.precision) + 1;
+            let etiny = i64::from(ctx.emin) - i64::from(ctx.precision.get()) + 1;
             return round_finite(
                 sign,
                 DecBig::zero(),
@@ -66,7 +66,7 @@ impl Decimal {
         // Scale the numerator (or denominator) so the integer quotient lands at
         // precision + 1 digits: one guard digit for the rounding core, with the
         // division remainder feeding the sticky bit.
-        let p = i64::from(ctx.precision);
+        let p = i64::from(ctx.precision.get());
         let da = ca.decimal_digit_count() as i64;
         let db = cb.decimal_digit_count() as i64;
         let shift = (p + 1) - (da - db);
@@ -116,14 +116,14 @@ impl Decimal {
         // |self| < |other| with a zero quotient. Only the digit-bounded
         // band between them needs the real division.
         let adj_gap = adjusted_exponent_gap(self, other);
-        if adj_gap > i64::from(ctx.precision) {
+        if adj_gap > i64::from(ctx.precision.get()) {
             return (invalid_nan(), Status::INVALID);
         }
         if adj_gap < 0 {
             return (Decimal::finite(sign, DecBig::zero(), 0), Status::OK);
         }
         let (q, _r, _min_e, _b) = integer_divide(self, other);
-        if q.decimal_digit_count() > u64::from(ctx.precision) {
+        if q.decimal_digit_count() > u64::from(ctx.precision.get()) {
             // The integer quotient does not fit the precision.
             return (invalid_nan(), Status::INVALID);
         }
@@ -189,7 +189,7 @@ impl Decimal {
             );
         }
         let adj_gap = adjusted_exponent_gap(self, other);
-        if adj_gap > i64::from(ctx.precision) {
+        if adj_gap > i64::from(ctx.precision.get()) {
             return (invalid_nan(), Status::INVALID);
         }
         if adj_gap < if near { -1 } else { 0 } {
@@ -207,7 +207,7 @@ impl Decimal {
         let (q, rem0, min_e, big_b) = integer_divide(self, other);
 
         if !near {
-            if q.decimal_digit_count() > u64::from(ctx.precision) {
+            if q.decimal_digit_count() > u64::from(ctx.precision.get()) {
                 return (invalid_nan(), Status::INVALID);
             }
             return round_finite(sa, rem0, min_e, false, min_e, ctx, Status::OK);
@@ -230,7 +230,7 @@ impl Decimal {
         } else {
             (rem0, sa, q)
         };
-        if qn.decimal_digit_count() > u64::from(ctx.precision) {
+        if qn.decimal_digit_count() > u64::from(ctx.precision.get()) {
             return (invalid_nan(), Status::INVALID);
         }
         round_finite(sign, mag, min_e, false, min_e, ctx, Status::OK)
@@ -273,7 +273,12 @@ mod tests {
     use alloc::string::ToString;
 
     fn ctx(precision: u32) -> Context {
-        Context::new(precision, 9999, -9999, Rounding::HalfEven)
+        Context::new(
+            core::num::NonZeroU32::new(precision).unwrap(),
+            9999,
+            -9999,
+            Rounding::HalfEven,
+        )
     }
 
     fn fin(sign: bool, coeff: u128, exp: i32) -> Decimal {
@@ -348,7 +353,12 @@ mod tests {
         // fd-aqs.3 witness: integer_divide aligned both operands to
         // min(ea, eb) before any validity check, allocating gigabytes for
         // i32-range exponent gaps. The screens must decide first.
-        let c = Context::new(9, i32::MAX, i32::MIN, Rounding::HalfEven);
+        let c = Context::new(
+            core::num::NonZeroU32::new(9).unwrap(),
+            i32::MAX,
+            i32::MIN,
+            Rounding::HalfEven,
+        );
         let big = fin(false, 1, i32::MAX);
         let tiny = fin(false, 1, i32::MIN);
         // Quotient would need ~4.3e9 digits: INVALID without aligning.

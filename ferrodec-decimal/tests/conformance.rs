@@ -269,7 +269,13 @@ impl DirCtx {
     }
 
     fn context(&self) -> Context {
-        Context::new(self.precision, self.emax, self.emin, self.rounding).with_clamp(self.clamp)
+        Context::new(
+            core::num::NonZeroU32::new(self.precision).unwrap(),
+            self.emax,
+            self.emin,
+            self.rounding,
+        )
+        .with_clamp(self.clamp)
     }
 }
 
@@ -459,7 +465,12 @@ fn compare_power(case: &TestCase, res: &Decimal, status: Status) -> Outcome {
 
 /// Whether two finite values are within one unit in the last place.
 fn within_one_ulp(a: &Decimal, b: &Decimal) -> bool {
-    let wide = Context::new(60, 1_000_000, -1_000_000, Rounding::HalfEven);
+    let wide = Context::new(
+        core::num::NonZeroU32::new(60).unwrap(),
+        1_000_000,
+        -1_000_000,
+        Rounding::HalfEven,
+    );
     let absdiff = a.subtract(b, &wide).0.abs(&wide).0;
     let ea = a.finite_parts().map_or(0, |p| p.2);
     let eb = b.finite_parts().map_or(0, |p| p.2);
@@ -531,7 +542,7 @@ fn run_to_string(
                 // A NaN read under the context is conversion_syntax if its
                 // payload exceeds the precision; an Infinity passes through.
                 if let Some((_, _, payload)) = d.nan_parts() {
-                    if payload.decimal_digit_count() > u64::from(ctx.precision) {
+                    if payload.decimal_digit_count() > u64::from(ctx.precision.get()) {
                         return compare(
                             case,
                             &Decimal::quiet_nan(false, DecBig::zero()),

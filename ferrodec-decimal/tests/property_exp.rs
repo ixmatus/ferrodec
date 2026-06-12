@@ -21,7 +21,12 @@ const ROUNDINGS: [Rounding; 8] = [
 ];
 
 fn wide(prec: u32) -> Context {
-    Context::new(prec, 99_999, -99_999, Rounding::HalfEven)
+    Context::new(
+        core::num::NonZeroU32::new(prec).unwrap(),
+        99_999,
+        -99_999,
+        Rounding::HalfEven,
+    )
 }
 
 fn parse(s: &str) -> Decimal {
@@ -197,7 +202,12 @@ fn rounding_mode_is_always_half_even() {
     // exp ignores the context rounding mode (like squareRoot): every mode
     // produces the half-even result.
     for mode in ROUNDINGS {
-        let c = Context::new(5, 99_999, -99_999, mode);
+        let c = Context::new(
+            core::num::NonZeroU32::new(5).unwrap(),
+            99_999,
+            -99_999,
+            mode,
+        );
         assert_eq!(exp_str("1", &c).0, "2.7183", "mode {mode:?}");
         assert_eq!(exp_str("-1", &c).0, "0.36788", "mode {mode:?}");
     }
@@ -243,7 +253,12 @@ fn addition_theorem_metamorphic() {
 
 #[test]
 fn overflow_and_underflow() {
-    let c = Context::new(9, 999, -999, Rounding::HalfEven);
+    let c = Context::new(
+        core::num::NonZeroU32::new(9).unwrap(),
+        999,
+        -999,
+        Rounding::HalfEven,
+    );
 
     // Far overflow -> +Infinity with Overflow + Inexact.
     let (r, s) = parse("10000").exp(&c);

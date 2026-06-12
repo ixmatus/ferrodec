@@ -46,7 +46,7 @@ impl Decimal {
     /// a single operand, complementing all `precision` digits.
     #[must_use]
     pub fn invert(&self, ctx: &Context) -> (Decimal, Status) {
-        let Some(digits) = as_logical_digits(self, ctx.precision) else {
+        let Some(digits) = as_logical_digits(self, ctx.precision.get()) else {
             return (invalid_nan(), Status::INVALID);
         };
         let inverted: Vec<u8> = digits.iter().map(|&d| 1 - d).collect();
@@ -69,8 +69,8 @@ fn logical_binary(
     // non-zero exponent, or a non-0/1 digit) yields the default NaN and signals
     // invalid; no NaN payload propagates.
     let (Some(da), Some(db)) = (
-        as_logical_digits(a, ctx.precision),
-        as_logical_digits(b, ctx.precision),
+        as_logical_digits(a, ctx.precision.get()),
+        as_logical_digits(b, ctx.precision.get()),
     ) else {
         return (invalid_nan(), Status::INVALID);
     };
@@ -109,7 +109,12 @@ mod tests {
     use ferrodec_multiword::DecBig;
 
     fn ctx() -> Context {
-        Context::new(9, 999, -999, Rounding::HalfEven)
+        Context::new(
+            core::num::NonZeroU32::new(9).unwrap(),
+            999,
+            -999,
+            Rounding::HalfEven,
+        )
     }
 
     fn fin(coeff: u128, exp: i32) -> Decimal {
