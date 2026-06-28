@@ -28,13 +28,21 @@ the value semantics.
    supported, the five shared with IEEE plus `HalfDown`, `Up`, and `ZeroFiveUp`.
 3. **A growable coefficient.** Precision is bounded only by the context and by
    memory, not by a fixed format width.
-4. **Representation equality, and no ordering operator.** `==` (`PartialEq` /
-   `Eq`) compares the representation, so the whole cohort matters: `1.0` and
-   `1.00` are equal in value but distinct representations and compare unequal.
-   `Decimal` deliberately does not implement `PartialOrd` / `Ord`, so `<` / `>`
-   cannot be mistaken for a numeric comparison; numeric ordering is `compare` /
-   `compare_total`. The fixed-width siblings implement the ordering traits, so
-   this is a deliberate cross-family divergence, recorded in ADR-0045.
+4. **Representation equality, and total ordering.** `==` (`PartialEq` / `Eq`)
+   compares the representation, so the whole cohort matters: `1.0` and `1.00`
+   are equal in value but distinct representations and compare unequal. Since
+   2.0 (ADR-0055), `Decimal` implements `PartialOrd` / `Ord` as the IEEE 754
+   `totalOrder` (the relation `compare_total` exposes), which is the only
+   ordering lawful against that structural `Eq`: it returns `Equal` exactly when
+   the representations are identical, so `a == b` iff `a.cmp(&b) == Equal`. So
+   `<` / `>` is the total order: it distinguishes cohorts (`1.0` ranks above
+   `1.00`) and signed zeros, and orders NaNs, rather than being a numeric
+   comparison. Numeric, cohort-collapsing comparison stays `compare` /
+   `compare_total`. Because `Ord`'s provided `Ord::max` / `Ord::min` shadow a
+   context-aware operation at value receivers, the General Decimal Arithmetic
+   `max` / `min` are exposed as `maxnum` / `minnum` (IEEE 754-2019
+   `maximumNumber` / `minimumNumber`); see ADR-0055, which supersedes the
+   no-ordering stance of ADR-0045.
 
 ## The operation surface
 
@@ -52,7 +60,9 @@ rounded). And the miscellaneous tier: the logical `and` / `or` / `xor` /
 `minMagnitude`, `sameQuantum`, `class`, the classification predicates, and
 `radix`. The Rust methods render these spec names in snake case
 (`divide_integer`, `next_toward`, `compare_signal`, `compare_total_magnitude`,
-`same_quantum`, and so on).
+`same_quantum`, and so on). The two exceptions are the `max` and `min`
+operations, exposed as `maxnum` / `minnum` so they are not shadowed by the
+`Ord::max` / `Ord::min` provided methods (ADR-0055).
 
 Values come from `parse_str`, the exact integer constructors (`from_i64` and
 its siblings), or, behind the `binary-float` feature, a lossless `TryFrom<f64>`

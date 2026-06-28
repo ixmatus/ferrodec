@@ -26,10 +26,14 @@
 //! the copy operations, and the classification predicates. See ADR-0038 for the
 //! overall design, ADR-0040 for the transcendental contract, and ADR-0041 for
 //! the miscellaneous surface. The operation surface is the complete
-//! specification, the public API is settled (ADR-0045), and the performance
-//! pass is done (ADR-0043, ADR-0044, with post-1.0 follow-ups in ADR-0046), so
-//! the crate is at `1.0`; the README's Performance section has the measured
-//! speedups.
+//! specification. The public API was settled at 1.0 (ADR-0045) and then
+//! reopened at 2.0 (ADR-0055): `Decimal` gained `Ord` / `PartialOrd` (the IEEE
+//! `totalOrder`), `FromStr`, and `to_f64`, and because `Ord`'s provided
+//! `max` / `min` shadow them, the General Decimal Arithmetic `max` / `min`
+//! operations were renamed to [`maxnum`](Decimal::maxnum) /
+//! [`minnum`](Decimal::minnum). The performance pass is done (ADR-0043,
+//! ADR-0044, with post-1.0 follow-ups in ADR-0046); the README's Performance
+//! section has the measured speedups.
 
 #![no_std]
 
@@ -57,6 +61,8 @@ mod convert;
 mod from_float;
 #[cfg(feature = "interop")]
 mod interop;
+#[cfg(feature = "binary-float")]
+mod to_float;
 
 pub use context::{Context, Rounding};
 pub use decimal::Decimal;
@@ -72,7 +78,7 @@ pub use convert::ParseDecimalError;
 #[cfg(feature = "binary-float")]
 pub use from_float::DecimalFromFloatError;
 
-#[cfg(feature = "interop")]
+#[cfg(any(feature = "interop", feature = "binary-float"))]
 pub use ferrodec_ieee::RoundingMode;
 
 pub use ferrodec_ieee::Status;

@@ -2,8 +2,9 @@
 //!
 //! `compare` is the numeric comparison (NaN-aware, returning a NaN when either
 //! operand is a NaN); `compare_total` is the IEEE 754 total ordering, which
-//! orders every value including NaNs and never returns a NaN. `max` and `min`
-//! select an operand (ignoring a quiet NaN) and round it to the context. The
+//! orders every value including NaNs and never returns a NaN. `maxnum` and
+//! `minnum` select an operand (ignoring a quiet NaN) and round it to the
+//! context. The
 //! copy operations manipulate only the sign bit and take no context.
 
 use crate::arith::{nan_result, quiet_from};
@@ -30,18 +31,25 @@ impl Decimal {
         ordering_to_decimal(total_cmp(self, other))
     }
 
-    /// The larger of `self` and `other`, rounded to the context. A quiet NaN
-    /// operand is ignored in favor of a number; a signaling NaN signals
-    /// invalid.
+    /// The larger of `self` and `other`, rounded to the context (the General
+    /// Decimal Arithmetic `max` / IEEE 754-2019 `maximumNumber` operation). A
+    /// quiet NaN operand is ignored in favor of a number; a signaling NaN
+    /// signals invalid.
+    ///
+    /// Named `maxnum`, not `max`, because [`Decimal`] now implements [`Ord`]
+    /// (ADR-0055), whose provided `Ord::max` takes `self` by value and would
+    /// otherwise shadow this context-aware operation at every value receiver.
     #[must_use]
-    pub fn max(&self, other: &Self, ctx: &Context) -> (Decimal, Status) {
+    pub fn maxnum(&self, other: &Self, ctx: &Context) -> (Decimal, Status) {
         select(self, other, ctx, true)
     }
 
-    /// The smaller of `self` and `other`, rounded to the context, with the same
-    /// NaN handling as [`max`](Self::max).
+    /// The smaller of `self` and `other`, rounded to the context (the General
+    /// Decimal Arithmetic `min` / IEEE 754-2019 `minimumNumber` operation), with
+    /// the same NaN handling, and the same `Ord`-collision naming rationale, as
+    /// [`maxnum`](Self::maxnum).
     #[must_use]
-    pub fn min(&self, other: &Self, ctx: &Context) -> (Decimal, Status) {
+    pub fn minnum(&self, other: &Self, ctx: &Context) -> (Decimal, Status) {
         select(self, other, ctx, false)
     }
 
@@ -91,15 +99,15 @@ impl Decimal {
     }
 
     /// The operand with the larger magnitude, rounded to the context; on equal
-    /// magnitude this is [`max`](Self::max). NaN handling matches `max` (a quiet
-    /// NaN is ignored, a signaling NaN signals invalid).
+    /// magnitude this is [`maxnum`](Self::maxnum). NaN handling matches `maxnum`
+    /// (a quiet NaN is ignored, a signaling NaN signals invalid).
     #[must_use]
     pub fn max_magnitude(&self, other: &Self, ctx: &Context) -> (Decimal, Status) {
         select_magnitude(self, other, ctx, true)
     }
 
     /// The operand with the smaller magnitude, rounded to the context; on equal
-    /// magnitude this is [`min`](Self::min), with the same NaN handling.
+    /// magnitude this is [`minnum`](Self::minnum), with the same NaN handling.
     #[must_use]
     pub fn min_magnitude(&self, other: &Self, ctx: &Context) -> (Decimal, Status) {
         select_magnitude(self, other, ctx, false)
@@ -119,6 +127,36 @@ impl Decimal {
         } else {
             Decimal::zero()
         }
+    }
+}
+
+/// `Ord` is the IEEE 754 `totalOrder` (the same relation as
+/// [`compare_total`](Decimal::compare_total)), not the numeric comparison.
+/// totalOrder is a total order on *every* value, NaNs and infinities included,
+/// so the impl is total and never panics, and it is lawful against the derived
+/// structural [`Eq`]: `total_cmp` returns `Equal` exactly when the operands are
+/// structurally identical (same sign, same category, equal magnitude *and*
+/// equal exponent for finites, equal payload for NaNs), so
+/// `a == b ⟺ a.cmp(&b) == Equal` holds. A derived `Ord` would instead compare
+/// the `Repr` fields lexicographically (sign, then coefficient, then exponent),
+/// which is numerically meaningless; hence the hand-written delegation.
+///
+/// totalOrder distinguishes cohort members (`1.0` ranks above `1.00`) and
+/// signed zeros (`-0` below `+0`); for distinct numeric constants it coincides
+/// with numeric order. Numeric (cohort-collapsing, NaN-aware) comparison stays
+/// available through [`compare`](Decimal::compare) and
+/// [`compare_total`](Decimal::compare_total).
+impl PartialOrd for Decimal {
+    #[inline]
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Decimal {
+    #[inline]
+    fn cmp(&self, other: &Self) -> Ordering {
+        total_cmp(self, other)
     }
 }
 
@@ -256,9 +294,9 @@ fn total_rank_positive(a: &Decimal, b: &Decimal) -> Ordering {
     }
 }
 
-/// Shared `max` / `min`: ignore a quiet NaN, signal invalid on a signaling
-/// NaN, and otherwise pick by numeric value (breaking ties with the total
-/// order), then round the chosen operand to the context.
+/// Shared `maxnum` / `minnum`: ignore a quiet NaN, signal invalid on a
+/// signaling NaN, and otherwise pick by numeric value (breaking ties with the
+/// total order), then round the chosen operand to the context.
 fn select(a: &Decimal, b: &Decimal, ctx: &Context, is_max: bool) -> (Decimal, Status) {
     if a.is_signaling_nan() {
         return (quiet_from(a, ctx), Status::INVALID);
@@ -293,8 +331,8 @@ fn select(a: &Decimal, b: &Decimal, ctx: &Context, is_max: bool) -> (Decimal, St
 
 /// Shared `maxMagnitude` / `minMagnitude`: pick the operand with the larger (or
 /// smaller) magnitude, breaking an equal-magnitude tie with the value-based
-/// `max` / `min`, then round the pick to the context. NaN handling matches
-/// [`select`].
+/// `maxnum` / `minnum`, then round the pick to the context. NaN handling
+/// matches [`select`].
 fn select_magnitude(a: &Decimal, b: &Decimal, ctx: &Context, is_max: bool) -> (Decimal, Status) {
     if a.is_signaling_nan() {
         return (quiet_from(a, ctx), Status::INVALID);
@@ -324,8 +362,8 @@ fn select_magnitude(a: &Decimal, b: &Decimal, ctx: &Context, is_max: bool) -> (D
 
 /// Round the chosen operand to the context, preserving a zero's sign. `plus`
 /// rounds to the context but resolves a zero's sign through the add-from-zero
-/// rule (so `+(-0)` is `+0`); max / min return the selected operand keeping its
-/// own sign, so a zero result is rebuilt with it (the exponent and status from
+/// rule (so `+(-0)` is `+0`); maxnum / minnum return the selected operand
+/// keeping its own sign, so a zero result is rebuilt with it (the exponent and status from
 /// the rounding stand).
 fn rounded_pick(d: &Decimal, ctx: &Context) -> (Decimal, Status) {
     let (r, status) = d.plus(ctx);
@@ -409,19 +447,19 @@ mod tests {
     fn max_min_and_nan_handling() {
         let c = ctx();
         assert_eq!(
-            fin(false, 2, 0).max(&fin(false, 7, 0), &c).0,
+            fin(false, 2, 0).maxnum(&fin(false, 7, 0), &c).0,
             fin(false, 7, 0)
         );
         assert_eq!(
-            fin(false, 2, 0).min(&fin(false, 7, 0), &c).0,
+            fin(false, 2, 0).minnum(&fin(false, 7, 0), &c).0,
             fin(false, 2, 0)
         );
         // A quiet NaN is ignored.
         let qn = Decimal::quiet_nan(false, DecBig::zero());
-        assert_eq!(qn.max(&fin(false, 5, 0), &c).0, fin(false, 5, 0));
+        assert_eq!(qn.maxnum(&fin(false, 5, 0), &c).0, fin(false, 5, 0));
         // A signaling NaN signals invalid.
         let sn = Decimal::signaling_nan(false, DecBig::zero());
-        assert!(sn.max(&fin(false, 5, 0), &c).1.invalid());
+        assert!(sn.maxnum(&fin(false, 5, 0), &c).1.invalid());
     }
 
     #[test]
@@ -440,14 +478,17 @@ mod tests {
         let c = ctx();
         // The selected operand keeps its own sign; rounding the pick via `plus`
         // would resolve -0 to +0, so a zero is rebuilt with the operand's sign.
-        assert_eq!(fin(true, 0, 0).max(&fin(true, 0, 0), &c).0, fin(true, 0, 0));
         assert_eq!(
-            fin(false, 0, 0).min(&fin(true, 0, 0), &c).0,
+            fin(true, 0, 0).maxnum(&fin(true, 0, 0), &c).0,
+            fin(true, 0, 0)
+        );
+        assert_eq!(
+            fin(false, 0, 0).minnum(&fin(true, 0, 0), &c).0,
             fin(true, 0, 0)
         );
         // Equal negative zeros of different exponent: max returns -0.0 (E-1).
         assert_eq!(
-            fin(true, 0, 0).max(&fin(true, 0, -1), &c).0,
+            fin(true, 0, 0).maxnum(&fin(true, 0, -1), &c).0,
             fin(true, 0, -1)
         );
     }
@@ -512,6 +553,83 @@ mod tests {
             Decimal::infinity(false).same_quantum(&Decimal::infinity(true)),
             one()
         );
+    }
+
+    #[test]
+    fn ord_agrees_with_compare_total() {
+        // `Ord` is the totalOrder, so `cmp` must match `compare_total`'s decimal
+        // sign across the representative cases.
+        let cases = [
+            (fin(false, 100, -2), fin(false, 10, -1)), // 1.00 < 1.0 (cohort)
+            (fin(true, 0, 0), fin(false, 0, 0)),       // -0 < +0
+            (fin(false, 2, 0), fin(false, 3, 0)),      // 2 < 3
+            (fin(true, 5, 0), fin(false, 1, 0)),       // -5 < 1
+        ];
+        for (a, b) in cases {
+            assert_eq!(a.cmp(&b), Ordering::Less);
+            assert_eq!(a.compare_total(&b), minus_one());
+            assert_eq!(b.cmp(&a), Ordering::Greater);
+            assert_eq!(a.partial_cmp(&b), Some(Ordering::Less));
+        }
+    }
+
+    #[test]
+    fn ord_is_lawful_against_eq() {
+        // `a == b  ⟺  a.cmp(&b) == Equal` for the structural `Eq`.
+        // A cohort pair is distinct under totalOrder, so it is *not* `Equal`.
+        let (a, b) = (fin(false, 10, -1), fin(false, 100, -2)); // 1.0 vs 1.00
+        assert_ne!(a, b);
+        assert_ne!(a.cmp(&b), Ordering::Equal);
+        // -0 and +0 are likewise distinct structurally and under the order.
+        let (nz, pz) = (fin(true, 0, 0), fin(false, 0, 0));
+        assert_ne!(nz, pz);
+        assert_ne!(nz.cmp(&pz), Ordering::Equal);
+        // Identical reprs compare Equal.
+        assert_eq!(one(), one());
+        assert_eq!(one().cmp(&one()), Ordering::Equal);
+    }
+
+    #[test]
+    fn ord_sorts_and_keys_a_btree() {
+        use alloc::vec::Vec;
+        let mut v: Vec<Decimal> = alloc::vec![
+            fin(false, 3, 0),
+            fin(true, 1, 0),
+            fin(false, 0, 0),
+            fin(false, 2, 0),
+            Decimal::infinity(false),
+            Decimal::infinity(true),
+        ];
+        v.sort();
+        assert_eq!(
+            v,
+            alloc::vec![
+                Decimal::infinity(true),
+                fin(true, 1, 0),
+                fin(false, 0, 0),
+                fin(false, 2, 0),
+                fin(false, 3, 0),
+                Decimal::infinity(false),
+            ]
+        );
+        // Round-trip distinct values through a BTreeSet (exercises `Ord` keying).
+        let set: alloc::collections::BTreeSet<Decimal> =
+            [one(), zero(), minus_one()].into_iter().collect();
+        assert_eq!(set.len(), 3);
+        assert!(set.contains(&zero()));
+    }
+
+    #[test]
+    fn ord_totally_orders_nans_without_panic() {
+        let qn = Decimal::quiet_nan(false, DecBig::zero());
+        let sn = Decimal::signaling_nan(false, DecBig::zero());
+        // A number ranks below a signaling NaN, which ranks below a quiet NaN.
+        assert_eq!(one().cmp(&sn), Ordering::Less);
+        assert_eq!(sn.cmp(&qn), Ordering::Less);
+        assert_eq!(qn.cmp(&qn), Ordering::Equal);
+        // Infinities are ordered against finites.
+        assert_eq!(Decimal::infinity(false).cmp(&one()), Ordering::Greater);
+        assert_eq!(Decimal::infinity(true).cmp(&one()), Ordering::Less);
     }
 
     #[test]

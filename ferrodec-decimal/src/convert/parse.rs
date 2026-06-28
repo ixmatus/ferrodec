@@ -57,6 +57,23 @@ impl Decimal {
     }
 }
 
+impl core::str::FromStr for Decimal {
+    type Err = ParseDecimalError;
+
+    /// Parse via [`Decimal::parse_str`], so `"...".parse::<Decimal>()` is the
+    /// same exact, non-rounding parse: the coefficient and exponent are taken
+    /// verbatim from the literal. Exactness and error semantics are inherited
+    /// unchanged from `parse_str`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ParseDecimalError`], exactly as [`Decimal::parse_str`] does.
+    #[inline]
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::parse_str(s)
+    }
+}
+
 /// ASCII case-insensitive slice equality.
 fn eq_ci(a: &[u8], b: &[u8]) -> bool {
     a.len() == b.len() && a.iter().zip(b).all(|(x, y)| x.eq_ignore_ascii_case(y))
@@ -168,4 +185,32 @@ fn parse_exponent(bytes: &[u8]) -> Result<i64, ParseDecimalError> {
             .ok_or(ParseDecimalError::ExponentOverflow)?;
     }
     Ok(if neg { -v } else { v })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use core::str::FromStr;
+
+    #[test]
+    fn from_str_matches_parse_str_and_preserves_cohort() {
+        // The trait impl is the exact same parse: cohort (the trailing zero) and
+        // value are taken verbatim, so it equals the inherent `parse_str`.
+        let viad: Decimal = "1.230".parse().unwrap();
+        assert_eq!(viad, Decimal::parse_str("1.230").unwrap());
+        assert_eq!(
+            Decimal::from_str("-0.0").unwrap(),
+            Decimal::parse_str("-0.0").unwrap()
+        );
+    }
+
+    #[test]
+    fn from_str_propagates_the_same_error() {
+        // An invalid string yields the identical `ParseDecimalError` either way.
+        assert_eq!(
+            "1.2.3".parse::<Decimal>().unwrap_err(),
+            Decimal::parse_str("1.2.3").unwrap_err()
+        );
+        assert_eq!("".parse::<Decimal>().unwrap_err(), ParseDecimalError::Empty);
+    }
 }
