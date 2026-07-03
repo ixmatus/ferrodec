@@ -202,11 +202,16 @@ testcases through the family.
   string and apply surfaces, at the format precision, with the
   expected per file counts pinned so a silent regression in one file
   cannot hide behind a gain in another.
-- **Blind spot.** No transcendentals at all (the suite has none).
-  Bitwise and copy and DPD only families route to a skip, a
-  dispatcher coverage gap rather than an implementation gap. The non
-  IEEE rounding directives `half_down` and `05up` are a deliberate
-  will not fix (ADR-0005).
+- **Blind spot.** No transcendentals at all (the suite has none). The
+  bitwise families (ADR-0031) and the copy family, truncating
+  remainder, round to integral, plus, and min and max magnitude
+  (fd-aqs.11) now dispatch and pass; the residual dispatcher gaps are
+  narrow, chiefly `toEng` rendering (engineering notation the fixed
+  formats do not expose) and the `canonical` operation, plus the DPD
+  interchange files that only run under the `dpd` feature. Those are a
+  dispatcher coverage gap, not an implementation gap. The non IEEE
+  rounding directives `half_down` and `05up` are a deliberate will not
+  fix (ADR-0005).
 
 ### 2. The exact integer oracle
 
