@@ -52,20 +52,19 @@ discipline (the authoritative table lives at
 pass count below the per-file pin or raises the fail count above 0
 fails the build.
 
-The 435 residual skips fall under these categories: 117 non-IEEE
-rounding directives ferrodec deliberately doesn't support (§1 below);
-20 BID-structural CLAMPED cases that cannot be raised in this encoding
-(fd-61r / ADR-0048, §2 below); and the classes fd-aqs.11's newly
-vendored `dqBase` / `dqToIntegral` / `dqRemainder` files add — the 146
-`dqBase` `toEng` conversions (engineering-notation rendering the fixed
-formats do not expose), its parse-strictness negatives
-(`Conversion_syntax` cases where ferrodec's parser is more lenient than
-decTest, the over-long NaN-payload subset tracked by fd-aqs.13), and a
-handful of extreme-exponent and `#hex`-Clamped BID-interchange cases.
-Every other operation, encoding, and special-value combination in the
-suite passes, now including the §7.4 CLAMPED informational flag
-(compared, not masked) at every clamp site the BID cohort model can
-detect.
+The 435 residual skips fall under five categories, each with its own
+disposition below and the exact per-file counts in the table at the end
+(authoritative): §1 non-IEEE rounding directives (117), §2 the
+BID-structural CLAMPED residual (20), and three classes fd-aqs.11's
+newly vendored `dqBase` file adds — §3 `toEng` string rendering (146),
+§4 extreme-exponent parse rejection (42), and §5 conversion-negative
+parser strictness (99). The `dqToIntegral` / `dqRemainder` skips are the
+BID-interchange `#hex`-Clamped residual (skipped as a harness
+DPD-as-BID decode artifact, ferrodec's own bits being correct) and a
+few extreme-exponent cases. Every other operation, encoding, and
+special-value combination in the suite passes, now including the §7.4
+CLAMPED informational flag (compared, not masked) at every clamp site
+the BID cohort model can detect.
 
 For context: 1.7.1 sat at 8 149 / 0 / 572 (93.4 % pass). The 1.9.0
 through 1.10.1 trail closed five of the original six skip
@@ -134,6 +133,43 @@ storage format (decNumber's model), a different library. The value is
 always exact; only the informational flag is absent. The per-file pass
 pins (ADR-0010) record the residual exactly, so a regression in either
 direction fails the build.
+
+### 3. `toEng` string rendering — 146 cases (`dqBase`, fd-aqs.11)
+
+`dqBase` mixes `toSci` and `toEng` conversion cases. The `toSci` cases
+run (they reuse the value-comparison `apply` path). The 146 `toEng`
+cases are undispatched, because the fixed formats do not expose an
+engineering-notation formatter (`to_eng_string` exists on
+`ferrodec-decimal` but not on Decimal32/64/128). This is a dispatcher
+coverage gap, not an implementation defect. **Deferred**, not
+will-not-fix: adding `to_eng_string` to the fixed formats would let
+these dispatch.
+
+### 4. Extreme-exponent parse rejection — 42 cases (`dqBase`, fd-aqs.11)
+
+42 `dqBase` `toSci` cases feed exponents of astronomical magnitude
+(around `1e6` and beyond, e.g. `1E-999999999`). GDA / decNumber
+saturate these to `Infinity` (overflow) or `0E-6176` (underflow) with
+the corresponding flags; ferrodec's `parse_str` instead rejects them
+with `ExponentOutOfRange` at its `1_000_000` magnitude cap, so the
+runner skips them (`invoke → None`). This is a genuine, narrow
+GDA-conformance gap in the parser's out-of-range handling (the parser
+correctly overflows `1E+7000` and underflows `1E-99999`; only the
+extreme-magnitude *exponent field* rejects rather than saturating).
+Tracked for a follow-up; a saturating parse mode is a deliberate future
+design call, not a silent defect.
+
+### 5. Parser strictness on conversion negatives — 99 cases (`dqBase`, fd-aqs.11)
+
+The remaining `dqBase` skips are `toSci` cases expecting
+`Conversion_syntax` on malformed input. Most are inputs `parse_str`
+correctly rejects (they skip via `invoke → None`); a handful expose a
+parser leniency the runner's `parse_value.trim()` masks (leading /
+trailing whitespace) or the over-long NaN-payload acceptance tracked
+separately. The `toSci` conformance is gated on rendering, not
+parse-strictness, so these are skipped (see the runner's fd-aqs.11
+note); the parser's own strictness is exercised by the crate's parse
+unit tests.
 
 
 ## Per-file totals

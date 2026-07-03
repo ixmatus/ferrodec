@@ -611,11 +611,15 @@ fn run_case(case: &TestCase, ctx: &Context) -> Outcome {
     // operation files, mirroring the sibling harnesses.
     //
     // (a) A `#hex` *expected* carrying a `Clamped` condition in a
-    // value-comparison (non-DPD) file pins the exact clamped BID
-    // encoding, which ferrodec's operations cannot always reconstruct
-    // (the ADR-0048 operand-reparse residual, e.g. `tointegralx` of
-    // `1.23E+6144`). The genuine DPD-interchange files decode their
-    // `#hex` on purpose (`Encoding::Dpd`), so they are excluded.
+    // value-comparison (non-DPD) file (e.g. `tointegralx` of
+    // `1.23E+6144`) is decNumber's DPD interchange encoding of the
+    // clamped result, which this runner would decode as BID — its
+    // default for a non-DPD file — and so mis-compare. ferrodec's own
+    // result is byte-identical to the DPD-decoded expected (the fd-aqs.11
+    // review verified this via `from_dpd_bytes`), so ferrodec is
+    // correct: the skip avoids the harness's DPD-as-BID decode artifact,
+    // not a ferrodec defect. The genuine DPD-interchange files decode
+    // their `#hex` on purpose (`Encoding::Dpd`), so they are excluded.
     if ctx.encoding == Encoding::Bid
         && case.expected.trim_start().starts_with('#')
         && case
