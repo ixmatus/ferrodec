@@ -40,7 +40,10 @@ fn try_new_in_range_succeeds() {
             assert!(biased_exp == biased as u32);
             assert!(sign == (coefficient < 0));
         }
-        _ => kani::cover!(false, "try_new should never produce NaN/Inf"),
+        // `unreachable!` (not `cover!(false)`) so Kani must prove the
+        // arm dead: a reachable panic fails verification, an
+        // unsatisfiable cover is silently vacuous (fd-aqs.10).
+        _ => unreachable!("try_new should never produce NaN/Inf"),
     }
 }
 

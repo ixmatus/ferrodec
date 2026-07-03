@@ -48,8 +48,11 @@ fn pack_finite_unpack_roundtrip() {
             assert!(c == coefficient);
         }
         // Form A encoding of a finite triple cannot decode as
-        // Inf/NaN/Form-B-Zero — that would be a layout bug.
-        _ => kani::cover!(false, "pack_finite produced non-finite encoding"),
+        // Inf/NaN/Form-B-Zero — that would be a layout bug. `unreachable!`
+        // (not `cover!(false)`) so Kani must *prove* the arm dead: a
+        // reachable panic fails verification, whereas an unsatisfiable
+        // cover is silently vacuous (fd-aqs.10).
+        _ => unreachable!("pack_finite produced non-finite encoding"),
     }
 }
 
@@ -60,7 +63,9 @@ fn pack_infinity_roundtrip() {
     let bits = pack_infinity(sign);
     match classify_bits(bits) {
         Class::Infinity { sign: s } => assert!(s == sign),
-        _ => kani::cover!(false, "infinity decoded as non-infinity"),
+        // `unreachable!` binds the obligation; see the note in
+        // `pack_finite_unpack_roundtrip` (fd-aqs.10).
+        _ => unreachable!("infinity decoded as non-infinity"),
     }
 }
 
@@ -79,7 +84,7 @@ fn pack_quiet_nan_roundtrip() {
             assert!(s == sign);
             assert!(p == payload & ((1u128 << 110) - 1));
         }
-        _ => kani::cover!(false, "qNaN decoded as non-qNaN"),
+        _ => unreachable!("qNaN decoded as non-qNaN"),
     }
 }
 
@@ -97,6 +102,6 @@ fn pack_signaling_nan_roundtrip() {
             assert!(s == sign);
             assert!(p == payload & ((1u128 << 110) - 1));
         }
-        _ => kani::cover!(false, "sNaN decoded as non-sNaN"),
+        _ => unreachable!("sNaN decoded as non-sNaN"),
     }
 }

@@ -159,24 +159,37 @@ fn replay(file: &str) -> (usize, usize) {
 
 #[test]
 fn oracle_matches_dectest_reference() {
+    // Per-file exact `checked` pins, not an aggregate `> 2000` floor:
+    // a floor lets one file's silent parse regression hide behind
+    // another file's surplus (fd-aqs.10). The counts are deterministic
+    // (fixed vendored vectors, deterministic in/out-of-scope split);
+    // update deliberately if a file's in-scope case count changes.
+    let expected: &[(&str, usize)] = &[
+        ("dqAdd.decTest", 883),
+        ("dqSubtract.decTest", 434),
+        ("dqMultiply.decTest", 355),
+        ("dqFMA.decTest", 1147),
+        ("dqDivide.decTest", 529),
+        ("dqRemainderNear.decTest", 417),
+    ];
+    let mut problems = Vec::new();
     let mut total = 0;
-    for f in [
-        "dqAdd.decTest",
-        "dqSubtract.decTest",
-        "dqMultiply.decTest",
-        "dqFMA.decTest",
-        "dqDivide.decTest",
-        "dqRemainderNear.decTest",
-    ] {
+    for &(f, exp) in expected {
         let (checked, skipped) = replay(f);
         eprintln!("{f}: {checked} oracle-checked, {skipped} out-of-scope skipped");
+        if checked != exp {
+            problems.push(format!("{f}: expected {exp} oracle-checked, got {checked}"));
+        }
         total += checked;
     }
-    // Sanity: the suite must actually exercise the oracle, not skip
-    // everything (a regression that broke parsing would otherwise pass
-    // silently).
     assert!(
-        total > 2000,
-        "expected the oracle to be exercised on >2000 decTest cases, got {total}"
+        problems.is_empty(),
+        "oracle per-file checked-count mismatch ({} file(s)):\n  {}",
+        problems.len(),
+        problems.join("\n  ")
+    );
+    eprintln!(
+        "oracle exercised on {total} decTest cases across {} files",
+        expected.len()
     );
 }

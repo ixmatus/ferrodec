@@ -18,10 +18,12 @@
 //! `1.0` and `1.00` are distinct), and we hold ourselves to the same
 //! bar — `result.to_bits() == expected.to_bits()` for finite results.
 //!
-//! Ops we don't yet implement (`comparesig`, `tointegral`, ...) are
-//! counted as `skipped`, not failed. When the failures list is
-//! non-empty the test panics with a per-file summary so triage can
-//! start at a specific test ID.
+//! Ops the harness doesn't implement (`tointegral`, the `copy`
+//! family, the §9.2 transcendentals) are counted as `skipped`, not
+//! failed. When the failures list is non-empty the test panics with a
+//! per-file summary so triage can start at a specific test ID.
+//! (`comparesig` is implemented as of ADR-0049; fd-aqs.10 corrected
+//! this list.)
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -136,8 +138,11 @@ fn dectest_conformance() {
         totals.unparsed
     );
 
-    // Print up to 200 failures for triage. The skipped cases (currently
-    // 572 of 8721) are categorised in `KNOWN_ISSUES.md` at the repo root.
+    // Print up to 200 failures for triage. Skipped cases (GDA-only
+    // rounding modes, unimplemented ops, feature-gated DPD vectors) are
+    // categorised in `KNOWN_ISSUES.md` at the repo root; the live
+    // per-file counts are the pinned table below, not a frozen tally in
+    // this comment (fd-aqs.10 removed a stale "572 of 8721" figure).
     if !failures.is_empty() {
         eprintln!("\nFirst 200 failures (of {}):", failures.len());
         for f in failures.iter().take(200) {
@@ -189,12 +194,12 @@ fn dectest_conformance() {
     if !mismatch.is_empty() {
         eprintln!("\nPer-file pass-count mismatch:");
         for (name, exp, got) in &mismatch {
-            let delta = got.wrapping_sub(*exp) as i64
-                - if *got < *exp {
-                    (*exp - *got) as i64 * 2
-                } else {
-                    0
-                };
+            // Signed pass-count delta. Pass counts fit i64 comfortably,
+            // so compute it directly; the former `wrapping_sub(..) as
+            // i64` already yielded the correct signed value and the
+            // extra `- (exp-got)*2` correction tripled negative deltas
+            // (fd-aqs.10).
+            let delta = *got as i64 - *exp as i64;
             eprintln!("  {name:<28}  expected {exp}  got {got}  (Δ {delta:+})");
         }
         eprintln!(

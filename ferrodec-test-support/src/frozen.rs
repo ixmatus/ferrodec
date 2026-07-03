@@ -8,9 +8,10 @@
 //! checked-in text — so the per-crate frozen-vector tests are
 //! default-on and run in standard CI under `--features
 //! transcendentals`, unlike the gated astro-float / mpmath / MPFR
-//! oracles. Each sibling asserts its faithful kernel (≤1 ULP,
-//! ADR-0021) lands within one representable step of the proven
-//! correctly-rounded value.
+//! oracles. Each format's frozen-vector test asserts its kernel is
+//! *correctly rounded* (ADR-0032, superseding ADR-0021's faithful
+//! ≤1 ULP contract): the result equals the proven correctly-rounded
+//! value exactly, not merely within one representable step.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -58,6 +59,241 @@ fn corpus_dir() -> PathBuf {
 #[must_use]
 pub fn load(prec: u32) -> Vec<FrozenVec> {
     load_from(&corpus_dir(), prec)
+}
+
+/// Expected per-`(func, mode)` vector counts for the sampled frozen
+/// corpus ([`load`]), one table per format precision (Decimal128 p34,
+/// Decimal64 p16, Decimal32 p7). Authored from a direct corpus scan
+/// independent of [`load`]'s parse, so a loader regression that
+/// silently drops or duplicates a bucket is caught even when the
+/// corpus bytes are unchanged. Complements, not duplicates, the
+/// `SHA256SUMS` byte pin (`corpus_integrity.rs`): the hash guards the
+/// bytes, these guard the loader's interpretation of them. Replaces
+/// the former aggregate `len() > 500` floor, which admitted silent
+/// compensating drift between buckets (fd-aqs.10). Regenerate the
+/// numbers alongside the corpus.
+pub const EXPECTED_BUCKETS_P34: &[(&str, &str, usize)] = &[
+    ("acos", "NearestEven", 46),
+    ("acosh", "NearestEven", 45),
+    ("asin", "NearestEven", 46),
+    ("asinh", "NearestEven", 52),
+    ("atan", "NearestAway", 21),
+    ("atan", "NearestEven", 49),
+    ("atan", "TowardNegative", 21),
+    ("atan", "TowardPositive", 21),
+    ("atan", "TowardZero", 21),
+    ("atan2", "NearestAway", 50),
+    ("atan2", "NearestEven", 50),
+    ("atan2", "TowardNegative", 50),
+    ("atan2", "TowardPositive", 50),
+    ("atan2", "TowardZero", 50),
+    ("atanh", "NearestEven", 48),
+    ("cbrt", "NearestAway", 61),
+    ("cbrt", "NearestEven", 89),
+    ("cbrt", "TowardNegative", 61),
+    ("cbrt", "TowardPositive", 61),
+    ("cbrt", "TowardZero", 61),
+    ("cos", "NearestAway", 46),
+    ("cos", "NearestEven", 74),
+    ("cos", "TowardNegative", 46),
+    ("cos", "TowardPositive", 46),
+    ("cos", "TowardZero", 46),
+    ("cosh", "NearestEven", 51),
+    ("exp", "NearestAway", 24),
+    ("exp", "NearestEven", 46),
+    ("exp", "TowardNegative", 24),
+    ("exp", "TowardPositive", 24),
+    ("exp", "TowardZero", 24),
+    ("exp2", "NearestEven", 48),
+    ("ln", "NearestAway", 66),
+    ("ln", "NearestEven", 94),
+    ("ln", "TowardNegative", 66),
+    ("ln", "TowardPositive", 66),
+    ("ln", "TowardZero", 66),
+    ("log10", "NearestAway", 66),
+    ("log10", "NearestEven", 94),
+    ("log10", "TowardNegative", 62),
+    ("log10", "TowardPositive", 62),
+    ("log10", "TowardZero", 62),
+    ("log2", "NearestEven", 94),
+    ("pow", "NearestAway", 36),
+    ("pow", "NearestEven", 36),
+    ("pow", "TowardNegative", 33),
+    ("pow", "TowardPositive", 34),
+    ("pow", "TowardZero", 33),
+    ("sin", "NearestAway", 46),
+    ("sin", "NearestEven", 74),
+    ("sin", "TowardNegative", 46),
+    ("sin", "TowardPositive", 46),
+    ("sin", "TowardZero", 46),
+    ("sinh", "NearestEven", 43),
+    ("tan", "NearestEven", 74),
+    ("tanh", "NearestEven", 52),
+];
+
+/// Decimal64 (p16) per-`(func, mode)` counts; see [`EXPECTED_BUCKETS_P34`].
+pub const EXPECTED_BUCKETS_P16: &[(&str, &str, usize)] = &[
+    ("acos", "NearestEven", 46),
+    ("acosh", "NearestEven", 45),
+    ("asin", "NearestEven", 46),
+    ("asinh", "NearestEven", 52),
+    ("atan", "NearestAway", 21),
+    ("atan", "NearestEven", 49),
+    ("atan", "TowardNegative", 21),
+    ("atan", "TowardPositive", 21),
+    ("atan", "TowardZero", 21),
+    ("atan2", "NearestAway", 50),
+    ("atan2", "NearestEven", 50),
+    ("atan2", "TowardNegative", 50),
+    ("atan2", "TowardPositive", 50),
+    ("atan2", "TowardZero", 50),
+    ("atanh", "NearestEven", 48),
+    ("cbrt", "NearestAway", 51),
+    ("cbrt", "NearestEven", 79),
+    ("cbrt", "TowardNegative", 51),
+    ("cbrt", "TowardPositive", 51),
+    ("cbrt", "TowardZero", 51),
+    ("cos", "NearestAway", 41),
+    ("cos", "NearestEven", 69),
+    ("cos", "TowardNegative", 41),
+    ("cos", "TowardPositive", 41),
+    ("cos", "TowardZero", 41),
+    ("cosh", "NearestEven", 17),
+    ("exp", "NearestAway", 14),
+    ("exp", "NearestEven", 16),
+    ("exp", "TowardNegative", 16),
+    ("exp", "TowardPositive", 14),
+    ("exp", "TowardZero", 13),
+    ("exp2", "NearestEven", 15),
+    ("ln", "NearestAway", 56),
+    ("ln", "NearestEven", 84),
+    ("ln", "TowardNegative", 56),
+    ("ln", "TowardPositive", 56),
+    ("ln", "TowardZero", 56),
+    ("log10", "NearestAway", 56),
+    ("log10", "NearestEven", 84),
+    ("log10", "TowardNegative", 52),
+    ("log10", "TowardPositive", 52),
+    ("log10", "TowardZero", 52),
+    ("log2", "NearestEven", 84),
+    ("pow", "NearestAway", 36),
+    ("pow", "NearestEven", 36),
+    ("pow", "TowardNegative", 34),
+    ("pow", "TowardPositive", 34),
+    ("pow", "TowardZero", 34),
+    ("sin", "NearestAway", 41),
+    ("sin", "NearestEven", 69),
+    ("sin", "TowardNegative", 41),
+    ("sin", "TowardPositive", 41),
+    ("sin", "TowardZero", 41),
+    ("sinh", "NearestEven", 14),
+    ("tan", "NearestEven", 69),
+    ("tanh", "NearestEven", 52),
+];
+
+/// Decimal32 (p7) per-`(func, mode)` counts; see [`EXPECTED_BUCKETS_P34`].
+pub const EXPECTED_BUCKETS_P7: &[(&str, &str, usize)] = &[
+    ("acos", "NearestEven", 46),
+    ("acosh", "NearestEven", 45),
+    ("asin", "NearestEven", 46),
+    ("asinh", "NearestEven", 52),
+    ("atan", "NearestAway", 21),
+    ("atan", "NearestEven", 49),
+    ("atan", "TowardNegative", 21),
+    ("atan", "TowardPositive", 21),
+    ("atan", "TowardZero", 21),
+    ("atan2", "NearestAway", 50),
+    ("atan2", "NearestEven", 50),
+    ("atan2", "TowardNegative", 50),
+    ("atan2", "TowardPositive", 50),
+    ("atan2", "TowardZero", 50),
+    ("atanh", "NearestEven", 48),
+    ("cbrt", "NearestAway", 43),
+    ("cbrt", "NearestEven", 71),
+    ("cbrt", "TowardNegative", 43),
+    ("cbrt", "TowardPositive", 43),
+    ("cbrt", "TowardZero", 43),
+    ("cos", "NearestAway", 37),
+    ("cos", "NearestEven", 65),
+    ("cos", "TowardNegative", 37),
+    ("cos", "TowardPositive", 37),
+    ("cos", "TowardZero", 37),
+    ("cosh", "NearestEven", 22),
+    ("exp", "NearestAway", 15),
+    ("exp", "NearestEven", 18),
+    ("exp", "TowardNegative", 16),
+    ("exp", "TowardPositive", 16),
+    ("exp", "TowardZero", 17),
+    ("exp2", "NearestEven", 21),
+    ("ln", "NearestAway", 48),
+    ("ln", "NearestEven", 76),
+    ("ln", "TowardNegative", 48),
+    ("ln", "TowardPositive", 48),
+    ("ln", "TowardZero", 48),
+    ("log10", "NearestAway", 48),
+    ("log10", "NearestEven", 76),
+    ("log10", "TowardNegative", 44),
+    ("log10", "TowardPositive", 44),
+    ("log10", "TowardZero", 44),
+    ("log2", "NearestEven", 76),
+    ("pow", "NearestAway", 36),
+    ("pow", "NearestEven", 36),
+    ("pow", "TowardNegative", 35),
+    ("pow", "TowardPositive", 35),
+    ("pow", "TowardZero", 35),
+    ("sin", "NearestAway", 37),
+    ("sin", "NearestEven", 65),
+    ("sin", "TowardNegative", 37),
+    ("sin", "TowardPositive", 37),
+    ("sin", "TowardZero", 37),
+    ("sinh", "NearestEven", 18),
+    ("tan", "NearestEven", 65),
+    ("tanh", "NearestEven", 52),
+];
+
+/// Assert the loaded corpus has exactly the expected per-`(func,
+/// mode)` bucket counts, panicking with a precise diff on any
+/// missing, extra, or miscounted bucket. Replaces the aggregate
+/// `len() > 500` floor, which admitted silent compensating drift
+/// between buckets (fd-aqs.10).
+pub fn assert_bucket_counts(vectors: &[FrozenVec], expected: &[(&str, &str, usize)]) {
+    use std::collections::BTreeMap;
+    let mut actual: BTreeMap<(&str, &str), usize> = BTreeMap::new();
+    for v in vectors {
+        *actual
+            .entry((v.func.as_str(), v.mode.as_str()))
+            .or_insert(0) += 1;
+    }
+    let mut want: BTreeMap<(&str, &str), usize> = BTreeMap::new();
+    for &(f, m, n) in expected {
+        want.insert((f, m), n);
+    }
+    let mut problems = Vec::new();
+    for (&(f, m), &got) in &actual {
+        match want.get(&(f, m)) {
+            None => problems.push(format!(
+                "EXTRA    {f}/{m}: {got} (bucket not in expected table)"
+            )),
+            Some(&exp) if exp != got => {
+                problems.push(format!("COUNT    {f}/{m}: expected {exp}, got {got}"));
+            }
+            Some(_) => {}
+        }
+    }
+    for &(f, m, exp) in expected {
+        if !actual.contains_key(&(f, m)) {
+            problems.push(format!("MISSING  {f}/{m}: expected {exp}, got 0"));
+        }
+    }
+    assert!(
+        problems.is_empty(),
+        "frozen corpus per-(func,mode) bucket pin mismatch ({} problem(s)):\n  {}\n\
+         If the corpus was regenerated deliberately, update the matching \
+         EXPECTED_BUCKETS_* table in ferrodec-test-support/src/frozen.rs and \
+         the SHA256SUMS manifest (fd-aqs.10).",
+        problems.len(),
+        problems.join("\n  ")
+    );
 }
 
 /// Every near-anchor band vector (fd-aqs.6) for `prec` significant
