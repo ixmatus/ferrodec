@@ -28,10 +28,36 @@
 //! "e"+5-digit exponent). 64 bytes covers both with margin.
 
 use core::fmt::Write as _;
+use core::num::FpCategory;
 use core::str::FromStr;
 
+use ferrodec_ieee::binary_conversion_status;
+
+use crate::bid::{classify_bits, Class, BIAS};
 use crate::decimal::Decimal128;
 use crate::status::{RoundingMode, Status};
+
+/// The `convertFormat` status for a finite nonzero `d` rendered to a
+/// correctly-rounded binary float (fd-aqs.12), extracting `d`'s
+/// `(coefficient, exponent)` for the shared exactness rule. `inf` / `zero`
+/// / `subnormal` are the converted float's flags.
+fn binary_status(
+    d: Decimal128,
+    inf: bool,
+    zero: bool,
+    subnormal: bool,
+    mantissa_bits: u32,
+) -> Status {
+    let (coef, exp) = match classify_bits(d.to_bits()) {
+        Class::Finite {
+            coefficient,
+            biased_exp,
+            ..
+        } => (coefficient, biased_exp as i32 - BIAS as i32),
+        _ => (0, 0),
+    };
+    binary_conversion_status(coef, exp, inf, zero, subnormal, mantissa_bits)
+}
 
 /// Maximum length of a `Display`-formatted `Decimal128` or `f64`.
 const STR_BUF_LEN: usize = 64;
@@ -68,24 +94,25 @@ impl core::fmt::Write for StrBuf {
 }
 
 impl Decimal128 {
-    /// Convert `self` to `f64`, using the canonical decimal-string
-    /// round-trip. NaN / ±∞ / ±0 are passed through bit-exactly.
-    /// Finite values are rendered to a buffer via `Display` and
-    /// parsed by `f64::from_str`. The resulting `f64` is the
-    /// shortest-decimal-that-round-trips representation of the
-    /// Decimal128 value rounded to the f64 grid, not the IEEE 754
-    /// §5.4.2 `convertFormat` correctly-rounded conversion. For
-    /// values inside f64's ~17-digit precision envelope the two
-    /// definitions agree; for wider Decimal128 values the
-    /// shortest-decimal step may diverge from the
-    /// best-rounded-f64 by up to 1 ULP. The L5 finding in the
-    /// 2026-05-10 review flagged the earlier "correctly-rounded"
-    /// wording as inviting the stronger contract; this docstring
-    /// records the actual semantics.
+    /// Convert `self` to `f64` (IEEE 754-2019 §5.4.2 convertFormat),
+    /// returning the correctly-rounded result and its status. NaN /
+    /// ±∞ / ±0 pass through bit-exactly (an sNaN raises `INVALID`).
+    /// Finite values are rendered via `Display`, which is the *exact*
+    /// decimal value (GDA toSci, lossless), and parsed by the
+    /// correctly-rounded `f64::from_str`, so the composition is
+    /// correctly rounded (guarded by `to_f64_is_correctly_rounded`).
+    /// `INEXACT` is set exactly when the value is not representable in
+    /// f64 (fd-aqs.12, via `ferrodec_ieee::decimal_is_binary_exact`);
+    /// a result of ±∞ / ±0 raises `OVERFLOW` / `UNDERFLOW`.
     ///
-    /// `rm` currently informs only the unrepresentable-edge cases
-    /// (overflow ⇒ ±∞, underflow ⇒ ±0); the dominant rounding is
-    /// performed by `f64::from_str`, which is round-to-nearest-even.
+    /// A 2026-05-10 review's "L5" note had weakened this docstring to
+    /// "not correctly rounded, up to 1 ULP" on the mistaken premise
+    /// that `Display` produces a shortest-round-trip form; it produces
+    /// the exact value, so the conversion is correctly rounded.
+    /// fd-aqs.12 restored the accurate contract.
+    ///
+    /// `rm` is accepted for spec parity; f64's round-to-nearest-even
+    /// governs the parse.
     #[must_use]
     pub fn to_f64(self, _rm: RoundingMode) -> (f64, Status) {
         if self.is_nan() {
@@ -112,23 +139,21 @@ impl Decimal128 {
         if self.is_zero() {
             return (if self.is_sign_negative() { -0.0 } else { 0.0 }, Status::OK);
         }
-        // Finite: render to canonical decimal string, parse as f64.
+        // Finite: render to canonical decimal string, parse as f64
+        // (correctly rounded). INEXACT is then decided exactly
+        // (fd-aqs.12): the earlier code raised it unconditionally, so an
+        // exact conversion such as `ONE.to_f64` reported INEXACT.
         let mut buf = StrBuf::new();
         write!(&mut buf, "{self}").expect("Decimal128 display fits 64 bytes");
         match f64::from_str(buf.as_str()) {
             Ok(v) => {
-                let mut status = Status::OK;
-                if v.is_infinite() {
-                    status |= Status::OVERFLOW | Status::INEXACT;
-                } else if v == 0.0 && !self.is_zero() {
-                    status |= Status::UNDERFLOW | Status::INEXACT;
-                } else {
-                    // f64 round-to-nearest is inexact for any value
-                    // not exactly representable in 53-bit binary
-                    // precision. We don't try to detect "exact" here
-                    // (would require a re-encode + bit compare).
-                    status |= Status::INEXACT;
-                }
+                let status = binary_status(
+                    self,
+                    v.is_infinite(),
+                    v == 0.0,
+                    v.classify() == FpCategory::Subnormal,
+                    53,
+                );
                 (v, status)
             }
             Err(_) => (f64::NAN, Status::INVALID),
@@ -172,17 +197,13 @@ impl Decimal128 {
         write!(&mut buf, "{self}").expect("Decimal128 display fits 64 bytes");
         match f32::from_str(buf.as_str()) {
             Ok(v) => {
-                let mut status = Status::OK;
-                if v.is_infinite() {
-                    status |= Status::OVERFLOW | Status::INEXACT;
-                } else if v == 0.0 && !self.is_zero() {
-                    status |= Status::UNDERFLOW | Status::INEXACT;
-                } else {
-                    // Same caveat as to_f64: we don't try to detect
-                    // "exact" here, which would require a re-encode +
-                    // bit compare against the original Decimal128.
-                    status |= Status::INEXACT;
-                }
+                let status = binary_status(
+                    self,
+                    v.is_infinite(),
+                    v == 0.0,
+                    v.classify() == FpCategory::Subnormal,
+                    24,
+                );
                 (v, status)
             }
             Err(_) => (f32::NAN, Status::INVALID),
@@ -197,7 +218,23 @@ impl Decimal128 {
     #[must_use]
     pub fn from_f64(value: f64, rm: RoundingMode) -> (Self, Status) {
         if value.is_nan() {
-            return (Decimal128::NAN, Status::OK);
+            // Preserve the NaN sign (§6.3) and raise INVALID on a
+            // signaling NaN operand (§5.4.2). Rust language NaNs are
+            // quiet, but a bit pattern via `f64::from_bits` / FFI can be
+            // signaling: among binary64 NaNs, signaling is the quiet bit
+            // (mantissa MSB, bit 51) clear. Matches the siblings
+            // (fd-aqs.12: the root previously dropped both).
+            let nan = if value.is_sign_negative() {
+                Decimal128::NAN.neg()
+            } else {
+                Decimal128::NAN
+            };
+            let status = if value.to_bits() & 0x0008_0000_0000_0000 == 0 {
+                Status::INVALID
+            } else {
+                Status::OK
+            };
+            return (nan, status);
         }
         if value.is_infinite() {
             let v = if value.is_sign_negative() {
@@ -546,5 +583,75 @@ mod tests {
         assert_eq!(v, 0.0_f32);
         assert!(s.underflow());
         assert!(s.inexact());
+    }
+
+    #[test]
+    fn to_binary_inexact_flag_is_exact() {
+        // fd-aqs.12: exact conversions raise no INEXACT (the string path
+        // used to raise it unconditionally, so ONE.to_f64 was INEXACT),
+        // inexact ones do.
+        let rm = RoundingMode::NearestEven;
+        let p = |s: &str| Decimal128::parse_str(s, rm).unwrap().0;
+        for s in ["1", "-1", "0.5", "0.25", "3.5", "100", "8"] {
+            assert!(!p(s).to_f64(rm).1.inexact(), "{s} -> f64 exact");
+            assert!(!p(s).to_f32(rm).1.inexact(), "{s} -> f32 exact");
+        }
+        for s in ["0.1", "-0.1", "0.3", "1.2345678901234567", "1E-30"] {
+            assert!(p(s).to_f64(rm).1.inexact(), "{s} -> f64 inexact");
+            assert!(p(s).to_f32(rm).1.inexact(), "{s} -> f32 inexact");
+        }
+        // `Decimal128::ONE` directly, the review's named witness.
+        assert!(!Decimal128::ONE.to_f64(rm).1.inexact());
+    }
+
+    #[test]
+    fn to_f64_is_correctly_rounded() {
+        // to_f64 renders the *exact* value (Decimal128 Display is GDA
+        // toSci, lossless) and parses it with the correctly-rounded
+        // `f64::from_str`, so it equals the correctly-rounded conversion
+        // of the same value — the precondition the fd-aqs.12 exact
+        // INEXACT flag rests on. Each `s` below has ≤34 significant
+        // digits, so `parse_str` holds it exactly and `s.parse::<f64>()`
+        // is an independent correctly-rounded reference. (This refutes
+        // the stale docstring claiming a 1-ULP shortest-decimal
+        // divergence for wide values.)
+        let rm = RoundingMode::NearestEven;
+        for s in [
+            "1.234567890123456789012345678901234",
+            "9.999999999999999999999999999999999",
+            "0.1",
+            "0.3",
+            "3.141592653589793238462643383279503",
+            "2.718281828459045235360287471352662",
+            "1.5",
+            "1e10",
+            "1e-10",
+            "1234567890123456789012345678.901234",
+        ] {
+            let d = Decimal128::parse_str(s, rm).unwrap().0;
+            let got = d.to_f64(rm).0;
+            let want: f64 = s.parse().unwrap();
+            assert_eq!(
+                got.to_bits(),
+                want.to_bits(),
+                "to_f64({s}) not correctly rounded"
+            );
+        }
+    }
+
+    #[test]
+    fn from_f64_nan_sign_and_snan() {
+        // fd-aqs.12: §6.3 sign preservation + §5.4.2 sNaN INVALID (the
+        // root previously dropped both).
+        let rm = RoundingMode::NearestEven;
+        let (pos, ps) = Decimal128::from_f64(f64::NAN, rm);
+        assert!(pos.is_nan() && !pos.is_sign_negative() && !ps.invalid());
+        let (neg, _) = Decimal128::from_f64(-f64::NAN, rm);
+        assert!(neg.is_nan() && neg.is_sign_negative());
+        // A signaling-NaN bit pattern (exponent all ones, quiet bit
+        // clear, payload set) raises INVALID.
+        let snan = f64::from_bits(0x7ff0_0000_0000_0001);
+        let (d, s) = Decimal128::from_f64(snan, rm);
+        assert!(d.is_nan() && s.invalid());
     }
 }

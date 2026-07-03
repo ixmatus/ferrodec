@@ -33,11 +33,13 @@
 
 #![no_std]
 
+mod binary;
 mod classify;
 mod digits;
 mod round;
 mod status;
 
+pub use binary::{binary_conversion_status, decimal_is_binary_exact};
 pub use classify::{IeeeClass, IeeeDecodedClass};
 pub use digits::decimal_digit_count_u128;
 pub use round::should_round_up;
