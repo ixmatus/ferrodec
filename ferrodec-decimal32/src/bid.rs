@@ -93,7 +93,7 @@ pub(crate) const COEFFICIENT_LIMIT: u32 = 10u32.pow(7);
 /// `[2^23, 10^7)`.
 #[allow(dead_code)]
 pub(crate) const FORM_B_THRESHOLD: u32 = 1u32 << 23;
-/// `2^24 + 2^23` (= `2^23 + 2 * 2^20`) — the strict upper bound on any
+/// `2^23 + 2 · 2^20` (= `10 · 2^20`) — the strict upper bound on any
 /// Form B coefficient. Encodings between `COEFFICIENT_LIMIT` and this
 /// value are non-canonical and decode to ±0.
 #[allow(dead_code)]

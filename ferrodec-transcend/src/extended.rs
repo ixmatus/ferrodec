@@ -165,7 +165,10 @@ impl Extended {
     /// Build from a finite or zero format datum. Panics on NaN / Inf —
     /// callers must dispatch those at the public-API boundary.
     pub fn from_format<F: DecimalFormat>(d: F) -> Self {
-        let (coef, exp, sign) = d.to_extended_parts();
+        let (coef, exp, sign) = d.to_extended_parts().expect(
+            "from_format requires a finite or zero datum; NaN / Inf are \
+             dispatched at the public-API boundary",
+        );
         Self { coef, exp, sign }
     }
 

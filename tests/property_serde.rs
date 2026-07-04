@@ -12,7 +12,7 @@
 #![cfg(feature = "serde")]
 
 use ferrodec::{Decimal128, RoundingMode};
-use serde_test::{assert_de_tokens, assert_tokens, Token};
+use serde_test::{assert_de_tokens, assert_tokens, Configure, Token};
 
 mod common;
 use common::parse;
@@ -90,10 +90,12 @@ struct WithBid {
 
 #[test]
 fn serde_bid_string_fallback_round_trips_via_json() {
-    // JSON can't carry u128 losslessly, so the bid module's
-    // human-readable fallback kicks in: serialize via the string path.
-    // The deserializer's `deserialize_any` accepts strings and routes
-    // them through `Decimal128::parse_str`.
+    // A hand-written JSON string routes through the bid module's
+    // human-readable path: `deserialize_any` accepts the string and
+    // parses it via `Decimal128::parse_str`. (serde_bid *serialize*
+    // always writes the raw u128, so JSON's own serialized form is a
+    // number, not this string; this test exercises only the string
+    // *input* path — fd-aqs.13 review.)
     let row = WithBid {
         value: parse("3.14"),
     };
@@ -104,13 +106,15 @@ fn serde_bid_string_fallback_round_trips_via_json() {
 
 #[test]
 fn serde_bid_accepts_decimal_string() {
-    // `assert_de_tokens` exercises the string-input path the bid
-    // module's fallback handles for human-readable formats.
+    // The string-input fallback applies to *human-readable* formats
+    // (fd-aqs.13: the bid module now branches on `is_human_readable`).
+    // `.readable()` puts serde_test in human-readable mode, matching JSON
+    // / YAML, so the `deserialize_any` path accepts the string token.
     let row = WithBid {
         value: parse("3.14"),
     };
     assert_de_tokens(
-        &row,
+        &row.readable(),
         &[
             Token::Struct {
                 name: "WithBid",
@@ -121,6 +125,25 @@ fn serde_bid_accepts_decimal_string() {
             Token::StructEnd,
         ],
     );
+}
+
+#[test]
+fn serde_bid_round_trips_in_bincode() {
+    // fd-aqs.13: bincode is non-self-describing, so it rejected the
+    // former `deserialize_any` at runtime. With the `is_human_readable`
+    // branch the bid module serializes/deserializes the raw BID u128,
+    // which bincode round-trips bit-exactly (NaN / Inf included, since
+    // the transport is the encoding, not the value).
+    for s in ["3.14", "-2.5", "1E+100", "0", "-0", "NaN", "Infinity"] {
+        let row = WithBid { value: parse(s) };
+        let bytes = bincode::serialize(&row).expect("bincode serialize");
+        let back: WithBid = bincode::deserialize(&bytes).expect("bincode deserialize");
+        assert_eq!(
+            back.value.to_bits(),
+            row.value.to_bits(),
+            "bincode round-trip {s}"
+        );
+    }
 }
 
 // `assert_tokens` and the unused-import suppression below would fight

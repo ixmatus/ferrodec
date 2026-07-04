@@ -44,6 +44,20 @@ pub fn verify_all(dir: impl AsRef<Path>) {
     });
 }
 
+/// Verify every `*.txt` file in `dir` against `dir/SHA256SUMS`. The `*.txt`
+/// variant of [`verify`], used for the *generated* corpora (the Arb/FLINT
+/// frozen transcendental corpus and the rounding-kernel cases): their
+/// provenance is a committed generator rather than an upstream archive, but
+/// the byte-drift guard is identical — a silent corpus regeneration, or a
+/// new corpus file that was never attested, fails the build (fd-aqs.10).
+/// Subdirectories are not descended, so each corpus subdirectory carries its
+/// own manifest.
+pub fn verify_txt(dir: impl AsRef<Path>) {
+    verify_with(dir.as_ref(), "*.txt", &|path| {
+        path.extension().and_then(|s| s.to_str()) == Some("txt")
+    });
+}
+
 fn verify_with(dir: &Path, glob_hint: &str, scan: &dyn Fn(&Path) -> bool) {
     let manifest_path = dir.join("SHA256SUMS");
     let manifest = fs::read_to_string(&manifest_path)

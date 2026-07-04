@@ -22,9 +22,16 @@ suite across all four vendored directories (ADR-0052).
 - Archive SHA-256:
   `b70a224cd52e82b7a8150aedac5efa2d0cb3941696fd829bdbe674f9f65c3926`
 - Retrieved: 2026-05-03 (initial set); 2026-06-04 (`dqCompareSig.decTest` fd-bef.1,
-  `dqNextToward.decTest` fd-bef.2)
+  `dqNextToward.decTest` fd-bef.2); 2026-07-03 (fd-aqs.11: `dqBase`, `dqCopy`,
+  `dqCopyAbs`, `dqCopyNegate`, `dqCopySign`, `dqRemainder`, `dqToIntegral`,
+  `dqPlus`, `dqMinMag`, `dqMaxMag`)
 - Files extracted: the `dq*.decTest` decimal128-specific variants (precision 34,
-  emax 6144, emin -6143).
+  emax 6144, emin -6143). The set covers arithmetic, comparison, quantum,
+  logical, conversion, and — since fd-aqs.11 — the copy family, truncating
+  remainder, round-to-integral, plus, and min/max-magnitude operations. It is a
+  subset of the archive, not every `dq*` file; the §9.2 transcendental surface
+  is not part of the format-specific suite (see the registry entry's
+  coverage-gap statement).
 
 The local copies are unmodified. The per-file SHA-256 of every committed
 `dq*.decTest` is pinned in `SHA256SUMS` (the standard `shasum -a 256` format) and
@@ -41,5 +48,7 @@ manifest (`shasum -a 256 *.decTest > SHA256SUMS`) and update the retrieved date.
 DPD bit pattern (`#hex32` operands and expecteds). They only run when
 the `dpd` Cargo feature is enabled, since they require
 `Decimal128::to_dpd_bytes` / `from_dpd_bytes`. Without the feature
-the runner skips both files and the existing 8 622-pass / 0-fail /
-99-skip baseline is preserved.
+the runner skips both files. The authoritative live counts are the
+per-file pins in `tests/conformance.rs::expected_per_file` (a frozen
+tally here would drift); the pass/fail/skip summary lives in
+`KNOWN_ISSUES.md`.

@@ -111,11 +111,10 @@ fn step_distance(got: Decimal32, cr: Decimal32) -> Option<u8> {
 #[test]
 fn frozen_arb_vectors_correctly_rounded() {
     let vectors = frozen::load(PREC);
-    assert!(
-        vectors.len() > 500,
-        "expected a substantial frozen corpus, loaded {}",
-        vectors.len()
-    );
+    // Per-(func,mode) exact pins, not an aggregate `len()` floor: a
+    // floor admits silent compensating drift (one bucket gains while
+    // another loses). fd-aqs.10.
+    frozen::assert_bucket_counts(&vectors, frozen::EXPECTED_BUCKETS_P7);
 
     // Exact bucket count tallied per rounding mode for diagnostic
     // output. Anything other than `Some(0)` panics; ADR-0032 admits no

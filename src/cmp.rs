@@ -9,8 +9,8 @@
 //!   `compareSignaling`: the same numeric comparison, but *every* NaN
 //!   operand raises `INVALID`, including a quiet NaN.
 //! * [`Decimal128::total_cmp`] is the IEEE 754 §5.10 `totalOrder` predicate.
-//!   Every bit pattern has a unique position. `−sNaN < −qNaN < −∞ < … <
-//!   −0 < +0 < … < +∞ < +qNaN < +sNaN`. Equal-magnitude finite cohorts are
+//!   Every bit pattern has a unique position. `−qNaN < −sNaN < −∞ < … <
+//!   −0 < +0 < … < +∞ < +sNaN < +qNaN`. Equal-magnitude finite cohorts are
 //!   ordered by exponent: smaller exponent first if positive, larger
 //!   exponent first if negative.
 //!

@@ -122,8 +122,24 @@ reader sees the coupled derivation in one place.
 `tan` discharges the per decade Payne Hanek bound across the full
 argument range without an ε band carve out. The argument
 reduction's worst case error term is bounded by the 6300 digit
-`2/π` table at `ferrodec-transcend/src/argred.rs:30` and the 80
-digit π/2 constant in `consts.rs`; the bound holds across every
+`2/π` table and the 38 digit truncated `π/2` constant
+`PI_OVER_TWO_COEF_38`, both in `ferrodec-transcend/src/argred.rs`
+(the constant is derived from an 80 digit reference string kept only
+for pinning; the reduction reads the 38 digit truncation).
+
+Honesty amendment (fd-aqs.10, 2026-06-09 review). The earlier text
+here claimed an "80 digit π/2 constant in `consts.rs`"; the data
+path in fact multiplies by the 38 digit truncation. The *analytic*
+truncation bound on that reduction is ≤ 10^{-3} ULP, which is looser
+than the worst Decimal128 `cos` sampled half ULP margin
+(4.051 × 10^{-4} ULP), so the written bound does not by itself
+discharge the correctly rounded obligation at Decimal128 trig. The
+*measured* truncation contributes ≤ ~6.3 × 10^{-5} ULP, an order of
+magnitude inside that margin, with a one sided bias coherent across
+the three formats; so the discharge at Decimal128 trig is empirical
+against the sampled margins rather than fully analytic, and a fully
+analytic bound awaits the 80 digit U384 `π/2` path (deferred until a
+failing high magnitude case surfaces). The bound holds across every
 decade the table covers.
 
 ### The rollout

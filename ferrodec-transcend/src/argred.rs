@@ -30,9 +30,13 @@
 //! input's unbiased exponent, multiplies by the 34-digit coefficient
 //! into a `U384`, and reads the integer part `mod 4` and the leading
 //! ~38 fractional digits directly out of the result. The fractional
-//! part is then multiplied by an extended-precision `π/2` (80 digits,
-//! also embedded) to yield `r` with 1-2 ULP of error against the true
-//! reduction.
+//! part is then multiplied by a 38-digit truncated `π/2` constant
+//! (`PI_OVER_TWO_COEF_38`, derived from and pinned against the
+//! 80-digit `table::PI_OVER_TWO_STR` reference) to yield `r` with 1-2
+//! ULP of error against the true reduction. The 80-digit string is a
+//! derivation reference only; the reduction reads the 38-digit
+//! truncation, whose truncation-error discharge that constant's doc
+//! records honestly (fd-aqs.10).
 //!
 //! ## Storage budget for the table
 //!
@@ -812,10 +816,23 @@ const I_HI_OFFSET: u32 = FRAC_DIGITS + 33 + CARRY_GUARD; // = 113
 /// rounded — pinned to [`table::PI_OVER_TWO_STR`] by
 /// `pi_over_two_coef_matches_string`). Multiplied by the extracted
 /// fractional residual (also up to 38 digits) to produce
-/// `r = y · π/2` to ~75 digits before final rounding to 34. The
-/// truncation introduces ≤ 10^{-37} relative error in π/2, which
-/// after multiplying by `|y| ≤ 0.5` and rounding `r` to 34 digits
-/// contributes ≤ 10^{-3} ULP — negligible.
+/// `r = y · π/2` to ~75 digits before final rounding to 34.
+///
+/// Truncation-error discharge (fd-aqs.10, honest amendment of
+/// ADR-0032). The truncation introduces ≤ 10^{-37} relative error in
+/// π/2, which after multiplying by `|y| ≤ 0.5` and rounding `r` to 34
+/// digits gives a *loose analytic* upper bound of ≤ 10^{-3} ULP. That
+/// analytic bound is larger than the worst Decimal128 `cos` sampled
+/// half-ULP margin (4.051 × 10^{-4} ULP), so it does not by itself
+/// discharge the correctly-rounded obligation at Decimal128 trig. The
+/// *measured* truncation contribution is ≤ ~6.3 × 10^{-5} ULP — an
+/// order of magnitude below that margin — and the truncation bias is
+/// one-sided and coherent across the three formats, so the reduction
+/// perturbs no sampled correctly-rounded result. This is an empirical
+/// discharge against sampled margins, not a fully analytic one; the
+/// route to an analytic bound is the 80-digit U384 `π/2` path sketched
+/// in the `FRAC_DIGITS` note, deferred until a failing high-magnitude
+/// case surfaces.
 const PI_OVER_TWO_COEF_38: u128 = 15_707_963_267_948_966_192_313_216_916_397_514_420;
 const PI_OVER_TWO_EXP_38: i32 = -37;
 

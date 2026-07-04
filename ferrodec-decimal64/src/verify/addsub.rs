@@ -22,8 +22,10 @@
 //! in `TowardNegative`) is **not** pinned here: decimal64's
 //! dispatcher returns `None` for `(Zero, Zero)` and the rule lives on
 //! the finite path, so a §6.3 harness cannot route through the shim.
-//! See the note at the bottom of this file; the rule is covered by
-//! the proptest oracle in `tests/property_addsub.rs`.
+//! See the note at the bottom of this file; the rule is covered by the
+//! vendored `ddAdd` decTest vectors and this crate's in-module tests
+//! (there is no `tests/property_addsub.rs` here; that oracle is the
+//! Decimal128 parent's, fd-aqs.15).
 
 use super::{operand, rm_from_u8, NUM_OPERANDS};
 use crate::decimal::Decimal64;
@@ -148,4 +150,4 @@ fn add_infinity_arithmetic() {
 // Tracked for a follow-up: extend decimal64's dispatcher with the
 // (Zero, Zero) / (Zero, Finite) / (Finite, Zero) arms so this
 // harness can route through the shim. Until then, the rule is
-// covered by `tests/property_addsub.rs`'s proptest oracle.
+// covered by the `ddAdd` decTest vectors and the in-module tests.

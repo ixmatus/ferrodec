@@ -132,8 +132,11 @@ fn value_eq(c1: U256, e1: i32, c2: U256, e2: i32) -> bool {
 /// `sign(result) == sign(x)` by construction and `result³ == x` reduces to
 /// `|result|³ == |x|`.
 pub(crate) fn cube_is_exact<F: DecimalFormat>(result: F, x: F) -> bool {
-    let (cr, er, _) = result.to_extended_parts();
-    let (cx, ex, _) = x.to_extended_parts();
+    let (Some((cr, er, _)), Some((cx, ex, _))) =
+        (result.to_extended_parts(), x.to_extended_parts())
+    else {
+        return false; // NaN / Inf: not an exact finite result.
+    };
     if cr.is_zero() || cx.is_zero() {
         return false;
     }
@@ -236,9 +239,13 @@ fn value_is_one(prod: U384, exp: i32) -> bool {
 /// magnitudes are compared. Any width or exponent overflow bails to
 /// `false`, leaving INEXACT in place.
 pub(crate) fn power_is_exact<F: DecimalFormat>(result: F, x: F, y: F) -> bool {
-    let (cr, er, _) = result.to_extended_parts();
-    let (cx, ex, _) = x.to_extended_parts();
-    let (cy, ey, y_neg) = y.to_extended_parts();
+    let (Some((cr, er, _)), Some((cx, ex, _)), Some((cy, ey, y_neg))) = (
+        result.to_extended_parts(),
+        x.to_extended_parts(),
+        y.to_extended_parts(),
+    ) else {
+        return false; // NaN / Inf: not an exact finite result.
+    };
     if cr.is_zero() || cx.is_zero() || cy.is_zero() {
         return false;
     }
@@ -319,7 +326,7 @@ fn pack_exact<F: DecimalFormat>(coef: u128, exp: i32, sign: bool, rm: RoundingMo
 /// integer or its magnitude exceeds `limit`. Caller has filtered the
 /// non-finite and zero classes.
 fn as_small_int<F: DecimalFormat>(x: F, limit: u128) -> Option<(u128, bool)> {
-    let (coef, exp, sign) = x.to_extended_parts();
+    let (coef, exp, sign) = x.to_extended_parts()?;
     let (c, e) = strip_trailing_zeros(coef, exp);
     // After stripping, a residual negative exponent means fractional
     // digits remain: not an integer.
@@ -367,7 +374,7 @@ pub(crate) fn exp2_exact<F: DecimalFormat>(x: F, rm: RoundingMode) -> Option<(F,
 /// The exact `log10(x)` when `x = 10^k`; `None` routes to the kernel.
 /// Caller has filtered non-finite, zero, and negative inputs.
 pub(crate) fn log10_exact<F: DecimalFormat>(x: F, rm: RoundingMode) -> Option<(F, Status)> {
-    let (coef, exp, _) = x.to_extended_parts();
+    let (coef, exp, _) = x.to_extended_parts()?;
     let (c, e) = strip_trailing_zeros(coef, exp);
     // A power of ten strips to coefficient exactly 1; `k` is the
     // remaining exponent. The format exponent range keeps `|k|` well
@@ -381,7 +388,7 @@ pub(crate) fn log10_exact<F: DecimalFormat>(x: F, rm: RoundingMode) -> Option<(F
 /// The exact `log2(x)` when `x = 2^k`; `None` routes to the kernel.
 /// Caller has filtered non-finite, zero, and negative inputs.
 pub(crate) fn log2_exact<F: DecimalFormat>(x: F, rm: RoundingMode) -> Option<(F, Status)> {
-    let (coef, exp, _) = x.to_extended_parts();
+    let (coef, exp, _) = x.to_extended_parts()?;
     let (c, e) = strip_trailing_zeros(coef, exp);
     if c.hi != 0 {
         return None;

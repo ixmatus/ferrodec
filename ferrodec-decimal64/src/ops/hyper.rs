@@ -165,9 +165,9 @@ impl Decimal64 {
         ferrodec_transcend::hyperbolic::atanh_kernel::<Decimal64>(self, rm)
     }
 
-    /// Kani-only entry for the `sinh` special-case branch without the
-    /// `libm` + `from_f64` pipeline. CBMC never encodes the f64 path.
-    /// ADR-0016.
+    /// Kani-only entry for the `sinh` special-case branch without
+    /// invoking the `ferrodec-transcend` Extended-precision kernel.
+    /// CBMC cannot tractably encode the bignum kernel path. ADR-0016.
     #[cfg(kani)]
     #[doc(hidden)]
     #[must_use]
@@ -216,11 +216,11 @@ impl Decimal64 {
     }
 }
 
-/// Resolve every `sinh` input class that does not reach the
-/// `libm::sinh` + `from_f64` pipeline. `None` only for finite
-/// non-zero. `sinh(±∞) = ±∞`, `sinh(±0) = ±0` (sign preserved).
-/// Shared by production `sinh` and the Kani shim so the two cannot
-/// drift.
+/// Resolve every `sinh` input class the `ferrodec-transcend`
+/// Extended-precision kernel does not need to see. `None` only for
+/// finite non-zero. `sinh(±∞) = ±∞`, `sinh(±0) = ±0` (sign
+/// preserved). Shared by production `sinh` and the Kani shim so the
+/// two cannot drift.
 fn sinh_special_cases(class: Class) -> Option<(Decimal64, Status)> {
     match class {
         Class::SignalingNaN { sign, payload } => Some((
@@ -251,9 +251,10 @@ fn sinh_special_cases(class: Class) -> Option<(Decimal64, Status)> {
     }
 }
 
-/// Resolve every `cosh` input class that does not reach the
-/// `libm::cosh` + `from_f64` pipeline. `None` only for finite
-/// non-zero. `cosh(±∞) = +∞`, `cosh(±0) = +1` (even function).
+/// Resolve every `cosh` input class the `ferrodec-transcend`
+/// Extended-precision kernel does not need to see. `None` only for
+/// finite non-zero. `cosh(±∞) = +∞`, `cosh(±0) = +1` (even
+/// function).
 fn cosh_special_cases(class: Class) -> Option<(Decimal64, Status)> {
     match class {
         Class::SignalingNaN { sign, payload } => Some((
@@ -270,9 +271,10 @@ fn cosh_special_cases(class: Class) -> Option<(Decimal64, Status)> {
     }
 }
 
-/// Resolve every `tanh` input class that does not reach the
-/// `libm::tanh` + `from_f64` pipeline. `None` only for finite
-/// non-zero. `tanh(±∞) = ±1`, `tanh(±0) = ±0` (sign preserved).
+/// Resolve every `tanh` input class the `ferrodec-transcend`
+/// Extended-precision kernel does not need to see. `None` only for
+/// finite non-zero. `tanh(±∞) = ±1`, `tanh(±0) = ±0` (sign
+/// preserved).
 fn tanh_special_cases(class: Class) -> Option<(Decimal64, Status)> {
     match class {
         Class::SignalingNaN { sign, payload } => Some((
@@ -303,9 +305,10 @@ fn tanh_special_cases(class: Class) -> Option<(Decimal64, Status)> {
     }
 }
 
-/// Resolve every `asinh` input class that does not reach the
-/// `libm::asinh` + `from_f64` pipeline. `None` only for finite
-/// non-zero. `asinh(±∞) = ±∞`, `asinh(±0) = ±0` (sign preserved).
+/// Resolve every `asinh` input class the `ferrodec-transcend`
+/// Extended-precision kernel does not need to see. `None` only for
+/// finite non-zero. `asinh(±∞) = ±∞`, `asinh(±0) = ±0` (sign
+/// preserved).
 fn asinh_special_cases(class: Class) -> Option<(Decimal64, Status)> {
     match class {
         Class::SignalingNaN { sign, payload } => Some((
@@ -336,12 +339,13 @@ fn asinh_special_cases(class: Class) -> Option<(Decimal64, Status)> {
     }
 }
 
-/// Resolve every `acosh` input class that does not reach the
-/// `libm::acosh` + `from_f64` pipeline. `None` only for positive
-/// finite non-zero; `acosh` is defined on `[1, +∞)`, so `Zero` and
-/// any negative finite are pure `NaN + INVALID` specials and only
-/// the positive-finite `x < 1` boundary needs the rounded f64 value.
-/// `acosh(+∞) = +∞`, `acosh(−∞) = NaN + INVALID`.
+/// Resolve every `acosh` input class the `ferrodec-transcend`
+/// Extended-precision kernel does not need to see. `None` only for
+/// positive finite non-zero; `acosh` is defined on `[1, +∞)`, so
+/// `Zero` and any negative finite are pure `NaN + INVALID` specials
+/// and only the positive-finite `x < 1` boundary is decided by the
+/// kernel at Extended precision. `acosh(+∞) = +∞`,
+/// `acosh(−∞) = NaN + INVALID`.
 fn acosh_special_cases(class: Class) -> Option<(Decimal64, Status)> {
     match class {
         Class::SignalingNaN { sign, payload } => Some((
@@ -361,11 +365,11 @@ fn acosh_special_cases(class: Class) -> Option<(Decimal64, Status)> {
     }
 }
 
-/// Resolve every `atanh` input class that does not reach the
-/// `libm::atanh` + `from_f64` pipeline. `None` only for finite
-/// non-zero; the `|x| == 1` pole (`±∞ + DIV_BY_ZERO`) and `|x| > 1`
-/// domain INVALID depend on the rounded f64 value and live on that
-/// path. `atanh(±∞) = NaN + INVALID`, `atanh(±0) = ±0`.
+/// Resolve every `atanh` input class the `ferrodec-transcend`
+/// Extended-precision kernel does not need to see. `None` only for
+/// finite non-zero; the `|x| == 1` pole (`±∞ + DIV_BY_ZERO`) and
+/// `|x| > 1` domain INVALID are decided by the kernel at Extended
+/// precision. `atanh(±∞) = NaN + INVALID`, `atanh(±0) = ±0`.
 fn atanh_special_cases(class: Class) -> Option<(Decimal64, Status)> {
     match class {
         Class::SignalingNaN { sign, payload } => Some((

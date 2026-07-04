@@ -134,6 +134,18 @@ pub mod serde_bid {
                     .map_err(|e| E::custom(e))
             }
         }
-        deserializer.deserialize_any(BitsVisitor)
+        // Per-format deserialization (fd-aqs.13). `deserialize_any` asks
+        // the format to self-describe, which the non-self-describing
+        // formats this module targets (bincode, MessagePack) reject at
+        // runtime — the review's finding. Branch on `is_human_readable`:
+        // a binary format reads the `u128` that `serialize_u128` wrote,
+        // while a human-readable format keeps `deserialize_any` so the
+        // decimal-string fallback (`visit_str`) still accepts a
+        // hand-written JSON / YAML string.
+        if deserializer.is_human_readable() {
+            deserializer.deserialize_any(BitsVisitor)
+        } else {
+            deserializer.deserialize_u128(BitsVisitor)
+        }
     }
 }

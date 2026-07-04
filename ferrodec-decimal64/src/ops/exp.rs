@@ -106,8 +106,9 @@ impl Decimal64 {
     }
 
     /// Kani-only entry returning the `exp` special-case branch
-    /// without invoking the `libm::exp` + `from_f64` pipeline. CBMC
-    /// never encodes the f64 path. ADR-0016.
+    /// without invoking the `ferrodec-transcend` Extended-precision
+    /// kernel. CBMC cannot tractably encode the bignum kernel path.
+    /// ADR-0016.
     #[cfg(kani)]
     #[doc(hidden)]
     #[must_use]
@@ -116,7 +117,8 @@ impl Decimal64 {
     }
 
     /// Kani-only entry returning the `ln` special-case branch without
-    /// invoking the `libm::log` + `from_f64` pipeline. ADR-0016.
+    /// invoking the `ferrodec-transcend` Extended-precision kernel.
+    /// ADR-0016.
     #[cfg(kani)]
     #[doc(hidden)]
     #[must_use]
@@ -125,10 +127,10 @@ impl Decimal64 {
     }
 }
 
-/// Resolve every `exp` input class that does not reach the
-/// `libm::exp` + `from_f64` pipeline. Returns `None` only for finite
-/// non-zero, the single class that needs the f64 path. Shared by
-/// production `exp` and the Kani shim so the two cannot drift.
+/// Resolve every `exp` input class the `ferrodec-transcend`
+/// Extended-precision kernel does not need to see. Returns `None` only
+/// for finite non-zero, the single class the kernel evaluates. Shared
+/// by production `exp` and the Kani shim so the two cannot drift.
 fn exp_special_cases(class: Class) -> Option<(Decimal64, Status)> {
     match class {
         Class::SignalingNaN { sign, payload } => Some((
@@ -146,9 +148,9 @@ fn exp_special_cases(class: Class) -> Option<(Decimal64, Status)> {
     }
 }
 
-/// Resolve every `ln` input class that does not reach the
-/// `libm::log` + `from_f64` pipeline. Returns `None` only for
-/// positive finite non-zero. Shared by production `ln` and the Kani
+/// Resolve every `ln` input class the `ferrodec-transcend`
+/// Extended-precision kernel does not need to see. Returns `None` only
+/// for positive finite non-zero. Shared by production `ln` and the Kani
 /// shim so the two cannot drift.
 fn ln_special_cases(class: Class) -> Option<(Decimal64, Status)> {
     match class {
@@ -180,7 +182,7 @@ mod tests {
     fn approx_equal(a: Decimal64, b: Decimal64, max_ulp: u32) -> bool {
         // Convert both to f64 and check relative tolerance proportional
         // to max_ulp. Decimal64 carries 16 digits but the f64 round-trip
-        // through libm caps achievable precision at ~10⁻¹⁵ relative; we
+        // in this comparison caps achievable precision at ~10⁻¹⁵ relative; we
         // pick 1e-14 to absorb the worst-case double-rounding noise.
         let af = a.to_f64(RoundingMode::NearestEven).0;
         let bf = b.to_f64(RoundingMode::NearestEven).0;
@@ -240,17 +242,16 @@ mod tests {
     #[test]
     fn exp_underflow_contract_m7() {
         // Finding T1 (work-order alias M7) claimed exp produces a
-        // Decimal64-subnormal result that misses UNDERFLOW. Verified
-        // non-reproducible: Decimal64's range reaches 1E-398, far
-        // below f64's smallest non-zero (~5E-324), so every non-zero
-        // libm::exp output maps to a *normal* Decimal64. The f64 path
-        // transitions directly from normal values to exactly 0.0
-        // (libm::exp saturates near x = -745, well before the
-        // Decimal64 subnormal window near x = -881), and that 0.0 is
-        // already covered by the r == 0.0 -> UNDERFLOW branch. This
-        // test pins both ends of the real contract and guards against
-        // an over-eager "fix" that would flag the normal mid-range
-        // result.
+        // Decimal64-subnormal result that misses UNDERFLOW. Under the
+        // shared Extended-precision kernel the subnormal window is
+        // genuine: inputs in roughly `(−918, −887]` produce
+        // representable Decimal64 subnormals (see this module's header),
+        // unlike the removed f64 path which saturated to zero before
+        // reaching that window. So this test pins the whole underflow
+        // ladder and guards both directions: a normal mid-range result
+        // must NOT raise a spurious UNDERFLOW, and a subnormal result
+        // MUST raise UNDERFLOW + INEXACT (IEEE 754-2019 §7.5) — the
+        // exact defect T1 named. Verified against the kernel (fd-aqs.15).
         //
         // exp(-720) ≈ 2E-313: a normal Decimal64, inexact, NOT a
         // spurious underflow.
@@ -263,8 +264,20 @@ mod tests {
             "exp(-720) must not raise a spurious UNDERFLOW"
         );
 
-        // exp(-2000): the genuine underflow the f64 pipeline reaches,
-        // saturating to zero with UNDERFLOW + INEXACT.
+        // exp(-900) ≈ 1.4E-391: a representable Decimal64 *subnormal*.
+        // A subnormal inexact result is a genuine underflow, so it must
+        // carry UNDERFLOW + INEXACT. This is the case T1 flagged, now
+        // reachable through the kernel (the removed f64 path never
+        // produced it).
+        let (r, s) = from_int(-900, 0).exp(RoundingMode::NearestEven);
+        assert!(r.is_subnormal(), "exp(-900) is a Decimal64 subnormal");
+        assert!(
+            s.underflow() && s.inexact(),
+            "exp(-900) subnormal must raise UNDERFLOW + INEXACT"
+        );
+
+        // exp(-2000): far below the subnormal floor, rounds to zero
+        // with UNDERFLOW + INEXACT.
         let (r, s) = from_int(-2000, 0).exp(RoundingMode::NearestEven);
         assert!(r.is_zero());
         assert!(s.underflow() && s.inexact());

@@ -26,11 +26,21 @@
 //!   round-half-even), while ferrodec's is correctly rounded per
 //!   direction (proven in `property_sqrt.rs`), so the directed modes
 //!   are not comparable against this reference.
-//! * **Faithful ops** (`exp` `ln` `log10` `pow`): ferrodec is
-//!   faithful (≤1 ULP, ADR-0021), libmpdec is correctly rounded
-//!   (≤0.5 ULP), so they differ by ≤2 representable steps; the check
-//!   is structural membership in that 2-step band. The exp/ln family
-//!   is swept across the full decade range, including the decades the
+//! * **Correctly-rounded ops** (`exp` `ln` `log10` `pow`): ferrodec is
+//!   correctly rounded per direction (ADR-0032, superseding ADR-0021's
+//!   faithful contract). The sound band against libmpdec depends on the
+//!   op and mode (fd-aqs.10). `exp`/`ln`/`log10` ignore the context
+//!   rounding mode and always round half-even, so under `NearestEven`
+//!   the two must be *equal* (0-step, tightened from the former 2-step
+//!   faithful band), while under the directed modes libmpdec is not
+//!   correctly rounded and ferrodec (CR) may legitimately differ by ≤1
+//!   step. `pow` (libmpdec `power`) is only "almost always" correctly
+//!   rounded, in every mode, so it keeps a ≤1-step band throughout: an
+//!   adversarial `NearestEven` search found in-domain operands where
+//!   ferrodec's CR result differs from libmpdec's by 1 ULP. These are
+//!   documented oracle limitations, the same shape as the `sqrt` and
+//!   `rem_trunc` NearestEven-only cross-checks. The exp/ln family is
+//!   swept across the full decade range, including the decades the
 //!   fixed astro-float oracle skips (ADR-0026: scrutinise the
 //!   widest-blast-radius primitives first).
 //! * **mpmath special-function surface** (ADR-0026, fd-cb6): the
@@ -632,7 +642,26 @@ fn differential_against_libmpdec() {
                 skipped += 1;
                 continue;
             }
-            assert!(within_k(c.got, value, 2), "faithful band: {ctx}");
+            // Mode-aware band (fd-aqs.10). ferrodec is correctly rounded
+            // per direction (ADR-0032); the sound band is 0 exactly
+            // where the *oracle* is itself correctly rounded at this
+            // (op, mode), else <=1:
+            //  * mpmath surface: NearestEven-only against a CR reference.
+            //  * exp/ln/log10: libmpdec ignores the context mode and
+            //    always rounds half-even, so it is CR at NearestEven but
+            //    not under the directed modes.
+            //  * pow: libmpdec `power` is only "almost always" correctly
+            //    rounded, in EVERY mode -- an adversarial NearestEven
+            //    search found in-domain operands where ferrodec's CR
+            //    result differs from libmpdec's by 1 ULP (e.g.
+            //    673891e3 ** -4), so pow never gets band 0.
+            let oracle_is_cr =
+                is_mpmath(c.req.op) || (c.req.op != "pow" && c.req.round == "NearestEven");
+            let band = u32::from(!oracle_is_cr);
+            assert!(
+                within_k(c.got, value, band),
+                "correctly-rounded band ({band}): {ctx}"
+            );
         } else {
             assert!(val_eq(c.got, value), "value: {ctx}");
             // Unambiguous signals: both are correctly rounded GDA, so
@@ -645,9 +674,17 @@ fn differential_against_libmpdec() {
         }
         checked += 1;
     }
-    assert!(
-        checked > 2000,
-        "expected a substantial sweep, ran {checked} (skipped {skipped})"
+    // The generated case count is a structural constant (loop bounds
+    // are fixed; the RNG varies operand *values*, not the count), so
+    // pin it exactly rather than floor `checked`, which varies with
+    // mpmath availability through the skip split (fd-aqs.10).
+    const EXPECTED_CASES: usize = 5961;
+    assert_eq!(
+        cases.len(),
+        EXPECTED_CASES,
+        "differential generated-case count changed: expected {EXPECTED_CASES}, got {} \
+         (checked {checked}, skipped {skipped}); update EXPECTED_CASES deliberately",
+        cases.len()
     );
     if skipped > 0 {
         eprintln!(

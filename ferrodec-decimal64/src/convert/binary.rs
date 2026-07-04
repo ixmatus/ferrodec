@@ -17,10 +17,11 @@
 //! that lives outside the decimal type.
 
 use core::fmt::Write as _;
+use core::num::FpCategory;
 
 use crate::bid::{classify_bits, Class, BIAS};
 use crate::decimal::Decimal64;
-use ferrodec_ieee::{RoundingMode, Status};
+use ferrodec_ieee::{binary_conversion_status, RoundingMode, Status};
 
 impl Decimal64 {
     /// Lossy convert to `f64`, returning `(value, Status)`.
@@ -51,22 +52,45 @@ impl Decimal64 {
             Class::Infinity { sign: true } => (f64::NEG_INFINITY, Status::OK),
             Class::Zero { sign, .. } => (if sign { -0.0 } else { 0.0 }, Status::OK),
             Class::Finite {
-                sign,
                 biased_exp,
                 coefficient,
+                ..
             } => {
-                let exp = biased_exp as i32 - BIAS as i32;
-                // `coefficient` is a u64 up to 10¹⁶ − 1 ≈ 2⁵³·15;
-                // f64 carries 53 bits of mantissa, so the cast is
-                // exact for values up to 2⁵³ and round-to-nearest
-                // for larger values — which matches f64's own
-                // round-to-nearest behaviour for the subsequent
-                // `coef × 10^exp` multiply.
-                #[allow(clippy::cast_precision_loss)]
-                let coef_f = coefficient as f64;
-                let factor = pow10_f64(exp);
-                let magnitude = coef_f * factor;
-                (if sign { -magnitude } else { magnitude }, Status::OK)
+                // Correctly-rounded decimal-string path (fd-aqs.12). The
+                // former `coefficient as f64 × pow10_f64(exp)` numerical
+                // path double-rounded any coefficient above 2⁵³ (a 16-digit
+                // Decimal64 coefficient exceeds 2⁵³ ≈ 9.007e15) and never
+                // set INEXACT. A single correct rounding through
+                // `str::parse::<f64>` fixes the value, and the flag is then
+                // decided exactly.
+                let mut buf = [0u8; 48];
+                let mut writer = BufWriter {
+                    buf: &mut buf,
+                    len: 0,
+                };
+                if write!(writer, "{self}").is_err() {
+                    return (f64::NAN, Status::INVALID);
+                }
+                let len = writer.len;
+                let s = match core::str::from_utf8(&buf[..len]) {
+                    Ok(s) => s,
+                    Err(_) => return (f64::NAN, Status::INVALID),
+                };
+                match s.parse::<f64>() {
+                    Ok(v) => {
+                        let exp = biased_exp as i32 - BIAS as i32;
+                        let status = binary_conversion_status(
+                            coefficient as u128,
+                            exp,
+                            v.is_infinite(),
+                            v == 0.0,
+                            v.classify() == FpCategory::Subnormal,
+                            53,
+                        );
+                        (v, status)
+                    }
+                    Err(_) => (f64::NAN, Status::INVALID),
+                }
             }
         }
     }
@@ -103,7 +127,11 @@ impl Decimal64 {
             Class::Infinity { sign: false } => (f32::INFINITY, Status::OK),
             Class::Infinity { sign: true } => (f32::NEG_INFINITY, Status::OK),
             Class::Zero { sign, .. } => (if sign { -0.0 } else { 0.0 }, Status::OK),
-            Class::Finite { .. } => {
+            Class::Finite {
+                biased_exp,
+                coefficient,
+                ..
+            } => {
                 // A finite Decimal64 in Display (to-scientific-string)
                 // notation is at most ~25 chars (sign, `0.`, up to
                 // six leading zeros, 16 significant digits). 48 bytes
@@ -128,17 +156,18 @@ impl Decimal64 {
                 };
                 match s.parse::<f32>() {
                     Ok(v) => {
-                        let mut status = Status::OK;
-                        if v.is_infinite() {
-                            status |= Status::OVERFLOW | Status::INEXACT;
-                        } else if v == 0.0 {
-                            // The Finite arm excludes ±0 input, so a
-                            // zero result means the magnitude rounded
-                            // away: underflow.
-                            status |= Status::UNDERFLOW | Status::INEXACT;
-                        } else {
-                            status |= Status::INEXACT;
-                        }
+                        // Exact-flag decision (fd-aqs.12): the former code
+                        // raised INEXACT unconditionally, even for values
+                        // exactly representable in f32.
+                        let exp = biased_exp as i32 - BIAS as i32;
+                        let status = binary_conversion_status(
+                            coefficient as u128,
+                            exp,
+                            v.is_infinite(),
+                            v == 0.0,
+                            v.classify() == FpCategory::Subnormal,
+                            24,
+                        );
                         (v, status)
                     }
                     // A finite Decimal64 Display always parses; treat
@@ -162,8 +191,15 @@ impl Decimal64 {
             // signaling: among binary64 NaNs, signaling is exactly the
             // quiet bit (mantissa MSB, bit 51) clear. M3 / Agent 5 B6.
             let signaling = x.to_bits() & 0x0008_0000_0000_0000 == 0;
+            // §6.3: preserve the NaN sign (fd-aqs.12: the family
+            // previously always returned +NaN).
+            let nan = if x.is_sign_negative() {
+                Decimal64::NAN.neg()
+            } else {
+                Decimal64::NAN
+            };
             return (
-                Decimal64::NAN,
+                nan,
                 if signaling {
                     Status::INVALID
                 } else {
@@ -192,17 +228,20 @@ impl Decimal64 {
             );
         }
 
-        // 48-byte buffer for `{:.17e}` worst-case rendering of any
-        // finite f64. The longest output `-1.<17 digits>e-308` is
-        // ~26 chars; subnormal `5e-324`-shaped values render to ~24.
-        // We allocate 48 (~2× headroom) so the future stdlib float
-        // formatter can grow without silently overflowing.
+        // Shortest-round-trip `{:e}` rendering of any finite f64
+        // (fd-aqs.12, Parnell's decision): was `{:.17e}`, an
+        // 18-significant-digit form that re-rounded into Decimal64's 16
+        // digits with a double-rounding hazard. `{:e}` is the shortest
+        // decimal that round-trips (≤17 digits), matching the Decimal128
+        // parent, so `from_f64(0.1)` is now `0.1` with `OK` rather than
+        // `0.1000000000000000` with `INEXACT`. The longest output
+        // `-1.<16 digits>e-308` is ~25 chars; 48 gives ~2× headroom.
         let mut buf = [0u8; 48];
         let mut writer = BufWriter {
             buf: &mut buf,
             len: 0,
         };
-        let write_result = write!(writer, "{x:.17e}");
+        let write_result = write!(writer, "{x:e}");
         if write_result.is_err() {
             // Buffer overflow — defensive fallback. With 48 bytes
             // this is unreachable on every libcore version we know
@@ -229,37 +268,19 @@ impl Decimal64 {
     ///
     /// Widens to `f64` and reuses [`Decimal64::from_f64`]; the widening
     /// is exact (every `f32` is representable in `f64`), so no precision
-    /// is lost before the decimal rounding step. Returns `(value,
-    /// Status)` with the same special-case handling as `from_f64`
-    /// (signaling NaN bit patterns raise `INVALID`).
+    /// is lost before the decimal rounding step. A signaling f32 NaN is
+    /// detected from the f32 bits *before* widening — `f64::from` quiets
+    /// it, dropping the signal — and raises `INVALID` per §5.4.2
+    /// (fd-aqs.12); sign and payload follow `from_f64`.
     #[must_use]
     pub fn from_f32(x: f32, rm: RoundingMode) -> (Self, Status) {
-        Self::from_f64(f64::from(x), rm)
-    }
-}
-
-/// `10^k` as `f64` for any `i32` `k`. Uses doubling-square exponentiation
-/// in f64 so the standard IEEE 754 binary64 overflow / underflow rules
-/// apply.
-fn pow10_f64(exp: i32) -> f64 {
-    if exp == 0 {
-        return 1.0;
-    }
-    let abs = exp.unsigned_abs();
-    let mut result: f64 = 1.0;
-    let mut base: f64 = 10.0;
-    let mut e = abs;
-    while e > 0 {
-        if e & 1 != 0 {
-            result *= base;
+        let (d, status) = Self::from_f64(f64::from(x), rm);
+        // Restore the sNaN INVALID that `f64::from` quiets away (bit 22
+        // is the f32 quiet bit).
+        if x.is_nan() && x.to_bits() & 0x0040_0000 == 0 {
+            return (d, status | Status::INVALID);
         }
-        base *= base;
-        e >>= 1;
-    }
-    if exp < 0 {
-        1.0 / result
-    } else {
-        result
+        (d, status)
     }
 }
 
@@ -434,14 +455,16 @@ mod tests {
             let d = Decimal64::parse_str(s, RoundingMode::NearestEven)
                 .unwrap()
                 .0;
-            let (got, status) = d.to_f32(RoundingMode::NearestEven);
+            let (got, _status) = d.to_f32(RoundingMode::NearestEven);
             let want: f32 = s.parse().expect("decimal literal parses as f32");
             assert_eq!(
                 got.to_bits(),
                 want.to_bits(),
                 "to_f32({s}): got {got:?}, want correctly-rounded {want:?}"
             );
-            assert!(status.inexact(), "finite to_f32 carries INEXACT");
+            // The INEXACT flag is value-dependent post-fd-aqs.12 (exact
+            // conversions raise none); it is pinned per value in
+            // `to_binary_inexact_flag_is_exact` below, not here.
         }
     }
 
@@ -464,6 +487,73 @@ mod tests {
         let (v, s) = small.to_f32(RoundingMode::NearestEven);
         assert_eq!(v, 0.0_f32);
         assert!(s.underflow() && s.inexact());
+    }
+
+    #[test]
+    fn to_binary_inexact_flag_is_exact() {
+        // fd-aqs.12: exact conversions raise no INEXACT (to_f32 used to
+        // raise it unconditionally; the numerical to_f64 never did),
+        // inexact ones do.
+        let p = |s: &str| {
+            Decimal64::parse_str(s, RoundingMode::NearestEven)
+                .unwrap()
+                .0
+        };
+        for s in ["1", "-1", "0.5", "0.25", "3.5", "100", "8"] {
+            assert!(
+                !p(s).to_f64(RoundingMode::NearestEven).1.inexact(),
+                "{s} -> f64 exact"
+            );
+            assert!(
+                !p(s).to_f32(RoundingMode::NearestEven).1.inexact(),
+                "{s} -> f32 exact"
+            );
+        }
+        for s in ["0.1", "-0.1", "0.3", "1.234567890123456", "1E-30"] {
+            assert!(
+                p(s).to_f64(RoundingMode::NearestEven).1.inexact(),
+                "{s} -> f64 inexact"
+            );
+            assert!(
+                p(s).to_f32(RoundingMode::NearestEven).1.inexact(),
+                "{s} -> f32 inexact"
+            );
+        }
+    }
+
+    #[test]
+    fn from_f64_shortest_round_trip() {
+        // fd-aqs.12: siblings render the shortest round trip now, so 0.1
+        // is 0.1 with OK rather than 0.1000000000000000 with INEXACT.
+        let (d, status) = Decimal64::from_f64(0.1, RoundingMode::NearestEven);
+        let tenth = Decimal64::parse_str("0.1", RoundingMode::NearestEven)
+            .unwrap()
+            .0;
+        assert_eq!(d.to_bits(), tenth.to_bits(), "from_f64(0.1) is 0.1");
+        assert!(
+            !status.inexact(),
+            "from_f64(0.1) carries no INEXACT after shortest round trip"
+        );
+    }
+
+    #[test]
+    fn from_f64_preserves_nan_sign() {
+        // fd-aqs.12: §6.3 sign preservation (the family used to drop it).
+        let (pos, _) = Decimal64::from_f64(f64::NAN, RoundingMode::NearestEven);
+        assert!(pos.is_nan() && !pos.is_sign_negative());
+        let (neg, _) = Decimal64::from_f64(-f64::NAN, RoundingMode::NearestEven);
+        assert!(neg.is_nan() && neg.is_sign_negative());
+    }
+
+    #[test]
+    fn from_f32_signaling_nan_raises_invalid() {
+        // fd-aqs.12 follow-up: `f64::from` quiets an f32 sNaN, so
+        // from_f32 inspects the f32 bits (quiet bit 22 clear).
+        let rm = RoundingMode::NearestEven;
+        let (d, s) = Decimal64::from_f32(f32::from_bits(0x7f80_0001), rm);
+        assert!(d.is_nan() && s.invalid(), "f32 sNaN raises INVALID");
+        let (dq, sq) = Decimal64::from_f32(f32::from_bits(0x7fc0_0001), rm);
+        assert!(dq.is_nan() && !sq.invalid(), "f32 qNaN does not");
     }
 
     #[test]

@@ -16,7 +16,7 @@ pub use ferrodec_ieee::IeeeClass;
 
 /// Maximum canonical NaN payload: `10^33` (i.e. payload representable as a
 /// 33-decimal-digit integer). Used by `is_canonical` and `canonicalize`.
-const MAX_CANONICAL_NAN_PAYLOAD: u128 = 10u128.pow(33);
+pub(crate) const MAX_CANONICAL_NAN_PAYLOAD: u128 = 10u128.pow(33);
 
 /// Mask for bits 120..110 — the EC slots that are *unused* in NaN
 /// encodings (the signaling marker is bit 121; the payload occupies bits

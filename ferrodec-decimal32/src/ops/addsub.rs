@@ -255,6 +255,16 @@ fn add_inner(a: Decimal32, b: Decimal32, rm: RoundingMode) -> (Decimal32, Status
         // quantum so directed modes round it correctly.
         let q_preferred = exp_a.min(exp_b);
         if pre_sticky {
+            // Provably unreachable (fd-aqs.15): `pre_sticky` (a truncated
+            // low operand, `s < diff`) shifts `coef_hi` left to the max,
+            // so the shifted `aligned_hi` strictly exceeds the truncated
+            // `aligned_lo`; this equal-magnitude arm is reached only with
+            // `pre_sticky == false`. The `1`-coefficient return is a
+            // defensive fallback with the invariant asserted.
+            debug_assert!(
+                false,
+                "equal-aligned-magnitude add cannot carry a truncated low residue"
+            );
             return round_and_pack_finite(
                 1,
                 exp_lo, // the truncation residue lives at exp_lo

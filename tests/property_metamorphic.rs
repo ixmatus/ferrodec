@@ -373,6 +373,62 @@ fn acosh_matches_ln_form() {
     }
 }
 
+/// `acosh` in the log1p region `[1+1e-6, 1.01)` — the branch
+/// `acosh_matches_ln_form` (probes `x ≥ 1.5`) never enters. ADR-0025
+/// kept the metamorphic identity on the strength of `acosh_kernel`'s
+/// `log1p` branch for `x − 1 < 0.01`, so that branch must actually be
+/// exercised (fd-aqs.10: the 2026-06-09 review found the probe set
+/// tautological because it stayed on the shared-`ln` branch, and no
+/// anchor-band corpus pins acosh near 1).
+///
+/// The cross-check is `asinh(√(x²−1)) = acosh(x)` (both equal
+/// `ln(x + √(x²−1))` for `x ≥ 1`), with `√(x²−1)` factored as
+/// `√((x−1)(x+1))` to avoid cancellation and keep the arithmetic
+/// well-conditioned. (The naive `ln(x + √(x²−1))` amplifies its ≤0.5
+/// ULP input error by `inner/result ≈ 1/acosh(x)` near 1 — 40 ULP off
+/// in practice, which is why `acosh_matches_ln_form` stays at
+/// `x ≥ 1.5`.)
+///
+/// Honest scope (the 2026-06-09 review flagged an earlier overclaim of
+/// independence). Both `acosh_kernel`'s log1p branch and
+/// `asinh_kernel`'s small-argument branch funnel into the same
+/// `log1p_extended` primitive on algebraically-equal arguments
+/// (`asinh`'s `u = z + z²/(1+√(1+z²))` equals `acosh`'s
+/// `inner = (x−1) + √((x−1)(x+1))`). So this validates that `acosh`
+/// *constructs and reduces* its log1p argument correctly — the branch
+/// is entered, and its argument matches `asinh`'s independent
+/// construction of the same quantity — but it is BLIND to a misround
+/// inside `log1p_extended` itself (both sides would carry it
+/// identically). It is a branch-coverage and argument-construction
+/// check, not a fully independent oracle; the tight correctly-rounded
+/// gate for this region would be an acosh anchor-band corpus, which
+/// does not yet exist (a noted residual). The band is loose
+/// accordingly.
+#[test]
+fn acosh_log1p_region() {
+    let mut cc = Consts::new().expect("consts");
+    let one = parse("1");
+    // x − 1 sweeping the log1p region, each an exact short decimal
+    // strictly inside `[1+1e-6, 1.01)`.
+    let probes = [
+        "1.000001", "1.00001", "1.0001", "1.001", "1.005", "1.009999",
+    ];
+    for s in probes {
+        let x = parse(s);
+        let (xm1, _) = x.sub(one, NE);
+        let (xp1, _) = x.add(one, NE);
+        let (prod, _) = xm1.mul(xp1, NE);
+        let (z, _) = prod.sqrt(NE); // z = √((x−1)(x+1)) = √(x²−1)
+        let (rhs, _) = z.asinh(NE); // asinh(√(x²−1)) = acosh(x)
+        let (lhs, _) = x.acosh(NE);
+        let n = 8;
+        assert!(
+            within_n_ulp_band(lhs, rhs, n, &mut cc),
+            "acosh({s}) = {lhs:?}, asinh(√(x²−1)) form {rhs:?} (band {n})"
+        );
+    }
+}
+
 // ---------------------------------------------------------------------
 // Category C — cancellation, weak, small |x| only. Documented as weak:
 // shares the exp kernel, so this is a consistency check on e^x·e^-x,

@@ -540,7 +540,7 @@ const fn parse_literal(bytes: &[u8]) -> Decimal64Parts {
 ///   through to the regular numeric parser.
 /// * `Some(Ok(d))` — token matched, returns the constructed value.
 /// * `Some(Err(e))` — token matched but the trailing payload is
-///   malformed or overflows the 20-bit field.
+///   malformed or overflows the 50-bit field.
 fn match_special(
     rest: &[u8],
     start_offset: usize,
@@ -574,7 +574,7 @@ fn match_special(
 
 /// Decode the optional `digits*` payload after a `NaN` / `sNaN` token.
 /// Empty input → canonical zero-payload NaN. Otherwise: pack the
-/// decimal-encoded integer into the BID's 20-bit `T_MASK` field.
+/// decimal-encoded integer into the BID's 50-bit `T_MASK` field.
 fn parse_nan_payload(
     digits: &[u8],
     offset: usize,

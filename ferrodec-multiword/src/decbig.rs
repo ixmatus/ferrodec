@@ -102,14 +102,20 @@ impl DecBig {
 
     /// Construct from a slice of ASCII decimal digit bytes (`b'0'..=b'9'`),
     /// most significant first. Leading zeros are absorbed; an empty slice and
-    /// an all-zero slice both yield zero. Callers pass validated digits; in
-    /// debug builds a non-digit byte trips an assertion.
+    /// an all-zero slice both yield zero. A non-digit byte panics: fd-aqs.14
+    /// made this validation unconditional, because the former `debug_assert!`
+    /// let a release build wrap a non-digit into a garbage `>= 10^9` limb,
+    /// silently corrupting the normal-form invariant and every `Eq` / `Ord` /
+    /// `Hash` / arithmetic result derived from it.
     ///
     /// The bytes are consumed in nine-digit groups from the least significant
     /// end, so each group fills one base-`10^9` limb directly.
     #[must_use]
     pub fn from_ascii_digits(digits: &[u8]) -> Self {
-        debug_assert!(digits.iter().all(u8::is_ascii_digit));
+        assert!(
+            digits.iter().all(u8::is_ascii_digit),
+            "from_ascii_digits requires ASCII digits (fd-aqs.14)"
+        );
         let group = LIMB_DIGITS as usize;
         let mut limbs = Vec::with_capacity(digits.len() / group + 1);
         let mut end = digits.len();
@@ -704,6 +710,14 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "ASCII digits")]
+    fn from_ascii_digits_rejects_non_digit() {
+        // fd-aqs.14: validation is unconditional now, so a release build
+        // cannot wrap a non-digit byte into a garbage limb.
+        let _ = DecBig::from_ascii_digits(b"12x45");
+    }
+
+    #[test]
     fn div_rem10_inverts_known() {
         let (q, r) = db(12_345).div_rem10();
         assert_eq!(q, db(1234));
@@ -711,6 +725,27 @@ mod tests {
         let (q0, r0) = DecBig::zero().div_rem10();
         assert!(q0.is_zero());
         assert_eq!(r0, 0);
+    }
+
+    #[test]
+    fn div_rem_fires_algorithm_d_add_back() {
+        // Directed witness for the Algorithm D D5/D6 add-back branch:
+        // `qhat` estimated one too large, so the divisor is added back.
+        // The branch fires with probability ~2e-9 per quotient limb on
+        // random operands, so it had zero coverage before fd-aqs.14. In
+        // base-10^9 little-endian limbs the operands are dividend
+        // [0, 0, 500000000, 499999999] and divisor [1, 0, 500000000];
+        // as decimals:
+        let dividend = DecBig::from_ascii_digits(b"499999999500000000000000000000000000");
+        let divisor = DecBig::from_ascii_digits(b"500000000000000000000000001");
+        let (q, r) = dividend.div_rem(&divisor);
+        // Ground truth (exact integer divmod).
+        assert_eq!(q, DecBig::from_ascii_digits(b"999999998"));
+        assert_eq!(r, DecBig::from_ascii_digits(b"499999999999999999000000002"));
+        // Division invariant `q·d + r == dividend`, `0 <= r < d` — a
+        // complete correctness check independent of the ground truth.
+        assert_eq!(q.mul(&divisor).add(&r), dividend);
+        assert_eq!(r.cmp_ref(&divisor), Ordering::Less);
     }
 
     #[test]

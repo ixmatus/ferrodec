@@ -11,9 +11,10 @@
 //! [`Engineering`] adapter forces scientific with the exponent at a
 //! multiple of 3.
 //!
-//! The fixed-buffer scratch is 16 bytes (sign + 7 digits + decimal
-//! point + "E±NNN" exponent), comfortably within stack constraints on
-//! Cortex-M0+.
+//! The fixed-buffer digit scratch is 18 bytes (Decimal64's 16
+//! significant digits with margin); the full rendering adds a sign,
+//! decimal point, and "E±NNN" exponent through the `Formatter`.
+//! Comfortably within stack constraints on Cortex-M0+.
 //!
 //! Format precision is honoured: `{:.N}` renders a fixed-point value
 //! with exactly `N` fractional digits (the value is quantized to that

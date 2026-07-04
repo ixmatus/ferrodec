@@ -166,8 +166,8 @@ impl Decimal64 {
     /// `atan2(self, x)` — the angle whose tangent is `self / x`,
     /// resolved into the correct quadrant by the signs of both
     /// arguments. Returns radians in `(-π, π]`. Special cases follow
-    /// the f64 atan2 convention (NaN propagates, axis cases are
-    /// exact).
+    /// the IEEE 754-2019 §9.2.1 quadrant convention (NaN propagates,
+    /// axis cases are exact).
     ///
     /// NaN ordering (IEEE 754-2019 §6.2.3): the operands are inspected
     /// in the fixed order `[self, x]` and the first NaN encountered
@@ -195,8 +195,9 @@ impl Decimal64 {
     }
 
     /// Kani-only entry returning the `sin` special-case branch
-    /// without invoking the `libm::sin` + `from_f64` pipeline. CBMC
-    /// never encodes the f64 path. ADR-0016.
+    /// without invoking the `ferrodec-transcend` Extended-precision
+    /// kernel. CBMC cannot tractably encode the bignum kernel path.
+    /// ADR-0016.
     #[cfg(kani)]
     #[doc(hidden)]
     #[must_use]
@@ -254,10 +255,10 @@ impl Decimal64 {
     }
 }
 
-/// Resolve every `sin` input class that does not reach the
-/// `libm::sin` + `from_f64` pipeline. `None` only for finite
-/// non-zero. Shared by production `sin` and the Kani shim so the two
-/// cannot drift.
+/// Resolve every `sin` input class the `ferrodec-transcend`
+/// Extended-precision kernel does not need to see. `None` only for
+/// finite non-zero. Shared by production `sin` and the Kani shim so
+/// the two cannot drift.
 fn sin_special_cases(class: Class) -> Option<(Decimal64, Status)> {
     match class {
         Class::SignalingNaN { sign, payload } => Some((
@@ -281,9 +282,9 @@ fn sin_special_cases(class: Class) -> Option<(Decimal64, Status)> {
     }
 }
 
-/// Resolve every `cos` input class that does not reach the
-/// `libm::cos` + `from_f64` pipeline. `None` only for finite
-/// non-zero. `cos(±0) = +1` (sign not preserved, unlike `sin`).
+/// Resolve every `cos` input class the `ferrodec-transcend`
+/// Extended-precision kernel does not need to see. `None` only for
+/// finite non-zero. `cos(±0) = +1` (sign not preserved, unlike `sin`).
 fn cos_special_cases(class: Class) -> Option<(Decimal64, Status)> {
     match class {
         Class::SignalingNaN { sign, payload } => Some((
@@ -300,9 +301,9 @@ fn cos_special_cases(class: Class) -> Option<(Decimal64, Status)> {
     }
 }
 
-/// Resolve every `tan` input class that does not reach the
-/// `libm::tan` + `from_f64` pipeline. `None` only for finite
-/// non-zero. Same special-case shape as `sin`.
+/// Resolve every `tan` input class the `ferrodec-transcend`
+/// Extended-precision kernel does not need to see. `None` only for
+/// finite non-zero. Same special-case shape as `sin`.
 fn tan_special_cases(class: Class) -> Option<(Decimal64, Status)> {
     match class {
         Class::SignalingNaN { sign, payload } => Some((
@@ -326,10 +327,10 @@ fn tan_special_cases(class: Class) -> Option<(Decimal64, Status)> {
     }
 }
 
-/// Resolve every `asin` input class that does not reach the
-/// `libm::asin` + `from_f64` pipeline. `None` only for finite
-/// non-zero; the `|x| > 1` domain INVALID is part of that f64 path
-/// (it depends on the rounded f64 value), not a pure special.
+/// Resolve every `asin` input class the `ferrodec-transcend`
+/// Extended-precision kernel does not need to see. `None` only for
+/// finite non-zero; the `|x| > 1` domain INVALID is decided by the
+/// kernel at Extended precision, not a pure special.
 fn asin_special_cases(class: Class) -> Option<(Decimal64, Status)> {
     match class {
         Class::SignalingNaN { sign, payload } => Some((
@@ -353,10 +354,11 @@ fn asin_special_cases(class: Class) -> Option<(Decimal64, Status)> {
     }
 }
 
-/// Resolve every `acos` input class that does not reach the
-/// `libm::acos` + `from_f64` pipeline. `None` for both `Zero` and
-/// finite non-zero: `acos` has no exact zero-result special, and the
-/// `|x| > 1` domain check depends on the rounded f64 value.
+/// Resolve every `acos` input class the `ferrodec-transcend`
+/// Extended-precision kernel does not need to see. `None` for both
+/// `Zero` and finite non-zero: `acos` has no exact zero-result
+/// special, and the `|x| > 1` domain check is decided by the kernel
+/// at Extended precision.
 fn acos_special_cases(class: Class) -> Option<(Decimal64, Status)> {
     match class {
         Class::SignalingNaN { sign, payload } => Some((
@@ -372,9 +374,10 @@ fn acos_special_cases(class: Class) -> Option<(Decimal64, Status)> {
     }
 }
 
-/// Resolve every `atan` input class that does not reach `libm::atan`.
-/// `None` for both `Infinity` and finite non-zero: `atan(±∞) = ±π/2`
-/// is computed by `libm::atan(±inf)`, not a pure special.
+/// Resolve every `atan` input class the transcend `atan` kernel does
+/// not need to see. `None` for both `Infinity` and finite non-zero:
+/// `atan(±∞) = ±π/2` is computed by the transcend `atan` kernel, not
+/// a pure special.
 fn atan_special_cases(class: Class) -> Option<(Decimal64, Status)> {
     match class {
         Class::SignalingNaN { sign, payload } => Some((
@@ -402,8 +405,8 @@ fn atan_special_cases(class: Class) -> Option<(Decimal64, Status)> {
 /// encountered determines the result (signaling → INVALID, quiet →
 /// OK), pinning the IEEE 754-2019 §6.2.3 ordering. `None` when
 /// neither operand is NaN, the single case that reaches the
-/// `libm::atan2` + `from_f64` pipeline. Shared by production `atan2`
-/// and the Kani shim so the two cannot drift.
+/// `ferrodec-transcend` Extended-precision kernel. Shared by
+/// production `atan2` and the Kani shim so the two cannot drift.
 fn atan2_special_cases(y: Decimal64, x: Decimal64) -> Option<(Decimal64, Status)> {
     for arg in [y, x] {
         match classify_bits(arg.0) {
