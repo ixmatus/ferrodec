@@ -108,8 +108,8 @@ impl Decimal32 {
     }
 
     /// Kani-only entry returning the `exp` special-case branch without
-    /// invoking the `libm::exp` + `from_f64` pipeline. CBMC never
-    /// encodes the f64 path. ADR-0016.
+    /// invoking the `ferrodec-transcend` Extended-precision kernel. CBMC
+    /// cannot tractably encode the bignum kernel path. ADR-0016.
     #[cfg(kani)]
     #[doc(hidden)]
     #[must_use]
@@ -118,7 +118,8 @@ impl Decimal32 {
     }
 
     /// Kani-only entry returning the `ln` special-case branch without
-    /// invoking the `libm::log` + `from_f64` pipeline. ADR-0016.
+    /// invoking the `ferrodec-transcend` Extended-precision kernel.
+    /// ADR-0016.
     #[cfg(kani)]
     #[doc(hidden)]
     #[must_use]
@@ -127,10 +128,10 @@ impl Decimal32 {
     }
 }
 
-/// Resolve every `exp` input class that does not reach the
-/// `libm::exp` + `from_f64` pipeline. Returns `None` only for finite
-/// non-zero, the single class that needs the f64 path. Shared by
-/// production `exp` and the Kani shim so the two cannot drift.
+/// Resolve every `exp` input class the `ferrodec-transcend`
+/// Extended-precision kernel does not need to see. Returns `None` only
+/// for finite non-zero, the single class the kernel evaluates. Shared
+/// by production `exp` and the Kani shim so the two cannot drift.
 fn exp_special_cases(class: Class) -> Option<(Decimal32, Status)> {
     match class {
         Class::SignalingNaN { sign, payload } => Some((
@@ -148,9 +149,9 @@ fn exp_special_cases(class: Class) -> Option<(Decimal32, Status)> {
     }
 }
 
-/// Resolve every `ln` input class that does not reach the
-/// `libm::log` + `from_f64` pipeline. Returns `None` only for
-/// positive finite non-zero. Shared by production `ln` and the Kani
+/// Resolve every `ln` input class the `ferrodec-transcend`
+/// Extended-precision kernel does not need to see. Returns `None` only
+/// for positive finite non-zero. Shared by production `ln` and the Kani
 /// shim so the two cannot drift.
 fn ln_special_cases(class: Class) -> Option<(Decimal32, Status)> {
     match class {
@@ -235,6 +236,46 @@ mod tests {
         // exp(-1000) underflows to 0.
         let (r, _) = from_int(-1000, 0).exp(RoundingMode::NearestEven);
         assert!(r.is_zero());
+    }
+
+    #[test]
+    fn exp_underflow_ladder() {
+        // The shared Extended-precision kernel produces representable
+        // Decimal32 subnormals for inputs in roughly `(−233, −219]`
+        // (the removed f64 path saturated to zero before reaching that
+        // window). Pin the whole underflow ladder: a normal result must
+        // NOT raise a spurious UNDERFLOW, a subnormal result MUST raise
+        // UNDERFLOW + INEXACT (IEEE 754-2019 §7.5), and a result rounded
+        // to zero MUST raise UNDERFLOW + INEXACT. Verified fd-aqs.15 (the
+        // Decimal64 sibling carries the same guard as
+        // `exp_underflow_contract_m7`).
+        //
+        // exp(-180) ≈ 6E-79: a normal Decimal32, not a spurious underflow.
+        let (r, s) = from_int(-180, 0).exp(RoundingMode::NearestEven);
+        assert!(
+            r.is_finite() && !r.is_zero() && !r.is_subnormal(),
+            "exp(-180) normal"
+        );
+        assert!(s.inexact());
+        assert!(
+            !s.underflow(),
+            "exp(-180) must not raise a spurious UNDERFLOW"
+        );
+
+        // exp(-225) ≈ 2E-98: a representable Decimal32 subnormal → must
+        // carry UNDERFLOW + INEXACT.
+        let (r, s) = from_int(-225, 0).exp(RoundingMode::NearestEven);
+        assert!(r.is_subnormal(), "exp(-225) is a Decimal32 subnormal");
+        assert!(
+            s.underflow() && s.inexact(),
+            "exp(-225) subnormal must raise UNDERFLOW + INEXACT"
+        );
+
+        // exp(-500): far below the subnormal floor, rounds to zero with
+        // UNDERFLOW + INEXACT.
+        let (r, s) = from_int(-500, 0).exp(RoundingMode::NearestEven);
+        assert!(r.is_zero());
+        assert!(s.underflow() && s.inexact());
     }
 
     #[test]

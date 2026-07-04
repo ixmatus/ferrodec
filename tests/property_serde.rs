@@ -90,10 +90,12 @@ struct WithBid {
 
 #[test]
 fn serde_bid_string_fallback_round_trips_via_json() {
-    // JSON can't carry u128 losslessly, so the bid module's
-    // human-readable fallback kicks in: serialize via the string path.
-    // The deserializer's `deserialize_any` accepts strings and routes
-    // them through `Decimal128::parse_str`.
+    // A hand-written JSON string routes through the bid module's
+    // human-readable path: `deserialize_any` accepts the string and
+    // parses it via `Decimal128::parse_str`. (serde_bid *serialize*
+    // always writes the raw u128, so JSON's own serialized form is a
+    // number, not this string; this test exercises only the string
+    // *input* path — fd-aqs.13 review.)
     let row = WithBid {
         value: parse("3.14"),
     };

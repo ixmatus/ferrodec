@@ -102,9 +102,9 @@ impl Decimal32 {
     }
 
     /// Kani-only entry for the binary `pow` special-case branch
-    /// without invoking the negative-base integer test or the
-    /// `libm::pow` + `from_f64` pipeline. CBMC never encodes the f64
-    /// path. ADR-0016.
+    /// without invoking the `ferrodec-transcend` Extended-precision
+    /// kernel (which resolves the negative-base / non-integer INVALID).
+    /// CBMC cannot tractably encode the bignum kernel path. ADR-0016.
     #[cfg(kani)]
     #[doc(hidden)]
     #[must_use]
@@ -131,11 +131,11 @@ impl Decimal32 {
     }
 }
 
-/// Resolve every `pow` input combination that does not reach the
-/// negative-base integer test or the `libm::pow` + `from_f64`
-/// pipeline. Returns `None` for the fall-through (a base / exponent
-/// pair that needs the f64 path, including the negative-base
-/// non-integer INVALID, which depends on the rounded f64 exponent).
+/// Resolve every `pow` input combination that does not need the
+/// `ferrodec-transcend` Extended-precision kernel. Returns `None` for
+/// the fall-through (a base / exponent pair the kernel evaluates,
+/// including the negative-base non-integer INVALID, which the kernel
+/// decides at Extended precision rather than on a rounded f64 exponent).
 /// The resolution order is fixed and mirrors IEEE 754-2019 §9.2:
 /// `pow(x, 0) = 1` (even `pow(NaN, 0)`); then `pow(1, y) = 1` by
 /// value not cohort (`sNaN` exponent still raises INVALID); then
@@ -179,9 +179,9 @@ fn pow_special_cases(base: Decimal32, exponent: Decimal32) -> Option<(Decimal32,
     None
 }
 
-/// Resolve every `cbrt` input class that does not reach the
-/// `libm::cbrt` + `from_f64` pipeline. `None` only for finite
-/// non-zero. `cbrt(±∞) = ±∞`, `cbrt(±0) = ±0` (sign preserved); the
+/// Resolve every `cbrt` input class the `ferrodec-transcend`
+/// Extended-precision kernel does not need to see. `None` only for
+/// finite non-zero. `cbrt(±∞) = ±∞`, `cbrt(±0) = ±0` (sign preserved); the
 /// real cube root has no domain restriction. Shared by production
 /// `cbrt` and the Kani shim so the two cannot drift.
 fn cbrt_special_cases(class: Class) -> Option<(Decimal32, Status)> {
@@ -314,7 +314,9 @@ mod tests {
 
     #[test]
     fn pow_overflow() {
-        // 10^100 overflows.
+        // Decimal32's E_MAX is 96; 10^100 exceeds Decimal32's range,
+        // so the Extended-precision kernel overflows the format and pow
+        // propagates OVERFLOW.
         let (r, s) = Decimal32::TEN.pow(from_int(100, 0), RoundingMode::NearestEven);
         assert!(r.is_infinite());
         assert!(s.overflow() && s.inexact());

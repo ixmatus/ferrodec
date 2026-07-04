@@ -6,16 +6,19 @@
 //!
 //! # Working precision
 //!
-//! Decimal64 coefficients fit in 53 bits. The maximum
-//! `coef_hi × 10^diff` we can shift without overflowing `u128` (max
-//! ≈ 3.4 × 10³⁸) is `coef_hi × 10²²`. So:
+//! Decimal64 coefficients fit in 53 bits. Alignment is *dynamic*
+//! (fd-d47): `coef_hi` is shifted left by `s = min(diff, max_shift)`
+//! where `max_shift = U128_DIGIT_CAP − digits(coef_hi)` keeps the
+//! product inside `u128` (max ≈ 3.4 × 10³⁸). `max_shift` therefore
+//! ranges from ~22 (a full 16-digit `coef_hi`) up to ~37 (a 1-digit
+//! one), rather than the fixed 22 of the earlier static scheme. So:
 //!
-//! * `diff ≤ 22`: shift the higher-quantum operand left by 10^diff;
-//!   keep the lower-quantum operand as-is.
-//! * `22 < diff ≤ 23`: truncate the lower operand by `10^(diff − 22)`
-//!   with the residue feeding the sticky bit.
-//! * `diff > 23`: the lower operand sits below the working window
-//!   entirely; only its non-zeroness contributes.
+//! * `diff ≤ max_shift`: shift the higher-quantum operand left by
+//!   `10^diff`; keep the lower-quantum operand exact.
+//! * `diff > max_shift`: shift `coef_hi` by `max_shift` and truncate the
+//!   lower operand by `10^(diff − max_shift)`, its residue feeding the
+//!   sticky bit; a lower operand entirely below the window contributes
+//!   only its non-zeroness.
 
 use crate::bid::{classify_bits, Class, BIAS, PRECISION};
 use crate::decimal::Decimal64;
@@ -230,6 +233,18 @@ fn add_inner(a: Decimal64, b: Decimal64, rm: RoundingMode) -> (Decimal64, Status
     } else {
         let q_preferred = exp_a.min(exp_b);
         if pre_sticky {
+            // Provably unreachable (fd-aqs.15). `pre_sticky` is set only
+            // when the low operand is truncated, i.e. `s < diff`, which
+            // means `coef_hi` was shifted left by the maximum `s`; the
+            // shifted `aligned_hi` then strictly exceeds the truncated
+            // `aligned_lo`, so this equal-magnitude arm is reached only
+            // with `pre_sticky == false`. The `1`-coefficient return is a
+            // defensive fallback; the invariant is asserted so a future
+            // alignment change that broke it would fail the debug build.
+            debug_assert!(
+                false,
+                "equal-aligned-magnitude add cannot carry a truncated low residue"
+            );
             return round_and_pack_into_u64(1, exp_lo, q_preferred, sign_lo, false, rm);
         }
         let result_sign = zero_sum_sign(sign_a, sign_b, rm);

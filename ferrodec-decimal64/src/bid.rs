@@ -21,7 +21,7 @@
 //! * `T[4..3] = 11` (and not Inf/NaN) → Form B:
 //!     * `biased_exp = T[2..1] || ec`  (2 + 8 = 10 bits, range 0..767)
 //!     * `coefficient = 100 || T[0] || trailing_significand`
-//!       (3 + 1 + 50 = 54 bits, range `2^53..3·2^53`)
+//!       (3 + 1 + 50 = 54 bits, value range `2^53 .. 2^53 + 2^51`)
 //!
 //! Like BID-32 and unlike BID-128, BID-64 uses Form B for the upper
 //! portion of the canonical coefficient range:
@@ -95,7 +95,7 @@ pub(crate) const COEFFICIENT_LIMIT: u64 = 10u64.pow(16);
 /// `[2^53, 10^16)`.
 #[allow(dead_code)]
 pub(crate) const FORM_B_THRESHOLD: u64 = 1u64 << 53;
-/// `3 · 2^53` — the strict upper bound on any Form B coefficient.
+/// `2^53 + 2^51` (= `10 · 2^50`) — the strict upper bound on any Form B coefficient.
 /// Encodings between `COEFFICIENT_LIMIT` and this value are
 /// non-canonical and decode to ±0.
 #[allow(dead_code)]
