@@ -268,12 +268,19 @@ impl Decimal64 {
     ///
     /// Widens to `f64` and reuses [`Decimal64::from_f64`]; the widening
     /// is exact (every `f32` is representable in `f64`), so no precision
-    /// is lost before the decimal rounding step. Returns `(value,
-    /// Status)` with the same special-case handling as `from_f64`
-    /// (signaling NaN bit patterns raise `INVALID`).
+    /// is lost before the decimal rounding step. A signaling f32 NaN is
+    /// detected from the f32 bits *before* widening — `f64::from` quiets
+    /// it, dropping the signal — and raises `INVALID` per §5.4.2
+    /// (fd-aqs.12); sign and payload follow `from_f64`.
     #[must_use]
     pub fn from_f32(x: f32, rm: RoundingMode) -> (Self, Status) {
-        Self::from_f64(f64::from(x), rm)
+        let (d, status) = Self::from_f64(f64::from(x), rm);
+        // Restore the sNaN INVALID that `f64::from` quiets away (bit 22
+        // is the f32 quiet bit).
+        if x.is_nan() && x.to_bits() & 0x0040_0000 == 0 {
+            return (d, status | Status::INVALID);
+        }
+        (d, status)
     }
 }
 
@@ -536,6 +543,17 @@ mod tests {
         assert!(pos.is_nan() && !pos.is_sign_negative());
         let (neg, _) = Decimal64::from_f64(-f64::NAN, RoundingMode::NearestEven);
         assert!(neg.is_nan() && neg.is_sign_negative());
+    }
+
+    #[test]
+    fn from_f32_signaling_nan_raises_invalid() {
+        // fd-aqs.12 follow-up: `f64::from` quiets an f32 sNaN, so
+        // from_f32 inspects the f32 bits (quiet bit 22 clear).
+        let rm = RoundingMode::NearestEven;
+        let (d, s) = Decimal64::from_f32(f32::from_bits(0x7f80_0001), rm);
+        assert!(d.is_nan() && s.invalid(), "f32 sNaN raises INVALID");
+        let (dq, sq) = Decimal64::from_f32(f32::from_bits(0x7fc0_0001), rm);
+        assert!(dq.is_nan() && !sq.invalid(), "f32 qNaN does not");
     }
 
     #[test]
