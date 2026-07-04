@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.5] - 2026-07-03
+
+### Added
+
+- `decimal_is_binary_exact(coefficient, exponent, mantissa_bits)`: a bounded,
+  allocation-free test for whether a decimal value is exactly representable in
+  a binary float of the given mantissa width.
+- `binary_conversion_status(...)`: computes the IEEE 754 status flags
+  (`INEXACT`, `UNDERFLOW`, `OVERFLOW`) for a decimal-to-binary conversion.
+  Both back the correctly-rounded `to_f64` / `to_f32` path in the fixed-format
+  crates (fd-aqs.12, ADR-0055).
+
 ## [0.1.4] - 2026-05-17
 
 ### Added

@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.4.0] - 2026-07-03
+
+Completes the 2026-06-09 rigorous-review remediation (bd epic fd-aqs).
+
+### Changed
+
+- Binary-float conversions are now correctly rounded (ADR-0055). `to_f64`
+  and `to_f32` round once at the target precision and raise `INEXACT` on any
+  loss; the previous numerical path could double-round coefficients wider
+  than the binary mantissa and never raised `INEXACT`. `from_f64` and
+  `from_f32` take a shortest round-trip decimal, preserve the NaN sign, and
+  raise `INVALID` on a signaling-NaN operand.
+
+### Fixed
+
+- `serde` now branches on `is_human_readable`: non-self-describing formats
+  (bincode and similar) round-trip the raw BID `u128` losslessly instead of
+  failing at run time, while human-readable formats keep the canonical
+  decimal string.
+- A NaN payload parsed at or above the canonical maximum is now rejected as
+  a syntax error instead of silently wrapping into a smaller payload.
+
+### Internal
+
+- Verification strengthening (fd-aqs.10): per-operation frozen-corpus pins,
+  `SHA256SUMS` over every vendored vector set, a mode-aware differential
+  band, and Kani covers upgraded to proven-unreachable assertions.
+- Expanded General Decimal Arithmetic conformance: vendored the remaining
+  `dq` decTest files and wired their copy, min/max-magnitude, and
+  to-integral operations onto the Decimal128 conformance path (fd-aqs.11).
+
 ## [3.3.0] - 2026-06-04
 
 ### Added

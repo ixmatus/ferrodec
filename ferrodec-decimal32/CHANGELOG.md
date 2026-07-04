@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.4.0] - 2026-07-03
+
+Completes the 2026-06-09 rigorous-review remediation (bd epic fd-aqs).
+
+### Changed
+
+- Binary-float conversions are now correctly rounded (ADR-0055). `to_f64`
+  and `to_f32` round once at the target precision and raise `INEXACT` on any
+  loss; the previous numerical path could double-round wide coefficients and
+  never raised `INEXACT`. `from_f64` and `from_f32` take a shortest
+  round-trip decimal, preserve the NaN sign, and raise `INVALID` on a
+  signaling-NaN operand.
+- Depends on `ferrodec-ieee` 0.1.5 (new binary-conversion helpers) and
+  `ferrodec-transcend` 0.2.0.
+
+### Internal
+
+- Added underflow-ladder regression guards over the exponential kernel: a
+  subnormal `exp` result now provably carries `UNDERFLOW` + `INEXACT`
+  (fd-aqs.15).
+- Corrected transcendental kernel docstrings that still described the removed
+  `f64` / `libm` pipeline; the special-function surface routes through the
+  shared `ferrodec-transcend` Extended-precision kernel.
+
 ## [3.3.0] - 2026-06-04
 
 ### Added

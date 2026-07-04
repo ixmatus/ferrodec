@@ -59,7 +59,7 @@ missing_panics_doc = "allow"
 
 [package]
 name = "ferrodec"
-version = "3.3.0"
+version = "3.4.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -147,9 +147,9 @@ num-traits = ["fmt", "ops", "dep:num-traits"]
 dpd = []
 
 [dependencies]
-ferrodec-ieee = { path = "ferrodec-ieee", version = "0.1.4" }
+ferrodec-ieee = { path = "ferrodec-ieee", version = "0.1.5" }
 ferrodec-multiword = { path = "ferrodec-multiword", version = "0.1.0" }
-ferrodec-transcend = { path = "ferrodec-transcend", version = "0.1.0" }
+ferrodec-transcend = { path = "ferrodec-transcend", version = "0.2.0" }
 serde = { version = "1", default-features = false, optional = true }
 num-traits = { version = "0.2", default-features = false, optional = true }
 

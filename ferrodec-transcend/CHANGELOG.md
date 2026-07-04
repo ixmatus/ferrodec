@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-07-03
+
+### Changed
+
+- **Breaking:** `DecimalFormat::to_extended_parts` now returns
+  `Option<(U256, i32, bool)>` instead of `(U256, i32, bool)`, returning
+  `None` for NaN and infinity rather than panicking. Implementors and callers
+  of the public `DecimalFormat` trait must handle the `Option` (fd-aqs.13).
+
 ### Fixed
 
 - The `cbrt` and `pow` kernels no longer raise `INEXACT` on an exactly
