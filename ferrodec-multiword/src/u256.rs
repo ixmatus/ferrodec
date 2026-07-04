@@ -12,8 +12,8 @@
 
 use core::cmp::Ordering;
 
-/// `10^k` for `k ∈ [0, 38]`. `10^38 ≈ 10^38 < 2^128 ≈ 3.4 × 10^38` is
-/// the largest power of ten that fits in `u128`; `10^39` would overflow.
+/// `10^k` for `k ∈ [0, 38]`. `10^38 < 2^128 ≈ 3.4 × 10^38` is the
+/// largest power of ten that fits in `u128`; `10^39` would overflow.
 ///
 /// Used by [`U256::mul_pow10`] (single-step multiply replaces a loop of
 /// `mul10`) and the rounding-pipeline crossover check in
