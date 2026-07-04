@@ -70,23 +70,24 @@ impl DecimalFormat for Decimal128 {
         crate::ops::propagate_nan2(self, other)
     }
 
-    fn to_extended_parts(self) -> (ferrodec_multiword::U256, i32, bool) {
+    fn to_extended_parts(self) -> Option<(ferrodec_multiword::U256, i32, bool)> {
         match crate::bid::classify_bits(self.to_bits()) {
-            crate::bid::Class::Zero { sign, biased_exp } => (
+            crate::bid::Class::Zero { sign, biased_exp } => Some((
                 ferrodec_multiword::U256::ZERO,
                 biased_exp as i32 - crate::bid::BIAS as i32,
                 sign,
-            ),
+            )),
             crate::bid::Class::Finite {
                 sign,
                 biased_exp,
                 coefficient,
-            } => (
+            } => Some((
                 ferrodec_multiword::U256::from_u128(coefficient),
                 biased_exp as i32 - crate::bid::BIAS as i32,
                 sign,
-            ),
-            _ => panic!("Decimal128::to_extended_parts: NaN / Inf not representable"),
+            )),
+            // NaN / Inf are not representable in the Extended kernel form.
+            _ => None,
         }
     }
 

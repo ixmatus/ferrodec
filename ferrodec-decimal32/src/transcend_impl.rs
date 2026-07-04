@@ -136,21 +136,22 @@ impl DecimalFormat for Decimal32 {
         }
     }
 
-    fn to_extended_parts(self) -> (U256, i32, bool) {
+    fn to_extended_parts(self) -> Option<(U256, i32, bool)> {
         match classify_bits(self.to_bits()) {
             crate::bid::Class::Zero { sign, biased_exp } => {
-                (U256::ZERO, biased_exp as i32 - BIAS as i32, sign)
+                Some((U256::ZERO, biased_exp as i32 - BIAS as i32, sign))
             }
             crate::bid::Class::Finite {
                 sign,
                 biased_exp,
                 coefficient,
-            } => (
+            } => Some((
                 U256::from_u128(u128::from(coefficient)),
                 biased_exp as i32 - BIAS as i32,
                 sign,
-            ),
-            _ => panic!("Decimal32::to_extended_parts: NaN / Inf not representable"),
+            )),
+            // NaN / Inf are not representable in the Extended kernel form.
+            _ => None,
         }
     }
 

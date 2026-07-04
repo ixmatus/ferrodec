@@ -101,11 +101,17 @@ pub trait DecimalFormat: Copy + Sized {
     fn propagate_nan2(self, other: Self) -> Self;
 
     /// **Boundary 1 — into the kernel.** Decompose a finite or zero
-    /// datum into `(coefficient, unbiased_exponent, sign)`. The
-    /// coefficient is widened to [`U256`] (the `Extended` working
-    /// width); the exponent is unbiased (no [`BIAS`](Self::BIAS)
-    /// offset). Caller must have filtered NaN / Inf.
-    fn to_extended_parts(self) -> (U256, i32, bool);
+    /// datum into `Some((coefficient, unbiased_exponent, sign))`, or
+    /// `None` for a NaN / Inf. The coefficient is widened to [`U256`]
+    /// (the `Extended` working width); the exponent is unbiased (no
+    /// [`BIAS`](Self::BIAS) offset).
+    ///
+    /// Returns `Option` rather than panicking (fd-aqs.13): this trait is
+    /// `pub`, so a panicking boundary method was a reachable panic for
+    /// any external caller; finite in-kernel callers unwrap under an
+    /// explicit contract, and predicate callers treat `None` as
+    /// not-applicable.
+    fn to_extended_parts(self) -> Option<(U256, i32, bool)>;
 
     /// **Boundary 2 — out of the kernel.** Round an `Extended`
     /// result `(coef · 10^unbiased_exp, sign)` back to the format,

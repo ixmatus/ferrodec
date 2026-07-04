@@ -16,18 +16,21 @@
 //! exponent      := ("e" | "E") sign? digits
 //! ```
 //!
-//! NaN payloads encode in the BID significand's trailing 110 bits
-//! (`T_MASK`). Payloads up to `2^110 − 1` ≈ `10^33` round-trip; larger
-//! values are rejected with `InvalidCharacter` at the first overflowing
-//! digit.
+//! NaN payloads encode in the BID significand's trailing 110 bits. Only
+//! *canonical* payloads (`< 10^33`) round-trip: the field can hold up to
+//! `2^110 − 1` ≈ `1.3 × 10^33`, but a payload in `[10^33, 2^110)` would
+//! mint a value for which `is_canonical()` is false, so payloads
+//! `>= 10^33` are rejected with `InvalidCharacter` (`Conversion_syntax`,
+//! matching decNumber) at the first overflowing digit (fd-aqs.13: this
+//! was the only arithmetic-entry path that could produce a non-canonical
+//! bit pattern).
 //!
 //! Up to 76 mantissa digits are accumulated exactly; trailing digits
 //! beyond that contribute to the rounding sticky bit. The rounding
 //! direction comes from the supplied [`RoundingMode`].
 
-use crate::bid::{
-    pack_quiet_nan, pack_signaling_nan, BIAS, BIASED_EXP_MAX, COEFFICIENT_LIMIT, T_MASK,
-};
+use crate::bid::{pack_quiet_nan, pack_signaling_nan, BIAS, BIASED_EXP_MAX, COEFFICIENT_LIMIT};
+use crate::classify::MAX_CANONICAL_NAN_PAYLOAD;
 use crate::decimal::{Decimal128, Decimal128Parts};
 use crate::multiword::U256;
 use crate::ops::round_and_pack_finite;
@@ -583,7 +586,11 @@ fn parse_nan_payload(
             .ok_or(ParseDecimalError::InvalidCharacter {
                 position: offset + i,
             })?;
-        if payload > T_MASK {
+        // Reject non-canonical payloads (>= 10^33) as Conversion_syntax
+        // (fd-aqs.13): the 110-bit field would hold up to 2^110 - 1, but
+        // only `< 10^33` is canonical, so accepting the gap minted values
+        // failing `is_canonical()`.
+        if payload >= MAX_CANONICAL_NAN_PAYLOAD {
             return Err(ParseDecimalError::InvalidCharacter {
                 position: offset + i,
             });
@@ -656,7 +663,7 @@ macro_rules! dec {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bid::{pack_finite, BIAS};
+    use crate::bid::{pack_finite, BIAS, T_MASK};
 
     fn parse(s: &str) -> Decimal128 {
         Decimal128::parse_str(s, RoundingMode::default())
@@ -758,7 +765,8 @@ mod tests {
 
     #[test]
     fn parse_nan_payload_overflow() {
-        // 35 nines exceeds the 110-bit field.
+        // 35 nines is >= 10^33, so rejected (fd-aqs.13; previously
+        // rejected only once it exceeded the 110-bit field).
         let res = Decimal128::parse_str(
             "NaN99999999999999999999999999999999999",
             RoundingMode::default(),
@@ -767,6 +775,30 @@ mod tests {
             res,
             Err(ParseDecimalError::InvalidCharacter { .. })
         ));
+    }
+
+    #[test]
+    fn parse_nan_payload_noncanonical_rejected() {
+        // fd-aqs.13: a payload in [10^33, 2^110) fits the 110-bit field
+        // but is non-canonical, so parse now rejects it as
+        // Conversion_syntax rather than minting a value that fails
+        // `is_canonical()`. 10^33 exactly (34 digits) is the boundary.
+        for s in [
+            "NaN1000000000000000000000000000000000",  // 10^33
+            "sNaN1000000000000000000000000000000000", // 10^33, signaling
+        ] {
+            assert!(
+                matches!(
+                    Decimal128::parse_str(s, RoundingMode::default()),
+                    Err(ParseDecimalError::InvalidCharacter { .. })
+                ),
+                "{s} should be rejected as a non-canonical payload"
+            );
+        }
+        // Just below the boundary (10^33 - 1, 33 nines) is canonical and
+        // still accepted, and its parsed value is canonical.
+        let ok = parse("NaN999999999999999999999999999999999");
+        assert!(ok.is_nan() && ok.is_canonical());
     }
 
     #[test]
