@@ -1,7 +1,12 @@
 # ADR-0045: ferrodec-decimal public API settle (1.0)
 
-- **Status**: accepted
+- **Status**: superseded by ADR-0055
 - **Date**: 2026-06-03
+
+> **Superseded (2026-06-28, ADR-0055).** The 2.0 surface reopens this settle:
+> `Decimal` gains `Ord` / `PartialOrd` (reversing the no-ordering stance below),
+> and the `max` / `min` operations are renamed to `maxnum` / `minnum` to avoid
+> the `Ord::max` / `Ord::min` collision. See ADR-0055.
 
 ## Context
 
