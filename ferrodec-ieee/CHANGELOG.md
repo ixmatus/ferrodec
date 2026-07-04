@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `binary_conversion_status(...)`: computes the IEEE 754 status flags
   (`INEXACT`, `UNDERFLOW`, `OVERFLOW`) for a decimal-to-binary conversion.
   Both back the correctly-rounded `to_f64` / `to_f32` path in the fixed-format
-  crates (fd-aqs.12, ADR-0055).
+  crates (fd-aqs.12, ADR-0056).
 
 ## [0.1.4] - 2026-05-17
 

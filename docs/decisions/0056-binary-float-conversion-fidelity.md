@@ -1,7 +1,13 @@
-# ADR-0055: Binary-float conversion fidelity and family unification
+# ADR-0056: Binary-float conversion fidelity and family unification
 
 - **Status**: accepted
 - **Date**: 2026-07-03
+- **Note**: originally numbered ADR-0055; renumbered to 0056 on integration
+  to resolve a collision with the concurrently-developed
+  [ADR-0055](0055-decimal-ordering-and-float-string-ergonomics.md) (decimal
+  ordering and float-string ergonomics), which reached `main` first. The
+  fd-aqs.12 commits and their CHANGELOG history predate the renumber and
+  still cite "ADR-0055".
 
 ## Context
 

@@ -13,7 +13,7 @@ Completes the 2026-06-09 rigorous-review remediation (bd epic fd-aqs).
 
 ### Changed
 
-- Binary-float conversions are now correctly rounded (ADR-0055). `to_f64`
+- Binary-float conversions are now correctly rounded (ADR-0056). `to_f64`
   and `to_f32` round once at the target precision and raise `INEXACT` on any
   loss; the previous numerical path could double-round wide coefficients and
   never raised `INEXACT`. `from_f64` and `from_f32` take a shortest
