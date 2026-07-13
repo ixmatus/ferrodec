@@ -22,6 +22,9 @@ target
 
 # Claude Code per-user runtime state (settings, scheduled tasks, etc.)
 .claude/
+# Local Claude Code instructions for this checkout; kept out of the
+# public repository and (via this ignore) out of the published crate.
+CLAUDE.md
 
 # Local copy of the IEEE 754-2019 spec PDF (copyrighted; never commit)
 docs/IEEE Standard 754-2019.pdf
