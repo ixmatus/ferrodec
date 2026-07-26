@@ -53,14 +53,15 @@ fn dectest_conformance() {
 /// editing this table (see ADR-0010 in the workspace root for the
 /// rationale).
 ///
-/// - `dsBase.decTest`: 738 of 909 cases pass (the quote-aware
+/// - `dsBase.decTest`: 884 of 909 cases pass (the quote-aware
 ///   `strip_comment` fix recovered the two adversarial parse vectors
-///   dsbas504 `'--1'` and dsbas555 `'1E--1'`, fd-aqs.9). The
+///   dsbas504 `'--1'` and dsbas555 `'1E--1'`, fd-aqs.9). The 25
 ///   residual skips are cases under non-IEEE rounding directives
 ///   (`half_down`, `05up`) which we won't coerce onto an IEEE mode
 ///   (mirrors ferrodec's ADR-0005 posture); the pathologically large
-///   exponents saturate and pass since ADR-0057. Unchanged by the
-///   DPD work.
+///   exponents saturate and pass since ADR-0057, and the 146 toEng
+///   cases dispatch through the Engineering adapter since ADR-0058.
+///   Unchanged by the DPD work.
 /// - `dsEncode.decTest`: the count is feature-conditional. With the
 ///   `dpd` feature off, only the 2 string-to-string `apply` cases
 ///   pass and every `#hex` case is skipped at the dispatcher. With
@@ -75,19 +76,62 @@ fn dectest_conformance() {
 const fn expected_per_file() -> &'static [(&'static str, usize)] {
     #[cfg(not(feature = "dpd"))]
     {
-        &[("dsBase.decTest", 738), ("dsEncode.decTest", 2)]
+        &[("dsBase.decTest", 884), ("dsEncode.decTest", 2)]
     }
     #[cfg(feature = "dpd")]
     {
-        &[("dsBase.decTest", 738), ("dsEncode.decTest", 250)]
+        &[("dsBase.decTest", 884), ("dsEncode.decTest", 250)]
     }
 }
 
 fn run_case(case: &TestCase, ctx: &Context) -> Outcome {
     match case.op.as_str() {
         "tosci" | "apply" => run_tosci(case, ctx),
+        // fd-zf8 (ADR-0058): GDA `toEng` renders through the
+        // `Engineering` adapter and compares the string (the
+        // engineering form is cohort-distinct, so it cannot
+        // round-trip through a value compare).
+        "toeng" => run_toeng(case, ctx),
         _ => Outcome::Skip,
     }
+}
+
+/// `toEng`: parse the operand under the context, render through the
+/// [`Decimal32::engineering`] adapter (GDA to-engineering-string,
+/// ADR-0058), and compare the string plus status exactly like
+/// `run_tosci`. `dsBase` carries no `#hex` toEng cases; any would
+/// skip on the same guard.
+fn run_toeng(case: &TestCase, ctx: &Context) -> Outcome {
+    if case.operands.len() != 1 {
+        return Outcome::Skip;
+    }
+    let input = &case.operands[0];
+    if input.starts_with('#') || case.expected.starts_with('#') {
+        return Outcome::Skip;
+    }
+    let rm = match map_rounding(&ctx.rounding) {
+        Some(r) => r,
+        None => return Outcome::Skip,
+    };
+    let (parsed, status) = match Decimal32::parse_str(input, rm) {
+        Ok(r) => r,
+        Err(ParseDecimalError::CoefficientOverflow) => {
+            return Outcome::Skip;
+        }
+        Err(_) => (Decimal32::NAN, Status::INVALID),
+    };
+    let formatted = format!("{}", parsed.engineering());
+    if formatted != case.expected {
+        return Outcome::Fail(format!("got {formatted:?} want {:?}", case.expected));
+    }
+    let expected_status = decode_conditions(&case.conditions);
+    if !status_conformance_eq(status, expected_status) {
+        return Outcome::Fail(format!(
+            "status mismatch: got {status:?} want {expected_status:?} (conditions {:?})",
+            case.conditions
+        ));
+    }
+    clamped_outcome(status, case)
 }
 
 /// `toSci` and `apply`: parse the operand string at the active

@@ -104,10 +104,16 @@ impl fmt::UpperExp for Decimal128 {
     }
 }
 
-/// Wrapper that displays a `Decimal128` in *engineering* notation:
-/// scientific with the exponent forced to a multiple of 3, so the
-/// mantissa lies in `[1, 1000)`. Useful for finance and SI-scaled
-/// scientific output.
+/// Wrapper that displays a `Decimal128` in the General Decimal
+/// Arithmetic *to-engineering-string* form (ADR-0058): identical to
+/// the default [`Display`](core::fmt::Display) (`toSci`) for special
+/// values and for any magnitude shown in plain form, but when an
+/// exponent is needed it is a multiple of 3 with one to three digits
+/// before the point, so the value reads on the SI prefix grid. A
+/// shown exponent of zero is omitted (`10E+1` renders `100`); a zero
+/// coefficient outside the plain range shows its quantum rounded up
+/// to a multiple of three with the gap as fractional zeros (`0E+1`
+/// renders `0.00E+3`). Validated against the decTest `toEng` vectors.
 ///
 /// Returned by [`Decimal128::engineering`]; implements `Display` so
 /// callers can write `format!("{}", x.engineering())` or
@@ -122,22 +128,28 @@ impl fmt::Display for Engineering {
 }
 
 impl Decimal128 {
-    /// Wrap `self` in a [`Engineering`] adapter that formats in
-    /// engineering notation (scientific with exponent a multiple of 3,
-    /// mantissa in `[1, 1000)`).
+    /// Wrap `self` in an [`Engineering`] adapter that formats in the
+    /// General Decimal Arithmetic to-engineering-string form
+    /// (ADR-0058): plain notation exactly where `Display` uses it,
+    /// otherwise scientific with the exponent a multiple of 3 and one
+    /// to three digits before the point.
     ///
     /// # Examples
     ///
     /// ```
     /// use ferrodec::Decimal128;
     ///
-    /// // 12345 as engineering: 12.345 × 10^3
-    /// let s = format!("{}", Decimal128::try_new(12345, 0).unwrap().engineering());
-    /// assert_eq!(s, "12.345E+3");
+    /// // 1.234 × 10^7 on the SI grid: 12.34 × 10^6
+    /// let s = format!("{}", Decimal128::try_new(1234, 4).unwrap().engineering());
+    /// assert_eq!(s, "12.34E+6");
     ///
-    /// // 0.0001234 as engineering: 123.4 × 10^-6
-    /// let s = format!("{}", Decimal128::try_new(1234, -7).unwrap().engineering());
-    /// assert_eq!(s, "123.4E-6");
+    /// // 7 × 10^-13: 700 × 10^-15
+    /// let s = format!("{}", Decimal128::try_new(7, -13).unwrap().engineering());
+    /// assert_eq!(s, "700E-15");
+    ///
+    /// // Values in Display's plain range render plain (GDA toEng).
+    /// let s = format!("{}", Decimal128::try_new(12345, 0).unwrap().engineering());
+    /// assert_eq!(s, "12345");
     /// ```
     #[must_use]
     pub fn engineering(self) -> Engineering {
@@ -321,20 +333,47 @@ fn format_zero(
             write_signed_int(unbiased, f)
         }
         Notation::Engineering(exp_char) => {
-            f.write_str("0")?;
             if let Some(p) = precision {
+                // `{:.N}` keeps the pre-4.0 shape: a lone 0, padded
+                // fraction, and the non-rebased exponent.
+                f.write_str("0")?;
                 if p > 0 {
                     f.write_str(".")?;
                     for _ in 0..p {
                         f.write_str("0")?;
                     }
                 }
+                f.write_char(exp_char)?;
+                return write_signed_int(unbiased, f);
+            }
+            // GDA to-engineering-string zero (ADR-0058): plain in the
+            // toSci plain range (a zero's adjusted exponent is its
+            // quantum), else the quantum rounds *up* to a multiple of
+            // three with the gap rendered as fractional zeros
+            // (`0E+1` -> `0.00E+3`, `0E-7` -> `0.0E-6`,
+            // `0E-9` -> `0E-9`). The shown exponent is never zero
+            // here, since quanta in `[-6, 0]` take the plain form.
+            if (-6..=0).contains(&unbiased) {
+                if unbiased == 0 {
+                    return f.write_str("0");
+                }
+                f.write_str("0.")?;
+                for _ in 0..(-unbiased) {
+                    f.write_str("0")?;
+                }
+                return Ok(());
+            }
+            let frac = (3 - unbiased.rem_euclid(3)) % 3;
+            let shown = unbiased + frac;
+            f.write_str("0")?;
+            if frac > 0 {
+                f.write_str(".")?;
+                for _ in 0..frac {
+                    f.write_str("0")?;
+                }
             }
             f.write_char(exp_char)?;
-            // Lone 0 with the (non-rebased) exponent, matching the
-            // sibling write_engineering zero path; a zero has no
-            // significant digit to rebase to a multiple of three.
-            write_signed_int(unbiased, f)
+            write_signed_int(shown, f)
         }
         Notation::Auto => {
             // GDA `toSci` on zero: plain when `unbiased ≤ 0` (the
@@ -557,8 +596,10 @@ fn format_scientific(
     write_signed_int(adjusted, f)
 }
 
-/// Engineering notation: scientific with the exponent forced to a
-/// multiple of 3, so the mantissa lies in `[1, 1000)`. Used by
+/// GDA to-engineering-string for a nonzero finite value (ADR-0058):
+/// plain where `toSci` is plain; otherwise scientific with the
+/// exponent rebased to a multiple of 3 (one to three integer digits)
+/// and a shown exponent of zero omitted. Used by
 /// [`Decimal128::engineering`].
 fn format_engineering_into(
     coefficient: u128,
@@ -569,6 +610,15 @@ fn format_engineering_into(
     precision: Option<usize>,
 ) -> fmt::Result {
     let scientific_exp = digits + unbiased - 1;
+    // GDA to-engineering-string (ADR-0058): identical to
+    // to-scientific for any magnitude shown in plain form; the
+    // engineering layout applies only when an exponent is needed. An
+    // explicit `{:.N}` keeps the forced-exponential shape (its
+    // quantize step already shaped the mantissa for it), the same way
+    // `{:.N}` pins Auto to fixed regardless of the toSci rule.
+    if precision.is_none() && unbiased <= 0 && scientific_exp >= FIXED_LOWER_LOG10 {
+        return format_fixed(coefficient, digits, unbiased, f, precision);
+    }
     // Round `scientific_exp` *down* to the nearest multiple of 3.
     // For -2 → -3 (so the mantissa shifts up); for 4 → 3 (mantissa
     // shifts up by one decade, into [1, 1000)).
@@ -599,6 +649,12 @@ fn format_engineering_into(
         for _ in frac_natural..target_frac {
             f.write_str("0")?;
         }
+    }
+    // GDA: a shown engineering exponent of zero is omitted entirely
+    // (`10E+1` renders `100`); under `{:.N}` keep `E+0` so the
+    // explicit-precision shape stays exponential.
+    if eng_exp == 0 && precision.is_none() {
+        return Ok(());
     }
     f.write_char(exp_char)?;
     write_signed_int(eng_exp, f)
@@ -801,20 +857,31 @@ mod tests {
 
     #[test]
     fn engineering_basics() {
-        // Mantissa lives in [1, 1000), exponent is a multiple of 3.
+        // GDA toEng (ADR-0058): exponential only when an exponent is
+        // needed, and then a multiple of 3 with 1-3 integer digits.
         assert_eq!(
-            format!("{}", Decimal128::try_new(12345, 0).unwrap().engineering()),
-            "12.345E+3"
+            format!("{}", Decimal128::try_new(1234, 4).unwrap().engineering()),
+            "12.34E+6"
         );
-        // Negative exponent rounded down to next multiple of 3.
+        // Below the plain floor (adjusted < -6): exponential, rounded
+        // down to the next multiple of 3.
         assert_eq!(
-            format!("{}", Decimal128::try_new(1234, -7).unwrap().engineering()),
-            "123.4E-6"
+            format!("{}", Decimal128::try_new(1234, -11).unwrap().engineering()),
+            "12.34E-9"
         );
         // Exact multiple of 1000.
         assert_eq!(
             format!("{}", Decimal128::try_new(1, 3).unwrap().engineering()),
             "1E+3"
+        );
+        // Plain range renders plain, exactly like Display.
+        assert_eq!(
+            format!("{}", Decimal128::try_new(12345, 0).unwrap().engineering()),
+            "12345"
+        );
+        assert_eq!(
+            format!("{}", Decimal128::try_new(1234, -7).unwrap().engineering()),
+            "0.0001234"
         );
     }
 
@@ -823,23 +890,29 @@ mod tests {
         // Regression: a single-digit coefficient whose scientific
         // exponent is not a multiple of three needs the integer part
         // zero-padded. Capping at the coefficient length dropped a
-        // power of ten (`50` rendered as `5E+0`).
+        // power of ten (`50` rendered as `5E+0`). A shown exponent of
+        // zero is omitted per GDA (ADR-0058), so the padded digits
+        // stand alone for small positive quanta.
         assert_eq!(
             format!("{}", Decimal128::try_new(5, 1).unwrap().engineering()),
-            "50E+0"
+            "50"
         );
         assert_eq!(
             format!("{}", Decimal128::try_new(5, 2).unwrap().engineering()),
-            "500E+0"
+            "500"
         );
         assert_eq!(
-            format!("{}", Decimal128::try_new(5, -2).unwrap().engineering()),
-            "50E-3"
+            format!("{}", Decimal128::try_new(5, 4).unwrap().engineering()),
+            "50E+3"
+        );
+        assert_eq!(
+            format!("{}", Decimal128::try_new(5, -8).unwrap().engineering()),
+            "50E-9"
         );
         // Two-digit coefficient needing three integer digits.
         assert_eq!(
             format!("{}", Decimal128::try_new(75, 1).unwrap().engineering()),
-            "750E+0"
+            "750"
         );
     }
 
@@ -850,8 +923,8 @@ mod tests {
             format!("{}", Decimal128::INFINITY.engineering()),
             "Infinity"
         );
-        // Engineering always emits the explicit `E±N` exponent.
-        assert_eq!(format!("{}", Decimal128::ZERO.engineering()), "0E+0");
+        // A zero at quantum 0 sits in the plain range (GDA toEng).
+        assert_eq!(format!("{}", Decimal128::ZERO.engineering()), "0");
     }
 
     #[test]
@@ -864,16 +937,22 @@ mod tests {
         );
         assert_eq!(format!("{}", Decimal128::try_new(0, -7).unwrap()), "0E-7");
         assert_eq!(format!("{}", Decimal128::try_new(0, 5).unwrap()), "0E+5");
-        // Forced scientific / engineering carry the zero's real
-        // exponent, not a hardcoded 0 (matches the siblings).
+        // Forced scientific carries the zero's real exponent, not a
+        // hardcoded 0 (matches the siblings). Engineering rounds the
+        // quantum *up* to a multiple of three with fractional zeros
+        // for the gap (GDA toEng, ADR-0058).
         assert_eq!(format!("{:e}", Decimal128::try_new(0, 5).unwrap()), "0e+5");
         assert_eq!(
             format!("{}", Decimal128::try_new(0, 5).unwrap().engineering()),
-            "0E+5"
+            "0.0E+6"
         );
         assert_eq!(
             format!("{}", Decimal128::try_new(0, -7).unwrap().engineering()),
-            "0E-7"
+            "0.0E-6"
+        );
+        assert_eq!(
+            format!("{}", Decimal128::try_new(0, -9).unwrap().engineering()),
+            "0E-9"
         );
     }
 

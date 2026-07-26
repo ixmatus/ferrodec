@@ -8,8 +8,9 @@
 //! value's quantum.
 //!
 //! `LowerExp` / `UpperExp` force scientific notation. The
-//! [`Engineering`] adapter forces scientific with the exponent at a
-//! multiple of 3.
+//! [`Engineering`] adapter renders the GDA to-engineering-string form
+//! (ADR-0058): plain where `Display` is plain, otherwise scientific
+//! with the exponent at a multiple of 3.
 //!
 //! The fixed-buffer scratch is 16 bytes (sign + 7 digits + decimal
 //! point + "E±NNN" exponent), comfortably within stack constraints on
@@ -84,9 +85,14 @@ impl fmt::UpperExp for Decimal32 {
     }
 }
 
-/// Wrapper that displays a `Decimal32` in *engineering* notation:
-/// scientific with the exponent forced to a multiple of 3, so the
-/// mantissa lies in `[1, 1000)`.
+/// Wrapper that displays a `Decimal32` in the General Decimal
+/// Arithmetic *to-engineering-string* form (ADR-0058): identical to
+/// [`Display`](core::fmt::Display) (`toSci`) for special values and
+/// any magnitude shown in plain form; when an exponent is needed it
+/// is a multiple of 3 with one to three digits before the point. A
+/// shown exponent of zero is omitted; a zero coefficient outside the
+/// plain range shows its quantum rounded up to a multiple of three
+/// with the gap as fractional zeros (`0E+1` renders `0.00E+3`).
 #[derive(Clone, Copy)]
 pub struct Engineering(Decimal32);
 
@@ -97,9 +103,11 @@ impl fmt::Display for Engineering {
 }
 
 impl Decimal32 {
-    /// Wrap `self` in an [`Engineering`] adapter that formats in
-    /// engineering notation (scientific with exponent a multiple of 3,
-    /// mantissa in `[1, 1000)`).
+    /// Wrap `self` in an [`Engineering`] adapter that formats in the
+    /// General Decimal Arithmetic to-engineering-string form
+    /// (ADR-0058): plain notation exactly where `Display` uses it,
+    /// otherwise scientific with the exponent a multiple of 3 and one
+    /// to three digits before the point.
     #[must_use]
     pub fn engineering(self) -> Engineering {
         Engineering(self)
@@ -467,23 +475,54 @@ fn write_engineering(
     letter: char,
     precision: Option<usize>,
 ) -> fmt::Result {
-    // L1 (Phase 1 finding A5-F7): a zero coefficient has no
-    // significant digit to rebase, so the engineering mantissa shift
-    // below would pad the single `0` with extra integer zeros
-    // (`00E…`, `000E…`), which is never a valid rendering. Zero takes
-    // the same shape as `write_scientific`'s zero path: a lone `0`
-    // with the non rebased adjusted exponent, so zero is consistent
-    // between scientific and engineering. The GDA `to-engineering`
-    // fractional zero form (`0.00E+k`) is a documented
-    // simplification, not exercised by the vendored conformance
-    // corpus. This mirrors the Decimal64 L13 fix.
+    // GDA to-engineering-string (ADR-0058): identical to
+    // to-scientific for any magnitude shown in plain form (including
+    // zeros with quanta in `[-6, 0]`); the engineering layout applies
+    // only when an exponent is needed. An explicit `{:.N}` keeps the
+    // forced-exponential shape (its quantize step already shaped the
+    // mantissa for it), the same way `{:.N}` pins Auto to fixed.
+    if precision.is_none() && unbiased_exp <= 0 && adjusted_exp >= -6 {
+        return write_plain(f, coef, unbiased_exp, digits, None);
+    }
+
+    // L1 (Phase 1 finding A5-F7, mirroring the Decimal64 L13 fix): a
+    // zero coefficient has no significant digit to rebase, so the
+    // engineering mantissa shift below would pad the single `0` with
+    // extra integer zeros (`00E…`, `000E…`), which is never a valid
+    // rendering.
     if coef == 0 {
+        if precision.is_some() {
+            // `{:.N}` zero keeps the pre-4.0 shape: a lone `0` with
+            // the (non-rebased) adjusted exponent.
+            f.write_str("0")?;
+            write!(f, "{letter}")?;
+            return if adjusted_exp >= 0 {
+                write!(f, "+{adjusted_exp}")
+            } else {
+                write!(f, "{adjusted_exp}")
+            };
+        }
+        // GDA zero (the fractional-zero form the pre-4.0 adapter
+        // documented away, now exercised by the vendored `toEng`
+        // vectors): the quantum rounds *up* to a multiple of three,
+        // the gap rendered as fractional zeros (`0E+1` -> `0.00E+3`,
+        // `0E-7` -> `0.0E-6`, `0E-9` -> `0E-9`). The shown exponent
+        // is never zero here, since quanta in `[-6, 0]` took the
+        // plain branch above.
+        let frac = (3 - unbiased_exp.rem_euclid(3)) % 3;
+        let shown = unbiased_exp + frac;
         f.write_str("0")?;
+        if frac > 0 {
+            f.write_str(".")?;
+            for _ in 0..frac {
+                f.write_str("0")?;
+            }
+        }
         write!(f, "{letter}")?;
-        return if adjusted_exp >= 0 {
-            write!(f, "+{adjusted_exp}")
+        return if shown >= 0 {
+            write!(f, "+{shown}")
         } else {
-            write!(f, "{adjusted_exp}")
+            write!(f, "{shown}")
         };
     }
 
@@ -522,7 +561,12 @@ fn write_engineering(
         }
     }
 
-    let _ = unbiased_exp;
+    // GDA: a shown engineering exponent of zero is omitted entirely
+    // (`10E+1` renders `100`); under `{:.N}` keep `E+0` so the
+    // explicit-precision shape stays exponential.
+    if target_adjusted == 0 && precision.is_none() {
+        return Ok(());
+    }
     write!(f, "{letter}")?;
     if target_adjusted >= 0 {
         write!(f, "+{target_adjusted}")
@@ -617,31 +661,39 @@ mod tests {
 
     #[test]
     fn engineering_basic() {
-        // 12345 with exp=0: adjusted_exp=4. Rebase to multiple of 3:
-        // shift=1, target_adjusted=3. Mantissa = 12.345.
-        let d = Decimal32::try_new(12345, 0).unwrap();
-        assert_eq!(format!("{}", d.engineering()), "12.345E+3");
+        // GDA toEng (ADR-0058): exponential only when an exponent is
+        // needed. 1234 with exp=4: adjusted_exp=7, shift=1,
+        // target_adjusted=6. Mantissa = 12.34.
+        let d = Decimal32::try_new(1234, 4).unwrap();
+        assert_eq!(format!("{}", d.engineering()), "12.34E+6");
 
-        // 1234 with exp=-7: adjusted_exp=-4. Rebase to -6 (multiple of 3
-        // not exceeding -4): shift=2, target_adjusted=-6. Mantissa = 123.4.
+        // 1234 with exp=-11: adjusted_exp=-8 (below the plain floor).
+        // Rebase to -9: shift=1. Mantissa = 12.34.
+        let d = Decimal32::try_new(1234, -11).unwrap();
+        assert_eq!(format!("{}", d.engineering()), "12.34E-9");
+
+        // The plain range renders plain, exactly like Display.
+        let d = Decimal32::try_new(12345, 0).unwrap();
+        assert_eq!(format!("{}", d.engineering()), "12345");
         let d = Decimal32::try_new(1234, -7).unwrap();
-        assert_eq!(format!("{}", d.engineering()), "123.4E-6");
+        assert_eq!(format!("{}", d.engineering()), "0.0001234");
     }
 
     #[test]
-    fn engineering_zero_is_a_lone_digit() {
-        // L1 (A5-F7): a zero coefficient had its single `0` padded
-        // with positional zeros (`0E+5` rendered `000E+3`). It now
-        // takes the scientific zero shape: a lone `0` at the non
-        // rebased adjusted exponent.
-        assert_eq!(format!("{}", parse("0E+5").engineering()), "0E+5");
-        assert_eq!(format!("{}", parse("-0E+5").engineering()), "-0E+5");
-        assert_eq!(format!("{}", parse("0E-7").engineering()), "0E-7");
-        assert_eq!(format!("{}", parse("0").engineering()), "0E+0");
-        // The non zero engineering path is unaffected.
+    fn engineering_zero_gda_form() {
+        // L1 (A5-F7): a zero coefficient must never be padded with
+        // positional zeros (`0E+5` once rendered `000E+3`). Under GDA
+        // toEng (ADR-0058) an out-of-plain-range zero shows its
+        // quantum rounded *up* to a multiple of three, the gap as
+        // fractional zeros; plain-range zeros render plain.
+        assert_eq!(format!("{}", parse("0E+5").engineering()), "0.0E+6");
+        assert_eq!(format!("{}", parse("-0E+5").engineering()), "-0.0E+6");
+        assert_eq!(format!("{}", parse("0E-7").engineering()), "0.0E-6");
+        assert_eq!(format!("{}", parse("0").engineering()), "0");
+        // The non zero engineering path: exponential when needed.
         assert_eq!(
-            format!("{}", Decimal32::try_new(12345, 0).unwrap().engineering()),
-            "12.345E+3"
+            format!("{}", Decimal32::try_new(12345, 4).unwrap().engineering()),
+            "123.45E+6"
         );
     }
 
