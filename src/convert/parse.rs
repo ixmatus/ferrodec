@@ -42,7 +42,7 @@ use crate::status::{RoundingMode, Status};
 /// react to differently (calculator UI diagnostics, REPL highlighting,
 /// linting of decimal sources). Where a byte position is known it is
 /// reported in `position`; sites with no meaningful position (`Empty`,
-/// `ExponentOutOfRange`, `CoefficientOverflow`) omit the field.
+/// `CoefficientOverflow`) omit the field.
 ///
 /// The enum is `#[non_exhaustive]`: future revisions may add variants
 /// under a minor bump without breaking exhaustive matches. Callers that
@@ -66,15 +66,15 @@ pub enum ParseDecimalError {
     /// An `e`/`E` introducer was present but the exponent that
     /// followed was malformed (missing digits, sign without digits).
     InvalidExponent { position: usize },
-    /// The explicit exponent magnitude exceeds the parser's
-    /// `MAX_EXPONENT_MAGNITUDE` (1 000 000 across all three formats).
-    ExponentOutOfRange,
     /// The integer-coefficient prefix or the leading-fractional-zero
-    /// run would shift the implicit exponent past the representable
-    /// range, even before the explicit exponent is considered. The
-    /// parent (Decimal128) parser does not produce this variant; the
-    /// sibling parsers (Decimal64, Decimal32) do, because their
-    /// coefficient digit budgets are narrower.
+    /// run is longer than the parser's literal-length cap
+    /// (`MAX_EXPONENT_MAGNITUDE` digit positions, 1 000 000 across all
+    /// three formats), so the implicit exponent cannot be tracked
+    /// exactly. This is a cap on the *literal's written length*, not
+    /// on the value: an out-of-range explicit `e`/`E` exponent field
+    /// is not an error — it saturates, and the value overflows to
+    /// `Infinity` or underflows to zero with the usual flags
+    /// (ADR-0057).
     CoefficientOverflow,
 }
 
@@ -91,7 +91,6 @@ impl core::fmt::Display for ParseDecimalError {
             Self::InvalidExponent { position } => {
                 write!(f, "malformed exponent at byte {position}")
             }
-            Self::ExponentOutOfRange => f.write_str("exponent magnitude out of range"),
             Self::CoefficientOverflow => f.write_str("coefficient digit count out of range"),
         }
     }
@@ -101,6 +100,24 @@ impl core::error::Error for ParseDecimalError {}
 
 const MAX_PARSED_DIGITS: u32 = 76;
 const MAX_EXPONENT_MAGNITUDE: u32 = 1_000_000;
+
+/// Saturation sentinel for an explicit-exponent field whose magnitude
+/// exceeds `MAX_EXPONENT_MAGNITUDE` (ADR-0057). GDA to-number and
+/// IEEE 754-2019 §5.4.3 treat such a literal as an ordinary
+/// out-of-range value — it overflows to `Infinity` or underflows to
+/// zero with the usual flags — so the parser saturates the field
+/// rather than rejecting it. The sentinel needs two properties, both
+/// checked below: the composite exponent must stay inside `i32` after
+/// every digit-position adjustment (each capped at
+/// `MAX_EXPONENT_MAGNITUDE`), and no such adjustment may pull it back
+/// inside a representable range, so the downstream rounding step sees
+/// an unambiguous overflow / underflow.
+const EXPONENT_FIELD_SATURATED: u32 = 2_000_000_000;
+const _: () = assert!(
+    EXPONENT_FIELD_SATURATED as i64 + MAX_EXPONENT_MAGNITUDE as i64 + MAX_PARSED_DIGITS as i64
+        <= i32::MAX as i64
+);
+const _: () = assert!(EXPONENT_FIELD_SATURATED >= 2 * MAX_EXPONENT_MAGNITUDE);
 
 impl Decimal128 {
     /// Parse a `&str` into a `Decimal128`, rounding per `rm`.
@@ -341,7 +358,12 @@ fn parse_str_inner(
             let d = (c - b'0') as u32;
             exp_val = exp_val.saturating_mul(10).saturating_add(d);
             if exp_val > MAX_EXPONENT_MAGNITUDE {
-                return Err(ParseDecimalError::ExponentOutOfRange);
+                // Past the cap the exact magnitude no longer matters:
+                // every such exponent lands the value outside the
+                // representable range on the same side, so saturate to
+                // the sentinel (re-applied on each further digit) and
+                // keep scanning so trailing syntax errors still reject.
+                exp_val = EXPONENT_FIELD_SATURATED;
             }
             idx += 1;
         }
@@ -848,10 +870,6 @@ mod tests {
             Err(ParseDecimalError::InvalidExponent { .. })
         ));
         assert!(matches!(
-            Decimal128::parse_str("1e1000000000", RoundingMode::default()),
-            Err(ParseDecimalError::ExponentOutOfRange)
-        ));
-        assert!(matches!(
             Decimal128::parse_str("abc", RoundingMode::default()),
             Err(ParseDecimalError::InvalidCharacter { position: 0 })
         ));
@@ -859,6 +877,52 @@ mod tests {
             Decimal128::parse_str("1.2x", RoundingMode::default()),
             Err(ParseDecimalError::InvalidCharacter { .. })
         ));
+    }
+
+    #[test]
+    fn extreme_exponent_field_saturates() {
+        // fd-uit / ADR-0057: an explicit exponent field past
+        // MAX_EXPONENT_MAGNITUDE is not a syntax error; it saturates,
+        // and the value overflows or underflows exactly like an
+        // in-cap far-out-of-range twin. Pin bit-and-status equality
+        // against the twin under every rounding direction, so the
+        // directed-mode overflow shapes (format MAX vs Infinity)
+        // stay covered without re-deriving them here.
+        const MODES: [RoundingMode; 5] = [
+            RoundingMode::NearestEven,
+            RoundingMode::NearestAway,
+            RoundingMode::TowardZero,
+            RoundingMode::TowardPositive,
+            RoundingMode::TowardNegative,
+        ];
+        // (saturating input, in-cap twin); the last pair drives the
+        // repeated re-clamp on a many-digit exponent field.
+        const PAIRS: [(&str, &str); 6] = [
+            ("1e1000000000", "1e1000000"),
+            ("-1e1000000000", "-1e1000000"),
+            ("1e-1000000000", "1e-1000000"),
+            ("-1e-1000000000", "-1e-1000000"),
+            ("0e1000000000", "0e1000000"),
+            ("0e-99999999999999999999999999", "0e-1000000"),
+        ];
+        for rm in MODES {
+            for (huge, twin) in PAIRS {
+                let (hv, hs) = Decimal128::parse_str(huge, rm).unwrap();
+                let (tv, ts) = Decimal128::parse_str(twin, rm).unwrap();
+                assert_eq!(hv.to_bits(), tv.to_bits(), "{huge} vs {twin} under {rm:?}");
+                assert_eq!(hs, ts, "{huge} vs {twin} under {rm:?}");
+            }
+        }
+        // Absolute anchors, so the twin itself is also pinned.
+        let (v, s) = Decimal128::parse_str("1e1000000000", RoundingMode::NearestEven).unwrap();
+        assert!(v.is_infinite() && !v.is_sign_negative());
+        assert!(s.overflow() && s.inexact());
+        let (v, s) = Decimal128::parse_str("1e-1000000000", RoundingMode::NearestEven).unwrap();
+        assert!(v.is_zero());
+        assert!(s.underflow() && s.inexact());
+        let (v, s) = Decimal128::parse_str("0e1000000000", RoundingMode::NearestEven).unwrap();
+        assert!(v.is_zero());
+        assert!(s.clamped() && !s.inexact());
     }
 
     #[test]

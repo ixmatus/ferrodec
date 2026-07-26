@@ -672,6 +672,46 @@ fn run_case(case: &TestCase, ctx: &Context) -> Outcome {
         };
     }
 
+    // `toEng` results are rendered strings (fd-zf8 / ADR-0058): the
+    // engineering form is cohort-distinct, so the expected cannot be
+    // re-parsed for the value comparator. Compare the string, then
+    // the status the same way the value path does (IEEE flags masked
+    // to the five, CLAMPED compared exactly).
+    if let OpResult::Eng(rendered, actual_flags) = &result {
+        if rendered != &case.expected {
+            return Outcome::Fail(format!(
+                "expected toEng {:?}, got {:?}",
+                case.expected, rendered
+            ));
+        }
+        let expected_flags = expected_status(&case.conditions);
+        if mask_status(*actual_flags).bits() != mask_status(expected_flags).bits() {
+            return Outcome::Fail(format!(
+                "status mismatch (op {}): got {:#x}, want {:#x} from conditions {:?}",
+                case.op,
+                mask_status(*actual_flags).bits(),
+                mask_status(expected_flags).bits(),
+                case.conditions,
+            ));
+        }
+        if actual_flags.clamped() != expected_flags.clamped() {
+            if expected_flags.clamped()
+                && !actual_flags.clamped()
+                && any_operand_clamped_at_parse(&case.operands)
+            {
+                return Outcome::Skip;
+            }
+            return Outcome::Fail(format!(
+                "CLAMPED mismatch (op {}): got {}, want {} from conditions {:?}",
+                case.op,
+                actual_flags.clamped(),
+                expected_flags.clamped(),
+                case.conditions,
+            ));
+        }
+        return Outcome::Pass;
+    }
+
     // Parse the expected result. Expected literals in decTest are exact
     // strings, so any rounding mode parses the same; we use the IEEE
     // mode where one applies and NearestEven otherwise.
@@ -699,6 +739,12 @@ enum OpKind {
     Minus,
     Plus,
     Apply,
+    /// fd-zf8 (ADR-0058): GDA `toEng` — render the operand (parsed
+    /// under the context, like `Apply`) in to-engineering-string form
+    /// and compare the string, since the rendering is cohort-distinct
+    /// (`10E+12` vs `1.0E+13`) and cannot round-trip through the
+    /// value comparator.
+    ToEng,
     Compare,
     /// fd-bef.1 (ADR-0049): GDA `compareSignaling` — like `Compare`
     /// but every NaN operand (quiet or signaling) raises `INVALID`.
@@ -833,10 +879,12 @@ fn dispatch_op(name: &str) -> Option<OpKind> {
         // decTest `toSci` renders the operand's exact value and
         // exponent, which round-trips through `parse_str` to identical
         // bits, so it reuses the `Apply` (parse-under-context) path and
-        // is compared by value+status. `toEng` needs engineering
-        // notation the fixed formats do not expose, so `toeng` cases are
-        // left undispatched (skipped), not mis-compared.
+        // is compared by value+status. `toEng` is cohort-distinct in
+        // the other direction (`10E+12` and `1.0E+13` render
+        // differently), so it renders through the `Engineering`
+        // adapter and compares the string (fd-zf8 / ADR-0058).
         "tosci" => OpKind::Apply,
+        "toeng" => OpKind::ToEng,
         _ => return None,
     })
 }
@@ -939,6 +987,13 @@ fn invoke(op: OpKind, operands: &[String], rm: RoundingMode, enc: Encoding) -> O
             // PRECISION=34, so the parsed value is the result.
             let (a, s) = parse_value(&operands[0], rm, enc)?;
             Some(OpResult::Value(a, s))
+        }
+        OpKind::ToEng => {
+            // Parse under the context exactly like `Apply`, then
+            // render in to-engineering-string form (ADR-0058). The
+            // parse status carries the flags the case pins.
+            let (a, s) = parse_value(&operands[0], rm, enc)?;
+            Some(OpResult::Eng(format!("{}", a.engineering()), s))
         }
         OpKind::Compare => {
             let a = parse_value(&operands[0], rm, enc)?.0;
@@ -1183,6 +1238,9 @@ fn invoke(op: OpKind, operands: &[String], rm: RoundingMode, enc: Encoding) -> O
 enum OpResult {
     Value(Decimal128, Status),
     Class(String),
+    /// A to-engineering-string rendering plus the parse status
+    /// (fd-zf8 / ADR-0058). Compared as a string in `run_case`.
+    Eng(String, Status),
 }
 
 /// Run an op under decTest's directional `up` rounding (away from zero).
@@ -1203,6 +1261,22 @@ fn invoke_up(op: OpKind, operands: &[String], enc: Encoding) -> Option<OpResult>
     let (val, status) = match probe {
         OpResult::Value(v, s) => (v, s),
         OpResult::Class(_) => return Some(probe),
+        // A rendered-string probe (toEng): an exact parse
+        // short-circuits like a value; an inexact one re-renders
+        // under the directional mode picked from the rendered sign
+        // (the same TowardZero sign-recovery trick as the value
+        // path, read off the string).
+        OpResult::Eng(ref s, st) => {
+            if !st.inexact() {
+                return Some(probe);
+            }
+            let mode = if s.starts_with('-') {
+                RoundingMode::TowardNegative
+            } else {
+                RoundingMode::TowardPositive
+            };
+            return invoke(op, operands, mode, enc);
+        }
     };
     if !status.inexact() {
         return Some(OpResult::Value(val, status));
@@ -1342,6 +1416,12 @@ fn compare(
             // Decimal128 literal we can re-parse). Reachable only via
             // a future refactor accident.
             unreachable!("class results are compared in run_case");
+        }
+        OpResult::Eng(..) => {
+            // toEng renderings short-circuit in `run_case` for the
+            // same reason (the engineering string is cohort-distinct
+            // and cannot be re-parsed for value comparison).
+            unreachable!("toEng results are compared in run_case");
         }
         OpResult::Value(actual, actual_flags) => {
             // NaN compare: both must be NaN, with the same sign,
@@ -1524,12 +1604,17 @@ fn expected_per_file() -> &'static [(&'static str, usize)] {
             ("dqXor.decTest", 348),
             // fd-aqs.11: newly vendored dq operation files. Encoding-
             // independent (all Bid), so identical in both branches.
-            // dqBase: 629 valid toSci conversions (toEng undispatched
-            // and Conversion_syntax parse-strictness negatives skipped).
-            // dqRemainder 491/500, dqToIntegral 170/178 (the #hex+Clamped
-            // BID residual and extreme-exponent cases skipped). Copy
-            // family, min/max-magnitude, and plus pass in full.
-            ("dqBase.decTest", 629),
+            // dqBase: 817 pass — 671 toSci (ADR-0057 exponent
+            // saturation recovered the 42 extreme-exponent cases)
+            // plus the 146 toEng cases dispatched through the
+            // Engineering adapter (fd-zf8 / ADR-0058). The 111
+            // residual skips are the Conversion_syntax parse-
+            // strictness negatives and non-IEEE rounding directives.
+            // dqRemainder 491/500, dqToIntegral 170/178 (the
+            // #hex+Clamped BID residual and extreme-exponent cases
+            // skipped). Copy family, min/max-magnitude, and plus pass
+            // in full.
+            ("dqBase.decTest", 817),
             ("dqCopy.decTest", 43),
             ("dqCopyAbs.decTest", 43),
             ("dqCopyNegate.decTest", 43),
@@ -1602,8 +1687,9 @@ fn expected_per_file() -> &'static [(&'static str, usize)] {
             // fd-ci0.7 (ADR-0031): `logical_xor`.
             ("dqXor.decTest", 348),
             // fd-aqs.11: newly vendored dq operation files (all Bid, so
-            // identical to the non-dpd branch above).
-            ("dqBase.decTest", 629),
+            // identical to the non-dpd branch above; dqBase 817 per
+            // ADR-0057 exponent saturation + ADR-0058 toEng dispatch).
+            ("dqBase.decTest", 817),
             ("dqCopy.decTest", 43),
             ("dqCopyAbs.decTest", 43),
             ("dqCopyNegate.decTest", 43),

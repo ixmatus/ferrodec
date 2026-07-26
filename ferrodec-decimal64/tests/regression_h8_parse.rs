@@ -6,14 +6,13 @@
 //! Agent 5 findings B2 (leading fractional zeros) and B7 (trailing
 //! integer zeros). These inputs need a multi-megabyte string, so the
 //! test lives in an integration crate (std available) rather than the
-//! `no_std` in-crate unit module. Inputs past
-//! `MAX_EXPONENT_MAGNITUDE` (one million) now resolve to a clean
-//! `CoefficientOverflow` (the variant ADR-0029 item 2 / fd-7f1
-//! promoted from the catch-all `ExponentOutOfRange` to make the
-//! implicit-exponent-overflow case matchable separately from the
-//! explicit-exponent path). The conformance harness skips both
-//! `CoefficientOverflow` and `ExponentOutOfRange`, so this is
-//! spec-consistent.
+//! `no_std` in-crate unit module. Digit runs past
+//! `MAX_EXPONENT_MAGNITUDE` (one million) positions resolve to a
+//! clean `CoefficientOverflow` (the variant ADR-0029 item 2 / fd-7f1
+//! made matchable), which the conformance harness skips; no decTest
+//! vector is megabytes long. The explicit exponent *field* is
+//! different: past the cap it saturates, and the value overflows or
+//! underflows with the usual flags (ADR-0057).
 
 use core::cmp::Ordering;
 

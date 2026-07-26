@@ -43,11 +43,13 @@ fn dectest_conformance() {
 /// Baseline after C7 + C8 (toSci wiring + `parse_str` + Display +
 /// IEEE 754 exponent clamping): the harness dispatches `tosci` and
 /// `apply`. Files with non-zero passes:
-/// * `ddBase.decTest`: 710 of 945 pass (the quote-aware
+/// * `ddBase.decTest`: 922 of 945 pass (the quote-aware
 ///   `strip_comment` fix recovered the two adversarial parse vectors
-///   ddbas504 `'--1'` and ddbas555 `'1E--1'`, fd-aqs.9). Skips are
-///   extreme exponents (deferred), non-IEEE rounding directives, and
-///   a few format-precision conditional cases.
+///   ddbas504 `'--1'` and ddbas555 `'1E--1'`, fd-aqs.9; the 38
+///   extreme-exponent cases saturate and pass since ADR-0057; the
+///   174 toEng cases dispatch through the Engineering adapter since
+///   ADR-0058). The 25 residual skips are non-IEEE rounding
+///   directives and a few format-precision conditional cases.
 /// * `ddAdd.decTest`: 2 of 1091 pass — both are toSci-only edge
 ///   cases that route via parse / format without exercising add.
 /// * `ddFMA.decTest`: 2 of 1378 pass — same shape.
@@ -80,7 +82,7 @@ const fn expected_per_file() -> &'static [(&'static str, usize)] {
         ("ddAdd.decTest", 968),
         // fd-ci0.7 (ADR-0031): `logical_and`. All 287 cases pass.
         ("ddAnd.decTest", 287),
-        ("ddBase.decTest", 710),
+        ("ddBase.decTest", 922),
         // F4 (S10, fd-7n8): `compare` / `comparetotal` /
         // `comparetotmag` / `samequantum` / `quantize` wired. No
         // ferrodec correctness defect surfaced — the 22 `ddCompare`
@@ -206,6 +208,11 @@ fn run_case(case: &TestCase, ctx: &Context) -> Outcome {
     }
     match case.op.as_str() {
         "tosci" | "apply" => run_tosci(case, ctx),
+        // fd-zf8 (ADR-0058): GDA `toEng` renders through the
+        // `Engineering` adapter and compares the string (the
+        // engineering form is cohort-distinct, so it cannot
+        // round-trip through a value compare).
+        "toeng" => run_toeng(case, ctx),
         "add" | "subtract" | "multiply" | "divide" => run_binary(case, ctx),
         "fma" => run_ternary(case, ctx),
         "compare" => run_compare(case, ctx),
@@ -823,12 +830,13 @@ fn parse_operand(s: &str, rm: ferrodec_decimal64::RoundingMode) -> Option<Decima
     }
     match Decimal64::parse_str(s, rm) {
         Ok((v, _)) => Some(v),
-        // Skip the explicit-exponent and implicit-exponent overflow
-        // arms (both denote "input past our 1 000 000 magnitude cap");
-        // the catch-all maps every other parse failure to the
-        // `Conversion_syntax`-shape NaN+INVALID the suite expects for
-        // negative test cases.
-        Err(ParseDecimalError::ExponentOutOfRange | ParseDecimalError::CoefficientOverflow) => None,
+        // Skip the implicit-exponent literal-length cap (a
+        // multi-megabyte digit run, which no decTest vector carries;
+        // the explicit-exponent field saturates and parses since
+        // ADR-0057). The catch-all maps every other parse failure to
+        // the `Conversion_syntax`-shape NaN+INVALID the suite expects
+        // for negative test cases.
+        Err(ParseDecimalError::CoefficientOverflow) => None,
         Err(_) => Some(Decimal64::NAN),
     }
 }
@@ -1000,17 +1008,12 @@ fn run_tosci(case: &TestCase, ctx: &Context) -> Outcome {
     };
     let (parsed, status) = match Decimal64::parse_str(input, rm) {
         Ok(r) => r,
-        // ExponentOutOfRange covers decTest cases like
-        // `1e-999999999` that test the implementation's handling of
-        // pathologically large exponents. Our parse_str rejects them
-        // at the 1 000 000 magnitude cap (via `ExponentOutOfRange` on
-        // the explicit-exponent path or `CoefficientOverflow` on the
-        // implicit-exponent / leading-zero-saturation path; the latter
-        // variant was promoted by ADR-0029 item 2 / fd-7f1); the
-        // spec-conformant behaviour (saturate to ±Inf or ±0 at parse
-        // time) is a deferred design call. Skip rather than fail those
-        // cases.
-        Err(ParseDecimalError::ExponentOutOfRange | ParseDecimalError::CoefficientOverflow) => {
+        // Pathologically large *explicit* exponents (`1e-999999999`)
+        // saturate and parse since ADR-0057 (fd-uit), so they compare
+        // like any other case. Only the implicit-exponent
+        // literal-length cap still skips: it needs a multi-megabyte
+        // digit run, which no decTest vector carries.
+        Err(ParseDecimalError::CoefficientOverflow) => {
             return Outcome::Skip;
         }
         // decTest's "negative" test cases use malformed input strings
@@ -1020,6 +1023,44 @@ fn run_tosci(case: &TestCase, ctx: &Context) -> Outcome {
         Err(_) => (Decimal64::NAN, Status::INVALID),
     };
     let formatted = format_value(parsed);
+    if formatted != case.expected {
+        return Outcome::Fail(format!("got {formatted:?} want {:?}", case.expected));
+    }
+    let expected_status = decode_conditions(&case.conditions);
+    if !status_conformance_eq(status, expected_status) {
+        return Outcome::Fail(format!(
+            "status mismatch: got {status:?} want {expected_status:?} (conditions {:?})",
+            case.conditions
+        ));
+    }
+    clamped_outcome(status, case)
+}
+
+/// `toEng`: parse the operand under the context, render through the
+/// [`Decimal64::engineering`] adapter (GDA to-engineering-string,
+/// ADR-0058), and compare the string plus status exactly like
+/// `run_tosci`. `ddBase` carries no `#hex` toEng cases; any would
+/// skip on the same guard.
+fn run_toeng(case: &TestCase, ctx: &Context) -> Outcome {
+    if case.operands.len() != 1 {
+        return Outcome::Skip;
+    }
+    let input = &case.operands[0];
+    if input.starts_with('#') || case.expected.starts_with('#') {
+        return Outcome::Skip;
+    }
+    let rm = match map_rounding(&ctx.rounding) {
+        Some(r) => r,
+        None => return Outcome::Skip,
+    };
+    let (parsed, status) = match Decimal64::parse_str(input, rm) {
+        Ok(r) => r,
+        Err(ParseDecimalError::CoefficientOverflow) => {
+            return Outcome::Skip;
+        }
+        Err(_) => (Decimal64::NAN, Status::INVALID),
+    };
+    let formatted = format!("{}", parsed.engineering());
     if formatted != case.expected {
         return Outcome::Fail(format!("got {formatted:?} want {:?}", case.expected));
     }

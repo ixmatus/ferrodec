@@ -32,18 +32,21 @@ offline oracle pass; it is bookkeeping, not a suspected defect.
 
 ## Headline numbers
 
-As of ferrodec 3.3.0 (default features):
+As of ferrodec 4.0.0 (default features):
 
 | count |  share | category |
 |------:|-------:|----------|
 | 14 188 | 100.0 % | total cases |
-| 13 753 |  96.9 % | pass |
+| 13 941 |  98.3 % | pass |
 |      0 |   0.0 % | fail |
-|    435 |   3.1 % | skip |
+|    247 |   1.7 % | skip |
 
 (Default-feature build, no `dpd`; `dqEncode` / `dqCanonical` route to
 skip without it and add 368 / 143 pass when it is enabled. fd-aqs.11
-vendored ten more dq operation files.)
+vendored ten more dq operation files; the 4.0.0 skip burn-down closed
+the extreme-exponent parse class by saturating, ADR-0057, and the
+`toEng` class by aligning `Engineering` with GDA and dispatching it,
+ADR-0058.)
 
 The 0-fail floor is enforced by `tests/conformance.rs::dectest_conformance`,
 which pins the expected pass count per file under the ADR-0010
@@ -52,19 +55,19 @@ discipline (the authoritative table lives at
 pass count below the per-file pin or raises the fail count above 0
 fails the build.
 
-The 435 residual skips fall under five categories, each with its own
+The 247 residual skips fall under three categories, each with its own
 disposition below and the exact per-file counts in the table at the end
-(authoritative): §1 non-IEEE rounding directives (117), §2 the
-BID-structural CLAMPED residual (20), and three classes fd-aqs.11's
-newly vendored `dqBase` file adds — §3 `toEng` string rendering (146),
-§4 extreme-exponent parse rejection (42), and §5 conversion-negative
-parser strictness (99). The `dqToIntegral` / `dqRemainder` skips are the
-BID-interchange `#hex`-Clamped residual (skipped as a harness
-DPD-as-BID decode artifact, ferrodec's own bits being correct) and a
-few extreme-exponent cases. Every other operation, encoding, and
-special-value combination in the suite passes, now including the §7.4
-CLAMPED informational flag (compared, not masked) at every clamp site
-the BID cohort model can detect.
+(authoritative): §1 non-IEEE rounding directives (111), §2 the
+BID-structural CLAMPED residual (20), and §3 conversion-negative
+parser strictness (99). The remaining 17 (`dqRemainder` 9,
+`dqToIntegral` 8) are the BID-interchange `#hex`-Clamped residual and
+a few `#hex` extreme-exponent cases, skipped as a harness DPD-as-BID
+decode artifact with ferrodec's own bits being correct. Every other
+operation, encoding, and special-value combination in the suite
+passes, including the full `toEng` rendering surface (ADR-0058), the
+saturating extreme-exponent parses (ADR-0057), and the §7.4 CLAMPED
+informational flag (compared, not masked) at every clamp site the BID
+cohort model can detect.
 
 For context: 1.7.1 sat at 8 149 / 0 / 572 (93.4 % pass). The 1.9.0
 through 1.10.1 trail closed five of the original six skip
@@ -83,11 +86,15 @@ fd-aqs.11 then vendored ten more dq operation files (base, the copy
 family, remainder, toIntegral, plus, min/max-magnitude), implementing
 those ops on the Decimal128 conformance path and lifting the total to
 14 188; it also broadened the skip taxonomy past the single non-IEEE
-rounding category (see the skip list above).
+rounding category (see the skip list above). The 4.0.0 skip burn-down
+then closed two of those classes: ADR-0057 saturates extreme explicit
+exponents at parse (42 recovered) and ADR-0058 aligns `Engineering`
+with GDA to-engineering-string and dispatches `toEng` (146
+recovered), lifting `dqBase` from 629 to 817.
 
 ## Skip taxonomy
 
-### 1. Non-IEEE rounding directives — 117 cases
+### 1. Non-IEEE rounding directives — 111 cases
 
 decTest extends the IEEE 754 rounding set with two GDA-only modes:
 
@@ -100,9 +107,7 @@ skipped rather than coerced onto a kernel mode that doesn't match the
 spec.
 
 Per-file: `dqQuantize` 64, `dqFMA` 26, `dqAdd` 8, `dqDivide` 1, plus
-18 more across the fd-aqs.11 operation files (`dqRemainder`,
-`dqToIntegral`, and the copy / magnitude files carry `half_down` /
-`05up` directive blocks of their own).
+the 12 `dqBase` conversion cases in its `half_down` directive blocks.
 
 **Will not fix.** ferrodec is positioned as IEEE 754 conformant, not
 GDA conformant. Adding `half_down` / `05up` would expand the
@@ -134,32 +139,7 @@ always exact; only the informational flag is absent. The per-file pass
 pins (ADR-0010) record the residual exactly, so a regression in either
 direction fails the build.
 
-### 3. `toEng` string rendering — 146 cases (`dqBase`, fd-aqs.11)
-
-`dqBase` mixes `toSci` and `toEng` conversion cases. The `toSci` cases
-run (they reuse the value-comparison `apply` path). The 146 `toEng`
-cases are undispatched, because the fixed formats do not expose an
-engineering-notation formatter (`to_eng_string` exists on
-`ferrodec-decimal` but not on Decimal32/64/128). This is a dispatcher
-coverage gap, not an implementation defect. **Deferred**, not
-will-not-fix: adding `to_eng_string` to the fixed formats would let
-these dispatch.
-
-### 4. Extreme-exponent parse rejection — 42 cases (`dqBase`, fd-aqs.11)
-
-42 `dqBase` `toSci` cases feed exponents of astronomical magnitude
-(around `1e6` and beyond, e.g. `1E-999999999`). GDA / decNumber
-saturate these to `Infinity` (overflow) or `0E-6176` (underflow) with
-the corresponding flags; ferrodec's `parse_str` instead rejects them
-with `ExponentOutOfRange` at its `1_000_000` magnitude cap, so the
-runner skips them (`invoke → None`). This is a genuine, narrow
-GDA-conformance gap in the parser's out-of-range handling (the parser
-correctly overflows `1E+7000` and underflows `1E-99999`; only the
-extreme-magnitude *exponent field* rejects rather than saturating).
-Tracked for a follow-up; a saturating parse mode is a deliberate future
-design call, not a silent defect.
-
-### 5. Parser strictness on conversion negatives — 99 cases (`dqBase`, fd-aqs.11)
+### 3. Parser strictness on conversion negatives — 99 cases (`dqBase`, fd-aqs.11)
 
 The remaining `dqBase` skips are `toSci` cases expecting
 `Conversion_syntax` on malformed input. Most are inputs `parse_str`
@@ -178,7 +158,7 @@ unit tests.
 dqAbs.decTest                    75 pass     0 fail     0 skip
 dqAdd.decTest                  1004 pass     0 fail     8 skip
 dqAnd.decTest                   357 pass     0 fail     0 skip
-dqBase.decTest                  629 pass     0 fail   299 skip
+dqBase.decTest                  817 pass     0 fail   111 skip
 dqCanonical.decTest               0 pass     0 fail     0 skip
 dqClass.decTest                  42 pass     0 fail     0 skip
 dqCompare.decTest               659 pass     0 fail     0 skip
@@ -217,7 +197,7 @@ dqShift.decTest                 248 pass     0 fail     0 skip
 dqSubtract.decTest              520 pass     0 fail     0 skip
 dqToIntegral.decTest            170 pass     0 fail     8 skip
 dqXor.decTest                   348 pass     0 fail     0 skip
-TOTAL: 14188 cases — 13753 pass, 0 fail, 435 skip
+TOTAL: 14188 cases — 13941 pass, 0 fail, 247 skip
 ```
 
 Default-feature build (no `dpd`); `dqCanonical` and `dqEncode` route
@@ -285,12 +265,13 @@ across the full BID-128 encoding range, including:
 - All GDA decNumber extension operations: `and`, `or`, `xor`,
   `invert`, `divideInteger`, `reduce`, `rotate`, `shift` (ADR-0031),
   and `compareSignaling`, `nextToward` (ADR-0049, the fd-bef closure).
-  Every one passes its full `dq*` decTest file. With ADR-0049 the
-  GDA-extension dispatcher gap is closed: the only `Skip` sources left
-  are the non-IEEE rounding directives and the BID-structural CLAMPED
-  residual.
+  Every one passes its full `dq*` decTest file.
+- Both GDA string conversions: `toSci` (the default `Display`) and,
+  since ADR-0058, `toEng` (the `Engineering` adapter), including the
+  extreme-exponent literals that saturate at parse per ADR-0057.
 
-11 708 vectors at 0 fail across that surface is the meaningful number
-to look at; the residual 99 skips fall under a single will-not-fix
-category (non-IEEE rounding directives), with no concrete fix path
-in scope.
+13 941 vectors at 0 fail across that surface is the meaningful number
+to look at; the residual 247 skips fall under the three categories
+above (non-IEEE rounding directives, the BID-structural CLAMPED
+residual, parser strictness negatives) plus the 17-case `#hex`
+harness artifact, none of which has a concrete fix path in scope.

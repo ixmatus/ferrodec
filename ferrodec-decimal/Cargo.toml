@@ -1,6 +1,6 @@
 [package]
 name = "ferrodec-decimal"
-version = "2.0.0"
+version = "3.0.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -47,9 +47,9 @@ ferrodec-multiword = { path = "../ferrodec-multiword", version = "0.1.0", featur
 # Fixed-format interop, behind the `interop` feature. Only `fmt` is needed
 # (the conversions go through the decimal string), so the transcendental and
 # other surfaces stay out of the build.
-ferrodec = { path = "..", version = "3.2.0", optional = true, default-features = false, features = ["fmt"] }
-ferrodec-decimal64 = { path = "../ferrodec-decimal64", version = "3.2.0", optional = true, default-features = false, features = ["fmt"] }
-ferrodec-decimal32 = { path = "../ferrodec-decimal32", version = "3.2.0", optional = true, default-features = false, features = ["fmt"] }
+ferrodec = { path = "..", version = "4.0.0", optional = true, default-features = false, features = ["fmt"] }
+ferrodec-decimal64 = { path = "../ferrodec-decimal64", version = "4.0.0", optional = true, default-features = false, features = ["fmt"] }
+ferrodec-decimal32 = { path = "../ferrodec-decimal32", version = "4.0.0", optional = true, default-features = false, features = ["fmt"] }
 
 [dev-dependencies]
 proptest = "1"
