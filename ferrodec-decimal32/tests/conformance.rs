@@ -53,14 +53,14 @@ fn dectest_conformance() {
 /// editing this table (see ADR-0010 in the workspace root for the
 /// rationale).
 ///
-/// - `dsBase.decTest`: 700 of 909 cases pass (the quote-aware
+/// - `dsBase.decTest`: 738 of 909 cases pass (the quote-aware
 ///   `strip_comment` fix recovered the two adversarial parse vectors
-///   dsbas504 `'--1'` and dsbas555 `'1E--1'`, fd-aqs.9). The 209
-///   skips break down as a handful of pathologically large exponents
-///   (deferred, see `ParseDecimalError::ExponentOutOfRange`) plus
-///   cases under non-IEEE rounding directives (`half_down`, `05up`)
-///   which we won't coerce onto an IEEE mode (mirrors ferrodec's
-///   ADR-0005 posture). Unchanged by the DPD work.
+///   dsbas504 `'--1'` and dsbas555 `'1E--1'`, fd-aqs.9). The
+///   residual skips are cases under non-IEEE rounding directives
+///   (`half_down`, `05up`) which we won't coerce onto an IEEE mode
+///   (mirrors ferrodec's ADR-0005 posture); the pathologically large
+///   exponents saturate and pass since ADR-0057. Unchanged by the
+///   DPD work.
 /// - `dsEncode.decTest`: the count is feature-conditional. With the
 ///   `dpd` feature off, only the 2 string-to-string `apply` cases
 ///   pass and every `#hex` case is skipped at the dispatcher. With
@@ -75,11 +75,11 @@ fn dectest_conformance() {
 const fn expected_per_file() -> &'static [(&'static str, usize)] {
     #[cfg(not(feature = "dpd"))]
     {
-        &[("dsBase.decTest", 700), ("dsEncode.decTest", 2)]
+        &[("dsBase.decTest", 738), ("dsEncode.decTest", 2)]
     }
     #[cfg(feature = "dpd")]
     {
-        &[("dsBase.decTest", 700), ("dsEncode.decTest", 250)]
+        &[("dsBase.decTest", 738), ("dsEncode.decTest", 250)]
     }
 }
 
@@ -122,17 +122,12 @@ fn run_tosci(case: &TestCase, ctx: &Context) -> Outcome {
     };
     let (parsed, status) = match Decimal32::parse_str(input, rm) {
         Ok(r) => r,
-        // ExponentOutOfRange covers decTest cases like `1e-999999999`
-        // that test the implementation's handling of pathologically
-        // large exponents. Our parse_str rejects them at the
-        // 1 000 000 magnitude cap (via `ExponentOutOfRange` on the
-        // explicit-exponent path or `CoefficientOverflow` on the
-        // implicit-exponent / leading-zero-saturation path; the latter
-        // variant was promoted by ADR-0029 item 2 / fd-7f1); the
-        // spec-conformant behaviour (saturate to ±Inf or ±0 at parse
-        // time) is a deferred design call. Skip rather than fail those
-        // cases.
-        Err(ParseDecimalError::ExponentOutOfRange | ParseDecimalError::CoefficientOverflow) => {
+        // Pathologically large *explicit* exponents (`1e-999999999`)
+        // saturate and parse since ADR-0057 (fd-uit), so they compare
+        // like any other case. Only the implicit-exponent
+        // literal-length cap still skips: it needs a multi-megabyte
+        // digit run, which no decTest vector carries.
+        Err(ParseDecimalError::CoefficientOverflow) => {
             return Outcome::Skip;
         }
         // decTest's "negative" test cases use malformed input strings
@@ -230,9 +225,6 @@ fn run_dpd_case(
         // `value -> #hex`: parse then encode.
         let parsed = match Decimal32::parse_str(input, ferrodec_ieee_nearest()) {
             Ok((v, _)) => v,
-            Err(ParseDecimalError::ExponentOutOfRange | ParseDecimalError::CoefficientOverflow) => {
-                return Outcome::Skip;
-            }
             Err(_) => return Outcome::Skip,
         };
         let want = match parse_dpd_hex(&case.expected) {

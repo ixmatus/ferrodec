@@ -1524,12 +1524,14 @@ fn expected_per_file() -> &'static [(&'static str, usize)] {
             ("dqXor.decTest", 348),
             // fd-aqs.11: newly vendored dq operation files. Encoding-
             // independent (all Bid), so identical in both branches.
-            // dqBase: 629 valid toSci conversions (toEng undispatched
-            // and Conversion_syntax parse-strictness negatives skipped).
-            // dqRemainder 491/500, dqToIntegral 170/178 (the #hex+Clamped
-            // BID residual and extreme-exponent cases skipped). Copy
-            // family, min/max-magnitude, and plus pass in full.
-            ("dqBase.decTest", 629),
+            // dqBase: 671 toSci conversions pass (ADR-0057 exponent
+            // saturation recovered the 42 extreme-exponent cases;
+            // toEng undispatched and Conversion_syntax parse-
+            // strictness negatives skipped). dqRemainder 491/500,
+            // dqToIntegral 170/178 (the #hex+Clamped BID residual and
+            // extreme-exponent cases skipped). Copy family,
+            // min/max-magnitude, and plus pass in full.
+            ("dqBase.decTest", 671),
             ("dqCopy.decTest", 43),
             ("dqCopyAbs.decTest", 43),
             ("dqCopyNegate.decTest", 43),
@@ -1602,8 +1604,9 @@ fn expected_per_file() -> &'static [(&'static str, usize)] {
             // fd-ci0.7 (ADR-0031): `logical_xor`.
             ("dqXor.decTest", 348),
             // fd-aqs.11: newly vendored dq operation files (all Bid, so
-            // identical to the non-dpd branch above).
-            ("dqBase.decTest", 629),
+            // identical to the non-dpd branch above; dqBase 671 per
+            // ADR-0057 exponent saturation).
+            ("dqBase.decTest", 671),
             ("dqCopy.decTest", 43),
             ("dqCopyAbs.decTest", 43),
             ("dqCopyNegate.decTest", 43),

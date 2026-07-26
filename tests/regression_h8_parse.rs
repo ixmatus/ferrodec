@@ -9,11 +9,12 @@
 //! and an uncapped `extra_int_digits`, whose `as i32` cast turned
 //! `u32::MAX` into `-1`. These inputs need a multi-megabyte string, so
 //! the test lives in an integration crate (std available) rather than
-//! the `no_std` in-crate unit module. Inputs past
-//! `MAX_EXPONENT_MAGNITUDE` (one million) now resolve to a clean
-//! `CoefficientOverflow`. The conformance harness skips both
-//! `CoefficientOverflow` and `ExponentOutOfRange`, so this is
-//! spec-consistent.
+//! the `no_std` in-crate unit module. Digit runs past
+//! `MAX_EXPONENT_MAGNITUDE` (one million) positions resolve to a
+//! clean `CoefficientOverflow`, which the conformance harness skips;
+//! no decTest vector is megabytes long. The explicit exponent *field*
+//! is different: past the cap it saturates, and the value overflows
+//! or underflows with the usual flags (ADR-0057).
 
 use core::cmp::Ordering;
 

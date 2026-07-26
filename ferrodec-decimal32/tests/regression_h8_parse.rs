@@ -7,13 +7,12 @@
 //! zeros and trailing integer zeros. These inputs need a
 //! multi-megabyte string, so the test lives in an integration crate
 //! (std available) rather than the `no_std` in-crate unit module.
-//! Inputs past `MAX_EXPONENT_MAGNITUDE` (one million) now resolve to a
-//! clean `CoefficientOverflow` (the variant ADR-0029 item 2 / fd-7f1
-//! promoted from the catch-all `ExponentOutOfRange` to make the
-//! implicit-exponent-overflow case matchable separately from the
-//! explicit-exponent path). The conformance harness skips both
-//! `CoefficientOverflow` and `ExponentOutOfRange`, so this is
-//! spec-consistent.
+//! Digit runs past `MAX_EXPONENT_MAGNITUDE` (one million) positions
+//! resolve to a clean `CoefficientOverflow` (the variant ADR-0029
+//! item 2 / fd-7f1 made matchable), which the conformance harness
+//! skips; no decTest vector is megabytes long. The explicit exponent
+//! *field* is different: past the cap it saturates, and the value
+//! overflows or underflows with the usual flags (ADR-0057).
 
 use core::cmp::Ordering;
 
@@ -46,15 +45,25 @@ fn trailing_integer_zeros_past_cap_is_clean_error() {
 }
 
 #[test]
-fn huge_but_legal_length_exponent_is_clean_error() {
-    // The explicit-exponent guard already rejected this; the test
-    // pins that the implicit-counter caps did not regress it. A
-    // seven-digit exponent magnitude exceeds MAX_EXPONENT_MAGNITUDE.
-    let s = "1e-1000001";
-    assert!(matches!(
-        Decimal32::parse_str(s, RoundingMode::NearestEven),
-        Err(ParseDecimalError::ExponentOutOfRange)
-    ));
+fn huge_but_legal_length_exponent_saturates() {
+    // ADR-0057 (fd-uit): a seven-digit exponent magnitude exceeds
+    // MAX_EXPONENT_MAGNITUDE, but an out-of-range explicit exponent
+    // field is not an error — it saturates, and the value underflows
+    // (or overflows) exactly like an in-cap far-out-of-range twin.
+    let rm = RoundingMode::NearestEven;
+    let (huge, huge_s) = Decimal32::parse_str("1e-1000001", rm).unwrap();
+    let (twin, twin_s) = Decimal32::parse_str("1e-1000000", rm).unwrap();
+    assert!(huge.is_zero());
+    assert!(huge_s.underflow() && huge_s.inexact());
+    assert_eq!(huge.to_bits(), twin.to_bits());
+    assert_eq!(huge_s, twin_s);
+
+    let (huge, huge_s) = Decimal32::parse_str("1e1000001", rm).unwrap();
+    let (twin, twin_s) = Decimal32::parse_str("1e1000000", rm).unwrap();
+    assert!(huge.is_infinite());
+    assert!(huge_s.overflow() && huge_s.inexact());
+    assert_eq!(huge.to_bits(), twin.to_bits());
+    assert_eq!(huge_s, twin_s);
 }
 
 #[test]

@@ -40,7 +40,7 @@ use ferrodec_ieee::{RoundingMode, Status};
 /// react to differently (calculator UI diagnostics, REPL highlighting,
 /// linting of decimal sources). Where a byte position is known it is
 /// reported in `position`; sites with no meaningful position (`Empty`,
-/// `ExponentOutOfRange`, `CoefficientOverflow`) omit the field.
+/// `CoefficientOverflow`) omit the field.
 ///
 /// The enum is `#[non_exhaustive]`: future revisions may add variants
 /// under a minor bump without breaking exhaustive matches. Callers
@@ -65,14 +65,14 @@ pub enum ParseDecimalError {
     /// An `e`/`E` introducer was present but the exponent that
     /// followed was malformed (missing digits, sign without digits).
     InvalidExponent { position: usize },
-    /// The explicit exponent magnitude exceeds the parser's
-    /// `MAX_EXPONENT_MAGNITUDE` (1 000 000).
-    ExponentOutOfRange,
     /// The integer-coefficient prefix or the leading-fractional-zero
-    /// run would shift the implicit exponent past the representable
-    /// range, even before the explicit exponent is considered. This is
-    /// the H8 saturation guard recorded in ADR-0018; it fires only on
-    /// the sibling parsers (Decimal64, Decimal32), never on the parent.
+    /// run is longer than the parser's literal-length cap
+    /// (`MAX_EXPONENT_MAGNITUDE` digit positions, 1 000 000 across all
+    /// three formats), so the implicit exponent cannot be tracked
+    /// exactly. Distinct from an out-of-range *explicit* exponent,
+    /// which is not an error: an `e`/`E` field beyond the cap
+    /// saturates and the value overflows or underflows with the usual
+    /// flags (ADR-0057).
     CoefficientOverflow,
 }
 
@@ -89,7 +89,6 @@ impl core::fmt::Display for ParseDecimalError {
             Self::InvalidExponent { position } => {
                 write!(f, "malformed exponent at byte {position}")
             }
-            Self::ExponentOutOfRange => f.write_str("exponent magnitude out of range"),
             Self::CoefficientOverflow => f.write_str("coefficient digit count out of range"),
         }
     }
@@ -99,6 +98,24 @@ impl core::error::Error for ParseDecimalError {}
 
 const MAX_PARSED_DIGITS: u32 = 16;
 const MAX_EXPONENT_MAGNITUDE: u32 = 1_000_000;
+
+/// Saturation sentinel for an explicit-exponent field whose magnitude
+/// exceeds `MAX_EXPONENT_MAGNITUDE` (ADR-0057). GDA to-number and
+/// IEEE 754-2019 §5.4.3 treat such a literal as an ordinary
+/// out-of-range value — it overflows to `Infinity` or underflows to
+/// zero with the usual flags — so the parser saturates the field
+/// rather than rejecting it. The sentinel needs two properties, both
+/// checked below: the composite exponent must stay inside `i32` after
+/// every digit-position adjustment (each capped at
+/// `MAX_EXPONENT_MAGNITUDE`), and no such adjustment may pull it back
+/// inside a representable range, so the downstream rounding step sees
+/// an unambiguous overflow / underflow.
+const EXPONENT_FIELD_SATURATED: u32 = 2_000_000_000;
+const _: () = assert!(
+    EXPONENT_FIELD_SATURATED as i64 + MAX_EXPONENT_MAGNITUDE as i64 + MAX_PARSED_DIGITS as i64
+        <= i32::MAX as i64
+);
+const _: () = assert!(EXPONENT_FIELD_SATURATED >= 2 * MAX_EXPONENT_MAGNITUDE);
 
 // A5-F4 (Agent 5; the Decimal64 H8 shape): the `extra_int_digits as
 // i32` / `digits_after_point as i32` casts in `parse_str` are sound
@@ -130,11 +147,14 @@ impl Decimal32 {
     /// the unbiased exponent and yields a numerically wrong value with
     /// no `INVALID` flag, and unbounded work on a long input. All three
     /// are closed: the digit and implicit exponent counters saturate
-    /// rather than wrapping, an exponent out of range returns
-    /// [`ParseDecimalError::ExponentOutOfRange`] instead of producing a
-    /// wrong `Decimal32`, and the scan is a single linear pass with no
-    /// quadratic blowup. The saturation caps are the private
-    /// `MAX_PARSED_DIGITS` and `MAX_EXPONENT_MAGNITUDE` constants.
+    /// rather than wrapping (rejecting with
+    /// [`ParseDecimalError::CoefficientOverflow`] past the
+    /// literal-length cap), an out-of-range explicit exponent field
+    /// saturates so the value overflows or underflows with flags
+    /// instead of miscomputing (ADR-0057), and the scan is a single
+    /// linear pass with no quadratic blowup. The saturation caps are
+    /// the private `MAX_PARSED_DIGITS` and `MAX_EXPONENT_MAGNITUDE`
+    /// constants.
     ///
     /// Every accumulator is fixed width: a `u64` coefficient, `u32`
     /// digit counters, an `i32` exponent. Parsing allocates nothing and
@@ -256,19 +276,18 @@ fn parse_str_inner(
                         // an adversarial run of leading fractional
                         // zeros would overflow the `u32` counter (a
                         // debug-mode panic / DoS). Saturate, then
-                        // reject past `MAX_EXPONENT_MAGNITUDE` — the
-                        // identical guard the explicit-exponent path
-                        // applies at `1e-1000001`.
+                        // reject past `MAX_EXPONENT_MAGNITUDE`.
                         digits_after_point = digits_after_point.saturating_add(1);
                         if digits_after_point > MAX_EXPONENT_MAGNITUDE {
-                            // H8 saturation guard. Distinct from
-                            // `ExponentOutOfRange` (an *explicit*
-                            // exponent past `MAX_EXPONENT_MAGNITUDE`):
-                            // here the input shifts the implicit
-                            // exponent past the cap purely through a
-                            // run of leading fractional zeros, before
-                            // any `e` introducer. ADR-0029 item 2
-                            // / fd-7f1 makes the distinction matchable.
+                            // H8 saturation guard, a cap on the
+                            // literal's written length: the input
+                            // shifts the implicit exponent past the
+                            // cap purely through a run of leading
+                            // fractional zeros, before any `e`
+                            // introducer. An out-of-range *explicit*
+                            // exponent field is not an error — it
+                            // saturates (ADR-0057). ADR-0029 item 2
+                            // / fd-7f1 made this variant matchable.
                             return Err(ParseDecimalError::CoefficientOverflow);
                         }
                     } else {
@@ -307,8 +326,9 @@ fn parse_str_inner(
                         if extra_int_digits > MAX_EXPONENT_MAGNITUDE {
                             // ADR-0029 item 2 / fd-7f1 promotes this
                             // implicit-exponent overflow to
-                            // `CoefficientOverflow`, distinct from the
-                            // explicit-exponent `ExponentOutOfRange`.
+                            // `CoefficientOverflow`, a literal-length
+                            // cap. The explicit-exponent field instead
+                            // saturates without error (ADR-0057).
                             return Err(ParseDecimalError::CoefficientOverflow);
                         }
                     }
@@ -371,7 +391,12 @@ fn parse_str_inner(
             let d = u32::from(c - b'0');
             exp_val = exp_val.saturating_mul(10).saturating_add(d);
             if exp_val > MAX_EXPONENT_MAGNITUDE {
-                return Err(ParseDecimalError::ExponentOutOfRange);
+                // Past the cap the exact magnitude no longer matters:
+                // every such exponent lands the value outside the
+                // representable range on the same side, so saturate to
+                // the sentinel (re-applied on each further digit) and
+                // keep scanning so trailing syntax errors still reject.
+                exp_val = EXPONENT_FIELD_SATURATED;
             }
             idx += 1;
         }
