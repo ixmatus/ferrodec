@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.0] - 2026-07-25
+
+The decTest skip burn-down: two conformance gaps closed behind one
+breaking boundary (ADR-0057, ADR-0058). `dsBase` rises 700 -> 884
+passes (+38 extreme-exponent, +146 toEng).
+
+### Changed
+
+- **Breaking:** the `Engineering` Display adapter now renders the
+  General Decimal Arithmetic to-engineering-string form (ADR-0058):
+  plain notation exactly where `Display` (`toSci`) uses it, an omitted
+  exponent when the rebased exponent is zero (`10E+1` renders `100`,
+  not `100E+0`), and the fractional-zero form for out-of-plain-range
+  zeros (`0E+1` renders `0.00E+3`, not `0E+1`). Exponential renderings
+  keep their shape (`12.34E+6`); values in the plain range now render
+  plain (`12345`, not `12.345E+3`). Matches Python's `to_eng_string`
+  and `ferrodec-decimal`; validated against the vendored decTest
+  `toEng` vectors. An explicit `{:.N}` precision keeps the
+  forced-exponential layout.
+- `parse_str` no longer rejects an explicit exponent field larger than
+  the 1 000 000 magnitude cap; the field saturates and the value
+  overflows to `Infinity` or underflows to zero with the usual flags,
+  matching GDA to-number and IEEE 754-2019 SS5.4.3 (ADR-0057). The
+  literal-length caps on adversarial digit runs still reject with
+  `CoefficientOverflow`.
+
+### Removed
+
+- **Breaking:** `ParseDecimalError::ExponentOutOfRange`. The variant
+  became unreachable under the saturating parse; the honest signal for
+  an out-of-range literal is the returned status
+  (`Status::overflow()` / `Status::underflow()`), which the in-cap
+  out-of-range literals always raised anyway (ADR-0057).
+
 ## [3.4.0] - 2026-07-03
 
 Completes the 2026-06-09 rigorous-review remediation (bd epic fd-aqs).

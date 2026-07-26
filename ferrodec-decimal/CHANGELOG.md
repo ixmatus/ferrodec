@@ -7,6 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.0] - 2026-07-25
+
+### Changed
+
+- **Breaking:** the `interop` dependencies on `ferrodec`,
+  `ferrodec-decimal64`, and `ferrodec-decimal32` move to their 4.0.0
+  majors (the decTest skip burn-down: GDA-aligned `Engineering`
+  rendering per ADR-0058 and saturating extreme-exponent parses per
+  ADR-0057). The fixed-format types appear in this crate's public
+  conversion API, so the requirement change is itself major.
+
+### Fixed
+
+- `to_decimal128` / `to_decimal64` / `to_decimal32` no longer panic on
+  a value whose exponent magnitude exceeds the fixed formats' 1 000 000
+  parser cap (previously the internal `parse_str` rejected the rendered
+  literal and the conversion `expect`ed it). Under ADR-0057 the
+  exponent field saturates, so the conversion now overflows to
+  `Infinity` or underflows to zero with the usual status flags.
+
+## [2.0.0] - 2026-07-03
+
+The metrology-bridge release (ADR-0055, supersedes ADR-0045). Recorded
+retroactively: the 2.0.0 tag shipped without a changelog section.
+
+### Added
+
+- `Ord` / `PartialOrd` for `Decimal`, both delegating to the IEEE 754
+  totalOrder relation: gateless, lawful against the structural `Eq`,
+  and total over NaNs, so `Decimal` sorts and keys a `BTreeMap`.
+- `FromStr` for `Decimal`, delegating to `parse_str`.
+- `Decimal::to_f64(&self, RoundingMode) -> (f64, Status)` under the
+  `binary-float` feature, mirroring `Decimal128::to_f64` (pass-through
+  specials, exact-string single rounding, mode informing only the
+  overflow / underflow edges).
+
+### Changed
+
+- **Breaking:** the General Decimal Arithmetic `max` / `min`
+  operations are renamed `maxnum` / `minnum` (IEEE 754-2019
+  `maximumNumber` / `minimumNumber`). `Ord`'s provided
+  `max(self, other)` / `min(self, other)` shadow the frozen inherent
+  signatures at every value receiver, so adding `Ord` forced the
+  rename; the decTest string keys are unchanged.
+- The `binary-float` feature now pulls `fmt` (`to_f64` renders through
+  `Display`), and the `RoundingMode` re-export widens to
+  `interop` or `binary-float`.
+
 ## [1.0.1] - 2026-06-03
 
 A performance patch: two further transcendental optimisations, both internal and
