@@ -295,6 +295,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "ferrodec-campaign"
+version = "0.1.0"
+dependencies = [
+ "ferrodec-multiword",
+ "ferrodec-transcend",
+]
+
+[[package]]
 name = "ferrodec-decimal"
 version = "3.0.0"
 dependencies = [

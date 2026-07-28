@@ -1,0 +1,21 @@
+[package]
+name = "ferrodec-campaign"
+version = "0.1.0"
+description = "Offline verification campaign driver for the correctly rounded decimal128 lane (workspace-internal; publish = false; ADR-0059)"
+publish = false
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# Host-side campaign tooling: std is deliberate (file IO, progress
+# reporting). Nothing here ships; the crate exists so the S1/S2
+# falsification campaigns can drive the production kernel's public
+# `Extended` intermediates with zero production-code changes (ADR-0059,
+# plan S1).
+[dependencies]
+ferrodec-transcend = { path = "../ferrodec-transcend", features = ["transcendentals"] }
+ferrodec-multiword = { path = "../ferrodec-multiword" }
+
+[lints]
+workspace = true

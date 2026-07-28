@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "ferrodec-decimal", "ferrodec-decimal32", "ferrodec-decimal64", "ferrodec-ieee", "ferrodec-multiword", "ferrodec-transcend", "ferrodec-test-support"]
+members = [".", "ferrodec-campaign", "ferrodec-decimal", "ferrodec-decimal32", "ferrodec-decimal64", "ferrodec-ieee", "ferrodec-multiword", "ferrodec-transcend", "ferrodec-test-support"]
 resolver = "2"
 
 [workspace.package]
