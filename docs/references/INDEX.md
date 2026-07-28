@@ -6,6 +6,7 @@ One line per entry; the entry file is the single home for every fact
 - [arb-flint](arb-flint.md) — oracle — Arb certified ball enclosures (FLINT 3), the proof-tier corpus generator
 - [astro-float](astro-float.md) — oracle — pure Rust faithful oracle for the transcendental property suites
 - [brent-zimmermann-mca](brent-zimmermann-mca.md) — algorithm — Modern Computer Arithmetic, the DecBig performance algorithms handbook
+- [core-math](core-math.md) — algorithm — CORE-MATH correctly rounded binary libm, the contemporary program the decimal flag positions against
 - [cowlishaw-dectest](cowlishaw-dectest.md) — conformance — General Decimal Arithmetic Testcases suite 2.62, vendored with hash pins, with the coverage-gap statement
 - [cowlishaw-gda-arith](cowlishaw-gda-arith.md) — spec — General Decimal Arithmetic Specification 1.70, the GDA semantic authority
 - [cowlishaw-algorism-2003](cowlishaw-algorism-2003.md) — history — the ARITH-16 case-for-decimal paper behind the 754-2008 formats
@@ -26,7 +27,10 @@ One line per entry; the entry file is the single home for every fact
 - [ieee-854-1987](ieee-854-1987.md) — spec — the radix independent ancestor GDA's context model descends from (lineage)
 - [karatsuba-1962](karatsuba-1962.md) — algorithm — divide and conquer multiplication, consulted through Knuth §4.3.3
 - [knuth-taocp-v2](knuth-taocp-v2.md) — algorithm — TAOCP volume 2, Algorithm D long division and the Karatsuba treatment
+- [lauter-lefevre-pow-boundary](lauter-lefevre-pow-boundary.md) — algorithm — the pow rounding boundary classification, shape of the decimal exact-case rederivation
 - [lefevre-2000](lefevre-2000.md) — algorithm — hardest-to-round search thesis, the proof shape behind ADR-0032
+- [lefevre-stehle-zimmermann-d64-exp](lefevre-stehle-zimmermann-d64-exp.md) — conformance — the published decimal64 exp worst cases, the lane's external anchor
+- [matveev-2000](matveev-2000.md) — algorithm — explicit linear forms in logarithms, the provable ladder cap route
 - [mpdecimal](mpdecimal.md) — oracle — libmpdec via CPython decimal, the differential oracle
 - [mpfr](mpfr.md) — oracle — MPFR via rug behind mpfr-gate, the independent corpus re-derivation
 - [mpmath](mpmath.md) — oracle — adaptive precision breadth oracle and anchor band corpus generator
@@ -38,5 +42,9 @@ One line per entry; the entry file is the single home for every fact
 - [registry-ieee-classes](registry-ieee-classes.md) — registry — the ten §5.7.2 classes, pinned to ferrodec_ieee::IeeeClass
 - [registry-rounding-modes](registry-rounding-modes.md) — registry — the five rounding directions, pinned to ferrodec_ieee::RoundingMode
 - [registry-status-flags](registry-status-flags.md) — registry — the six exception flags, pinned to ferrodec_ieee::Status
+- [rlibm](rlibm.md) — algorithm — RLIBM correct rounding by interval construction, the binary-only contrast
+- [salikhov-zudilin-pi-irrationality](salikhov-zudilin-pi-irrationality.md) — algorithm — the explicit irrationality measure of pi, the huge-argument trig cap
+- [shidlovskii-transcendence](shidlovskii-transcendence.md) — algorithm — E-function transcendence measures, the no-ties facts and the measures question
+- [slz-worst-cases](slz-worst-cases.md) — algorithm — lattice reduction worst case search, the frontier that stops short of decimal128
 - [verification-map](verification-map.md) — verification — claim to mechanism to artifact, the how-is-this-known table
 - [ziv-1991](ziv-1991.md) — algorithm — adaptive precision correct rounding, rejected for the fixed formats

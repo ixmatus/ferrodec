@@ -1,6 +1,6 @@
 # ADR-0032: Correctly rounded §9.2 transcendentals via Lefèvre / Muller fixed precision bounds
 
-- **Status**: accepted (amended by ADR-0050: the anchor band error-model repair)
+- **Status**: accepted (amended by ADR-0050: the anchor band error-model repair; amended by ADR-0059: the Ziv rejection narrows to the unbounded loop and the d64/d128 proof posture moves to the bounded escalation ladder)
 - **Date**: 2026-05-21
 
 ## Context
