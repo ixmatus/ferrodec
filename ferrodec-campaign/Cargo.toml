@@ -14,6 +14,8 @@ repository.workspace = true
 # `Extended` intermediates with zero production-code changes (ADR-0059,
 # plan S1).
 [dependencies]
+ferrodec = { path = "..", features = ["transcendentals"] }
+ferrodec-ieee = { path = "../ferrodec-ieee" }
 ferrodec-transcend = { path = "../ferrodec-transcend", features = ["transcendentals"] }
 ferrodec-multiword = { path = "../ferrodec-multiword" }
 

@@ -19,8 +19,42 @@
 //! `tests/vectors/margin_lockstep.txt`; see [`margin`].
 
 pub mod margin;
+pub mod prng;
+pub mod sample;
+pub mod sweep;
 
 use ferrodec_multiword::U256;
+
+/// Decimal string of a [`U256`] (test and report rendering).
+#[must_use]
+pub fn u256_to_decimal(mut v: U256) -> String {
+    if v.is_zero() {
+        return "0".into();
+    }
+    let mut digits = Vec::new();
+    while !v.is_zero() {
+        let (q, r) = v.div_rem10();
+        digits.push(char::from(b'0' + u8::try_from(r).unwrap()));
+        v = q;
+    }
+    digits.iter().rev().collect()
+}
+
+/// Approximate `f64` of a [`U256`] (histogram rendering only; every
+/// contract comparison stays exact integer).
+#[must_use]
+pub fn u256_to_f64(mut v: U256) -> f64 {
+    let mut digits = Vec::new();
+    while !v.is_zero() {
+        let (q, r) = v.div_rem10();
+        digits.push(r);
+        v = q;
+    }
+    digits
+        .iter()
+        .rev()
+        .fold(0f64, |acc, &d| acc * 10.0 + f64::from(d))
+}
 
 /// Parse a non negative decimal integer string (at most 76 digits)
 /// into a [`U256`]. Returns `None` on an empty string, a non digit

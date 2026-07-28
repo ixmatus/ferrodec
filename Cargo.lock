@@ -298,6 +298,8 @@ dependencies = [
 name = "ferrodec-campaign"
 version = "0.1.0"
 dependencies = [
+ "ferrodec",
+ "ferrodec-ieee",
  "ferrodec-multiword",
  "ferrodec-transcend",
 ]
