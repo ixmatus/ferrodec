@@ -67,6 +67,18 @@ result: one of the two neighbors. Strictly weaker than correctly
 rounded; the astro-float oracle asserts this bound as a hard-defect
 catcher (the superseded ADR-0024 contract).
 
+**table maker's dilemma (TMD).** No a priori bound exists on how
+close a transcendental's true value at a representable input can sit
+to a rounding boundary (a grid point under directed rounding, a half
+ulp midpoint under nearest), so no fixed working precision can be
+proven sufficient in advance. Search margins therefore come in two
+families: `margin=` rows measure distance to the midpoint,
+`boundary=` rows to the grid point. ADR-0059's escalation ladder
+answers the dilemma at runtime by widening only when the intermediate
+lands within its error budget of a boundary; an input undecidable at
+every searched oracle precision is recorded TMD-hard (ADR-0033's
+`f(1) = 0` family, an oracle-side artifact, not a kernel defect).
+
 **quiet NaN / signaling NaN / payload.** NaNs carry a diagnostic
 payload in the trailing significand. Quiet NaNs propagate; signaling
 NaNs raise INVALID in most consumers (the class operation is the
