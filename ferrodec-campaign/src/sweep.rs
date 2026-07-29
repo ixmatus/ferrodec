@@ -32,6 +32,12 @@ pub struct Config {
     pub out: PathBuf,
     pub checkpoint_every: u64,
     pub resume: bool,
+    /// Unconditional substream mode: emit an `A` line for every
+    /// measured sample regardless of margin, so the certifier judges
+    /// the kernel with no filter in the loop (the correlated failure
+    /// counter; ADR-0059 S1). Costs all five modes per sample; meant
+    /// for the 10^5..10^6 substream, not the main sweep.
+    pub emit_all: bool,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -91,9 +97,15 @@ fn evaluate(cfg: &Config, i: u64, s: &Sample) -> Disposition {
     let diverged = format!("{mirror_ne}") != format!("{ne}");
     let within = d.within_ulp(cfg.thr_num, cfg.thr_pow);
     let survivor = within.grid || within.tie;
-    let line = if survivor || diverged {
+    let line = if survivor || diverged || cfg.emit_all {
         let outs = production_outputs(cfg.func, s);
-        let tag = if diverged { "D" } else { "S" };
+        let tag = if diverged {
+            "D"
+        } else if survivor {
+            "S"
+        } else {
+            "A"
+        };
         let mut l = format!(
             "{tag}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
             cfg.func.name(),
@@ -273,6 +285,7 @@ mod tests {
             out,
             checkpoint_every: 50,
             resume,
+            emit_all: false,
         }
     }
 

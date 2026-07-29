@@ -70,6 +70,7 @@ fn parse_args() -> Result<(Config, Option<f64>), String> {
     let mut out = PathBuf::from("out/sweep.tsv");
     let mut checkpoint_every = 10_000_000u64;
     let mut resume = false;
+    let mut emit_all = false;
     let mut calibrate_secs = None;
 
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -96,6 +97,7 @@ fn parse_args() -> Result<(Config, Option<f64>), String> {
                 checkpoint_every = next(&mut i)?.parse().map_err(|e| format!("{e}"))?;
             }
             "--resume" => resume = true,
+            "--emit-all" => emit_all = true,
             "--calibrate" => {
                 calibrate_secs = Some(next(&mut i)?.parse().map_err(|e| format!("{e}"))?);
             }
@@ -126,6 +128,7 @@ fn parse_args() -> Result<(Config, Option<f64>), String> {
             out,
             checkpoint_every,
             resume,
+            emit_all,
         },
         calibrate_secs,
     ))
