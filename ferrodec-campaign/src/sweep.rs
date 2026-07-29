@@ -57,6 +57,41 @@ fn ckpt_path(out: &std::path::Path) -> PathBuf {
     p
 }
 
+fn hist_path(out: &std::path::Path) -> PathBuf {
+    let mut p = out.to_path_buf();
+    p.set_extension("hist");
+    p
+}
+
+/// Snapshot the running histogram and counters to `<out>.hist`
+/// (truncating write) so an interrupted overnight shard loses at most
+/// one checkpoint interval of margin curve, matching the survivor
+/// lines' incremental durability. Survivors stream to the TSV as
+/// found; this file is the live view of everything else.
+fn write_hist_snapshot(
+    out: &std::path::Path,
+    through: u64,
+    hist: &BTreeMap<i64, (u64, f64, f64)>,
+    sum: &Summary,
+) -> io::Result<()> {
+    let mut s = format!("# partial through i={through}\n");
+    for (b, (count, g, t)) in hist {
+        let _ = writeln!(s, "# H {b} {count} {g:.3e} {t:.3e}");
+    }
+    let _ = writeln!(
+        s,
+        "# F evals={} survivors={} skip_nonnormal={} skip_no_mirror={} diverged={} min_grid={:.3e} min_tie={:.3e}",
+        sum.evals,
+        sum.survivors,
+        sum.skip_nonnormal,
+        sum.skip_no_mirror,
+        sum.mirror_divergence,
+        sum.min_grid_ulp,
+        sum.min_tie_ulp,
+    );
+    fs::write(hist_path(out), s)
+}
+
 fn margin_ulp(x2: ferrodec_multiword::U256, w: u32) -> f64 {
     u256_to_f64(x2) / (2.0 * 10f64.powi(i32::try_from(w).unwrap()))
 }
@@ -149,6 +184,17 @@ pub fn run(cfg: &Config) -> io::Result<Summary> {
     } else {
         0
     };
+    if start >= cfg.n {
+        // A completed shard relaunched by an idempotent driver: do not
+        // append duplicate footer lines or reset anything.
+        println!(
+            "shard already complete: {} (checkpoint {} >= n {})",
+            cfg.out.display(),
+            start,
+            cfg.n
+        );
+        return Ok(Summary::default());
+    }
     if let Some(dir) = cfg.out.parent() {
         if !dir.as_os_str().is_empty() {
             fs::create_dir_all(dir)?;
@@ -219,6 +265,10 @@ pub fn run(cfg: &Config) -> io::Result<Summary> {
             }
         }
         if cfg.checkpoint_every > 0 && (i + 1) % cfg.checkpoint_every == 0 {
+            // Histogram snapshot BEFORE the checkpoint index: a crash
+            // between the two writes costs a redundant snapshot, never
+            // a gap.
+            write_hist_snapshot(&cfg.out, i + 1, &hist, &sum)?;
             fs::write(ckpt_path(&cfg.out), format!("{}\n", i + 1))?;
         }
     }
@@ -237,6 +287,7 @@ pub fn run(cfg: &Config) -> io::Result<Summary> {
         sum.min_grid_ulp,
         sum.min_tie_ulp,
     )?;
+    write_hist_snapshot(&cfg.out, cfg.n, &hist, &sum)?;
     fs::write(ckpt_path(&cfg.out), format!("{}\n", cfg.n))?;
     Ok(sum)
 }
