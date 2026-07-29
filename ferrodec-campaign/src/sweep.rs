@@ -9,7 +9,9 @@
 
 use crate::margin::{boundary_distances, BoundaryDistances};
 use crate::prng::StreamKey;
-use crate::sample::{gen_sample, mirror_extended, production_outputs, Func, Sample, Stratum};
+use crate::sample::{
+    gen_sample, mirror_extended, production_at, production_outputs, Func, Sample, Stratum,
+};
 use crate::{u256_to_decimal, u256_to_f64};
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -70,8 +72,10 @@ enum Disposition {
 }
 
 fn evaluate(cfg: &Config, i: u64, s: &Sample) -> Disposition {
-    let outs = production_outputs(cfg.func, s);
-    let ne = outs[0].0;
+    // Hot path: one production call (NearestEven, for the class gate
+    // and the mirror divergence invariant) plus the mirror. The four
+    // remaining modes are evaluated only when a line is emitted.
+    let ne = production_at(cfg.func, s, ferrodec_ieee::RoundingMode::NearestEven).0;
     if !ne.is_finite() || ne.is_zero() || ne.is_subnormal() {
         return Disposition::NonNormal;
     }
@@ -88,6 +92,7 @@ fn evaluate(cfg: &Config, i: u64, s: &Sample) -> Disposition {
     let within = d.within_ulp(cfg.thr_num, cfg.thr_pow);
     let survivor = within.grid || within.tie;
     let line = if survivor || diverged {
+        let outs = production_outputs(cfg.func, s);
         let tag = if diverged { "D" } else { "S" };
         let mut l = format!(
             "{tag}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
@@ -245,13 +250,7 @@ pub fn calibrate(cfg: &Config, secs: f64) -> f64 {
     while start.elapsed().as_secs_f64() < secs {
         for _ in 0..256 {
             let s = gen_sample(cfg.func, cfg.stratum, key.draws(i));
-            let outs = production_outputs(cfg.func, &s);
-            let ne = outs[0].0;
-            if ne.is_finite() && !ne.is_zero() {
-                if let Some(ext) = mirror_extended(cfg.func, &s) {
-                    let _ = boundary_distances(ext, 34);
-                }
-            }
+            let _ = evaluate(cfg, i, &s);
             i += 1;
         }
     }

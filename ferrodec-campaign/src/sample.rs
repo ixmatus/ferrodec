@@ -208,16 +208,26 @@ pub fn mirror_extended(func: Func, s: &Sample) -> Option<Extended> {
     }
 }
 
-/// The production outputs across all five rounding modes, in `MODES`
-/// order. These, not the mirror, are what the certifier judges.
+/// One production evaluation at `rm`. These, not the mirror, are what
+/// the certifier judges.
 #[must_use]
-pub fn production_outputs(func: Func, s: &Sample) -> [(Decimal128, Status); 5] {
-    MODES.map(|rm| match func {
+pub fn production_at(func: Func, s: &Sample, rm: RoundingMode) -> (Decimal128, Status) {
+    match func {
         Func::Sin => s.x.sin(rm),
         Func::Cos => s.x.cos(rm),
         Func::Tan => s.x.tan(rm),
         Func::Exp => s.x.exp(rm),
         Func::Exp2 => s.x.exp2(rm),
         Func::Pow => s.x.pow(s.y.expect("pow sample carries y"), rm),
-    })
+    }
+}
+
+/// The production outputs across all five rounding modes, in `MODES`
+/// order. Survivor line rendering only: the sweep's hot path pays for
+/// exactly one production call per sample (the calibration finding
+/// that rescoped fd-4zo.3; four extra modes per sample tripled the
+/// cost for data only survivors need).
+#[must_use]
+pub fn production_outputs(func: Func, s: &Sample) -> [(Decimal128, Status); 5] {
+    MODES.map(|rm| production_at(func, s, rm))
 }
