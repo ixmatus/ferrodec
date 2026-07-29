@@ -42,10 +42,12 @@ extern crate alloc;
 pub mod u256;
 pub mod u384;
 pub mod u512;
+pub mod u768;
 
 pub use u256::U256;
 pub use u384::U384;
 pub use u512::U512;
+pub use u768::U768;
 
 #[cfg(feature = "alloc")]
 pub mod decbig;
