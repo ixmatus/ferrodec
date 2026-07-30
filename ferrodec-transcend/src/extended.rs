@@ -753,6 +753,378 @@ impl Extended {
 }
 
 // ----------------------------------------------------------------------------
+// The ExtNum working-precision seam (M3, fd-4zo.10 lane; ADR-0059).
+
+/// The contract between the transcendental kernel bodies and a
+/// working-precision number type.
+///
+/// [`Extended`] (rung 1, 50 digits) implements it today by delegating
+/// every operation verbatim to its inherent surface; the escalation
+/// rungs (`Extended2` at 110 digits, the feature-gated unbounded rung)
+/// implement the same contract at their own widths. Kernel bodies
+/// written against this trait are precision polymorphic: the ladder
+/// re-runs the *same* body at a wider rung instead of maintaining a
+/// per-width copy. This follows the house precedent of the
+/// [`DecimalFormat`] genericization, whose `Decimal128` instantiation
+/// was proven byte identical to the pre-seam kernel; the M4 gate
+/// demands the same property for the `Extended` instantiation of every
+/// generic body.
+///
+/// ## Surface
+///
+/// The members mirror the operations the eight kernel modules actually
+/// perform, nothing more:
+///
+/// * arithmetic and comparison at working precision (round-half-even
+///   after every binary operation, exactly as the inherent surface);
+/// * the format boundary crossings (`from_format`, `to_format`, the
+///   ADR-0051 anchor seam `sticks_to` / `to_format_with_residual`, and
+///   the M2 escalation predicate `near_rounding_boundary`);
+/// * component-level constructors and accessors replacing the direct
+///   field pokes the concrete kernels used (`from_parts_u128`,
+///   `with_sign`, `with_exponent`, `sign`, `exponent`, `digit_count`);
+/// * the named transcendental constants, provided per implementation
+///   because a wider rung needs *wider* literals, not a widening of
+///   the 55-digit ones (M5 delivers the 110-digit set);
+/// * the series iteration caps, associated constants so each rung
+///   sizes its Taylor loops to its own precision (the loops terminate
+///   early on `next_sum == sum`, so a wider cap is behavior neutral at
+///   rung 1 — but the cap must grow with the digit count for the
+///   wider rungs to converge).
+///
+/// Implementations are `Copy` value types; the kernels pass them by
+/// value exactly as they pass `Extended` today.
+pub(crate) trait ExtNum: Copy + core::fmt::Debug {
+    // ---- working-precision metadata ------------------------------------
+
+    /// Working precision in decimal digits. A method rather than an
+    /// associated constant so a heap-backed top rung can report a
+    /// dynamic precision while the fixed rungs constant fold.
+    fn precision() -> u32;
+
+    // ---- series iteration caps -----------------------------------------
+
+    /// Cap for `exp`'s Taylor loop (`Σ rⁿ/n!`, `|r| ≤ ln(10)/2`).
+    const EXP_SERIES_TERMS: u32;
+    /// Cap for the `sin`/`cos` Taylor loops (`|r| ≤ π/4`).
+    const SIN_COS_SERIES_TERMS: u32;
+    /// Cap for the `sinh`/`cosh` small-argument Taylor loops
+    /// (`|x| < 0.5`).
+    const SINH_COSH_SERIES_TERMS: u32;
+    /// Cap for the `ln(1 + u)` Taylor loop (`|u| ≤ ~0.6`).
+    const LOG1P_SERIES_TERMS: u32;
+    /// Cap for `atan`'s Taylor loop (`|t| ≤ tan(π/8)`).
+    const ATAN_SERIES_TERMS: u32;
+
+    // ---- constants -----------------------------------------------------
+
+    /// Canonical zero.
+    const ZERO: Self;
+    /// `1`.
+    const ONE: Self;
+    /// `0.5`.
+    const HALF: Self;
+
+    /// `π` at this rung's working precision.
+    fn pi() -> Self;
+    /// Euler's number `e`.
+    fn e() -> Self;
+    /// `ln(2)`.
+    fn ln2() -> Self;
+    /// `ln(10)`.
+    fn ln10() -> Self;
+    /// `1/ln(10)`.
+    fn inv_ln10() -> Self;
+    /// `1/ln(2)`.
+    fn inv_ln2() -> Self;
+    /// `π/2`.
+    fn pi_over_two() -> Self;
+    /// `π/4`.
+    fn pi_over_four() -> Self;
+    /// `tan(π/8)` — atan's inner reduction threshold.
+    fn tan_pi_over_eight() -> Self;
+
+    // ---- constructors --------------------------------------------------
+
+    fn from_i32(n: i32) -> Self;
+    /// Parse a hand-curated decimal literal (panics on invalid input;
+    /// see [`Extended::parse_str`] for the accepted grammar). Literals
+    /// wider than the rung's working precision are narrowed by the
+    /// implementation's own invariant machinery.
+    fn parse_str(s: &str) -> Self;
+    /// Exact small-component constructor: `(-1)^sign · coef · 10^exp`
+    /// with a `u128` coefficient. Replaces the concrete kernels'
+    /// `Extended { coef, exp, sign }` literals (thresholds and similar
+    /// values whose coefficients fit `u128`).
+    fn from_parts_u128(coef: u128, exp: i32, sign: bool) -> Self;
+    /// Widening constructor from `U256` components plus a pre-dropped
+    /// sticky residue, rounding into the rung's working precision
+    /// (argred's residual delivery seam).
+    fn from_components_with_sticky(coef: U256, exp: i32, sign: bool, pre_sticky: bool) -> Self;
+    /// Decode a finite or zero format datum (panics on NaN / Inf, which
+    /// the kernels dispatch at the public boundary).
+    fn from_format<F: DecimalFormat>(d: F) -> Self;
+    /// Overflow saturation proxy (see [`Extended::saturate_overflow`]).
+    fn saturate_overflow(sign: bool) -> Self;
+    /// Underflow saturation proxy (see [`Extended::saturate_underflow`]).
+    fn saturate_underflow() -> Self;
+
+    // ---- accessors and component edits ---------------------------------
+
+    /// `true` for a negative value (zero is canonically positive).
+    fn sign(self) -> bool;
+    /// The unbiased quantum exponent of the coefficient.
+    fn exponent(self) -> i32;
+    /// Decimal digit count of the coefficient.
+    fn digit_count(self) -> u32;
+    fn is_zero(self) -> bool;
+    /// Same coefficient and exponent, sign replaced. Caller keeps the
+    /// concrete kernels' contract of never setting a sign on zero.
+    #[must_use]
+    fn with_sign(self, sign: bool) -> Self;
+    /// Same coefficient and sign, exponent replaced (ln's decade
+    /// decomposition seam).
+    #[must_use]
+    fn with_exponent(self, exp: i32) -> Self;
+
+    // ---- arithmetic ----------------------------------------------------
+
+    #[must_use]
+    fn neg(self) -> Self;
+    #[must_use]
+    fn abs(self) -> Self;
+    #[must_use]
+    fn add(self, other: Self) -> Self;
+    #[must_use]
+    fn sub(self, other: Self) -> Self;
+    #[must_use]
+    fn mul(self, other: Self) -> Self;
+    #[must_use]
+    fn square(self) -> Self;
+    /// `self / other`, Newton seeded at the format's precision.
+    #[must_use]
+    fn div<F: DecimalFormat>(self, other: Self) -> Self;
+    /// `1 / self`, Newton seeded at the format's precision.
+    #[must_use]
+    fn recip<F: DecimalFormat>(self) -> Self;
+    /// `√self`, Newton seeded at the format's precision.
+    #[must_use]
+    fn sqrt<F: DecimalFormat>(self) -> Self;
+    /// Divide by a small positive integer (Taylor denominators).
+    #[must_use]
+    fn div_u32(self, divisor: u32) -> Self;
+    /// Multiply by `10^k` — a pure exponent shift.
+    #[must_use]
+    fn mul_pow10_exp(self, k: i32) -> Self;
+
+    // ---- comparison ----------------------------------------------------
+
+    /// Signed total ordering, `+0 == -0`.
+    fn cmp(self, other: Self) -> Ordering;
+
+    // ---- conversions ---------------------------------------------------
+
+    /// Truncate toward zero into an `i32`. Caller guarantees the
+    /// magnitude is well within `i32::MAX` (the reduction integers
+    /// `k` of `exp`'s decade split are ≤ ~6200).
+    fn trunc_to_i32(self) -> i32;
+
+    // ---- format boundary -----------------------------------------------
+
+    /// Round into the format (see [`Extended::to_format`]).
+    fn to_format<F: DecimalFormat>(self, q_preferred: i32, rm: RoundingMode) -> (F, Status);
+    /// The ADR-0051 anchor residual delivery (see
+    /// [`Extended::to_format_with_residual`]).
+    fn to_format_with_residual<F: DecimalFormat>(
+        self,
+        magnitude_grows: bool,
+        rm: RoundingMode,
+    ) -> (F, Status);
+    /// The ADR-0051 grid-stuck snap test (see [`Extended::sticks_to`]).
+    #[must_use]
+    fn sticks_to(self, anchor: Self) -> bool;
+    /// The M2 escalation predicate (see
+    /// [`Extended::near_rounding_boundary`]).
+    #[must_use]
+    fn near_rounding_boundary<F: DecimalFormat>(self, budget: u128) -> bool;
+}
+
+impl ExtNum for Extended {
+    fn precision() -> u32 {
+        EXT_PRECISION
+    }
+
+    // The caps reproduce the concrete kernels' loop bounds exactly;
+    // `series_caps_pin_the_concrete_loop_bounds` (tests below) is the
+    // drift guard the M4 genericization relies on.
+    const EXP_SERIES_TERMS: u32 = 60;
+    const SIN_COS_SERIES_TERMS: u32 = 120;
+    const SINH_COSH_SERIES_TERMS: u32 = 120;
+    const LOG1P_SERIES_TERMS: u32 = 250;
+    const ATAN_SERIES_TERMS: u32 = 200;
+
+    const ZERO: Self = Extended::ZERO;
+    const ONE: Self = Extended::ONE;
+    const HALF: Self = Extended::HALF;
+
+    fn pi() -> Self {
+        crate::consts::pi_ext()
+    }
+    fn e() -> Self {
+        crate::consts::e_ext()
+    }
+    fn ln2() -> Self {
+        crate::consts::ln2_ext()
+    }
+    fn ln10() -> Self {
+        crate::consts::ln10_ext()
+    }
+    fn inv_ln10() -> Self {
+        crate::consts::inv_ln10_ext()
+    }
+    fn inv_ln2() -> Self {
+        crate::consts::inv_ln2_ext()
+    }
+    fn pi_over_two() -> Self {
+        crate::consts::pi_over_two_ext()
+    }
+    fn pi_over_four() -> Self {
+        crate::consts::pi_over_four_ext()
+    }
+    fn tan_pi_over_eight() -> Self {
+        crate::consts::tan_pi_over_eight_ext()
+    }
+
+    fn from_i32(n: i32) -> Self {
+        Extended::from_i32(n)
+    }
+    fn parse_str(s: &str) -> Self {
+        Extended::parse_str(s)
+    }
+    fn from_parts_u128(coef: u128, exp: i32, sign: bool) -> Self {
+        Self {
+            coef: U256::from_u128(coef),
+            exp,
+            sign,
+        }
+    }
+    fn from_components_with_sticky(coef: U256, exp: i32, sign: bool, pre_sticky: bool) -> Self {
+        Extended::from_components_with_sticky(coef, exp, sign, pre_sticky)
+    }
+    fn from_format<F: DecimalFormat>(d: F) -> Self {
+        Extended::from_format(d)
+    }
+    fn saturate_overflow(sign: bool) -> Self {
+        Extended::saturate_overflow(sign)
+    }
+    fn saturate_underflow() -> Self {
+        Extended::saturate_underflow()
+    }
+
+    fn sign(self) -> bool {
+        self.sign
+    }
+    fn exponent(self) -> i32 {
+        self.exp
+    }
+    fn digit_count(self) -> u32 {
+        self.coef.decimal_digit_count()
+    }
+    fn is_zero(self) -> bool {
+        Extended::is_zero(self)
+    }
+    fn with_sign(self, sign: bool) -> Self {
+        Self { sign, ..self }
+    }
+    fn with_exponent(self, exp: i32) -> Self {
+        Self { exp, ..self }
+    }
+
+    fn neg(self) -> Self {
+        Extended::neg(self)
+    }
+    fn abs(self) -> Self {
+        Extended::abs(self)
+    }
+    fn add(self, other: Self) -> Self {
+        Extended::add(self, other)
+    }
+    fn sub(self, other: Self) -> Self {
+        Extended::sub(self, other)
+    }
+    fn mul(self, other: Self) -> Self {
+        Extended::mul(self, other)
+    }
+    fn square(self) -> Self {
+        Extended::square(self)
+    }
+    fn div<F: DecimalFormat>(self, other: Self) -> Self {
+        Extended::div::<F>(self, other)
+    }
+    fn recip<F: DecimalFormat>(self) -> Self {
+        Extended::recip::<F>(self)
+    }
+    fn sqrt<F: DecimalFormat>(self) -> Self {
+        Extended::sqrt::<F>(self)
+    }
+    fn div_u32(self, divisor: u32) -> Self {
+        Extended::div_u32(self, divisor)
+    }
+    fn mul_pow10_exp(self, k: i32) -> Self {
+        Extended::mul_pow10_exp(self, k)
+    }
+
+    fn cmp(self, other: Self) -> Ordering {
+        Extended::cmp(self, other)
+    }
+
+    // Mirrors `exp.rs`'s `truncate_to_i32` (which M4 retires in favor
+    // of this seam): shift the coefficient by the exponent and read
+    // the low limb.
+    fn trunc_to_i32(self) -> i32 {
+        if self.is_zero() {
+            return 0;
+        }
+        if self.exp >= 0 {
+            let mut c = self.coef;
+            for _ in 0..(self.exp as u32) {
+                c = c.mul10();
+            }
+            let val = c.lo as i64;
+            return if self.sign { -(val as i32) } else { val as i32 };
+        }
+        let mut c = self.coef;
+        for _ in 0..((-self.exp) as u32) {
+            let (q, _) = c.div_rem10();
+            c = q;
+        }
+        let val = c.lo as i64;
+        if self.sign {
+            -(val as i32)
+        } else {
+            val as i32
+        }
+    }
+
+    fn to_format<F: DecimalFormat>(self, q_preferred: i32, rm: RoundingMode) -> (F, Status) {
+        Extended::to_format::<F>(self, q_preferred, rm)
+    }
+    fn to_format_with_residual<F: DecimalFormat>(
+        self,
+        magnitude_grows: bool,
+        rm: RoundingMode,
+    ) -> (F, Status) {
+        Extended::to_format_with_residual::<F>(self, magnitude_grows, rm)
+    }
+    fn sticks_to(self, anchor: Self) -> bool {
+        Extended::sticks_to(self, anchor)
+    }
+    fn near_rounding_boundary<F: DecimalFormat>(self, budget: u128) -> bool {
+        Extended::near_rounding_boundary::<F>(self, budget)
+    }
+}
+
+// ----------------------------------------------------------------------------
 // Multi-word helpers.
 
 /// `a × b` for two `U256`s whose combined decimal-digit count is ≤ 115
@@ -1628,6 +2000,141 @@ mod tests {
                     );
                 }
             }
+        }
+    }
+
+    // -----------------------------------------------------------------
+    // ExtNum seam (M3, fd-4zo.11).
+
+    mod extnum_seam {
+        use super::*;
+        use crate::extended::ExtNum;
+
+        /// The M4 genericization rewrites the kernels' literal loop
+        /// bounds to these constants; exact pins per cap, so a drifted
+        /// value fails here before it silently changes a Taylor loop.
+        #[test]
+        fn series_caps_pin_the_concrete_loop_bounds() {
+            assert_eq!(<Extended as ExtNum>::EXP_SERIES_TERMS, 60);
+            assert_eq!(<Extended as ExtNum>::SIN_COS_SERIES_TERMS, 120);
+            assert_eq!(<Extended as ExtNum>::SINH_COSH_SERIES_TERMS, 120);
+            assert_eq!(<Extended as ExtNum>::LOG1P_SERIES_TERMS, 250);
+            assert_eq!(<Extended as ExtNum>::ATAN_SERIES_TERMS, 200);
+            assert_eq!(<Extended as ExtNum>::precision(), EXT_PRECISION);
+        }
+
+        /// Every named constant delegates to the same literal the
+        /// concrete kernels parse today.
+        #[test]
+        fn named_constants_delegate_to_consts() {
+            let pairs = [
+                (<Extended as ExtNum>::pi(), crate::consts::pi_ext()),
+                (<Extended as ExtNum>::e(), crate::consts::e_ext()),
+                (<Extended as ExtNum>::ln2(), crate::consts::ln2_ext()),
+                (<Extended as ExtNum>::ln10(), crate::consts::ln10_ext()),
+                (
+                    <Extended as ExtNum>::inv_ln10(),
+                    crate::consts::inv_ln10_ext(),
+                ),
+                (
+                    <Extended as ExtNum>::inv_ln2(),
+                    crate::consts::inv_ln2_ext(),
+                ),
+                (
+                    <Extended as ExtNum>::pi_over_two(),
+                    crate::consts::pi_over_two_ext(),
+                ),
+                (
+                    <Extended as ExtNum>::pi_over_four(),
+                    crate::consts::pi_over_four_ext(),
+                ),
+                (
+                    <Extended as ExtNum>::tan_pi_over_eight(),
+                    crate::consts::tan_pi_over_eight_ext(),
+                ),
+            ];
+            for (got, want) in pairs {
+                assert_eq!(got.coef, want.coef);
+                assert_eq!(got.exp, want.exp);
+                assert_eq!(got.sign, want.sign);
+            }
+        }
+
+        /// `from_parts_u128` reproduces the representation of the
+        /// concrete kernels' struct literals bit for bit (the
+        /// `LOG1P_THRESHOLD` shapes in `hyperbolic.rs`).
+        #[test]
+        fn from_parts_u128_matches_struct_literals() {
+            let t = <Extended as ExtNum>::from_parts_u128(15, -2, false);
+            assert_eq!(t.coef, U256::from_u128(15));
+            assert_eq!(t.exp, -2);
+            assert!(!t.sign);
+        }
+
+        /// `with_sign` / `with_exponent` reproduce the concrete
+        /// kernels' field-edit struct literals.
+        #[test]
+        fn component_edits_match_field_pokes() {
+            let one_neg = <Extended as ExtNum>::ONE.with_sign(true);
+            let literal = Extended {
+                sign: true,
+                ..Extended::ONE
+            };
+            assert_eq!(one_neg.coef, literal.coef);
+            assert_eq!(one_neg.exp, literal.exp);
+            assert_eq!(one_neg.sign, literal.sign);
+
+            let x = ext("12345e-3");
+            let m = x.with_exponent(-4);
+            assert_eq!(m.coef, x.coef);
+            assert_eq!(m.exp, -4);
+            assert_eq!(m.sign, x.sign);
+        }
+
+        /// `trunc_to_i32` mirrors `exp.rs`'s `truncate_to_i32` (which
+        /// M4 retires for this seam): truncation toward zero on both
+        /// exponent signs, both value signs, and zero.
+        #[test]
+        fn trunc_to_i32_truncates_toward_zero() {
+            let cases = [
+                ("0", 0),
+                ("1", 1),
+                ("-1", -1),
+                ("6144.999999999999999999999999", 6144),
+                ("-6144.999999999999999999999999", -6144),
+                ("0.99999999999999", 0),
+                ("-0.5", 0),
+                ("123.456", 123),
+                ("1e3", 1000),
+                ("-2.5e2", -250),
+            ];
+            for (s, want) in cases {
+                assert_eq!(ext(s).trunc_to_i32(), want, "input {s}");
+            }
+        }
+
+        /// Spot delegation identity: a trait-dispatched compound
+        /// expression equals the inherent-dispatched one on the same
+        /// inputs (the impl is delegation, not re-derivation; this
+        /// guards against a future edit decoupling the two).
+        #[test]
+        fn trait_dispatch_equals_inherent_dispatch() {
+            fn via_trait<E: ExtNum>(a: E, b: E) -> E {
+                a.mul(b).add(E::ONE).sub(b.square()).div_u32(3).neg().abs()
+            }
+            let a = ext("3.14159265358979323846264338327950288419716939937510");
+            let b = ext("-2.71828182845904523536028747135266249775724709369996");
+            let got = via_trait(a, b);
+            let want = a
+                .mul(b)
+                .add(Extended::ONE)
+                .sub(b.square())
+                .div_u32(3)
+                .neg()
+                .abs();
+            assert_eq!(got.coef, want.coef);
+            assert_eq!(got.exp, want.exp);
+            assert_eq!(got.sign, want.sign);
         }
     }
 }
