@@ -409,6 +409,120 @@ impl Extended {
         F::round_and_pack_finite(coef, exp50, 0, self.sign, true, rm, Status::OK)
     }
 
+    /// Mode-independent escalation predicate: `true` when the format
+    /// rounding of `self` is not decided by a bracket of half-width
+    /// `budget` units in the last place of the widened working value —
+    /// i.e. when some value within that bracket rounds differently
+    /// from `self` (result bits or status) in at least one of the five
+    /// rounding modes.
+    ///
+    /// ## Contract
+    ///
+    /// * **Units.** The coefficient is first widened to exactly
+    ///   `EXT_PRECISION` digits (the same normalisation as
+    ///   [`Self::to_format_with_residual`]), so one budget unit is one
+    ///   unit in the 50th significant digit of `self` regardless of
+    ///   the stored digit count. A rung's per-function error budget is
+    ///   a bound in these units.
+    /// * **Both boundary families, every mode.** The rounder's
+    ///   decision boundaries at the drop position are the format grid
+    ///   points (tail ≡ 0, deciding the directed modes and `INEXACT`)
+    ///   and the midpoints between them (tail ≡ 5·10^(drop−1),
+    ///   deciding the nearest modes). Both families are tested
+    ///   unconditionally, so escalation is a deterministic function of
+    ///   the input alone — never of the caller's rounding mode.
+    /// * **Drop-position fidelity.** The drop position mirrors
+    ///   `round_and_pack_finite`'s single-rounding rule (fd-42l): the
+    ///   wider of the precision excess and the subnormal quantum
+    ///   excess `qmin − exp`. Mirroring the subnormal branch is what
+    ///   closes the subnormal-edge tininess hazard: a value within
+    ///   `budget` of the `10^E_MIN` decade point sits within `budget`
+    ///   of a grid point (the decade point is representable), so any
+    ///   input whose `UNDERFLOW` flag the bracket cannot decide is
+    ///   escalated by the grid family.
+    /// * **Sign is ignored.** The boundary set is symmetric in
+    ///   magnitude; sign selects *which* directed mode moves at a
+    ///   crossing, never *whether* one does.
+    /// * **Zero escalates.** A zero working value has no exponent to
+    ///   define the unit, and sits on the grid point where even the
+    ///   result's sign is undecidable from a bracket; only upstream
+    ///   classification can certify an exact zero.
+    /// * Models the `pre_sticky = false` boundary ([`Self::to_format`]).
+    ///   The anchor-residual path ([`Self::to_format_with_residual`],
+    ///   ADR-0051) runs *before* any predicate call and never consults
+    ///   it.
+    ///
+    /// A caller that receives `false` may deliver rung 1's rounding
+    /// unconditionally, provided the rung's true-error bound is at
+    /// most `budget` units. `true` does not assert a genuine boundary
+    /// case — only that this rung's bracket cannot exclude one.
+    #[must_use]
+    pub fn near_rounding_boundary<F: DecimalFormat>(self, budget: u128) -> bool {
+        if self.is_zero() {
+            return true;
+        }
+        let dig = self.coef.decimal_digit_count();
+        debug_assert!(
+            dig <= EXT_PRECISION,
+            "near_rounding_boundary: caller must uphold the kernel's \
+             ≤ EXT_PRECISION-digit coefficient invariant"
+        );
+
+        // Widen to exactly EXT_PRECISION digits so the budget unit is
+        // uniform across inputs (cf. to_format_with_residual).
+        let scale = EXT_PRECISION.saturating_sub(dig);
+        let coef_w = self.coef.mul_pow10(scale);
+        let exp_w = self.exp - scale as i32;
+        let digits = dig + scale;
+
+        // The fd-42l single-rounding drop position: the wider of the
+        // precision excess and the subnormal quantum excess. Mirrors
+        // round_and_pack_finite Step 1 verbatim.
+        let qmin = -F::BIAS;
+        let precision_excess = digits.saturating_sub(F::PRECISION);
+        let subnormal_excess = u32::try_from((qmin - exp_w).max(0)).unwrap_or(u32::MAX);
+        let excess = precision_excess.max(subnormal_excess);
+
+        if excess == 0 {
+            // Every working digit survives the format rounding: the
+            // value sits exactly on a format grid point (distance 0).
+            // Unreachable for the real formats (their precision excess
+            // is ≥ 16); kept total for hypothetical wide formats.
+            return true;
+        }
+        if excess > digits {
+            // Full drop, strictly: the kept value is zero and the
+            // nearest boundary is the zero grid point, a full widened
+            // coefficient away — at least 10^(EXT_PRECISION − 1) units.
+            // `budget: u128` cannot express that distance (10^49 >
+            // u128::MAX ≈ 3.4·10^38), so the answer is `false` by the
+            // budget's type alone. The `excess == digits` full drop
+            // (round digit at the MSD) stays on the general path below.
+            return false;
+        }
+
+        // tail = coef_w mod 10^excess, extracted by the same div_rem10
+        // walk the production rounder uses to drop digits.
+        let mut kept = coef_w;
+        let mut i = 0u32;
+        while i < excess {
+            kept = kept.div_rem10().0;
+            i += 1;
+        }
+        let tail = coef_w.sub(kept.mul_pow10(excess));
+        let field = U256::from_u128(1).mul_pow10(excess); // 10^excess ≤ 10^50: fits U256
+        let half = U256::from_u128(5).mul_pow10(excess - 1);
+
+        let bound = U256::from_u128(budget);
+        let within = |d: U256| d.cmp(bound) != Ordering::Greater;
+        let dist_mid = if tail.cmp(half) == Ordering::Less {
+            half.sub(tail)
+        } else {
+            tail.sub(half)
+        };
+        within(tail) || within(field.sub(tail)) || within(dist_mid)
+    }
+
     /// Magnitude comparison (ignoring sign). Useful for branching in
     /// add/sub.
     fn cmp_abs(self, other: Self) -> Ordering {
@@ -1015,5 +1129,505 @@ mod tests {
         // Subtract a back; should give exactly b (at extended precision).
         let d = c.sub(a);
         assert_eq!(d.cmp(ext("1e-36")), core::cmp::Ordering::Equal);
+    }
+
+    // -----------------------------------------------------------------
+    // near_rounding_boundary (M2, fd-4zo.10).
+
+    mod boundary_predicate {
+        extern crate std;
+
+        use super::*;
+        use crate::format::DecimalFormat;
+        use alloc::vec;
+        use alloc::vec::Vec;
+        use ferrodec_ieee::{should_round_up, IeeeDecodedClass as Class};
+        use proptest::prelude::*;
+
+        /// Minimal mock format: the predicate consults only `PRECISION`
+        /// and `BIAS`, so every value-carrying member is `unreachable!`.
+        /// Const generics let one definition cover the three real format
+        /// shapes plus synthetic ones.
+        #[derive(Clone, Copy, Debug)]
+        struct MockFmt<const P: u32, const B: i32>;
+
+        impl<const P: u32, const B: i32> DecimalFormat for MockFmt<P, B> {
+            const BIAS: i32 = B;
+            const PRECISION: u32 = P;
+            const ZERO: Self = Self;
+            const NEG_ZERO: Self = Self;
+            const ONE: Self = Self;
+            const NEG_ONE: Self = Self;
+            const TEN: Self = Self;
+            const INFINITY: Self = Self;
+            const NEG_INFINITY: Self = Self;
+            const NAN: Self = Self;
+            const SIGNALING_NAN: Self = Self;
+            fn classify(self) -> Class {
+                unreachable!()
+            }
+            fn is_nan(self) -> bool {
+                unreachable!()
+            }
+            fn is_zero(self) -> bool {
+                unreachable!()
+            }
+            fn is_infinite(self) -> bool {
+                unreachable!()
+            }
+            fn is_sign_negative(self) -> bool {
+                unreachable!()
+            }
+            fn is_signaling_nan(self) -> bool {
+                unreachable!()
+            }
+            fn abs(self) -> Self {
+                unreachable!()
+            }
+            fn neg(self) -> Self {
+                unreachable!()
+            }
+            fn partial_cmp_fmt(self, _other: Self) -> (Option<Ordering>, Status) {
+                unreachable!()
+            }
+            fn nan_from(self) -> Self {
+                unreachable!()
+            }
+            fn propagate_nan2(self, _other: Self) -> Self {
+                unreachable!()
+            }
+            fn to_extended_parts(self) -> Option<(U256, i32, bool)> {
+                unreachable!()
+            }
+            fn round_and_pack_finite(
+                _coef: U256,
+                _unbiased_exp: i32,
+                _q_preferred: i32,
+                _sign: bool,
+                _pre_sticky: bool,
+                _rm: RoundingMode,
+                _status: Status,
+            ) -> (Self, Status) {
+                unreachable!()
+            }
+            fn recip_seed(self, _rm: RoundingMode) -> (Self, Status) {
+                unreachable!()
+            }
+            fn sqrt_seed(self, _rm: RoundingMode) -> (Self, Status) {
+                unreachable!()
+            }
+            fn div_fmt(self, _other: Self, _rm: RoundingMode) -> (Self, Status) {
+                unreachable!()
+            }
+            fn mul_fmt(self, _other: Self, _rm: RoundingMode) -> (Self, Status) {
+                unreachable!()
+            }
+            fn to_i32_fmt(self, _rm: RoundingMode) -> (i32, Status) {
+                unreachable!()
+            }
+            fn exp_overflow_limit() -> Extended {
+                unreachable!()
+            }
+            fn exp_underflow_limit() -> Extended {
+                unreachable!()
+            }
+        }
+
+        /// The three real format shapes (precision, bias).
+        type D128Shape = MockFmt<34, 6176>;
+        type D64Shape = MockFmt<16, 398>;
+        type D32Shape = MockFmt<7, 101>;
+
+        const MODES: [RoundingMode; 5] = [
+            RoundingMode::NearestEven,
+            RoundingMode::NearestAway,
+            RoundingMode::TowardZero,
+            RoundingMode::TowardPositive,
+            RoundingMode::TowardNegative,
+        ];
+
+        /// Build an `Extended` whose widened coefficient is
+        /// `prefix · 10^excess + base + offset`; a negative `offset`
+        /// borrows from `prefix`, an overflowing one carries into it.
+        fn with_tail(
+            prefix: u128,
+            excess: u32,
+            base: U256,
+            offset: i128,
+            exp: i32,
+            sign: bool,
+        ) -> Extended {
+            let stem = U256::from_u128(prefix).mul_pow10(excess).add(base);
+            let coef = if offset >= 0 {
+                stem.add(U256::from_u128(offset as u128))
+            } else {
+                stem.sub(U256::from_u128(offset.unsigned_abs()))
+            };
+            Extended { coef, exp, sign }
+        }
+
+        /// d128 shape, normal range, excess 16: sweep every tail within
+        /// ±300 of each boundary (lower grid point, midpoint, upper grid
+        /// point) and pin the predicate against an independently computed
+        /// `u128` distance for budgets spanning the bands.
+        #[test]
+        fn exhaustive_tail_bands_d128_shape() {
+            const FIELD: u128 = 10u128.pow(16);
+            const HALF: u128 = 5 * 10u128.pow(15);
+            // 34-digit prefixes with an even and an odd last kept digit:
+            // the distance semantics must not see parity (parity only
+            // picks the half-even tie direction, which is the rounder's
+            // business, not the predicate's).
+            let prefixes: [u128; 2] = [
+                1_234_567_890_123_456_789_012_345_678_901_234,
+                9_876_543_210_987_654_321_098_765_432_109_877,
+            ];
+            let budgets: [u128; 6] = [0, 1, 2, 299, 300, 301];
+            for prefix in prefixes {
+                for center in [0u128, HALF, FIELD] {
+                    for off in -300i128..=300 {
+                        let v = with_tail(prefix, 16, U256::from_u128(center), off, -20, false);
+                        // Independent distance in u128 space: the actual
+                        // tail after borrow / carry, then the minimum over
+                        // both families.
+                        let t = (center as i128 + off).rem_euclid(FIELD as i128) as u128;
+                        let dist = t.min(FIELD - t).min(t.abs_diff(HALF));
+                        for b in budgets {
+                            assert_eq!(
+                                v.near_rounding_boundary::<D128Shape>(b),
+                                dist <= b,
+                                "prefix={prefix} center={center} off={off} b={b}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
+        /// d64 / d32 shapes: the drop fields (10^34, 10^43) exceed
+        /// `u128`, so pin the boundary bands where the distance equals
+        /// the offset magnitude by construction.
+        #[test]
+        fn tail_bands_d64_d32_shapes() {
+            fn run<F: DecimalFormat>(excess: u32, prefix: u128) {
+                let half = U256::from_u128(5).mul_pow10(excess - 1);
+                let field = U256::from_u128(1).mul_pow10(excess);
+                for base in [U256::ZERO, half, field] {
+                    for off in -200i128..=200 {
+                        let v = with_tail(prefix, excess, base, off, 0, false);
+                        for b in [0u128, 1, 199, 200, 201] {
+                            assert_eq!(
+                                v.near_rounding_boundary::<F>(b),
+                                off.unsigned_abs() <= b,
+                                "excess={excess} off={off} b={b}"
+                            );
+                        }
+                    }
+                }
+            }
+            run::<D64Shape>(34, 1_234_567_890_123_456);
+            run::<D32Shape>(43, 1_234_567);
+        }
+
+        /// The fd-42l subnormal drop: when `qmin − exp` exceeds the
+        /// precision excess, the boundary field widens with the drop.
+        #[test]
+        fn subnormal_drop_positions_d128_shape() {
+            // General path: E ∈ {17, 25, 49}, prefix keeps 50 total digits.
+            for (e, prefix) in [
+                (17u32, 123_456_789_012_345_678_901_234_567_890_123u128), // 33 digits
+                (25, 1_234_567_890_123_456_789_012_345),                  // 25 digits
+                (49, 7),                                                  // 1 digit
+            ] {
+                let exp = -6176 - e as i32;
+                let half = U256::from_u128(5).mul_pow10(e - 1);
+                for base in [U256::ZERO, half] {
+                    for off in [-3i128, -1, 0, 1, 3] {
+                        let v = with_tail(prefix, e, base, off, exp, false);
+                        assert_eq!(
+                            v.near_rounding_boundary::<D128Shape>(3),
+                            off.unsigned_abs() <= 3,
+                            "E={e} off={off}"
+                        );
+                        if off != 0 {
+                            assert!(
+                                !v.near_rounding_boundary::<D128Shape>(off.unsigned_abs() - 1),
+                                "E={e} off={off} budget below distance"
+                            );
+                        }
+                    }
+                }
+            }
+
+            // E = 50: the round digit sits at the MSD; the midpoint of
+            // the zero-to-MIN_SUBNORMAL step is 5·10^49.
+            let mid50 = Extended {
+                coef: U256::from_u128(5).mul_pow10(49),
+                exp: -6226,
+                sign: false,
+            };
+            assert!(mid50.near_rounding_boundary::<D128Shape>(0));
+            let nines50 = Extended {
+                coef: U256::from_u128(1).mul_pow10(50).sub(U256::from_u128(1)),
+                exp: -6226,
+                sign: false,
+            };
+            // 10^50 − 1: one unit below the MIN_SUBNORMAL grid point.
+            assert!(nines50.near_rounding_boundary::<D128Shape>(1));
+            assert!(!nines50.near_rounding_boundary::<D128Shape>(0));
+            let interior50 = Extended {
+                coef: U256::from_u128(1).mul_pow10(49),
+                exp: -6226,
+                sign: false,
+            };
+            // 10^49 sits 4·10^49 units from the nearest boundary — out
+            // of reach of ANY u128 budget.
+            assert!(!interior50.near_rounding_boundary::<D128Shape>(u128::MAX));
+
+            // E ≥ 51: full drop, strictly. False by the budget type.
+            let deep = Extended {
+                coef: U256::from_u128(1).mul_pow10(50).sub(U256::from_u128(1)),
+                exp: -6227,
+                sign: false,
+            };
+            assert!(!deep.near_rounding_boundary::<D128Shape>(u128::MAX));
+        }
+
+        /// The subnormal-edge tininess hazard (the flag side of fd-42l):
+        /// straddling `10^E_MIN` flips the pre-rounding tininess
+        /// decision, and both straddle shapes sit one unit from a grid
+        /// point, so the grid family escalates them.
+        #[test]
+        fn tininess_edge_escalates_d128_shape() {
+            // 0.999…9 × 10^E_MIN (E_MIN = −6143): 50 nines, one unit
+            // below the decade grid point; drop is the subnormal 17.
+            let below = Extended {
+                coef: U256::from_u128(1).mul_pow10(50).sub(U256::from_u128(1)),
+                exp: -6193,
+                sign: false,
+            };
+            assert!(below.near_rounding_boundary::<D128Shape>(1));
+            // 1.000…01 × 10^E_MIN: one unit above it; drop is the
+            // precision 16.
+            let above = Extended {
+                coef: U256::from_u128(1).mul_pow10(49).add(U256::from_u128(1)),
+                exp: -6192,
+                sign: false,
+            };
+            assert!(above.near_rounding_boundary::<D128Shape>(1));
+        }
+
+        /// Zero and exactly representable values sit on the grid and
+        /// escalate at any budget; only upstream classification can
+        /// certify them.
+        #[test]
+        fn zero_and_exact_values_escalate() {
+            assert!(Extended::ZERO.near_rounding_boundary::<D128Shape>(0));
+            assert!(ext("1.5").near_rounding_boundary::<D128Shape>(0));
+            assert!(ext("-2.25e100").near_rounding_boundary::<D128Shape>(0));
+            assert!(ext("1e10").near_rounding_boundary::<D64Shape>(1));
+            // 37 significant digits: the widened tail is 5.67e15, whose
+            // nearest boundary (the midpoint) is 6.7e14 units away.
+            let long = ext("1.234567890123456789012345678901234567");
+            assert!(!long.near_rounding_boundary::<D128Shape>(1_000_000_000));
+            assert!(long.near_rounding_boundary::<D128Shape>(670_000_000_000_000));
+        }
+
+        /// The predicate is a function of the widened coefficient and
+        /// the drop position alone: sign never matters, and the
+        /// exponent matters only through the subnormal excess.
+        #[test]
+        fn sign_and_exponent_invariance() {
+            let prefix: u128 = 3_141_592_653_589_793_238_462_643_383_279_502;
+            for off in [0i128, 4, 7, 12] {
+                let mut verdicts: Vec<bool> = Vec::new();
+                for sign in [false, true] {
+                    for exp in [-100i32, 0, 3000] {
+                        let v = with_tail(prefix, 16, U256::ZERO, off, exp, sign);
+                        verdicts.push(v.near_rounding_boundary::<D128Shape>(6));
+                    }
+                }
+                assert!(
+                    verdicts.iter().all(|&x| x == (off.unsigned_abs() <= 6)),
+                    "off={off}: {verdicts:?}"
+                );
+            }
+        }
+
+        // -------------------------------------------------------------
+        // Property test vs a widened reference rounder.
+
+        /// Reference outcome of rounding `(coef · 10^exp, sign)` into a
+        /// format shape: the packed pair plus the flag-relevant facts.
+        #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+        struct RefOutcome {
+            coef: U256,
+            exp: i32,
+            inexact: bool,
+            underflow: bool,
+        }
+
+        /// Independent widened reference rounder. Digit-walk drop with
+        /// the production `should_round_up` decision (itself proven
+        /// exhaustively against IEEE 754-2019 §4.3.3), tininess decided
+        /// on the pre-rounding value. Deliberately structured as an
+        /// *outcome* computation so the predicate's distance arithmetic
+        /// is checked against what rounding actually does, not against
+        /// a re-derivation of the same distances.
+        fn ref_round<F: DecimalFormat>(
+            coef: U256,
+            exp: i32,
+            sign: bool,
+            rm: RoundingMode,
+        ) -> RefOutcome {
+            let mut digits = 0u32;
+            let mut n = coef;
+            while !n.is_zero() {
+                n = n.div_rem10().0;
+                digits += 1;
+            }
+            assert!(digits > 0, "reference rounder needs a nonzero coefficient");
+            let qmin = -F::BIAS;
+            let e_min = qmin + F::PRECISION as i32 - 1;
+            let p_excess = digits.saturating_sub(F::PRECISION);
+            let s_excess = u32::try_from((qmin - exp).max(0)).unwrap_or(u32::MAX);
+            let drop = p_excess.max(s_excess);
+            assert!(drop <= 200, "test domain keeps the drop loop bounded");
+
+            let mut kept = coef;
+            let mut sticky = false;
+            let mut round_digit = 0u32;
+            let mut i = 0u32;
+            while i < drop {
+                let (q, r) = kept.div_rem10();
+                if i + 1 < drop {
+                    if r != 0 {
+                        sticky = true;
+                    }
+                } else {
+                    round_digit = r;
+                }
+                kept = q;
+                i += 1;
+            }
+
+            let up = should_round_up(rm, sign, kept.div_rem10().1, round_digit, sticky);
+            let mut rc = kept;
+            let mut re = exp + drop as i32;
+            if up {
+                rc = rc.add(U256::from_u128(1));
+                let mut rd = 0u32;
+                let mut m = rc;
+                while !m.is_zero() {
+                    m = m.div_rem10().0;
+                    rd += 1;
+                }
+                if rd > F::PRECISION {
+                    rc = rc.div_rem10().0;
+                    re += 1;
+                }
+            }
+            let inexact = round_digit != 0 || sticky;
+            let tiny_pre = digits as i32 + exp - 1 < e_min;
+            RefOutcome {
+                coef: rc,
+                exp: re,
+                inexact,
+                underflow: tiny_pre && inexact,
+            }
+        }
+
+        proptest! {
+            /// Soundness: predicate `false` means every value within the
+            /// closed ±budget bracket reaches the same reference outcome
+            /// in all five modes. Completeness (with one unit of slack
+            /// for the closed-bracket knife edge): predicate `true` at
+            /// `budget − 1` means a differing witness exists within
+            /// ±budget.
+            #[test]
+            fn predicate_sound_and_complete_vs_reference(
+                prefix in 10u128.pow(33)..10u128.pow(34),
+                tail in 0..10u128.pow(16),
+                exp in -6250i32..=100,
+                sign in proptest::bool::ANY,
+                budget in 1u128..=1_000_000_000_000u128,
+            ) {
+                let coef = U256::from_u128(prefix)
+                    .mul_pow10(16)
+                    .add(U256::from_u128(tail));
+                let v = Extended { coef, exp, sign };
+                let near = v.near_rounding_boundary::<D128Shape>(budget);
+
+                // Candidate offsets within the closed bracket, always
+                // including the endpoints and the unit sidesteps.
+                let mut offs: Vec<i128> = vec![0, 1, -1, budget as i128, -(budget as i128)];
+                // Boundary landings (and their unit sidesteps) when the
+                // boundary is inside the bracket. drop > 50 needs no
+                // candidates: every boundary is beyond any u128 budget.
+                let s_excess = (-6176 - exp).max(0) as u32;
+                let drop = 16u32.max(s_excess);
+                if drop <= 50 {
+                    let field = U256::from_u128(1).mul_pow10(drop);
+                    let half = U256::from_u128(5).mul_pow10(drop - 1);
+                    let mut kept = coef;
+                    for _ in 0..drop {
+                        kept = kept.div_rem10().0;
+                    }
+                    let t = coef.sub(kept.mul_pow10(drop));
+                    let b256 = U256::from_u128(budget);
+                    let mut push_if_small = |dist: U256, negative: bool| {
+                        if dist.cmp(b256) != Ordering::Greater {
+                            // A distance that passes the filter fits
+                            // i128 (budget ≤ 10^12), so the cast below
+                            // is exact.
+                            let mag = dist.lo as i128;
+                            let signed_off = if negative { -mag } else { mag };
+                            for cand in [signed_off, signed_off - 1, signed_off + 1] {
+                                if cand.unsigned_abs() <= budget {
+                                    offs.push(cand);
+                                }
+                            }
+                        }
+                    };
+                    push_if_small(t, true);
+                    push_if_small(field.sub(t), false);
+                    if t.cmp(half) == Ordering::Less {
+                        push_if_small(half.sub(t), false);
+                    } else {
+                        push_if_small(t.sub(half), true);
+                    }
+                }
+
+                let apply = |d: i128| -> U256 {
+                    if d >= 0 {
+                        coef.add(U256::from_u128(d as u128))
+                    } else {
+                        coef.sub(U256::from_u128(d.unsigned_abs()))
+                    }
+                };
+
+                let mut any_diff = false;
+                for &d in &offs {
+                    let w = apply(d);
+                    for rm in MODES {
+                        let base = ref_round::<D128Shape>(coef, exp, sign, rm);
+                        let out = ref_round::<D128Shape>(w, exp, sign, rm);
+                        if out != base {
+                            any_diff = true;
+                            prop_assert!(
+                                near,
+                                "unsound: predicate false but offset {d} changes {rm:?}: {base:?} -> {out:?}"
+                            );
+                        }
+                    }
+                }
+                if budget > 1 && v.near_rounding_boundary::<D128Shape>(budget - 1) {
+                    prop_assert!(
+                        any_diff,
+                        "incomplete: predicate true at budget-1 with no witness within the bracket"
+                    );
+                }
+            }
+        }
     }
 }
