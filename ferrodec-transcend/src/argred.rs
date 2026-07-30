@@ -54,7 +54,7 @@
 //! must adjust `k` and the residual sign for negative inputs (see
 //! `sincos.rs`).
 
-use crate::extended::Extended;
+use crate::extended::{ExtNum, Extended};
 use crate::format::DecimalFormat;
 use ferrodec_ieee::Status;
 use ferrodec_ieee::{decimal_digit_count_u128 as decimal_digit_count, IeeeDecodedClass as Class};
@@ -984,11 +984,11 @@ fn split_product(mut p: U512) -> Split {
 /// 50-digit envelope via `shift_right_to_u256`. The post-cancellation
 /// effective precision in `y_mag` is at least 43 digits (76 − 33
 /// leading zeros worst case), more than enough to round `r` faithfully.
-fn make_residual(
+fn make_residual<E: ExtNum>(
     frac_digits: [u8; FRAC_DIGITS as usize],
     rounded_up: bool,
     sign: bool,
-) -> Extended {
+) -> E {
     // Pack all FRAC_DIGITS fractional digits into a U256. 76 digits ≈
     // 252 bits — fits comfortably (U256 holds up to 10^77).
     let mut y_coef = U256::ZERO;
@@ -1008,7 +1008,7 @@ fn make_residual(
     };
 
     if y_mag.is_zero() {
-        return Extended::ZERO;
+        return E::ZERO;
     }
 
     let net_sign = sign ^ y_signed_neg;
@@ -1025,7 +1025,7 @@ fn make_residual(
     // 10^{PI_OVER_TWO_EXP_38} = 10^{-37}, plus the shift introduced by
     // the U384 → U256 collapse.
     let exp = -(FRAC_DIGITS as i32) + PI_OVER_TWO_EXP_38 + shift as i32;
-    Extended::from_components_with_sticky(coef_u256, exp, net_sign, sticky)
+    E::from_components_with_sticky(coef_u256, exp, net_sign, sticky)
 }
 
 /// `10^k` as a `U256`. Bounded loop; caller keeps `k` ≤ 76 for the
@@ -1064,6 +1064,12 @@ fn pow10_u256(k: u32) -> U256 {
 /// `x` must be finite. NaN, Infinity, and Zero are handled by the
 /// caller before reaching here.
 pub fn reduce<F: DecimalFormat>(x: F) -> (u32, Extended, Status) {
+    reduce_body::<F, Extended>(x)
+}
+
+/// Generic body of [`reduce`] (M4, ADR-0059): identical pipeline, with
+/// the residual delivered into the caller's working-precision rung.
+pub(crate) fn reduce_body<F: DecimalFormat, E: ExtNum>(x: F) -> (u32, E, Status) {
     let cls = x.classify();
     let (biased_exp, c) = match cls {
         Class::Finite {
@@ -1072,7 +1078,7 @@ pub fn reduce<F: DecimalFormat>(x: F) -> (u32, Extended, Status) {
             ..
         } => (biased_exp, coefficient),
         // Caller filters these out, but be defensive.
-        _ => return (0, Extended::from_format(x), Status::OK),
+        _ => return (0, E::from_format(x), Status::OK),
     };
     debug_assert!(c != 0);
 
@@ -1086,9 +1092,8 @@ pub fn reduce<F: DecimalFormat>(x: F) -> (u32, Extended, Status) {
     // π/4 is between 10^{-1} and 1, so the safe shortcut is decade < -1
     // (i.e., |x| < 0.1 — well below π/4).
     if decade < -1 {
-        // r = |x| as Extended.
-        let mut r = Extended::from_format(x);
-        r.sign = false;
+        // r = |x| at working precision.
+        let r = E::from_format(x).abs();
         return (0, r, Status::INEXACT);
     }
 
@@ -1101,8 +1106,7 @@ pub fn reduce<F: DecimalFormat>(x: F) -> (u32, Extended, Status) {
     let i_hi_signed = q + I_HI_OFFSET as i32;
     if i_hi_signed < 1 {
         // Window empty: |x · 2/π| ≪ 10^{-FRAC_DIGITS}, so k = 0.
-        let mut r = Extended::from_format(x);
-        r.sign = false;
+        let r = E::from_format(x).abs();
         return (0, r, Status::INEXACT);
     }
     let i_hi = (i_hi_signed as usize).min(table::TWO_OVER_PI_DIGITS);

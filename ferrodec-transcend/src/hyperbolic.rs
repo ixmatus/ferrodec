@@ -117,16 +117,20 @@
 //! (`ferrodec-test-support/tests/mpfr_gate.rs`, 0 disagreements)
 //! are the empirical witnesses.
 
-use crate::exp::exp_extended;
-use crate::extended::Extended;
+use crate::exp::exp_extended_body;
+use crate::extended::{ExtNum, Extended};
 use crate::format::DecimalFormat;
-use crate::ln::{ln_from_extended, log1p_extended};
+use crate::ln::{ln_from_extended_body, log1p_extended_body};
 use ferrodec_ieee::IeeeDecodedClass as Class;
 use ferrodec_ieee::{RoundingMode, Status};
-use ferrodec_multiword::U256;
 
 /// Hyperbolic sine.
 pub fn sinh_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
+    sinh_kernel_body::<F, Extended>(x, rm)
+}
+
+/// Generic body of [`sinh_kernel`] (M4, ADR-0059).
+pub(crate) fn sinh_kernel_body<F: DecimalFormat, E: ExtNum>(x: F, rm: RoundingMode) -> (F, Status) {
     match x.classify() {
         Class::SignalingNaN { .. } => return (x.nan_from(), Status::INVALID),
         Class::QuietNaN { .. } => return (x, Status::OK),
@@ -134,8 +138,8 @@ pub fn sinh_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
         Class::Zero { .. } => return (x, Status::OK),
         Class::Finite { .. } => {}
     }
-    let x_ext = Extended::from_format(x);
-    let result_ext = sinh_ext::<F>(x_ext);
+    let x_ext = E::from_format(x);
+    let result_ext = sinh_ext::<F, E>(x_ext);
     // Grid-stuck at the input (ADR-0051): `|sinh x| > |x|` is a
     // theorem, so the residual side is the growing one.
     if result_ext.sticks_to(x_ext) {
@@ -148,6 +152,11 @@ pub fn sinh_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
 
 /// Hyperbolic cosine.
 pub fn cosh_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
+    cosh_kernel_body::<F, Extended>(x, rm)
+}
+
+/// Generic body of [`cosh_kernel`] (M4, ADR-0059).
+pub(crate) fn cosh_kernel_body<F: DecimalFormat, E: ExtNum>(x: F, rm: RoundingMode) -> (F, Status) {
     match x.classify() {
         Class::SignalingNaN { .. } => return (x.nan_from(), Status::INVALID),
         Class::QuietNaN { .. } => return (x, Status::OK),
@@ -155,12 +164,12 @@ pub fn cosh_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
         Class::Zero { .. } => return (F::ONE, Status::OK),
         Class::Finite { .. } => {}
     }
-    let x_ext = Extended::from_format(x).abs();
-    let result_ext = cosh_ext::<F>(x_ext);
+    let x_ext = E::from_format(x).abs();
+    let result_ext = cosh_ext::<F, E>(x_ext);
     // Grid-stuck at the 1 anchor (ADR-0051): `cosh x > 1` for every
     // finite nonzero `x`, so the residual side is the growing one.
-    if result_ext.sticks_to(Extended::ONE) {
-        let (result, status) = Extended::ONE.to_format_with_residual::<F>(true, rm);
+    if result_ext.sticks_to(E::ONE) {
+        let (result, status) = E::ONE.to_format_with_residual::<F>(true, rm);
         return (result, status | Status::INEXACT);
     }
     let (result, status) = result_ext.to_format::<F>(0, rm);
@@ -169,6 +178,11 @@ pub fn cosh_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
 
 /// Hyperbolic tangent.
 pub fn tanh_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
+    tanh_kernel_body::<F, Extended>(x, rm)
+}
+
+/// Generic body of [`tanh_kernel`] (M4, ADR-0059).
+pub(crate) fn tanh_kernel_body<F: DecimalFormat, E: ExtNum>(x: F, rm: RoundingMode) -> (F, Status) {
     match x.classify() {
         Class::SignalingNaN { .. } => return (x.nan_from(), Status::INVALID),
         Class::QuietNaN { .. } => return (x, Status::OK),
@@ -198,8 +212,10 @@ pub fn tanh_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
     // boundary round cannot collapse to exactly 1. (The previous 80
     // threshold left a `~58 < |x| ≤ 80` band where the quotient
     // rounded to 1 at 50 digits and reproduced the saturation defect.)
-    let abs_ext = Extended::from_format::<F>(x).abs();
-    if abs_ext.cmp(Extended::parse_str("45")) == core::cmp::Ordering::Greater {
+    let abs_ext = E::from_format(x).abs();
+    if abs_ext.cmp(E::parse_str("45")) == core::cmp::Ordering::Greater {
+        // The proxy feeds the format rounder directly, so it stays on
+        // the rung-1 carrier regardless of the running rung.
         let nines = Extended::parse_str("0.99999999999999999999999999999999999999999999999999");
         let (result, status) = F::round_and_pack_finite(
             nines.coef,
@@ -212,9 +228,9 @@ pub fn tanh_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
         );
         return (result, status | Status::INEXACT);
     }
-    let x_ext = Extended::from_format(x);
-    let s = sinh_ext::<F>(x_ext);
-    let c = cosh_ext::<F>(x_ext.abs());
+    let x_ext = E::from_format(x);
+    let s = sinh_ext::<F, E>(x_ext);
+    let c = cosh_ext::<F, E>(x_ext.abs());
     // tanh inherits the sign of x via sinh; cosh is symmetric.
     let result_ext = s.div::<F>(c);
     // Grid-stuck at the input (ADR-0051): `|tanh x| < |x|` is a
@@ -229,6 +245,14 @@ pub fn tanh_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
 
 /// Inverse hyperbolic sine, defined for all real `x`.
 pub fn asinh_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
+    asinh_kernel_body::<F, Extended>(x, rm)
+}
+
+/// Generic body of [`asinh_kernel`] (M4, ADR-0059).
+pub(crate) fn asinh_kernel_body<F: DecimalFormat, E: ExtNum>(
+    x: F,
+    rm: RoundingMode,
+) -> (F, Status) {
     match x.classify() {
         Class::SignalingNaN { .. } => return (x.nan_from(), Status::INVALID),
         Class::QuietNaN { .. } => return (x, Status::OK),
@@ -239,7 +263,7 @@ pub fn asinh_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
     // asinh(x) = sign(x) · ln(|x| + sqrt(x² + 1))
     // Working on |x| keeps the inner sum strictly positive.
     let neg = x.is_sign_negative();
-    let abs_x_ext = Extended::from_format(x).abs();
+    let abs_x_ext = E::from_format(x).abs();
     // Small-|x| band (fd-aqs.6): `|x| + sqrt(x² + 1)` hands `1 + |x|`
     // to the 50-significant-digit representation, absorbing the
     // argument once it sinks below the working resolution (up to
@@ -251,29 +275,26 @@ pub fn asinh_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
     // 0.3 threshold keeps `u ≤ ~0.344` inside the series budget;
     // above it the original path is well-conditioned
     // (`asinh 0.3 ≈ 0.296` against ~1e-49 absolute error).
-    const LOG1P_THRESHOLD: Extended = Extended {
-        coef: U256::from_u128(3),
-        exp: -1,
-        sign: false,
-    };
-    let result_ext = if abs_x_ext.cmp(LOG1P_THRESHOLD) == core::cmp::Ordering::Less {
+    // 0.3 (the concrete kernels' `LOG1P_THRESHOLD` literal).
+    let log1p_threshold = E::from_parts_u128(3, -1, false);
+    let result_ext = if abs_x_ext.cmp(log1p_threshold) == core::cmp::Ordering::Less {
         let x_sq = abs_x_ext.square();
-        let denom = Extended::ONE.add(x_sq.add(Extended::ONE).sqrt::<F>());
+        let denom = E::ONE.add(x_sq.add(E::ONE).sqrt::<F>());
         let u = abs_x_ext.add(x_sq.div::<F>(denom));
-        log1p_extended(u)
+        log1p_extended_body(u)
     } else {
-        let x_sq_plus_one = abs_x_ext.square().add(Extended::ONE);
+        let x_sq_plus_one = abs_x_ext.square().add(E::ONE);
         let inner = abs_x_ext.add(x_sq_plus_one.sqrt::<F>());
-        // Pass `inner` to `ln_from_extended` directly — keeping the
-        // argument at 50-digit working precision avoids a 34-digit
+        // Pass `inner` to `ln_from_extended_body` directly — keeping
+        // the argument at working precision avoids a format-width
         // round trip that would propagate ≤ 1 ULP through `ln` to
         // the result.
-        ln_from_extended(inner)
+        ln_from_extended_body(inner)
     };
     let signed_ext = if neg { result_ext.neg() } else { result_ext };
     // Grid-stuck at the input (ADR-0051): `|asinh x| < |x|` is a
     // theorem, so the residual side is the shrinking one.
-    let x_anchor = Extended::from_format(x);
+    let x_anchor = E::from_format(x);
     if signed_ext.sticks_to(x_anchor) {
         let (result, status) = x_anchor.to_format_with_residual::<F>(false, rm);
         return (result, status | Status::INEXACT);
@@ -284,6 +305,14 @@ pub fn asinh_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
 
 /// Inverse hyperbolic cosine, defined for `x ≥ 1`.
 pub fn acosh_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
+    acosh_kernel_body::<F, Extended>(x, rm)
+}
+
+/// Generic body of [`acosh_kernel`] (M4, ADR-0059).
+pub(crate) fn acosh_kernel_body<F: DecimalFormat, E: ExtNum>(
+    x: F,
+    rm: RoundingMode,
+) -> (F, Status) {
     match x.classify() {
         Class::SignalingNaN { .. } => return (x.nan_from(), Status::INVALID),
         Class::QuietNaN { .. } => return (x, Status::OK),
@@ -329,21 +358,18 @@ pub fn acosh_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
     // threshold further would shift the work back to the direct
     // path without breaking anything; raising it would force
     // log1p past its smooth convergence window.
-    let x_ext = Extended::from_format(x);
-    let y = x_ext.sub(Extended::ONE);
-    const LOG1P_THRESHOLD: Extended = Extended {
-        coef: U256::from_u128(1),
-        exp: -2,
-        sign: false,
-    };
-    let result_ext = if y.cmp(LOG1P_THRESHOLD) == core::cmp::Ordering::Less {
-        let x_plus_one = x_ext.add(Extended::ONE);
+    let x_ext = E::from_format(x);
+    let y = x_ext.sub(E::ONE);
+    // 0.01 (the concrete kernels' `LOG1P_THRESHOLD` literal).
+    let log1p_threshold = E::from_parts_u128(1, -2, false);
+    let result_ext = if y.cmp(log1p_threshold) == core::cmp::Ordering::Less {
+        let x_plus_one = x_ext.add(E::ONE);
         let inner = y.add(y.mul(x_plus_one).sqrt::<F>());
-        log1p_extended(inner)
+        log1p_extended_body(inner)
     } else {
-        let x_sq_minus_one = x_ext.square().sub(Extended::ONE);
+        let x_sq_minus_one = x_ext.square().sub(E::ONE);
         let inner = x_ext.add(x_sq_minus_one.sqrt::<F>());
-        ln_from_extended(inner)
+        ln_from_extended_body(inner)
     };
     let (result, status) = result_ext.to_format::<F>(0, rm);
     (result, status | Status::INEXACT)
@@ -351,6 +377,14 @@ pub fn acosh_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
 
 /// Inverse hyperbolic tangent, defined for `|x| < 1`.
 pub fn atanh_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
+    atanh_kernel_body::<F, Extended>(x, rm)
+}
+
+/// Generic body of [`atanh_kernel`] (M4, ADR-0059).
+pub(crate) fn atanh_kernel_body<F: DecimalFormat, E: ExtNum>(
+    x: F,
+    rm: RoundingMode,
+) -> (F, Status) {
     match x.classify() {
         Class::SignalingNaN { .. } => return (x.nan_from(), Status::INVALID),
         Class::QuietNaN { .. } => return (x, Status::OK),
@@ -376,7 +410,7 @@ pub fn atanh_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
         }
         _ => {}
     }
-    let x_ext = Extended::from_format(x);
+    let x_ext = E::from_format(x);
     // Small-|x| band (fd-aqs.6): the ratio form hands `1 ± x` to the
     // 50-significant-digit representation, absorbing `x` (and the
     // `x²`-order correction) once `|x|` sinks below the working
@@ -391,23 +425,19 @@ pub fn atanh_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
     // the log1p series' convergence budget; above it the ratio path
     // is well-conditioned (`|atanh x| ≥ 0.15` against ~1e-49
     // absolute error).
-    const LOG1P_THRESHOLD: Extended = Extended {
-        coef: U256::from_u128(15),
-        exp: -2,
-        sign: false,
-    };
-    let result_ext = if x_ext.abs().cmp(LOG1P_THRESHOLD) == core::cmp::Ordering::Less {
+    let log1p_threshold = E::from_parts_u128(15, -2, false);
+    let result_ext = if x_ext.abs().cmp(log1p_threshold) == core::cmp::Ordering::Less {
         let two_x = x_ext.add(x_ext);
-        let one_minus = Extended::ONE.sub(x_ext);
+        let one_minus = E::ONE.sub(x_ext);
         let u = two_x.div::<F>(one_minus);
-        log1p_extended(u).div_u32(2)
+        log1p_extended_body(u).div_u32(2)
     } else {
         // atanh(x) = ½·ln((1 + x) / (1 − x)) — ratio stays at
-        // extended precision through the ln call.
-        let one_plus = Extended::ONE.add(x_ext);
-        let one_minus = Extended::ONE.sub(x_ext);
+        // working precision through the ln call.
+        let one_plus = E::ONE.add(x_ext);
+        let one_minus = E::ONE.sub(x_ext);
         let ratio = one_plus.div::<F>(one_minus);
-        ln_from_extended(ratio).div_u32(2)
+        ln_from_extended_body(ratio).div_u32(2)
     };
     // Grid-stuck at the input (ADR-0051): `|atanh x| > |x|` is a
     // theorem, so the residual side is the growing one.
@@ -419,42 +449,42 @@ pub fn atanh_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
     (result, status | Status::INEXACT)
 }
 
-/// `sinh(x)` at [`Extended`] precision.
-fn sinh_ext<F: DecimalFormat>(x: Extended) -> Extended {
+/// `sinh(x)` at working precision.
+fn sinh_ext<F: DecimalFormat, E: ExtNum>(x: E) -> E {
     if x.is_zero() {
         return x;
     }
     // For |x| < 0.5 use Taylor directly to avoid cancellation in
     // (eˣ − e⁻ˣ)/2. The threshold 0.5 keeps Taylor convergence at
     // ≤ ~40 iterations for 50-digit precision.
-    if x.abs().cmp(Extended::HALF) == core::cmp::Ordering::Less {
+    if x.abs().cmp(E::HALF) == core::cmp::Ordering::Less {
         return sinh_taylor(x);
     }
     // Saturation: |x| past the format's exp convergence ceiling lands
     // outside the format's range. Return a pre-overflow magnitude with
     // the sign of x; the boundary round produces ±∞ + OVERFLOW.
-    if x.abs().cmp(F::exp_overflow_limit()) == core::cmp::Ordering::Greater {
-        return Extended::saturate_overflow(x.sign);
+    if x.abs().cmp(E::from_extended(F::exp_overflow_limit())) == core::cmp::Ordering::Greater {
+        return E::saturate_overflow(x.sign());
     }
-    // sinh(x) = (e^x − e^{-x}) / 2, evaluated entirely at extended
-    // precision so the cancellation is bounded by Extended's 50-digit
-    // working envelope rather than Decimal128's 34-digit one. Combined
-    // with the |x| < 0.5 Taylor branch above, this gives ≤ 1 ULP at the
-    // 34-digit boundary across the whole representable domain.
-    let e_pos = exp_extended(x);
-    let e_neg = exp_extended(x.neg());
+    // sinh(x) = (e^x − e^{-x}) / 2, evaluated entirely at working
+    // precision so the cancellation is bounded by the working
+    // envelope rather than the format's. Combined with the |x| < 0.5
+    // Taylor branch above, this gives ≤ 1 ULP at the format boundary
+    // across the whole representable domain.
+    let e_pos = exp_extended_body(x);
+    let e_neg = exp_extended_body(x.neg());
     e_pos.sub(e_neg).div_u32(2)
 }
 
 /// `sinh(x)` Taylor series for `|x| < 0.5`.
 /// `sinh(x) = x + x³/3! + x⁵/5! + …` (all positive — no
 /// cancellation).
-fn sinh_taylor(x: Extended) -> Extended {
+fn sinh_taylor<E: ExtNum>(x: E) -> E {
     let mut sum = x;
     let mut term = x;
     let x_sq = x.square();
     let mut n: u32 = 1;
-    for _ in 0..120 {
+    for _ in 0..E::SINH_COSH_SERIES_TERMS {
         n += 1;
         let denom = (2 * n - 2) * (2 * n - 1);
         term = term.mul(x_sq).div_u32(denom);
@@ -471,34 +501,34 @@ fn sinh_taylor(x: Extended) -> Extended {
     sum
 }
 
-/// `cosh(x)` at [`Extended`] precision. Caller passes the absolute
+/// `cosh(x)` at working precision. Caller passes the absolute
 /// value (cosh is even).
-fn cosh_ext<F: DecimalFormat>(abs_x: Extended) -> Extended {
+fn cosh_ext<F: DecimalFormat, E: ExtNum>(abs_x: E) -> E {
     if abs_x.is_zero() {
-        return Extended::ONE;
+        return E::ONE;
     }
     // For small |x| (<0.5), Taylor is more accurate (no cancellation).
-    if abs_x.cmp(Extended::HALF) == core::cmp::Ordering::Less {
+    if abs_x.cmp(E::HALF) == core::cmp::Ordering::Less {
         return cosh_taylor(abs_x);
     }
     // Saturation: |x| past the format's exp convergence ceiling lands
     // outside the format's range. cosh is always positive.
-    if abs_x.cmp(F::exp_overflow_limit()) == core::cmp::Ordering::Greater {
-        return Extended::saturate_overflow(false);
+    if abs_x.cmp(E::from_extended(F::exp_overflow_limit())) == core::cmp::Ordering::Greater {
+        return E::saturate_overflow(false);
     }
-    // cosh(x) = (e^x + e^{-x}) / 2, end-to-end at extended precision.
-    let e_pos = exp_extended(abs_x);
-    let e_neg = exp_extended(abs_x.neg());
+    // cosh(x) = (e^x + e^{-x}) / 2, end-to-end at working precision.
+    let e_pos = exp_extended_body(abs_x);
+    let e_neg = exp_extended_body(abs_x.neg());
     e_pos.add(e_neg).div_u32(2)
 }
 
 /// `cosh(x) = 1 + x²/2! + x⁴/4! + …` for small `|x|`.
-fn cosh_taylor(x: Extended) -> Extended {
-    let mut sum = Extended::ONE;
-    let mut term = Extended::ONE;
+fn cosh_taylor<E: ExtNum>(x: E) -> E {
+    let mut sum = E::ONE;
+    let mut term = E::ONE;
     let x_sq = x.square();
     let mut n: u32 = 0;
-    for _ in 0..120 {
+    for _ in 0..E::SINH_COSH_SERIES_TERMS {
         n += 1;
         let denom = (2 * n - 1) * (2 * n);
         term = term.mul(x_sq).div_u32(denom);

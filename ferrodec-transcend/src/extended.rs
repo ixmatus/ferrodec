@@ -864,6 +864,11 @@ pub(crate) trait ExtNum: Copy + core::fmt::Debug {
     /// Decode a finite or zero format datum (panics on NaN / Inf, which
     /// the kernels dispatch at the public boundary).
     fn from_format<F: DecimalFormat>(d: F) -> Self;
+    /// Lossless widening from the rung-1 carrier. The [`DecimalFormat`]
+    /// seam delivers its `Extended`-typed values (the `exp` magnitude
+    /// gate limits) into whichever rung is running through this;
+    /// `Extended`'s own impl is the identity.
+    fn from_extended(x: Extended) -> Self;
     /// Overflow saturation proxy (see [`Extended::saturate_overflow`]).
     fn saturate_overflow(sign: bool) -> Self;
     /// Underflow saturation proxy (see [`Extended::saturate_underflow`]).
@@ -1013,6 +1018,9 @@ impl ExtNum for Extended {
     }
     fn from_format<F: DecimalFormat>(d: F) -> Self {
         Extended::from_format(d)
+    }
+    fn from_extended(x: Extended) -> Self {
+        x
     }
     fn saturate_overflow(sign: bool) -> Self {
         Extended::saturate_overflow(sign)

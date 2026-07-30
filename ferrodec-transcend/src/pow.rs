@@ -71,10 +71,10 @@
 //! `|y|` past ~10^15 at `Decimal128` (2026-06-09 review; the band
 //! corpus `tests/vectors/transcend/anchor_bands/` pins the class).
 
-use crate::exp::exp_from_extended;
-use crate::extended::Extended;
+use crate::exp::exp_from_extended_body;
+use crate::extended::{ExtNum, Extended};
 use crate::format::DecimalFormat;
-use crate::ln::ln_extended;
+use crate::ln::ln_extended_body;
 use ferrodec_ieee::{decimal_digit_count_u128 as decimal_digit_count, IeeeDecodedClass as Class};
 use ferrodec_ieee::{RoundingMode, Status};
 
@@ -194,6 +194,15 @@ pub fn pow_special_cases<F: DecimalFormat>(x: F, y: F) -> Option<(F, Status)> {
 }
 
 pub fn pow_kernel<F: DecimalFormat>(x: F, y: F, rm: RoundingMode) -> (F, Status) {
+    pow_kernel_body::<F, Extended>(x, y, rm)
+}
+
+/// Generic body of [`pow_kernel`] (M4, ADR-0059).
+pub(crate) fn pow_kernel_body<F: DecimalFormat, E: ExtNum>(
+    x: F,
+    y: F,
+    rm: RoundingMode,
+) -> (F, Status) {
     if let Some(early) = pow_special_cases(x, y) {
         return early;
     }
@@ -223,8 +232,8 @@ pub fn pow_kernel<F: DecimalFormat>(x: F, y: F, rm: RoundingMode) -> (F, Status)
     // the half-ULP grid at every format precision; see the module
     // Accuracy section and ADR-0032 §Decision).
     let abs_x = x.abs();
-    let ln_x_ext = ln_extended(abs_x);
-    let y_ext = Extended::from_format(y);
+    let ln_x_ext = ln_extended_body::<F, E>(abs_x);
+    let y_ext = E::from_format(y);
     let y_ln_x_ext = y_ext.mul(ln_x_ext);
 
     // The pipeline evaluates |x|^y and re-applies the sign for an odd
@@ -234,7 +243,7 @@ pub fn pow_kernel<F: DecimalFormat>(x: F, y: F, rm: RoundingMode) -> (F, Status)
     // rule; fd-aqs.5).
     let sign_neg = x.is_sign_negative() && matches!(y_int, IntegerKind::OddInteger);
     let eff_rm = if sign_neg { rm.for_negation() } else { rm };
-    let (result, status) = exp_from_extended::<F>(y_ln_x_ext, eff_rm);
+    let (result, status) = exp_from_extended_body::<F, E>(y_ln_x_ext, eff_rm);
     let signed = if sign_neg { result.neg() } else { result };
 
     // `exp_from_extended` already raised INEXACT. pow can land on an exact

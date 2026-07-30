@@ -83,13 +83,17 @@
 //! `log2(1) = 0` are TMD hard at `CAP_BITS = 65536` for the same
 //! reason as `ln(1) = 0`; the kernel short circuits each.
 
-use crate::consts::{inv_ln10_ext, inv_ln2_ext, ln10_ext, ln2_ext};
-use crate::extended::Extended;
+use crate::extended::{ExtNum, Extended};
 use crate::format::DecimalFormat;
 use ferrodec_ieee::IeeeDecodedClass as Class;
 use ferrodec_ieee::{RoundingMode, Status};
 
 pub fn ln_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
+    ln_kernel_body::<F, Extended>(x, rm)
+}
+
+/// Generic body of [`ln_kernel`] (M4, ADR-0059).
+pub(crate) fn ln_kernel_body<F: DecimalFormat, E: ExtNum>(x: F, rm: RoundingMode) -> (F, Status) {
     if let Some(early) = ln_special_cases(x) {
         return early;
     }
@@ -99,12 +103,20 @@ pub fn ln_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
     ) {
         return (F::ZERO, Status::OK);
     }
-    let result_ext = ln_extended(x);
+    let result_ext = ln_extended_body::<F, E>(x);
     let (result, status) = result_ext.to_format::<F>(0, rm);
     (result, status | Status::INEXACT)
 }
 
 pub fn log10_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
+    log10_kernel_body::<F, Extended>(x, rm)
+}
+
+/// Generic body of [`log10_kernel`] (M4, ADR-0059).
+pub(crate) fn log10_kernel_body<F: DecimalFormat, E: ExtNum>(
+    x: F,
+    rm: RoundingMode,
+) -> (F, Status) {
     if let Some(early) = ln_special_cases(x) {
         return early;
     }
@@ -119,14 +131,19 @@ pub fn log10_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
     if let Some(exact) = crate::exact::log10_exact::<F>(x, rm) {
         return exact;
     }
-    // log10(x) = ln(x) · (1/ln(10)) at extended precision.
-    let ln_ext = ln_extended(x);
-    let result_ext = ln_ext.mul(inv_ln10_ext());
+    // log10(x) = ln(x) · (1/ln(10)) at working precision.
+    let ln_ext = ln_extended_body::<F, E>(x);
+    let result_ext = ln_ext.mul(E::inv_ln10());
     let (result, status) = result_ext.to_format::<F>(0, rm);
     (result, status | Status::INEXACT)
 }
 
 pub fn log2_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
+    log2_kernel_body::<F, Extended>(x, rm)
+}
+
+/// Generic body of [`log2_kernel`] (M4, ADR-0059).
+pub(crate) fn log2_kernel_body<F: DecimalFormat, E: ExtNum>(x: F, rm: RoundingMode) -> (F, Status) {
     if let Some(early) = ln_special_cases(x) {
         return early;
     }
@@ -141,8 +158,8 @@ pub fn log2_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
     if let Some(exact) = crate::exact::log2_exact::<F>(x, rm) {
         return exact;
     }
-    let ln_ext = ln_extended(x);
-    let result_ext = ln_ext.mul(inv_ln2_ext());
+    let ln_ext = ln_extended_body::<F, E>(x);
+    let result_ext = ln_ext.mul(E::inv_ln2());
     let (result, status) = result_ext.to_format::<F>(0, rm);
     (result, status | Status::INEXACT)
 }
@@ -166,7 +183,12 @@ pub fn ln_special_cases<F: DecimalFormat>(x: F) -> Option<(F, Status)> {
 /// Compute `ln(x)` at extended precision. Caller has already filtered
 /// NaN / Inf / zero / negative inputs and the `x == 1` edge case.
 pub fn ln_extended<F: DecimalFormat>(x: F) -> Extended {
-    ln_from_extended(Extended::from_format(x))
+    ln_extended_body::<F, Extended>(x)
+}
+
+/// Generic body of [`ln_extended`] (M4, ADR-0059).
+pub(crate) fn ln_extended_body<F: DecimalFormat, E: ExtNum>(x: F) -> E {
+    ln_from_extended_body(E::from_format(x))
 }
 
 /// Compute `ln(x_ext)` at extended precision, given an extended-
@@ -178,6 +200,11 @@ pub fn ln_extended<F: DecimalFormat>(x: F) -> Extended {
 /// Caller guarantees `x_ext > 0` and finite. Sign and zero are *not*
 /// handled here — they are domain errors at the public-API boundary.
 pub fn ln_from_extended(x_ext: Extended) -> Extended {
+    ln_from_extended_body(x_ext)
+}
+
+/// Generic body of [`ln_from_extended`] (M4, ADR-0059).
+pub(crate) fn ln_from_extended_body<E: ExtNum>(x_ext: E) -> E {
     // Near-1 direct path (fd-aqs.6): for x ∈ (0.5, 1.5) feed
     // u = x − 1 straight to the log1p series. The subtraction is
     // exact at Extended width (leading-digit cancellation only
@@ -192,18 +219,18 @@ pub fn ln_from_extended(x_ext: Extended) -> Extended {
     // 1 the old route happened to stay relative because `u = m − 1`
     // was exact with `q = 0`; routing both sides here makes the
     // near-1 neighbourhood symmetric.
-    let u = x_ext.sub(Extended::ONE);
-    if u.abs().cmp(Extended::HALF) == core::cmp::Ordering::Less {
+    let u = x_ext.sub(E::ONE);
+    if u.abs().cmp(E::HALF) == core::cmp::Ordering::Less {
         return taylor_log1p_ext(u);
     }
     let (m_ext, q) = decompose_extended_to_decade(x_ext);
 
     // Reduce m into [2/3, 3/2] by halving/doubling.
     let mut m = m_ext;
-    let mut additional = Extended::ZERO;
-    let ln2_v = ln2_ext();
-    let upper = Extended::parse_str("1.5");
-    let lower = Extended::parse_str("0.6666666666666666666666666666666666666666666666666667");
+    let mut additional = E::ZERO;
+    let ln2_v = E::ln2();
+    let upper = E::parse_str("1.5");
+    let lower = E::parse_str("0.6666666666666666666666666666666666666666666666666667");
 
     // At most ~5 iterations to reach the target window (each halve/double
     // contracts by 2× and m starts in [1, 10)).
@@ -216,7 +243,7 @@ pub fn ln_from_extended(x_ext: Extended) -> Extended {
             continue;
         }
         if m.cmp(lower) == core::cmp::Ordering::Less {
-            m = m.mul(Extended::from_i32(2));
+            m = m.mul(E::from_i32(2));
             additional = additional.sub(ln2_v);
             continue;
         }
@@ -224,7 +251,7 @@ pub fn ln_from_extended(x_ext: Extended) -> Extended {
     }
 
     // u = m − 1, |u| ≤ 0.5.
-    let u = m.sub(Extended::ONE);
+    let u = m.sub(E::ONE);
     let ln_m = taylor_log1p_ext(u);
 
     // ln(original_m) = ln_m + accumulated halve/double corrections.
@@ -234,22 +261,18 @@ pub fn ln_from_extended(x_ext: Extended) -> Extended {
     if q == 0 {
         return ln_orig_m;
     }
-    let q_ln10 = Extended::from_i32(q).mul(ln10_ext());
+    let q_ln10 = E::from_i32(q).mul(E::ln10());
     ln_orig_m.add(q_ln10)
 }
 
 /// `x_ext = m_ext × 10^q` with `m_ext ∈ [1, 10)`. Caller guarantees
 /// `x_ext > 0` and finite (zero would have no defined decade).
-fn decompose_extended_to_decade(x_ext: Extended) -> (Extended, i32) {
+fn decompose_extended_to_decade<E: ExtNum>(x_ext: E) -> (E, i32) {
     debug_assert!(!x_ext.is_zero());
-    debug_assert!(!x_ext.sign);
-    let digits = x_ext.coef.decimal_digit_count() as i32;
-    let q = x_ext.exp + digits - 1;
-    let m_ext = Extended {
-        coef: x_ext.coef,
-        exp: -(digits - 1),
-        sign: false,
-    };
+    debug_assert!(!x_ext.sign());
+    let digits = x_ext.digit_count() as i32;
+    let q = x_ext.exponent() + digits - 1;
+    let m_ext = x_ext.with_exponent(-(digits - 1));
     (m_ext, q)
 }
 
@@ -266,18 +289,24 @@ pub fn log1p_extended(u: Extended) -> Extended {
     taylor_log1p_ext(u)
 }
 
+/// Generic body of [`log1p_extended`] (M4, ADR-0059).
+pub(crate) fn log1p_extended_body<E: ExtNum>(u: E) -> E {
+    taylor_log1p_ext(u)
+}
+
 /// Taylor series `ln(1 + u) = u − u²/2 + u³/3 − u⁴/4 + …` at
-/// extended precision. Halts when adding the next term doesn't change
-/// the partial sum at 50-digit precision.
-fn taylor_log1p_ext(u: Extended) -> Extended {
-    let mut sum = Extended::ZERO;
-    let mut power = Extended::ONE; // u^0; updated to u^n inside the loop
+/// working precision. Halts when adding the next term doesn't change
+/// the partial sum at that precision.
+fn taylor_log1p_ext<E: ExtNum>(u: E) -> E {
+    let mut sum = E::ZERO;
+    let mut power = E::ONE; // u^0; updated to u^n inside the loop
     let mut sign_alt = false;
 
     // |u| ≤ 0.5 → |u^n / n| ≤ 0.5^n / n. To drive the term below
     // 10^{-50} we need n large enough that 0.5^n < 10^{-50} · n,
-    // i.e. n ≳ 50 · log2(10) / 1 ≈ 166. Cap at 250 for safety.
-    for n in 1u32..=250 {
+    // i.e. n ≳ 50 · log2(10) / 1 ≈ 166. The rung 1 cap of 250 carries
+    // that safety margin; each rung's cap scales with its digit count.
+    for n in 1u32..=E::LOG1P_SERIES_TERMS {
         let new_power = power.mul(u);
         power = new_power;
         let term = power.div_u32(n);

@@ -6,7 +6,7 @@
 //!
 //! `cbrt(x) = sign(x) · |x|^(1/3)`, computed as
 //! `sign(x) · exp(ln(|x|) / 3)` at the
-//! [`Extended`](crate::extended::Extended) precision pipeline.
+//! [`Extended`] precision pipeline.
 //!
 //! ## Accuracy
 //!
@@ -31,15 +31,21 @@
 //! precision because the certified ball is centred well inside the
 //! format's range, not at the underflow boundary.
 
-use crate::exp::exp_from_extended;
+use crate::exp::exp_from_extended_body;
+use crate::extended::{ExtNum, Extended};
 use crate::format::DecimalFormat;
-use crate::ln::ln_extended;
+use crate::ln::ln_extended_body;
 use ferrodec_ieee::IeeeDecodedClass as Class;
 use ferrodec_ieee::{RoundingMode, Status};
 
 /// Cube root. Defined for all real `x`:
 /// `cbrt(0) = 0`, `cbrt(-x) = -cbrt(x)`.
 pub fn cbrt_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
+    cbrt_kernel_body::<F, Extended>(x, rm)
+}
+
+/// Generic body of [`cbrt_kernel`] (M4, ADR-0059).
+pub(crate) fn cbrt_kernel_body<F: DecimalFormat, E: ExtNum>(x: F, rm: RoundingMode) -> (F, Status) {
     match x.classify() {
         Class::SignalingNaN { .. } => return (x.nan_from(), Status::INVALID),
         Class::QuietNaN { .. } => return (x, Status::OK),
@@ -54,9 +60,9 @@ pub fn cbrt_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
     let sign_neg = x.is_sign_negative();
     let abs_x = x.abs();
 
-    // ln(|x|) at extended precision.
-    let ln_x_ext = ln_extended(abs_x);
-    // Divide by 3 at extended precision.
+    // ln(|x|) at working precision.
+    let ln_x_ext = ln_extended_body::<F, E>(abs_x);
+    // Divide by 3 at working precision.
     let one_third_ln_x = ln_x_ext.div_u32(3);
     // exp(...) → format datum, threading OVERFLOW / UNDERFLOW. For a
     // negative argument the magnitude is rounded and then negated,
@@ -66,7 +72,7 @@ pub fn cbrt_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
     // modes round a negative cube root the wrong way by up to one
     // ULP (fd-r5m, found by the S5 faithful-rounding oracle).
     let eff_rm = if sign_neg { rm.for_negation() } else { rm };
-    let (mut result, mut status) = exp_from_extended::<F>(one_third_ln_x, eff_rm);
+    let (mut result, mut status) = exp_from_extended_body::<F, E>(one_third_ln_x, eff_rm);
     if sign_neg {
         result = result.neg();
     }
