@@ -406,6 +406,88 @@ mod tests {
     use crate::extended::Extended;
     use crate::extended2::Extended2;
 
+    /// The ADR-0059 budget audit over the historically falsifying
+    /// bands: for every S1 witness input (the Arb-certified
+    /// high-decade Decimal128 trig misrounds), the observed rung 1
+    /// working error must stay under a **tenth** of the trig budgets.
+    /// Rung 2 serves as the oracle — its own error over these bands
+    /// is bounded by `reduce_wide`'s analytic `< 10^-114` truncation
+    /// plus series noise, ~70 decimal orders below the quantity under
+    /// audit, and its verdicts are independently pinned by the
+    /// witness replay against Arb (`tests/transcend_campaign_s1.rs`)
+    /// and the `force_escalate` corpus differential.
+    ///
+    /// `tan`'s quotient is audited through its components: sin and
+    /// cos each within `B/10 = 1.5e-37` relative bounds the quotient
+    /// within `~3e-37 ≤ TAN.rung1/10`. An unsound budget here is the
+    /// ADR-0050 failure shape and must stop the lane, not shrink the
+    /// assertion.
+    #[cfg(feature = "trig")]
+    #[test]
+    fn s1_witness_bands_stay_under_a_tenth_of_the_trig_budget() {
+        use crate::mock_format::ValueFmt128;
+        use crate::sincos::sincos_extended_body;
+        use std::path::PathBuf;
+        use std::vec::Vec;
+
+        // B/10 for SIN and COS rung 1: budget 1.5e14 units of 1e-50
+        // → 1.5e-36 relative; a tenth is 1.5e-37. Compared as values
+        // (`|Δ| ≤ |v| · 1.5e-37`), not decades, because the observed
+        // worst rows sit in the 1e-37 decade — at the itemized sum,
+        // exactly where the audit must resolve finer than a decade.
+        let tenth = Extended2::parse_str("1.5e-37");
+
+        let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../tests/vectors/transcend/campaign/s1");
+        let mut audited = 0usize;
+        for file in [
+            "sin_misrounds.tsv",
+            "cos_misrounds.tsv",
+            "tan_misrounds.tsv",
+        ] {
+            let text = std::fs::read_to_string(dir.join(file))
+                .unwrap_or_else(|e| panic!("read {file}: {e}"));
+            for line in text.lines() {
+                if line.is_empty() || line.starts_with('#') {
+                    continue;
+                }
+                let fields: Vec<&str> = line.split('\t').collect();
+                let x_raw = fields[4];
+                // `<coef>E<exp>`: 34-digit coefficient, decimal
+                // exponent (the S1 sweep's canonical shape).
+                let (coef_s, exp_s) = x_raw
+                    .split_once('E')
+                    .unwrap_or_else(|| panic!("{file}: malformed input {x_raw}"));
+                let x = ValueFmt128 {
+                    coef: coef_s.parse::<u128>().unwrap(),
+                    exp: exp_s.parse::<i32>().unwrap(),
+                    sign: false,
+                };
+                let (s1, c1, _) = sincos_extended_body::<ValueFmt128, Extended>(x);
+                let (s2, c2, _) = sincos_extended_body::<ValueFmt128, Extended2>(x);
+                for (name, v1, v2) in [("sin", s1, s2), ("cos", c1, c2)] {
+                    let d = Extended2::from_extended(v1).sub(v2).abs();
+                    if d.is_zero() {
+                        continue;
+                    }
+                    let bound = v2.abs().mul(tenth);
+                    assert!(
+                        d.cmp(bound) != core::cmp::Ordering::Greater,
+                        "{file} {name}({x_raw}): rung 1 error {:?} \
+                         exceeds a tenth of the budget ({:?}) — the \
+                         budget model is unsound over its falsifying \
+                         band (the ADR-0050 shape); stop the lane",
+                        d,
+                        bound,
+                    );
+                }
+                audited += 1;
+            }
+        }
+        // The corpus rows all audited (sin 643 + cos 570 + tan 606).
+        assert_eq!(audited, 1819, "witness corpus row count drifted");
+    }
+
     /// Every budget is nonzero on both rungs (a zero budget would
     /// silently disable the guard) and the rung-1 side stays far
     /// below the predicate's structural ceiling (boundaries are

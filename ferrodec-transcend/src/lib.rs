@@ -32,6 +32,11 @@
 
 #![no_std]
 
+// Tests read committed corpora (the S1 witness bands for the ladder
+// budget audit) from the workspace tree; production stays no_std.
+#[cfg(test)]
+extern crate std;
+
 pub mod consts;
 pub mod extended;
 // Rung 2 of the ADR-0059 escalation ladder. Crate-internal until M8

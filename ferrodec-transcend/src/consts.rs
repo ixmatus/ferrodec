@@ -166,6 +166,77 @@ pub(crate) fn tan_pi_over_eight_ext2() -> Extended2 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::extended::ExtNum;
+    use crate::mock_format::MockFmt;
+
+    /// Offline boundary-distance certification for the directly
+    /// delivered π-family constants (ADR-0059 M8). The kernels hand
+    /// `π/4`, `π/2`, `3π/4`, and `π` straight to the format rounder
+    /// (atan(±∞), asin(±1), acos(0), acos(−1), atan2's axes and
+    /// quadrants) without paying the runtime escalation predicate;
+    /// this test is the once-and-for-all discharge that replaces it.
+    ///
+    /// The certificate has two legs, per format shape:
+    ///
+    /// 1. The delivered 55-digit rung 1 constant sits further than
+    ///    `10^-46` (relative) from every grid point and midpoint of
+    ///    the format (`!near_rounding_boundary` at a `10^4`-unit
+    ///    budget, units of `10^-50`; the predicate's own 55→50-digit
+    ///    normalization perturbs the measured distance by ≤ 1 unit).
+    /// 2. The delivered rung 1 value agrees with the 115-digit rung 2
+    ///    value to better than `10^-52` relative for the hand-curated
+    ///    literals, and `10^-49` for the composed `3π/4` (its
+    ///    `π/4 × 3` product rounds once at the 50-digit rung width —
+    ///    in production exactly as here); the true constant is within
+    ///    `10^-110` of the rung 2 value.
+    ///
+    /// Together: the delivered representation, the wide
+    /// representation, and the true value all lie in one
+    /// boundary-free interval of half-width `10^-46`, at least three
+    /// orders wider than their mutual spread, so rounding the
+    /// delivered value at the format width gives the true constant's
+    /// correct rounding in every mode. Nothing here depends on the
+    /// kernel error model.
+    #[test]
+    fn pi_family_constants_certified_against_format_boundaries() {
+        fn certify<const P: u32, const B: i32>(label: &str) {
+            // 10^4 units of 10^-50 ≡ a 10^-46 relative distance.
+            let budget: u128 = 10_000;
+            let pairs: [(&str, Extended, Extended2, i32); 4] = [
+                ("pi/4", pi_over_four_ext(), pi_over_four_ext2(), -53),
+                ("pi/2", pi_over_two_ext(), pi_over_two_ext2(), -53),
+                (
+                    "3pi/4",
+                    pi_over_four_ext().mul(Extended::from_i32(3)),
+                    pi_over_four_ext2().mul(Extended2::from_i32(3)),
+                    -49,
+                ),
+                ("pi", pi_ext(), pi_ext2(), -53),
+            ];
+            for (name, c1, c2, agree_decade) in pairs {
+                assert!(
+                    !c2.near_rounding_boundary::<MockFmt<P, B>>(budget),
+                    "{label}: {name} lies within 1e-45 of a format                      rounding boundary — constant delivery needs the                      runtime predicate after all"
+                );
+                // Leg 2: rung agreement, checked in decade arithmetic
+                // (the difference's leading decade at least
+                // `agree_decade` below the constant's).
+                let d = Extended2::from_extended(c1).sub(c2).abs();
+                if !d.is_zero() {
+                    let decade_d = d.exponent() + d.digit_count() as i32 - 1;
+                    let decade_c = c2.exponent() + c2.digit_count() as i32 - 1;
+                    assert!(
+                        decade_d - decade_c <= agree_decade,
+                        "{label}: {name} rung disagreement at decade {}",
+                        decade_d - decade_c
+                    );
+                }
+            }
+        }
+        certify::<34, 6176>("Decimal128");
+        certify::<16, 398>("Decimal64");
+        certify::<7, 101>("Decimal32");
+    }
 
     // ------------------------------------------------------------------
     // Extended-precision constants oracle
