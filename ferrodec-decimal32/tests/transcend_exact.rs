@@ -100,3 +100,25 @@ fn cbrt_exact_cubes_every_mode() {
     let (_, st) = parse("9").cbrt(NE);
     assert!(st.inexact(), "cbrt(9) is irrational: {st:?}");
 }
+
+/// Input-side pow exactness and ties (ADR-0059 M7): exact rational
+/// powers at every mode with status OK (`pow(4, 0.5)` shipped
+/// `1.999999` + `INEXACT` at the directed-down modes before), and the
+/// `pow(2, -11)` tie fixed at `NearestAway`.
+#[test]
+fn pow_exact_and_ties() {
+    for rm in [NE, NA, TZ, TP, TN] {
+        assert_exact(parse("4").pow(parse("0.5"), rm), "2", "pow(4, 0.5)");
+        assert_exact(parse("2.25").pow(parse("0.5"), rm), "1.5", "pow(2.25, 0.5)");
+        assert_exact(parse("10").pow(parse("90"), rm), "1E+90", "pow(10, 90)");
+    }
+    let (r, st) = parse("2").pow(parse("-11"), NA);
+    assert_eq!(
+        r.partial_cmp(parse("4.882813E-4")).0,
+        Some(core::cmp::Ordering::Equal),
+        "pow(2, -11) NA resolves the tie away from zero: got {r:?}"
+    );
+    assert!(st.inexact(), "pow(2, -11) NA: expected INEXACT, got {st:?}");
+    let (_, st) = parse("7").pow(parse("0.5"), NE);
+    assert!(st.inexact(), "pow(7, 0.5) is irrational: {st:?}");
+}

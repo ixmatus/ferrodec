@@ -156,6 +156,79 @@ fn cbrt_exact_cubes_every_mode() {
     assert_eq!(format!("{r}"), "0.3", "cbrt(0.027) cohort");
 }
 
+/// Input-side pow exactness (ADR-0059 M7): an exact rational power
+/// returns exactly at every rounding direction with status OK. Before
+/// M7 the post-hoc proof was circular: `pow(4, 0.5)` at `TowardZero` /
+/// `TowardNegative` shipped `1.999…9` with a spurious `INEXACT`, and
+/// `pow(-1, 1E+40)` (exponent too wide for the rational reduction)
+/// carried a spurious `INEXACT` in every mode.
+#[test]
+fn pow_exact_rationals_every_mode() {
+    for rm in ALL {
+        assert_exact(parse("4").pow(parse("0.5"), rm), "2", "pow(4, 0.5)");
+        assert_exact(parse("2.25").pow(parse("0.5"), rm), "1.5", "pow(2.25, 0.5)");
+        assert_exact(parse("16").pow(parse("-0.25"), rm), "0.5", "pow(16, -0.25)");
+        assert_exact(parse("10").pow(parse("300"), rm), "1E+300", "pow(10, 300)");
+        assert_exact(parse("-1").pow(parse("1E+40"), rm), "1", "pow(-1, 1E+40)");
+        assert_exact(
+            parse("-1").pow(parse("1000000000000000000000000000000001"), rm),
+            "-1",
+            "pow(-1, odd 34-digit)",
+        );
+    }
+    // Irrational / too-wide controls stay inexact on the kernel.
+    let (_, st) = parse("7").pow(parse("0.5"), NE);
+    assert!(st.inexact(), "pow(7, 0.5) is irrational: {st:?}");
+    let (_, st) = parse("3").pow(parse("100"), NE);
+    assert!(st.inexact(), "pow(3, 100) is inexact at 34 digits: {st:?}");
+}
+
+/// pow ties at `PRECISION + 1` (ADR-0059 M7): `pow(5, 49)`,
+/// `pow(2, -49)`, and `pow(0.5, 49)` share the 35-digit coefficient
+/// `5^49` (final digit 5) — exact midpoints the approximation kernel
+/// misrounded at `NearestAway`. The negative-base variant pins the tie
+/// resolving under the negation-reflected mode (fd-aqs.5): toward-∞
+/// modes swap roles across the sign flip.
+#[test]
+fn pow_ties_at_precision_plus_one() {
+    for (rm, want) in [
+        (NE, "1.776356839400250464677810668945312E+34"),
+        (NA, "1.776356839400250464677810668945313E+34"),
+        (TZ, "1.776356839400250464677810668945312E+34"),
+        (TP, "1.776356839400250464677810668945313E+34"),
+        (TN, "1.776356839400250464677810668945312E+34"),
+    ] {
+        assert_rounded(
+            parse("5").pow(parse("49"), rm),
+            want,
+            &format!("pow(5, 49) {rm:?}"),
+        );
+    }
+    assert_rounded(
+        parse("2").pow(parse("-49"), NA),
+        "1.776356839400250464677810668945313E-15",
+        "pow(2, -49) NA",
+    );
+    assert_rounded(
+        parse("0.5").pow(parse("49"), NA),
+        "1.776356839400250464677810668945313E-15",
+        "pow(0.5, 49) NA",
+    );
+    for (rm, want) in [
+        (NE, "-1.776356839400250464677810668945312E-15"),
+        (NA, "-1.776356839400250464677810668945313E-15"),
+        (TZ, "-1.776356839400250464677810668945312E-15"),
+        (TP, "-1.776356839400250464677810668945312E-15"),
+        (TN, "-1.776356839400250464677810668945313E-15"),
+    ] {
+        assert_rounded(
+            parse("-2").pow(parse("-49"), rm),
+            want,
+            &format!("pow(-2, -49) {rm:?}"),
+        );
+    }
+}
+
 /// The non-tie `PRECISION + 1` cases route through the same classifier
 /// and must stay byte-identical to the (already correct) kernel: a
 /// 35-digit `2^n` whose final digit is not 5 has both directed sides

@@ -225,6 +225,31 @@ pub(crate) fn pow_kernel_body<F: DecimalFormat, E: ExtNum>(
         // Extended pipeline below is more accurate.
     }
 
+    // The pipeline evaluates |x|^y and re-applies the sign for an odd
+    // integer y over a negative base. Round the magnitude under the
+    // negation-reflected mode so the directed modes land on the
+    // correct neighbour after the sign flip (the cbrt `for_negation`
+    // rule; fd-aqs.5). Both the classifier and the kernel share this
+    // sign treatment.
+    let sign_neg = x.is_sign_negative() && matches!(y_int, IntegerKind::OddInteger);
+    let eff_rm = if sign_neg { rm.for_negation() } else { rm };
+
+    // Input-side exact and tie classification (ADR-0059 M7): an exact
+    // rational power (pow(4, 0.5) = 2, pow(10, 300) = 1E+300) or a
+    // PRECISION + 1 boundary case (the tie pow(5, 49)) is delivered
+    // from its exact coefficient through the format rounder before any
+    // approximation runs. This replaces the ADR-0047 post-hoc proof,
+    // which was circular: it could only recognise an exact power the
+    // kernel had already delivered exactly, so at TowardZero /
+    // TowardNegative the kernel's 50-digit error landed pow(4, 0.5)
+    // on 1.999…9 and the wrong value shipped with a spurious INEXACT.
+    // Past this point x^y is provably irrational (the classifier's
+    // completeness proofs), so the kernel's unconditional INEXACT is
+    // correct in every mode.
+    if let Some((mag, status)) = crate::exact::pow_exact_input::<F>(x.abs(), y, eff_rm) {
+        return (if sign_neg { mag.neg() } else { mag }, status);
+    }
+
     // General path: pow(x, y) = exp(y · ln(|x|)) evaluated entirely at
     // Extended precision. Single round when converting back to the
     // format, so the final result is correctly rounded per ADR-0032
@@ -235,34 +260,9 @@ pub(crate) fn pow_kernel_body<F: DecimalFormat, E: ExtNum>(
     let ln_x_ext = ln_extended_body::<F, E>(abs_x);
     let y_ext = E::from_format(y);
     let y_ln_x_ext = y_ext.mul(ln_x_ext);
-
-    // The pipeline evaluates |x|^y and re-applies the sign for an odd
-    // integer y over a negative base. Round the magnitude under the
-    // negation-reflected mode so the directed modes land on the
-    // correct neighbour after the sign flip (the cbrt `for_negation`
-    // rule; fd-aqs.5).
-    let sign_neg = x.is_sign_negative() && matches!(y_int, IntegerKind::OddInteger);
-    let eff_rm = if sign_neg { rm.for_negation() } else { rm };
     let (result, status) = exp_from_extended_body::<F, E>(y_ln_x_ext, eff_rm);
     let signed = if sign_neg { result.neg() } else { result };
-
-    // `exp_from_extended` already raised INEXACT. pow can land on an exact
-    // value (an exact integer or rational power: pow(10, 300) = 1E+300,
-    // pow(4, 0.5) = 2), where IEEE 754-2019 §7.5 forbids the flag. Suppress
-    // it only when the delivered result raised back through the exponent
-    // reproduces the input exactly. Overflow / ±∞ results never enter the
-    // check (decoding a non-finite datum is undefined). Small exact integer
-    // powers are already handled by the fast path above and never reach
-    // here.
-    let final_status = if !status.overflow()
-        && !signed.is_infinite()
-        && crate::exact::power_is_exact(signed, x, y)
-    {
-        crate::exact::clear_inexact(status)
-    } else {
-        status
-    };
-    (signed, final_status)
+    (signed, status)
 }
 
 /// Try the square-and-multiply fast path for integer `y` up to `±256`.

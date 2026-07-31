@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `Decimal64::pow` exact rational powers and ties (ADR-0059 M7), via
+  input-side classification: `pow(4, 0.5)` at `TowardZero` /
+  `TowardNegative` returned `1.999999999999999` with a spurious `INEXACT`
+  and now returns the exact `2`, status `OK`, at every rounding direction.
+  The 17-digit ties (`pow(2, -23)` and kin) now round away at
+  `NearestAway` (`…507813`) where the kernel's error picked the lower
+  neighbour. Exact results carry the input-derived cohort.
+
 - `Decimal64::cbrt` directed-mode results on perfect cubes (ADR-0059 M7):
   `cbrt(0.027)` at `TowardZero` / `TowardNegative` returned
   `0.2999999999999999` with a spurious `INEXACT`; it now returns the exact

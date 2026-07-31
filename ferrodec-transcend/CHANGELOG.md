@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `pow` exactness and ties are now decided from the inputs alone (ADR-0059
+  M7), by the decimal analog of the Lauter–Lefèvre criterion: with
+  `|x| = 2^α · 5^β · t` (`gcd(t, 10) = 1`) and `|y| = a/b` in lowest terms,
+  `x^y` is an exact rational iff `b | α`, `b | β`, and `t = s^b` — decidable
+  in bounded integer arithmetic without factoring — and then equals
+  `s^a · 2^(αa/b) · 5^(βa/b)` exactly, delivered through the format rounder.
+  The ADR-0047 post-hoc proof this replaces was circular and failed in
+  production: `pow(4, 0.5)` at `TowardZero` / `TowardNegative` returned
+  `1.999…9` with a spurious `INEXACT` instead of the exact `2` (all
+  formats), and `pow(-1, y)` with `y` too wide for the rational reduction
+  (e.g. `1E+40`) carried a spurious `INEXACT` in every mode. `pow`'s
+  nearest-mode ties — `PRECISION + 1`-digit exact values ending in 5, e.g.
+  `pow(5, 49)` / `pow(2, -49)` at 34 digits — previously misrounded at
+  `NearestAway` and are now resolved by the rounder's own tie rule, under
+  the negation-reflected mode for odd powers of negative bases. Exact
+  results carry the input-derived cohort. Every bail to the kernel is now
+  documented as provably neither exact nor a tie (classification
+  completeness, the ladder's standing assumption).
+
 - `cbrt` of a perfect cube is now decided from the input alone (ADR-0059
   M7): stripped `x = c · 10^e` is an exact cube iff `c = t³` and `3 | e`,
   and the exact root is delivered before any approximation runs — every

@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `Decimal128::pow` exact rational powers and ties (ADR-0059 M7), via
+  input-side classification (the decimal Lauter–Lefèvre criterion):
+  `pow(4, 0.5)` at `TowardZero` / `TowardNegative` returned `1.999…9` with
+  a spurious `INEXACT` and now returns the exact `2`, status `OK`, at every
+  rounding direction; `pow(-1, 1E+40)` no longer carries a spurious
+  `INEXACT`. The 35-digit ties are resolved exactly: `pow(5, 49)`,
+  `pow(2, -49)`, and `pow(0.5, 49)` at `NearestAway` now round away
+  (`…945313`) where the kernel's error picked the lower neighbour. Exact
+  results carry the input-derived cohort.
+
 - `Decimal128::cbrt` directed-mode results on perfect cubes (ADR-0059 M7):
   `cbrt(0.027)` at `TowardZero` / `TowardNegative` returned
   `0.2999999999999999999999999999999999` with a spurious `INEXACT`; it now
