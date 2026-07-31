@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `exp2` now resolves nearest-mode ties exactly (ADR-0059 M7). An integer
+  input `n` whose `2^n` is expressible in at most `PRECISION + 1` digits is
+  delivered from the exact coefficient through the format rounder instead of
+  the approximation kernel, whose error lands on an arbitrary side of a true
+  value that is itself a rounding boundary (`5^n` ends in 5, so a
+  `PRECISION + 1`-digit `5^n` makes `exp2(-n)` an exact midpoint). Changed
+  values, all at ties: `exp2(-49)` at `NearestAway` and `exp2(-50)` at
+  `NearestEven` for a 34-digit format; `exp2(-23)` and `exp2(-24)` at
+  `NearestAway` for 16 digits; `exp2(-11)` at `NearestAway` for 7 digits.
+  Every other mode and input is unchanged (the non-tie `PRECISION + 1` cases
+  were already correct and are now pinned).
+
 ## [0.2.0] - 2026-07-03
 
 ### Changed

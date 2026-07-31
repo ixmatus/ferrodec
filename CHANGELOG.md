@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `Decimal128::exp2` nearest-mode tie values (ADR-0059 M7): `exp2(-49)` and
+  `exp2(-50)` are exact midpoints of adjacent representable values (`5^49`
+  and `5^50` are 35 digits ending in 5), which the 50-digit approximation
+  kernel cannot resolve. The input-side classifier now delivers the exact
+  coefficient through the format rounder. Changed values: `exp2(-49)` at
+  `NearestAway` is now `1.776356839400250464677810668945313E-15` (was
+  `…312E-15`); `exp2(-50)` at `NearestEven` is now
+  `8.881784197001252323389053344726562E-16` (the even significand; was
+  `…563E-16`). All other modes and inputs are unchanged.
+
 ## [4.0.0] - 2026-07-25
 
 The decTest skip burn-down: two conformance gaps closed behind one

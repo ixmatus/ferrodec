@@ -73,6 +73,95 @@ fn exp2_exact_integers_every_mode() {
     assert!(st.inexact(), "exp2(2.5) is irrational: {st:?}");
 }
 
+/// Pin an inexact result: value equality plus the INEXACT flag.
+fn assert_rounded(got: (Decimal128, Status), want: &str, label: &str) {
+    let (r, st) = got;
+    let want_d = parse(want);
+    assert_eq!(
+        r.partial_cmp(want_d).0,
+        Some(core::cmp::Ordering::Equal),
+        "{label}: got {r:?}, want {want}"
+    );
+    assert!(st.inexact(), "{label}: expected INEXACT, got {st:?}");
+}
+
+/// The named `Decimal128` nearest-mode ties (ADR-0059 M7): `5^49` and
+/// `5^50` have exactly 35 significant digits with final digit 5, so
+/// `exp2(-49)` and `exp2(-50)` sit exactly on a midpoint of adjacent
+/// representable values. The input-side classifier delivers the exact
+/// 35-digit coefficient through the format rounder, whose own tie rule
+/// decides each mode. Before M7 the approximation kernel's error chose
+/// an arbitrary side: `exp2(-49)` misrounded at `NearestAway` (`…312`
+/// for `…313`) and `exp2(-50)` at `NearestEven` (`…563` for the even
+/// `…562`).
+#[test]
+fn exp2_ties_at_precision_plus_one() {
+    // exp2(-49) = 5^49 · 10^-49; 5^49 = 17763568394002504646778106689453125.
+    // 34-digit neighbours: …945312 (even) and …945313.
+    for (rm, want) in [
+        (NE, "1.776356839400250464677810668945312E-15"),
+        (NA, "1.776356839400250464677810668945313E-15"),
+        (TZ, "1.776356839400250464677810668945312E-15"),
+        (TP, "1.776356839400250464677810668945313E-15"),
+        (TN, "1.776356839400250464677810668945312E-15"),
+    ] {
+        assert_rounded(parse("-49").exp2(rm), want, &format!("exp2(-49) {rm:?}"));
+    }
+    // exp2(-50) = 5^50 · 10^-50; 5^50 = 88817841970012523233890533447265625.
+    // 34-digit neighbours: …726562 (even) and …726563.
+    for (rm, want) in [
+        (NE, "8.881784197001252323389053344726562E-16"),
+        (NA, "8.881784197001252323389053344726563E-16"),
+        (TZ, "8.881784197001252323389053344726562E-16"),
+        (TP, "8.881784197001252323389053344726563E-16"),
+        (TN, "8.881784197001252323389053344726562E-16"),
+    ] {
+        assert_rounded(parse("-50").exp2(rm), want, &format!("exp2(-50) {rm:?}"));
+    }
+}
+
+/// The non-tie `PRECISION + 1` cases route through the same classifier
+/// and must stay byte-identical to the (already correct) kernel: a
+/// 35-digit `2^n` whose final digit is not 5 has both directed sides
+/// and the nearest decision determined by that digit alone.
+#[test]
+fn exp2_p_plus_one_non_ties_unchanged() {
+    // 2^113 = 10384593717069655257060992658440192 (35 digits, final 2).
+    assert_rounded(
+        parse("113").exp2(NE),
+        "1.038459371706965525706099265844019E+34",
+        "exp2(113) NE",
+    );
+    assert_rounded(
+        parse("113").exp2(TP),
+        "1.038459371706965525706099265844020E+34",
+        "exp2(113) TP",
+    );
+    // 2^116 = 83076749736557242056487941267521536 (35 digits, final 6).
+    assert_rounded(
+        parse("116").exp2(NE),
+        "8.307674973655724205648794126752154E+34",
+        "exp2(116) NE",
+    );
+    assert_rounded(
+        parse("116").exp2(TZ),
+        "8.307674973655724205648794126752153E+34",
+        "exp2(116) TZ",
+    );
+    // One past the gate on each side (36 digits): stays on the kernel,
+    // still correct there — 5^51 ends in …28125, far from a midpoint.
+    assert_rounded(
+        parse("117").exp2(NE),
+        "1.661534994731144841129758825350431E+35",
+        "exp2(117) NE",
+    );
+    assert_rounded(
+        parse("-51").exp2(NE),
+        "4.440892098500626161694526672363281E-16",
+        "exp2(-51) NE",
+    );
+}
+
 #[test]
 fn log2_exact_powers_every_mode() {
     for rm in ALL {

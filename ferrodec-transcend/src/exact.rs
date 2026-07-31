@@ -22,6 +22,15 @@
 //! flag and delivers the exact value at every rounding direction —
 //! §7.5 forbids `INEXACT` on all of them.
 //!
+//! Classification widened to ties (ADR-0059 M7): a nearest-mode tie is
+//! exactly "expressible at `PRECISION + 1` digits with final digit 5",
+//! a value the approximation kernel can never resolve (the true result
+//! IS a rounding boundary, so the kernel's error picks an arbitrary
+//! side). The width gates therefore admit `PRECISION + 1` digits and
+//! [`pack_value`] hands the exact coefficient to the format rounder,
+//! whose own tie rule, directed-mode sides, and `INEXACT` accounting
+//! are correct by construction on an exact input.
+//!
 //! ## Soundness (the invariant the whole module is built around)
 //!
 //! Every predicate defaults to "not proven" (returns `false`): any
@@ -314,12 +323,19 @@ pub(crate) fn power_is_exact<F: DecimalFormat>(result: F, x: F, y: F) -> bool {
 // width or range it cannot prove; the only dangerous outcome would be
 // `Some` on an inexact case, and the bounds make that unreachable.
 
-/// Pack a small exact `coef · 10^exp` with `sign` into the format.
-/// Caller guarantees the coefficient fits the format precision and the
-/// exponent its range, so the status comes back `OK` and the value is
-/// identical at every rounding direction.
-fn pack_exact<F: DecimalFormat>(coef: u128, exp: i32, sign: bool, rm: RoundingMode) -> (F, Status) {
-    F::round_and_pack_finite(U256::from_u128(coef), exp, 0, sign, false, rm, Status::OK)
+/// Deliver an exactly known value `coef · 10^exp` with `sign` through
+/// the format rounder. Caller guarantees `coef` is the value's exact,
+/// complete coefficient (no digits beyond it, so `pre_sticky = false`)
+/// of at most `F::PRECISION + 1` significant digits. The rounder then
+/// decides everything §7 asks for: a coefficient within the format
+/// precision packs exactly (`OK`, moved toward the §6.3 preferred
+/// quantum 0), while a `PRECISION + 1`-digit coefficient rounds with
+/// its final digit as the round digit and an empty sticky — resolving
+/// a nearest-mode tie (final digit 5, nothing behind it) by the mode's
+/// own tie rule, landing every directed mode on the correct side, and
+/// raising `INEXACT` exactly when a nonzero digit drops (ADR-0059 M7).
+fn pack_value<F: DecimalFormat>(coef: U256, exp: i32, sign: bool, rm: RoundingMode) -> (F, Status) {
+    F::round_and_pack_finite(coef, exp, 0, sign, false, rm, Status::OK)
 }
 
 /// Decode `x` as a small signed integer, or `None` if it is not an
@@ -345,29 +361,60 @@ fn as_small_int<F: DecimalFormat>(x: F, limit: u128) -> Option<(u128, bool)> {
     Some((n, sign))
 }
 
-/// The exact `exp2(x)` when `x` is an integer `n` with `2^n`
-/// representable at the format precision; `None` routes to the kernel.
-pub(crate) fn exp2_exact<F: DecimalFormat>(x: F, rm: RoundingMode) -> Option<(F, Status)> {
+/// The exact or tie value of `exp2(x)` when `x` is an integer `n`
+/// with `2^n` expressible in at most `F::PRECISION + 1` significant
+/// digits; `None` routes to the kernel.
+///
+/// ## Classification completeness (integer `x` is the whole story)
+///
+/// If `2^x` is exactly representable, or sits exactly on a nearest
+/// mode midpoint of adjacent representable values (a tie), that value
+/// `v` is a terminating decimal, hence rational. A representable `x`
+/// is rational, `x = a/b` in lowest terms, and `2^a = v^b`; unique
+/// factorization forces every prime factor of `v` to be 2, so
+/// `v = 2^k` and `a = k·b`, hence `b = 1`: `x` is an integer (the
+/// standard rational-power argument; Niven, *Irrational Numbers*,
+/// ch. 2). A midpoint's stripped coefficient has at most
+/// `PRECISION + 1` digits and ends in 5, so the width gate below
+/// admits every tie; a wider `2^n` is neither representable nor a
+/// midpoint, and the kernel's unconditional `INEXACT` stays correct
+/// in every mode.
+///
+/// The ties are real, not hypothetical: `5^n` always ends in 5, so
+/// `exp2(-n)` with `5^n` exactly `PRECISION + 1` digits wide IS a
+/// nearest-mode midpoint — `exp2(-49)` and `exp2(-50)` at
+/// `Decimal128`, `exp2(-23)` and `exp2(-24)` at `Decimal64`,
+/// `exp2(-11)` at `Decimal32`. The approximation kernel cannot
+/// resolve a value that is itself a rounding boundary (its error
+/// lands on an arbitrary side of the midpoint; before this
+/// classification, `exp2(-49)` misrounded at `NearestAway` and
+/// `exp2(-50)` at `NearestEven`). Delivering the exact coefficient
+/// through the format rounder is the mechanism that is correct by
+/// construction (ADR-0059, tripod leg 1).
+pub(crate) fn exp2_exact_or_tie<F: DecimalFormat>(x: F, rm: RoundingMode) -> Option<(F, Status)> {
     let (n, neg) = as_small_int(x, 127)?;
     let n32 = n as u32;
     if neg {
         // `2^{-n} = 5^n · 10^{-n}`. `5^55` is the last power of five
-        // inside `u128`; the digit gate below is the real bound
-        // (`5^48` is the widest that fits 34 digits).
+        // inside `u128`, and `5^56` has 40 digits, past every format's
+        // `PRECISION + 1` (≤ 35) — so this bail loses no tie.
         if n32 > 55 {
             return None;
         }
         let p = 5u128.pow(n32);
-        if U256::from_u128(p).decimal_digit_count() > F::PRECISION {
+        if U256::from_u128(p).decimal_digit_count() > F::PRECISION + 1 {
             return None;
         }
-        Some(pack_exact(p, -(n as i32), false, rm))
+        Some(pack_value(U256::from_u128(p), -(n as i32), false, rm))
     } else {
+        // `2^n` for `n ≤ 127` fits `u128`; `2^128` has 39 digits,
+        // past every format's `PRECISION + 1`, so the `as_small_int`
+        // limit above loses no exact or tie case either.
         let p = 2u128.checked_pow(n32)?;
-        if U256::from_u128(p).decimal_digit_count() > F::PRECISION {
+        if U256::from_u128(p).decimal_digit_count() > F::PRECISION + 1 {
             return None;
         }
-        Some(pack_exact(p, 0, false, rm))
+        Some(pack_value(U256::from_u128(p), 0, false, rm))
     }
 }
 
@@ -382,7 +429,12 @@ pub(crate) fn log10_exact<F: DecimalFormat>(x: F, rm: RoundingMode) -> Option<(F
     if c.hi != 0 || c.lo != 1 {
         return None;
     }
-    Some(pack_exact(u128::from(e.unsigned_abs()), 0, e < 0, rm))
+    Some(pack_value(
+        U256::from_u128(u128::from(e.unsigned_abs())),
+        0,
+        e < 0,
+        rm,
+    ))
 }
 
 /// The exact `log2(x)` when `x = 2^k`; `None` routes to the kernel.
@@ -417,7 +469,12 @@ pub(crate) fn log2_exact<F: DecimalFormat>(x: F, rm: RoundingMode) -> Option<(F,
         }
         e
     };
-    Some(pack_exact(u128::from(k.unsigned_abs()), 0, k < 0, rm))
+    Some(pack_value(
+        U256::from_u128(u128::from(k.unsigned_abs())),
+        0,
+        k < 0,
+        rm,
+    ))
 }
 
 #[cfg(test)]

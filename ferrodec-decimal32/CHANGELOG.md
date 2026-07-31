@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `Decimal32::exp2` nearest-mode tie value (ADR-0059 M7): `exp2(-11)` is an
+  exact midpoint (`5^11 = 48828125`, 8 digits ending in 5), now resolved
+  exactly by the input-side classifier through the format rounder. Changed
+  value: `exp2(-11)` at `NearestAway` is now `4.882813E-4` (was
+  `4.882812E-4`). The pinned `NearestEven` tie-to-even value and all other
+  modes are unchanged.
+
 ## [4.0.0] - 2026-07-25
 
 The decTest skip burn-down: two conformance gaps closed behind one

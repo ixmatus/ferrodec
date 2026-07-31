@@ -8,6 +8,9 @@
 use ferrodec_decimal64::{Decimal64, RoundingMode, Status};
 
 const NE: RoundingMode = RoundingMode::NearestEven;
+const NA: RoundingMode = RoundingMode::NearestAway;
+const TZ: RoundingMode = RoundingMode::TowardZero;
+const TP: RoundingMode = RoundingMode::TowardPositive;
 const TN: RoundingMode = RoundingMode::TowardNegative;
 
 fn parse(s: &str) -> Decimal64 {
@@ -45,4 +48,60 @@ fn exact_cases_and_boundaries() {
     assert_exact(parse("1E-300").log10(NE), "-300", "log10(1E-300)");
     let (_, st) = parse("3").log2(NE);
     assert!(st.inexact(), "log2(3) is irrational: {st:?}");
+}
+
+/// Pin an inexact result: value equality plus the INEXACT flag.
+fn assert_rounded(got: (Decimal64, Status), want: &str, label: &str) {
+    let (r, st) = got;
+    let want_d = parse(want);
+    assert_eq!(
+        r.partial_cmp(want_d).0,
+        Some(core::cmp::Ordering::Equal),
+        "{label}: got {r:?}, want {want}"
+    );
+    assert!(st.inexact(), "{label}: expected INEXACT, got {st:?}");
+}
+
+/// The named `Decimal64` nearest-mode ties (ADR-0059 M7): `5^23` and
+/// `5^24` have exactly 17 significant digits with final digit 5, so
+/// `exp2(-23)` and `exp2(-24)` sit exactly on a midpoint of adjacent
+/// representable values. The input-side classifier delivers the exact
+/// 17-digit coefficient through the format rounder. Before M7 both
+/// misrounded at `NearestAway` (the kernel's error landed below the
+/// midpoint, giving the toward-zero neighbour).
+#[test]
+fn exp2_ties_at_precision_plus_one() {
+    // exp2(-23) = 5^23 · 10^-23; 5^23 = 11920928955078125.
+    // 16-digit neighbours: …507812 (even) and …507813.
+    for (rm, want) in [
+        (NE, "1.192092895507812E-7"),
+        (NA, "1.192092895507813E-7"),
+        (TZ, "1.192092895507812E-7"),
+        (TP, "1.192092895507813E-7"),
+        (TN, "1.192092895507812E-7"),
+    ] {
+        assert_rounded(parse("-23").exp2(rm), want, &format!("exp2(-23) {rm:?}"));
+    }
+    // exp2(-24) = 5^24 · 10^-24; 5^24 = 59604644775390625.
+    // 16-digit neighbours: …539062 (even) and …539063.
+    for (rm, want) in [
+        (NE, "5.960464477539062E-8"),
+        (NA, "5.960464477539063E-8"),
+        (TZ, "5.960464477539062E-8"),
+        (TP, "5.960464477539063E-8"),
+        (TN, "5.960464477539062E-8"),
+    ] {
+        assert_rounded(parse("-24").exp2(rm), want, &format!("exp2(-24) {rm:?}"));
+    }
+    // Non-tie PRECISION + 1 control (final digit 4): byte-identical to
+    // the previously-correct kernel. 2^54 = 18014398509481984.
+    assert_rounded(parse("54").exp2(NE), "1.801439850948198E+16", "exp2(54) NE");
+    assert_rounded(parse("54").exp2(TP), "1.801439850948199E+16", "exp2(54) TP");
+    // One past the gate (18 digits): stays on the kernel. 5^25 ends in
+    // …953125, far from a midpoint.
+    assert_rounded(
+        parse("-25").exp2(NE),
+        "2.980232238769531E-8",
+        "exp2(-25) NE",
+    );
 }

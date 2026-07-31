@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `Decimal64::exp2` nearest-mode tie values (ADR-0059 M7): `exp2(-23)` and
+  `exp2(-24)` are exact midpoints (`5^23` and `5^24` are 17 digits ending
+  in 5), now resolved exactly by the input-side classifier through the
+  format rounder. Changed values, both at `NearestAway`: `exp2(-23)` is now
+  `1.192092895507813E-7` (was `…812E-7`) and `exp2(-24)` is now
+  `5.960464477539063E-8` (was `…062E-8`). All other modes and inputs are
+  unchanged.
+
 ## [4.0.0] - 2026-07-25
 
 The decTest skip burn-down: two conformance gaps closed behind one

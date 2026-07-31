@@ -93,8 +93,11 @@ pub(crate) fn exp_kernel_body<F: DecimalFormat, E: ExtNum>(x: F, rm: RoundingMod
 /// exactly at a `NearestEven` tie. NE ties-to-even resolves decisively
 /// (rounds to the even significand `4.882812e-4` over odd
 /// `4.882813e-4`), so this is the tightest possible NE constraint
-/// for any function in the family rather than TMD hard. The kernel
-/// produces the tie value exactly. Sampled corpus minima
+/// for any function in the family rather than TMD hard. Since
+/// ADR-0059 M7 the tie is delivered exactly by the input-side
+/// classifier (`exact::exp2_exact_or_tie`), not by the approximation
+/// kernel, whose error cannot resolve a value that is itself a
+/// rounding boundary. Sampled corpus minima
 /// (`tests/vectors/transcend/exp2.prov`, ADR-0026 fd-97a) are
 /// `3.515e-2` at `Decimal64` and `2.015e-2` at `Decimal128`, both
 /// cleared by the composed bound by more than thirty orders of
@@ -118,14 +121,19 @@ pub(crate) fn exp2_kernel_body<F: DecimalFormat, E: ExtNum>(x: F, rm: RoundingMo
         Class::Zero { .. } => return (F::ONE, Status::OK),
         Class::Finite { .. } => {}
     }
-    // Exact integer cases (fd-aqs.8): `2^n` representable at the
-    // format precision returns exactly, at every rounding direction,
-    // with no INEXACT (IEEE 754-2019 §7.5). Pre-detection also repairs
-    // the directed-mode hazard of the 50-digit approximation landing
-    // on the wrong side of the exact value (`exp2(3)` at
-    // `TowardNegative` returned `7.999999…` before this).
-    if let Some(exact) = crate::exact::exp2_exact::<F>(x, rm) {
-        return exact;
+    // Exact and tie classification (fd-aqs.8; widened to PRECISION + 1
+    // ties by ADR-0059 M7): an integer `n` with `2^n` expressible in
+    // at most PRECISION + 1 digits is delivered from the exact
+    // coefficient through the format rounder — exact results at every
+    // rounding direction with no INEXACT (IEEE 754-2019 §7.5), the
+    // directed-mode hazard of the approximation landing on the wrong
+    // side of an exact value repaired (`exp2(3)` at `TowardNegative`
+    // returned `7.999999…` before fd-aqs.8), and the nearest-mode
+    // ties (`exp2(-49)` / `exp2(-50)` at Decimal128) resolved by the
+    // rounder's own tie rule, which no approximation kernel can do:
+    // the true value IS the boundary.
+    if let Some(result) = crate::exact::exp2_exact_or_tie::<F>(x, rm) {
+        return result;
     }
     let arg_ext = E::from_format(x).mul(E::ln2());
     exp_from_extended_body::<F, E>(arg_ext, rm)
