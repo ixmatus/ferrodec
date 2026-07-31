@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `cbrt` of a perfect cube is now decided from the input alone (ADR-0059
+  M7): stripped `x = c · 10^e` is an exact cube iff `c = t³` and `3 | e`,
+  and the exact root is delivered before any approximation runs — every
+  rounding direction, status `OK`. The ADR-0047 post-hoc proof this
+  replaces was circular (it could only recognise an exact root the kernel
+  had already delivered exactly) and failed in production: `cbrt(0.027)`
+  at `TowardZero` / `TowardNegative` returned `0.2999…9` with a spurious
+  `INEXACT` instead of the exact `0.3`. `cbrt` provably has no nearest-mode
+  ties (midpoint cubes exceed every format's width or range), so the
+  kernel's unconditional `INEXACT` is correct on every remaining input.
+  Exact results now carry the input-derived cohort (`cbrt(0.027)` is `0.3`,
+  quantum −1) where the post-hoc era's cohort was kernel noise (`0.3000…0`
+  at quantum −34 here, bare `2` for `cbrt(8)`).
+
 - `exp2` now resolves nearest-mode ties exactly (ADR-0059 M7). An integer
   input `n` whose `2^n` is expressible in at most `PRECISION + 1` digits is
   delivered from the exact coefficient through the format rounder instead of

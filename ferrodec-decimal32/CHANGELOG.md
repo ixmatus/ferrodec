@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `Decimal32::cbrt` directed-mode results on perfect cubes (ADR-0059 M7):
+  `cbrt(0.027)` at `TowardZero` / `TowardNegative` returned `0.2999999`
+  with a spurious `INEXACT`; it now returns the exact `0.3` with status
+  `OK` at every rounding direction, via input-side classification. Exact
+  roots carry the input-derived cohort.
+
 - `Decimal32::exp2` nearest-mode tie value (ADR-0059 M7): `exp2(-11)` is an
   exact midpoint (`5^11 = 48828125`, 8 digits ending in 5), now resolved
   exactly by the input-side classifier through the format rounder. Changed

@@ -105,3 +105,21 @@ fn exp2_ties_at_precision_plus_one() {
         "exp2(-25) NE",
     );
 }
+
+/// Input-side cbrt exactness (ADR-0059 M7): a perfect cube returns its
+/// exact root at every rounding direction with status OK. Before M7,
+/// `cbrt(0.027)` at `TowardZero` / `TowardNegative` shipped `0.2999…9`
+/// with a spurious `INEXACT` (the post-hoc proof could not fire on a
+/// misrounded kernel result — it was circular).
+#[test]
+fn cbrt_exact_cubes_every_mode() {
+    for rm in [NE, NA, TZ, TP, TN] {
+        assert_exact(parse("8").cbrt(rm), "2", "cbrt(8)");
+        assert_exact(parse("-0.027").cbrt(rm), "-0.3", "cbrt(-0.027)");
+        assert_exact(parse("1E+300").cbrt(rm), "1E+100", "cbrt(1E+300)");
+        // A 16-digit perfect cube: 3.375E+15 = (1.5E+5)³.
+        assert_exact(parse("3.375E+15").cbrt(rm), "1.5E+5", "cbrt(3.375E+15)");
+    }
+    let (_, st) = parse("9").cbrt(NE);
+    assert!(st.inexact(), "cbrt(9) is irrational: {st:?}");
+}

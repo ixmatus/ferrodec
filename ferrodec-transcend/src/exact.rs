@@ -13,14 +13,17 @@
 //! their values at non-special representable inputs are irrational
 //! (Lindemann for the base-`e` family at rational arguments), and the
 //! special inputs short-circuit. Five functions are the exceptions.
-//! `cbrt` and `pow` can land on an exact, representable value (a perfect
-//! cube root, an exact integer or rational power) and are proved exact
-//! *post-hoc* from the rounded result (ADR-0047). `exp2`, `log2`, and
-//! `log10` have exact cases detectable from the *input* alone
-//! (`exp2(n)` with `2^n` representable, `log2(2^k)`, `log10(10^k)`;
-//! fd-aqs.8) and short-circuit before the kernel, which both clears the
-//! flag and delivers the exact value at every rounding direction —
-//! §7.5 forbids `INEXACT` on all of them.
+//! `cbrt` and `pow` can land on an exact, representable value (a
+//! perfect cube root, an exact integer or rational power). `exp2`,
+//! `log2`, and `log10` have exact cases detectable from the *input*
+//! alone (`exp2(n)` with `2^n` representable, `log2(2^k)`,
+//! `log10(10^k)`; fd-aqs.8), and since ADR-0059 M7 `cbrt` does too
+//! (`c = t³` and `3 | e` on the stripped input decide it). All of
+//! them short-circuit before the kernel, which both clears the flag
+//! and delivers the exact value at every rounding direction — §7.5
+//! forbids `INEXACT` on all of them. `pow` is still proved exact
+//! *post-hoc* from the rounded result (ADR-0047), a circular proof
+//! this lane replaces input-side as well.
 //!
 //! Classification widened to ties (ADR-0059 M7): a nearest-mode tie is
 //! exactly "expressible at `PRECISION + 1` digits with final digit 5",
@@ -39,10 +42,15 @@
 //! bails. A `false` result leaves today's `INEXACT` in place, which is
 //! always safe. The only dangerous outcome would be a `true` on a result
 //! that is *not* exact, which would clear a real `INEXACT`; the bounds are
-//! chosen so that can never happen. The proof leans on the kernels being
-//! correctly rounded (ADR-0032): if the infinitely precise result were
-//! exact and representable, correct rounding delivers it exactly, so the
-//! cube / power check below sees the true value and succeeds.
+//! chosen so that can never happen. For the remaining post-hoc predicate
+//! (`pow`) the proof still leans on the kernel being correctly rounded
+//! (ADR-0032): if the infinitely precise result were exact and
+//! representable, correct rounding delivers it exactly, so the power
+//! check below sees the true value and succeeds. The input-side
+//! classifiers carry the stronger obligation instead: every bail must be
+//! *provably* neither exact nor a tie, so the kernel's unconditional
+//! `INEXACT` and the escalation ladder's "not a boundary" assumption
+//! (ADR-0059) stay true; each bail site documents its proof.
 //!
 //! `no_std`, alloc-free: fixed-width [`U256`] / `U384` integer math only.
 
@@ -106,6 +114,11 @@ fn checked_mul_u256(a: U256, b: U256) -> Option<U256> {
 /// `(10^12)³ = 10^36` already exceeds the widest format coefficient), so
 /// a wider `c` cannot be exact and bails. The retained range keeps `c³`
 /// below ~36 digits, comfortably inside `U256`.
+///
+/// Test-only since ADR-0059 M7: the production path decides exactness
+/// input-side ([`cbrt_exact_input`]); this survives as the independent
+/// witness the unit tests cross-check that decision against.
+#[cfg(test)]
 fn cube_u256(c: U256) -> Option<U256> {
     if c.decimal_digit_count() > 12 {
         return None;
@@ -134,13 +147,21 @@ fn value_eq(c1: U256, e1: i32, c2: U256, e2: i32) -> bool {
 }
 
 /// `true` when `result` is the exact cube root of `x` (a perfect cube).
+/// Compares magnitudes only (`cbrt` is odd; signs match by
+/// construction).
 ///
-/// Caller guarantees `result` and `x` are finite (NaN / Inf / overflow are
-/// filtered at the kernel before this is reached). Compares magnitudes
-/// only: `cbrt` is odd and the kernel re-applies the sign, so
-/// `sign(result) == sign(x)` by construction and `result³ == x` reduces to
-/// `|result|³ == |x|`.
-pub(crate) fn cube_is_exact<F: DecimalFormat>(result: F, x: F) -> bool {
+/// Test-only since ADR-0059 M7. This was the ADR-0047 post-hoc proof,
+/// and it was circular: it could only recognise an exact root the
+/// kernel had *already delivered exactly*, which leans on the very
+/// correct-rounding claim being proved. The failure was live, not
+/// hypothetical: at `TowardZero` / `TowardNegative` the kernel's
+/// 50-digit error landed `cbrt(0.027)` on `0.2999…9`, the cube-back
+/// check saw a non-cube, and the wrong value shipped with a spurious
+/// `INEXACT`. The production path now decides exactness from the input
+/// alone ([`cbrt_exact_input`]); this predicate survives as the
+/// independent test witness (delivered root cubes back to the input).
+#[cfg(test)]
+fn cube_is_exact<F: DecimalFormat>(result: F, x: F) -> bool {
     let (Some((cr, er, _)), Some((cx, ex, _))) =
         (result.to_extended_parts(), x.to_extended_parts())
     else {
@@ -477,6 +498,81 @@ pub(crate) fn log2_exact<F: DecimalFormat>(x: F, rm: RoundingMode) -> Option<(F,
     ))
 }
 
+// ----------------------------------------------------------------------------
+// Input-side exactness for `cbrt` (ADR-0059 M7, replacing the ADR-0047
+// post-hoc proof — see `cube_is_exact` for why that proof was circular).
+
+/// Integer cube root witness: `Some(t)` iff `t³ == c` exactly, for
+/// `c ≥ 1`. Binary search with overflow-checked cubing, so the routine
+/// is total over all of `u128` even though format coefficients stay
+/// within 34 digits (root ≤ 12 digits).
+fn cbrt_u128(c: u128) -> Option<u128> {
+    let mut lo: u128 = 1;
+    let mut hi: u128 = 6_981_463_658_332; // ⌈u128::MAX^(1/3)⌉
+    while lo <= hi {
+        let mid = lo + (hi - lo) / 2;
+        match mid.checked_mul(mid).and_then(|sq| sq.checked_mul(mid)) {
+            Some(cube) if cube == c => return Some(mid),
+            Some(cube) if cube < c => lo = mid + 1,
+            _ => hi = mid - 1,
+        }
+    }
+    None
+}
+
+/// The exact `cbrt(x)` decided from the input alone, for a positive
+/// finite nonzero `x`; `None` routes to the kernel. The caller works
+/// on `|x|` and re-applies the sign (`cbrt` is odd).
+///
+/// ## Exactness is decidable, and decided completely
+///
+/// Write `|x|` in stripped form `c · 10^e` (`c` free of trailing
+/// zeros); stripped forms are unique. If `cbrt(x)` is representable it
+/// is some stripped `t · 10^u`, and `t³` is itself free of trailing
+/// zeros (`10 | t³` forces `2 | t` and `5 | t`), so cubing produces
+/// exactly the stripped form of `|x|`: `c = t³` and `e = 3u`. Both
+/// conditions are decidable: `3 | e` plus an integer cube-root check.
+/// When either fails, `cbrt(x)` is irrational — a rational root `n/d`
+/// in lowest terms of the terminating decimal `x` forces
+/// `d³ | 10^k`, so `d = 2^i·5^j` and the root itself terminates,
+/// which is the caught case — and the kernel's unconditional
+/// `INEXACT` is then correct.
+///
+/// ## No ties
+///
+/// A nearest-mode midpoint `h` of the result grid has a stripped
+/// coefficient ending in 5. In the normal range that coefficient has
+/// exactly `PRECISION + 1` digits, so `x = h³` would need at least
+/// `3·PRECISION + 1` stripped digits: no representable `x` has them.
+/// In the subnormal range (quantum pinned at `etiny`) the midpoint is
+/// `h = c_h · 10^(etiny − 1)` with `c_h ≤ 10^(PRECISION + 1)`, so
+/// `x = c_h³ · 10^(3·etiny − 3) < 10^(3·PRECISION + 3·etiny)`, and
+/// `3·PRECISION + 3·etiny < etiny` for every IEEE decimal format
+/// (`etiny < −3·PRECISION/2` holds with orders of magnitude to
+/// spare), putting `x` below every representable magnitude. `cbrt`
+/// therefore has no ties: the exact case above is the whole boundary
+/// story, and a delivered root (at most `⌈PRECISION/3⌉` digits)
+/// packs exactly, status `OK`, identically in every rounding mode.
+pub(crate) fn cbrt_exact_input<F: DecimalFormat>(
+    abs_x: F,
+    rm: RoundingMode,
+) -> Option<(F, Status)> {
+    let (coef, exp, _) = abs_x.to_extended_parts()?;
+    if coef.is_zero() {
+        return None; // zero short-circuits at the kernel
+    }
+    let (c, e) = strip_trailing_zeros(coef, exp);
+    if e % 3 != 0 {
+        return None;
+    }
+    // A format coefficient fits u128 (≤ 34 digits); bail defensively.
+    if c.hi != 0 {
+        return None;
+    }
+    let t = cbrt_u128(c.lo)?;
+    Some(pack_value(U256::from_u128(t), e / 3, false, rm))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -509,6 +605,79 @@ mod tests {
         assert_eq!(strip_trailing_zeros(U256::ZERO, -5), (U256::ZERO, -5));
         // No trailing zero: unchanged.
         assert_eq!(strip_trailing_zeros(u(123), -2), (u(123), -2));
+    }
+
+    use crate::mock_format::ValueFmt128;
+
+    fn v128(coef: u128, exp: i32) -> ValueFmt128 {
+        ValueFmt128 {
+            coef,
+            exp,
+            sign: false,
+        }
+    }
+
+    #[test]
+    fn cbrt_u128_finds_exact_roots() {
+        assert_eq!(cbrt_u128(1), Some(1));
+        assert_eq!(cbrt_u128(8), Some(2));
+        assert_eq!(cbrt_u128(27), Some(3));
+        assert_eq!(cbrt_u128(1_000_000), Some(100));
+        // 12-digit root at the format ceiling: 999999999999³.
+        let t = 999_999_999_999u128;
+        assert_eq!(cbrt_u128(t * t * t), Some(t));
+        // The u128 ceiling itself: ⌊u128::MAX^(1/3)⌋³ is found, and
+        // u128::MAX (not a cube) is rejected without overflow.
+        let top = 6_981_463_658_331u128;
+        assert_eq!(cbrt_u128(top * top * top), Some(top));
+        assert_eq!(cbrt_u128(u128::MAX), None);
+    }
+
+    #[test]
+    fn cbrt_u128_rejects_non_cubes() {
+        for c in [2u128, 7, 9, 26, 28, 100, 124, 126, 999_999_999_998] {
+            assert_eq!(cbrt_u128(c), None, "{c} is not a cube");
+        }
+    }
+
+    /// Cross-check the input-side decision against the retired
+    /// post-hoc witness: wherever `cbrt_exact_input`'s number theory
+    /// says "exact root `t · 10^(e/3)`", cubing that root must
+    /// reproduce the input value exactly (`cube_is_exact`), and
+    /// wherever it says "no", the witness must agree for every
+    /// candidate rounding of the true root. Two independent proofs of
+    /// the same boundary fact.
+    #[test]
+    fn cbrt_input_decision_matches_posthoc_witness() {
+        // Exact: (input coef, input exp) -> (root coef, root exp).
+        let exact = [
+            (8u128, 0i32, 2u128, 0i32),
+            (27, -3, 3, -1),
+            (125, 3, 5, 1),
+            (9261, 30, 21, 10),
+            (1, 72, 1, 24),
+            (912_673, -6, 97, -2),
+        ];
+        for (cx, ex, ct, et) in exact {
+            let (c, e) = strip_trailing_zeros(U256::from_u128(cx), ex);
+            assert_eq!(e % 3, 0, "{cx}e{ex}: exponent divisible by 3");
+            let t = cbrt_u128(c.lo).expect("perfect cube");
+            assert_eq!((t, e / 3), (ct, et), "{cx}e{ex}: root parts");
+            assert!(
+                cube_is_exact(v128(ct, et), v128(cx, ex)),
+                "{cx}e{ex}: witness confirms t³ reproduces the input"
+            );
+        }
+        // Not exact: coefficient a cube but exponent not divisible by
+        // 3, and vice versa; the witness agrees the candidate root of
+        // the nearest shape does not cube back.
+        let (c, e) = strip_trailing_zeros(U256::from_u128(27), -2);
+        assert_ne!(e % 3, 0, "0.27 fails the exponent test");
+        assert!(!cube_is_exact(v128(3, -1), v128(27, -2)));
+        let (c9, _) = strip_trailing_zeros(U256::from_u128(9), 0);
+        assert_eq!(cbrt_u128(c9.lo), None, "9 fails the cube test");
+        assert!(!cube_is_exact(v128(2, 0), v128(9, 0)));
+        let _ = c;
     }
 
     #[test]

@@ -120,6 +120,42 @@ fn exp2_ties_at_precision_plus_one() {
     }
 }
 
+/// Input-side cbrt exactness (ADR-0059 M7): a perfect cube returns its
+/// exact root at every rounding direction with status OK. Before M7
+/// the exactness proof was post-hoc from the rounded result and
+/// circular: at `TowardZero` / `TowardNegative` the kernel's 50-digit
+/// approximation of `cbrt(0.027)` landed below `0.3`, the directed
+/// round truncated to `0.2999…9`, the cube-back check saw a non-cube,
+/// and the wrong value shipped with a spurious `INEXACT`.
+#[test]
+fn cbrt_exact_cubes_every_mode() {
+    for rm in ALL {
+        assert_exact(parse("8").cbrt(rm), "2", "cbrt(8)");
+        assert_exact(parse("-8").cbrt(rm), "-2", "cbrt(-8)");
+        assert_exact(parse("0.027").cbrt(rm), "0.3", "cbrt(0.027)");
+        assert_exact(parse("-0.027").cbrt(rm), "-0.3", "cbrt(-0.027)");
+        assert_exact(parse("1E+300").cbrt(rm), "1E+100", "cbrt(1E+300)");
+        assert_exact(parse("1E-6174").cbrt(rm), "1E-2058", "cbrt(1E-6174)");
+        // A 34-digit perfect cube: 9.261E+33 = (2.1E+11)³.
+        assert_exact(parse("9.261E+33").cbrt(rm), "2.1E+11", "cbrt(9.261E+33)");
+        // Cohort-insensitivity: 0.027000 is the same value at another
+        // quantum and must take the same exact path.
+        assert_exact(parse("0.027000").cbrt(rm), "0.3", "cbrt(0.027000)");
+    }
+    // Non-cube controls stay inexact on the kernel: a cube coefficient
+    // at an exponent not divisible by 3, and a non-cube coefficient.
+    let (_, st) = parse("0.27").cbrt(NE);
+    assert!(st.inexact(), "cbrt(0.27) is irrational: {st:?}");
+    let (_, st) = parse("9").cbrt(NE);
+    assert!(st.inexact(), "cbrt(9) is irrational: {st:?}");
+    // The exact path delivers the input-derived natural cohort. The
+    // post-hoc era's cohort was kernel noise: 0.3000000000000000…0
+    // (34 digits) here, but bare 2 for cbrt(8), depending on whether
+    // the 50-digit kernel happened to land exactly.
+    let (r, _) = parse("0.027").cbrt(NE);
+    assert_eq!(format!("{r}"), "0.3", "cbrt(0.027) cohort");
+}
+
 /// The non-tie `PRECISION + 1` cases route through the same classifier
 /// and must stay byte-identical to the (already correct) kernel: a
 /// 35-digit `2^n` whose final digit is not 5 has both directed sides

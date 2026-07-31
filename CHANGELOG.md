@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `Decimal128::cbrt` directed-mode results on perfect cubes (ADR-0059 M7):
+  `cbrt(0.027)` at `TowardZero` / `TowardNegative` returned
+  `0.2999999999999999999999999999999999` with a spurious `INEXACT`; it now
+  returns the exact `0.3` with status `OK` at every rounding direction, via
+  input-side classification (the replaced post-hoc proof could only
+  recognise an exact root the kernel had already delivered exactly). Exact
+  roots now carry the input-derived cohort (`0.3` at quantum −1 rather than
+  the kernel-noise `0.3000…0` at quantum −34).
+
 - `Decimal128::exp2` nearest-mode tie values (ADR-0059 M7): `exp2(-49)` and
   `exp2(-50)` are exact midpoints of adjacent representable values (`5^49`
   and `5^50` are 35 digits ending in 5), which the 50-digit approximation
