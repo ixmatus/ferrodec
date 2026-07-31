@@ -119,7 +119,9 @@
 
 use crate::exp::exp_extended_body;
 use crate::extended::{ExtNum, Extended};
+use crate::extended2::Extended2;
 use crate::format::DecimalFormat;
+use crate::ladder;
 use crate::ln::{ln_from_extended_body, log1p_extended_body};
 use ferrodec_ieee::IeeeDecodedClass as Class;
 use ferrodec_ieee::{RoundingMode, Status};
@@ -138,28 +140,35 @@ use ferrodec_ieee::{RoundingMode, Status};
 /// sits a finite distance from its rounding boundary (the escalation
 /// ladder's standing assumption).
 pub fn sinh_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
-    sinh_kernel_body::<F, Extended>(x, rm)
+    ladder::run(
+        || sinh_kernel_body::<F, Extended>(x, rm),
+        || sinh_kernel_body::<F, Extended2>(x, rm),
+    )
 }
 
-/// Generic body of [`sinh_kernel`] (M4, ADR-0059).
-pub(crate) fn sinh_kernel_body<F: DecimalFormat, E: ExtNum>(x: F, rm: RoundingMode) -> (F, Status) {
+/// Generic body of [`sinh_kernel`] (M4, ADR-0059); `None`
+/// escalates (M8 ladder).
+pub(crate) fn sinh_kernel_body<F: DecimalFormat, E: ExtNum>(
+    x: F,
+    rm: RoundingMode,
+) -> Option<(F, Status)> {
     match x.classify() {
-        Class::SignalingNaN { .. } => return (x.nan_from(), Status::INVALID),
-        Class::QuietNaN { .. } => return (x, Status::OK),
-        Class::Infinity { .. } => return (x, Status::OK),
-        Class::Zero { .. } => return (x, Status::OK),
+        Class::SignalingNaN { .. } => return Some((x.nan_from(), Status::INVALID)),
+        Class::QuietNaN { .. } => return Some((x, Status::OK)),
+        Class::Infinity { .. } => return Some((x, Status::OK)),
+        Class::Zero { .. } => return Some((x, Status::OK)),
         Class::Finite { .. } => {}
     }
     let x_ext = E::from_format(x);
     let result_ext = sinh_ext::<F, E>(x_ext);
     // Grid-stuck at the input (ADR-0051): `|sinh x| > |x|` is a
     // theorem, so the residual side is the growing one.
+    // Unguarded: the anchor leg runs before the ladder's predicate.
     if result_ext.sticks_to(x_ext) {
         let (result, status) = x_ext.to_format_with_residual::<F>(true, rm);
-        return (result, status | Status::INEXACT);
+        return Some((result, status | Status::INEXACT));
     }
-    let (result, status) = result_ext.to_format::<F>(0, rm);
-    (result, status | Status::INEXACT)
+    ladder::round_guarded::<F, E>(result_ext, rm, &ladder::SINH)
 }
 
 /// Hyperbolic cosine.
@@ -171,28 +180,35 @@ pub(crate) fn sinh_kernel_body<F: DecimalFormat, E: ExtNum>(x: F, rm: RoundingMo
 /// representable input has an exact result or a nearest-mode tie;
 /// the unconditional `INEXACT` is correct in every mode.
 pub fn cosh_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
-    cosh_kernel_body::<F, Extended>(x, rm)
+    ladder::run(
+        || cosh_kernel_body::<F, Extended>(x, rm),
+        || cosh_kernel_body::<F, Extended2>(x, rm),
+    )
 }
 
-/// Generic body of [`cosh_kernel`] (M4, ADR-0059).
-pub(crate) fn cosh_kernel_body<F: DecimalFormat, E: ExtNum>(x: F, rm: RoundingMode) -> (F, Status) {
+/// Generic body of [`cosh_kernel`] (M4, ADR-0059); `None`
+/// escalates (M8 ladder).
+pub(crate) fn cosh_kernel_body<F: DecimalFormat, E: ExtNum>(
+    x: F,
+    rm: RoundingMode,
+) -> Option<(F, Status)> {
     match x.classify() {
-        Class::SignalingNaN { .. } => return (x.nan_from(), Status::INVALID),
-        Class::QuietNaN { .. } => return (x, Status::OK),
-        Class::Infinity { .. } => return (F::INFINITY, Status::OK),
-        Class::Zero { .. } => return (F::ONE, Status::OK),
+        Class::SignalingNaN { .. } => return Some((x.nan_from(), Status::INVALID)),
+        Class::QuietNaN { .. } => return Some((x, Status::OK)),
+        Class::Infinity { .. } => return Some((F::INFINITY, Status::OK)),
+        Class::Zero { .. } => return Some((F::ONE, Status::OK)),
         Class::Finite { .. } => {}
     }
     let x_ext = E::from_format(x).abs();
     let result_ext = cosh_ext::<F, E>(x_ext);
     // Grid-stuck at the 1 anchor (ADR-0051): `cosh x > 1` for every
     // finite nonzero `x`, so the residual side is the growing one.
+    // Unguarded: the anchor leg runs before the ladder's predicate.
     if result_ext.sticks_to(E::ONE) {
         let (result, status) = E::ONE.to_format_with_residual::<F>(true, rm);
-        return (result, status | Status::INEXACT);
+        return Some((result, status | Status::INEXACT));
     }
-    let (result, status) = result_ext.to_format::<F>(0, rm);
-    (result, status | Status::INEXACT)
+    ladder::round_guarded::<F, E>(result_ext, rm, &ladder::COSH)
 }
 
 /// Hyperbolic tangent.
@@ -209,18 +225,25 @@ pub(crate) fn cosh_kernel_body<F: DecimalFormat, E: ExtNum>(x: F, rm: RoundingMo
 /// through the ADR-0051 residual seam, an inexact-by-construction
 /// path, not an exact-case claim.
 pub fn tanh_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
-    tanh_kernel_body::<F, Extended>(x, rm)
+    ladder::run(
+        || tanh_kernel_body::<F, Extended>(x, rm),
+        || tanh_kernel_body::<F, Extended2>(x, rm),
+    )
 }
 
-/// Generic body of [`tanh_kernel`] (M4, ADR-0059).
-pub(crate) fn tanh_kernel_body<F: DecimalFormat, E: ExtNum>(x: F, rm: RoundingMode) -> (F, Status) {
+/// Generic body of [`tanh_kernel`] (M4, ADR-0059); `None`
+/// escalates (M8 ladder).
+pub(crate) fn tanh_kernel_body<F: DecimalFormat, E: ExtNum>(
+    x: F,
+    rm: RoundingMode,
+) -> Option<(F, Status)> {
     match x.classify() {
-        Class::SignalingNaN { .. } => return (x.nan_from(), Status::INVALID),
-        Class::QuietNaN { .. } => return (x, Status::OK),
+        Class::SignalingNaN { .. } => return Some((x.nan_from(), Status::INVALID)),
+        Class::QuietNaN { .. } => return Some((x, Status::OK)),
         Class::Infinity { sign } => {
-            return (if sign { F::NEG_ONE } else { F::ONE }, Status::OK);
+            return Some((if sign { F::NEG_ONE } else { F::ONE }, Status::OK));
         }
-        Class::Zero { .. } => return (x, Status::OK),
+        Class::Zero { .. } => return Some((x, Status::OK)),
         Class::Finite { .. } => {}
     }
     // Saturation band, |x| > 45: here `1 − |tanh x| = 2e^{−2|x|} /
@@ -257,7 +280,9 @@ pub(crate) fn tanh_kernel_body<F: DecimalFormat, E: ExtNum>(x: F, rm: RoundingMo
             rm,
             Status::OK,
         );
-        return (result, status | Status::INEXACT);
+        // Unguarded: the saturation-band analysis above proves every
+        // mode's answer, independent of the rung.
+        return Some((result, status | Status::INEXACT));
     }
     let x_ext = E::from_format(x);
     let s = sinh_ext::<F, E>(x_ext);
@@ -266,12 +291,12 @@ pub(crate) fn tanh_kernel_body<F: DecimalFormat, E: ExtNum>(x: F, rm: RoundingMo
     let result_ext = s.div::<F>(c);
     // Grid-stuck at the input (ADR-0051): `|tanh x| < |x|` is a
     // theorem, so the residual side is the shrinking one.
+    // Unguarded: the anchor leg runs before the ladder's predicate.
     if result_ext.sticks_to(x_ext) {
         let (result, status) = x_ext.to_format_with_residual::<F>(false, rm);
-        return (result, status | Status::INEXACT);
+        return Some((result, status | Status::INEXACT));
     }
-    let (result, status) = result_ext.to_format::<F>(0, rm);
-    (result, status | Status::INEXACT)
+    ladder::round_guarded::<F, E>(result_ext, rm, &ladder::TANH)
 }
 
 /// Inverse hyperbolic sine, defined for all real `x`.
@@ -285,19 +310,23 @@ pub(crate) fn tanh_kernel_body<F: DecimalFormat, E: ExtNum>(x: F, rm: RoundingMo
 /// `asinh(±0) = ±0` is exact, ties are impossible, and the
 /// unconditional `INEXACT` is correct in every mode.
 pub fn asinh_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
-    asinh_kernel_body::<F, Extended>(x, rm)
+    ladder::run(
+        || asinh_kernel_body::<F, Extended>(x, rm),
+        || asinh_kernel_body::<F, Extended2>(x, rm),
+    )
 }
 
-/// Generic body of [`asinh_kernel`] (M4, ADR-0059).
+/// Generic body of [`asinh_kernel`] (M4, ADR-0059); `None`
+/// escalates (M8 ladder).
 pub(crate) fn asinh_kernel_body<F: DecimalFormat, E: ExtNum>(
     x: F,
     rm: RoundingMode,
-) -> (F, Status) {
+) -> Option<(F, Status)> {
     match x.classify() {
-        Class::SignalingNaN { .. } => return (x.nan_from(), Status::INVALID),
-        Class::QuietNaN { .. } => return (x, Status::OK),
-        Class::Infinity { .. } => return (x, Status::OK),
-        Class::Zero { .. } => return (x, Status::OK),
+        Class::SignalingNaN { .. } => return Some((x.nan_from(), Status::INVALID)),
+        Class::QuietNaN { .. } => return Some((x, Status::OK)),
+        Class::Infinity { .. } => return Some((x, Status::OK)),
+        Class::Zero { .. } => return Some((x, Status::OK)),
         Class::Finite { .. } => {}
     }
     // asinh(x) = sign(x) · ln(|x| + sqrt(x² + 1))
@@ -334,13 +363,13 @@ pub(crate) fn asinh_kernel_body<F: DecimalFormat, E: ExtNum>(
     let signed_ext = if neg { result_ext.neg() } else { result_ext };
     // Grid-stuck at the input (ADR-0051): `|asinh x| < |x|` is a
     // theorem, so the residual side is the shrinking one.
+    // Unguarded: the anchor leg runs before the ladder's predicate.
     let x_anchor = E::from_format(x);
     if signed_ext.sticks_to(x_anchor) {
         let (result, status) = x_anchor.to_format_with_residual::<F>(false, rm);
-        return (result, status | Status::INEXACT);
+        return Some((result, status | Status::INEXACT));
     }
-    let (result, status) = signed_ext.to_format::<F>(0, rm);
-    (result, status | Status::INEXACT)
+    ladder::round_guarded::<F, E>(signed_ext, rm, &ladder::ASINH)
 }
 
 /// Inverse hyperbolic cosine, defined for `x ≥ 1`.
@@ -354,31 +383,35 @@ pub(crate) fn asinh_kernel_body<F: DecimalFormat, E: ExtNum>(
 /// `acosh(1) = 0` is exact, ties are impossible, and the
 /// unconditional `INEXACT` is correct in every mode.
 pub fn acosh_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
-    acosh_kernel_body::<F, Extended>(x, rm)
+    ladder::run(
+        || acosh_kernel_body::<F, Extended>(x, rm),
+        || acosh_kernel_body::<F, Extended2>(x, rm),
+    )
 }
 
-/// Generic body of [`acosh_kernel`] (M4, ADR-0059).
+/// Generic body of [`acosh_kernel`] (M4, ADR-0059); `None`
+/// escalates (M8 ladder).
 pub(crate) fn acosh_kernel_body<F: DecimalFormat, E: ExtNum>(
     x: F,
     rm: RoundingMode,
-) -> (F, Status) {
+) -> Option<(F, Status)> {
     match x.classify() {
-        Class::SignalingNaN { .. } => return (x.nan_from(), Status::INVALID),
-        Class::QuietNaN { .. } => return (x, Status::OK),
+        Class::SignalingNaN { .. } => return Some((x.nan_from(), Status::INVALID)),
+        Class::QuietNaN { .. } => return Some((x, Status::OK)),
         Class::Infinity { sign } => {
-            return if sign {
+            return Some(if sign {
                 (F::NAN, Status::INVALID)
             } else {
                 (F::INFINITY, Status::OK)
-            };
+            });
         }
-        Class::Zero { .. } => return (F::NAN, Status::INVALID),
+        Class::Zero { .. } => return Some((F::NAN, Status::INVALID)),
         Class::Finite { .. } => {}
     }
     let (cmp, _) = x.partial_cmp_fmt(F::ONE);
     match cmp {
-        Some(core::cmp::Ordering::Less) => return (F::NAN, Status::INVALID),
-        Some(core::cmp::Ordering::Equal) => return (F::ZERO, Status::OK),
+        Some(core::cmp::Ordering::Less) => return Some((F::NAN, Status::INVALID)),
+        Some(core::cmp::Ordering::Equal) => return Some((F::ZERO, Status::OK)),
         _ => {}
     }
     // Two paths, picked by how close x is to 1:
@@ -420,8 +453,7 @@ pub(crate) fn acosh_kernel_body<F: DecimalFormat, E: ExtNum>(
         let inner = x_ext.add(x_sq_minus_one.sqrt::<F>());
         ln_from_extended_body(inner)
     };
-    let (result, status) = result_ext.to_format::<F>(0, rm);
-    (result, status | Status::INEXACT)
+    ladder::round_guarded::<F, E>(result_ext, rm, &ladder::ACOSH)
 }
 
 /// Inverse hyperbolic tangent, defined for `|x| < 1`.
@@ -435,36 +467,40 @@ pub(crate) fn acosh_kernel_body<F: DecimalFormat, E: ExtNum>(
 /// `atanh(±0) = ±0` is exact, ties are impossible, and the
 /// unconditional `INEXACT` is correct in every mode.
 pub fn atanh_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
-    atanh_kernel_body::<F, Extended>(x, rm)
+    ladder::run(
+        || atanh_kernel_body::<F, Extended>(x, rm),
+        || atanh_kernel_body::<F, Extended2>(x, rm),
+    )
 }
 
-/// Generic body of [`atanh_kernel`] (M4, ADR-0059).
+/// Generic body of [`atanh_kernel`] (M4, ADR-0059); `None`
+/// escalates (M8 ladder).
 pub(crate) fn atanh_kernel_body<F: DecimalFormat, E: ExtNum>(
     x: F,
     rm: RoundingMode,
-) -> (F, Status) {
+) -> Option<(F, Status)> {
     match x.classify() {
-        Class::SignalingNaN { .. } => return (x.nan_from(), Status::INVALID),
-        Class::QuietNaN { .. } => return (x, Status::OK),
-        Class::Infinity { .. } => return (F::NAN, Status::INVALID),
-        Class::Zero { .. } => return (x, Status::OK),
+        Class::SignalingNaN { .. } => return Some((x.nan_from(), Status::INVALID)),
+        Class::QuietNaN { .. } => return Some((x, Status::OK)),
+        Class::Infinity { .. } => return Some((F::NAN, Status::INVALID)),
+        Class::Zero { .. } => return Some((x, Status::OK)),
         Class::Finite { .. } => {}
     }
     let abs_x = x.abs();
     let (cmp, _) = abs_x.partial_cmp_fmt(F::ONE);
     match cmp {
-        Some(core::cmp::Ordering::Greater) => return (F::NAN, Status::INVALID),
+        Some(core::cmp::Ordering::Greater) => return Some((F::NAN, Status::INVALID)),
         Some(core::cmp::Ordering::Equal) => {
             // atanh(±1) = ±∞, raise DIV_BY_ZERO (the formula has
             // 1/(1−|x|) at the singularity).
-            return (
+            return Some((
                 if x.is_sign_negative() {
                     F::NEG_INFINITY
                 } else {
                     F::INFINITY
                 },
                 Status::DIV_BY_ZERO,
-            );
+            ));
         }
         _ => {}
     }
@@ -499,12 +535,12 @@ pub(crate) fn atanh_kernel_body<F: DecimalFormat, E: ExtNum>(
     };
     // Grid-stuck at the input (ADR-0051): `|atanh x| > |x|` is a
     // theorem, so the residual side is the growing one.
+    // Unguarded: the anchor leg runs before the ladder's predicate.
     if result_ext.sticks_to(x_ext) {
         let (result, status) = x_ext.to_format_with_residual::<F>(true, rm);
-        return (result, status | Status::INEXACT);
+        return Some((result, status | Status::INEXACT));
     }
-    let (result, status) = result_ext.to_format::<F>(0, rm);
-    (result, status | Status::INEXACT)
+    ladder::round_guarded::<F, E>(result_ext, rm, &ladder::ATANH)
 }
 
 /// `sinh(x)` at working precision.

@@ -461,18 +461,29 @@ impl Extended {
         if self.is_zero() {
             return true;
         }
-        let dig = self.coef.decimal_digit_count();
-        debug_assert!(
-            dig <= EXT_PRECISION,
-            "near_rounding_boundary: caller must uphold the kernel's \
-             ≤ EXT_PRECISION-digit coefficient invariant"
-        );
+        // Normalize to the rung width first. Kernel arithmetic keeps
+        // coefficients ≤ EXT_PRECISION digits, but a value delivered
+        // straight from a hand-curated constant carries up to
+        // `EXT_PRECISION + 5` (the `parse_str` envelope — `atan(1)`
+        // returns the 55-digit π/4 literal verbatim). Rounding those
+        // extra digits away perturbs the measured distance by ≤ 1
+        // unit, absorbed by every real budget (all ≥ 10^4); *not*
+        // normalizing would silently shrink the budget unit by up to
+        // 10^5 and under-escalate (M8).
+        let (coef, exp) = if self.coef.decimal_digit_count() > EXT_PRECISION {
+            let mut wide = U384::from_u256(self.coef);
+            let (c, shift) = round_u384_to_ext(&mut wide);
+            (c, self.exp + shift as i32)
+        } else {
+            (self.coef, self.exp)
+        };
+        let dig = coef.decimal_digit_count();
 
         // Widen to exactly EXT_PRECISION digits so the budget unit is
         // uniform across inputs (cf. to_format_with_residual).
         let scale = EXT_PRECISION.saturating_sub(dig);
-        let coef_w = self.coef.mul_pow10(scale);
-        let exp_w = self.exp - scale as i32;
+        let coef_w = coef.mul_pow10(scale);
+        let exp_w = exp - scale as i32;
         let digits = dig + scale;
 
         // The fd-42l single-rounding drop position: the wider of the
@@ -952,6 +963,28 @@ pub(crate) trait ExtNum: Copy + core::fmt::Debug {
     /// [`Extended::near_rounding_boundary`]).
     #[must_use]
     fn near_rounding_boundary<F: DecimalFormat>(self, budget: u128) -> bool;
+
+    // ---- ladder position (ADR-0059 M8) ---------------------------------
+
+    /// `true` when a near-boundary verdict at this rung escalates to
+    /// the next one; `false` only for the top fixed rung, whose
+    /// delivery is unconditional (the Tier 2 model; `ladder_audit`
+    /// builds panic there instead).
+    const ESCALATES: bool;
+    /// This rung's side of a per-function [`crate::ladder::Budget`]
+    /// pair, in this rung's own predicate units.
+    fn rung_budget(budget: &crate::ladder::Budget) -> u128;
+    /// This rung's Payne–Hanek reduction: `(k mod 4, |x| reduced into
+    /// `[0, π/4]`, status)`. Rung 1 reads the 76-fractional-digit
+    /// window and the 38-digit `π/2` (empirically discharged
+    /// truncation, fd-aqs.10); rung 2 reads `reduce_wide`'s
+    /// 143-digit window and the 115-digit `π/2` (analytic
+    /// `< 10^-114` truncation, M6). Dispatching per rung is the
+    /// whole point of trig escalation: re-running the narrow
+    /// reduction at wide arithmetic would inherit the very
+    /// truncation the escalation is trying to outrun.
+    #[cfg(feature = "trig")]
+    fn reduce_trig<F: DecimalFormat>(x: F) -> (u32, Self, Status);
 }
 
 impl ExtNum for Extended {
@@ -1129,6 +1162,15 @@ impl ExtNum for Extended {
     }
     fn near_rounding_boundary<F: DecimalFormat>(self, budget: u128) -> bool {
         Extended::near_rounding_boundary::<F>(self, budget)
+    }
+
+    const ESCALATES: bool = true;
+    fn rung_budget(budget: &crate::ladder::Budget) -> u128 {
+        budget.rung1
+    }
+    #[cfg(feature = "trig")]
+    fn reduce_trig<F: DecimalFormat>(x: F) -> (u32, Self, Status) {
+        crate::argred::reduce_body::<F, Extended>(x)
     }
 }
 

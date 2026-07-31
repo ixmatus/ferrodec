@@ -53,7 +53,9 @@
 //! the canonical sweep enumeration.
 
 use crate::extended::{ExtNum, Extended};
+use crate::extended2::Extended2;
 use crate::format::DecimalFormat;
+use crate::ladder;
 use ferrodec_ieee::IeeeDecodedClass as Class;
 use ferrodec_ieee::{RoundingMode, Status};
 
@@ -71,27 +73,34 @@ use ferrodec_ieee::{RoundingMode, Status};
 /// every mode, and every input sits a finite distance from its
 /// rounding boundary (the escalation ladder's standing assumption).
 pub fn exp_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
-    exp_kernel_body::<F, Extended>(x, rm)
+    ladder::run(
+        || exp_kernel_body::<F, Extended>(x, rm),
+        || exp_kernel_body::<F, Extended2>(x, rm),
+    )
 }
 
-/// Generic body of [`exp_kernel`] (M4, ADR-0059).
-pub(crate) fn exp_kernel_body<F: DecimalFormat, E: ExtNum>(x: F, rm: RoundingMode) -> (F, Status) {
+/// Generic body of [`exp_kernel`] (M4, ADR-0059); `None` escalates
+/// (M8 ladder).
+pub(crate) fn exp_kernel_body<F: DecimalFormat, E: ExtNum>(
+    x: F,
+    rm: RoundingMode,
+) -> Option<(F, Status)> {
     match x.classify() {
-        Class::SignalingNaN { .. } => return (x.nan_from(), Status::INVALID),
-        Class::QuietNaN { .. } => return (x, Status::OK),
+        Class::SignalingNaN { .. } => return Some((x.nan_from(), Status::INVALID)),
+        Class::QuietNaN { .. } => return Some((x, Status::OK)),
         Class::Infinity { sign } => {
-            return if sign {
+            return Some(if sign {
                 (F::ZERO, Status::OK)
             } else {
                 (F::INFINITY, Status::OK)
-            };
+            });
         }
-        Class::Zero { .. } => return (F::ONE, Status::OK),
+        Class::Zero { .. } => return Some((F::ONE, Status::OK)),
         Class::Finite { .. } => {}
     }
 
     let x_ext = E::from_format(x);
-    exp_from_extended_body::<F, E>(x_ext, rm)
+    exp_from_extended_body::<F, E>(x_ext, rm, &ladder::EXP)
 }
 
 /// Base-2 exponential `2^x`. Computed as `exp(x · ln(2))` at extended
@@ -126,22 +135,29 @@ pub(crate) fn exp_kernel_body<F: DecimalFormat, E: ExtNum>(x: F, rm: RoundingMod
 /// cleared by the composed bound by more than thirty orders of
 /// magnitude.
 pub fn exp2_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
-    exp2_kernel_body::<F, Extended>(x, rm)
+    ladder::run(
+        || exp2_kernel_body::<F, Extended>(x, rm),
+        || exp2_kernel_body::<F, Extended2>(x, rm),
+    )
 }
 
-/// Generic body of [`exp2_kernel`] (M4, ADR-0059).
-pub(crate) fn exp2_kernel_body<F: DecimalFormat, E: ExtNum>(x: F, rm: RoundingMode) -> (F, Status) {
+/// Generic body of [`exp2_kernel`] (M4, ADR-0059); `None` escalates
+/// (M8 ladder).
+pub(crate) fn exp2_kernel_body<F: DecimalFormat, E: ExtNum>(
+    x: F,
+    rm: RoundingMode,
+) -> Option<(F, Status)> {
     match x.classify() {
-        Class::SignalingNaN { .. } => return (x.nan_from(), Status::INVALID),
-        Class::QuietNaN { .. } => return (x, Status::OK),
+        Class::SignalingNaN { .. } => return Some((x.nan_from(), Status::INVALID)),
+        Class::QuietNaN { .. } => return Some((x, Status::OK)),
         Class::Infinity { sign } => {
-            return if sign {
+            return Some(if sign {
                 (F::ZERO, Status::OK)
             } else {
                 (F::INFINITY, Status::OK)
-            };
+            });
         }
-        Class::Zero { .. } => return (F::ONE, Status::OK),
+        Class::Zero { .. } => return Some((F::ONE, Status::OK)),
         Class::Finite { .. } => {}
     }
     // Exact and tie classification (fd-aqs.8; widened to PRECISION + 1
@@ -156,10 +172,10 @@ pub(crate) fn exp2_kernel_body<F: DecimalFormat, E: ExtNum>(x: F, rm: RoundingMo
     // rounder's own tie rule, which no approximation kernel can do:
     // the true value IS the boundary.
     if let Some(result) = crate::exact::exp2_exact_or_tie::<F>(x, rm) {
-        return result;
+        return Some(result);
     }
     let arg_ext = E::from_format(x).mul(E::ln2());
-    exp_from_extended_body::<F, E>(arg_ext, rm)
+    exp_from_extended_body::<F, E>(arg_ext, rm, &ladder::EXP2)
 }
 
 /// Compute `exp(x_ext)` and round to the format. Used by the public
@@ -170,14 +186,29 @@ pub(crate) fn exp2_kernel_body<F: DecimalFormat, E: ExtNum>(x: F, rm: RoundingMo
 /// any magnitude this routine handles the OVERFLOW / UNDERFLOW
 /// thresholds internally.
 pub fn exp_from_extended<F: DecimalFormat>(x_ext: Extended, rm: RoundingMode) -> (F, Status) {
-    exp_from_extended_body::<F, Extended>(x_ext, rm)
+    ladder::run(
+        || exp_from_extended_body::<F, Extended>(x_ext, rm, &ladder::EXP),
+        || {
+            exp_from_extended_body::<F, Extended2>(
+                Extended2::from_extended(x_ext),
+                rm,
+                &ladder::EXP,
+            )
+        },
+    )
 }
 
-/// Generic body of [`exp_from_extended`] (M4, ADR-0059).
+/// Generic body of [`exp_from_extended`] (M4, ADR-0059); `None`
+/// escalates (M8 ladder). The budget is the caller's: `exp` and this
+/// function's own wrapper pass [`ladder::EXP`], `exp2` passes
+/// [`ladder::EXP2`], and the composed kernels (`pow`, `cbrt`) pass
+/// their own composition budgets, so the one guarded delivery site
+/// serves every pipeline that ends here with the right total.
 pub(crate) fn exp_from_extended_body<F: DecimalFormat, E: ExtNum>(
     x_ext: E,
     rm: RoundingMode,
-) -> (F, Status) {
+    budget: &ladder::Budget,
+) -> Option<(F, Status)> {
     // Magnitude gate: `exp` overflows past the format's
     // `exp_overflow_limit` and underflows past its
     // `exp_underflow_limit`. The two thresholds are asymmetric
@@ -212,7 +243,10 @@ pub(crate) fn exp_from_extended_body<F: DecimalFormat, E: ExtNum>(
         };
         let (result, status) =
             F::round_and_pack_finite(sat.coef, sat.exp, 0, sat.sign, true, rm, Status::OK);
-        return (result, status | Status::INEXACT);
+        // Unguarded delivery: the gate thresholds prove the true
+        // result past the last boundary with margin, so no rung can
+        // change any mode's answer.
+        return Some((result, status | Status::INEXACT));
     }
 
     let result_ext = exp_extended_body(x_ext);
@@ -225,12 +259,14 @@ pub(crate) fn exp_from_extended_body<F: DecimalFormat, E: ExtNum>(
     // function. An exactly-zero argument is excluded: there the true
     // result IS 1 (`cbrt(1)` arrives here as `ln(1)/3 = 0`), and the
     // plain path plus the caller's exactness machinery handle it.
+    // Unguarded delivery: the anchor leg runs before the ladder's
+    // predicate by the ADR-0059 tripod (no finite rung separates a
+    // grid-hugging residual; the theorem-backed side does).
     if !x_ext.is_zero() && result_ext.sticks_to(E::ONE) {
         let (result, status) = E::ONE.to_format_with_residual::<F>(!x_ext.sign(), rm);
-        return (result, status | Status::INEXACT);
+        return Some((result, status | Status::INEXACT));
     }
-    let (result, status) = result_ext.to_format::<F>(0, rm);
-    (result, status | Status::INEXACT)
+    ladder::round_guarded::<F, E>(result_ext, rm, budget)
 }
 
 /// Compute `exp(x_ext)` and return the result *at extended precision*.

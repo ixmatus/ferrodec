@@ -90,9 +90,10 @@
 //! (`ferrodec-test-support/tests/mpfr_gate.rs`, 0 disagreements)
 //! are the empirical witnesses.
 
-use crate::argred;
 use crate::extended::{ExtNum, Extended};
+use crate::extended2::Extended2;
 use crate::format::DecimalFormat;
+use crate::ladder;
 use ferrodec_ieee::IeeeDecodedClass as Class;
 use ferrodec_ieee::{RoundingMode, Status};
 
@@ -110,16 +111,23 @@ use ferrodec_ieee::{RoundingMode, Status};
 /// mode, and every input sits a finite distance from its rounding
 /// boundary (the escalation ladder's standing assumption).
 pub fn sin_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
-    sin_kernel_body::<F, Extended>(x, rm)
+    ladder::run(
+        || sin_kernel_body::<F, Extended>(x, rm),
+        || sin_kernel_body::<F, Extended2>(x, rm),
+    )
 }
 
-/// Generic body of [`sin_kernel`] (M4, ADR-0059).
-pub(crate) fn sin_kernel_body<F: DecimalFormat, E: ExtNum>(x: F, rm: RoundingMode) -> (F, Status) {
+/// Generic body of [`sin_kernel`] (M4, ADR-0059); `None` escalates
+/// (M8 ladder).
+pub(crate) fn sin_kernel_body<F: DecimalFormat, E: ExtNum>(
+    x: F,
+    rm: RoundingMode,
+) -> Option<(F, Status)> {
     match x.classify() {
-        Class::SignalingNaN { .. } => (x.nan_from(), Status::INVALID),
-        Class::QuietNaN { .. } => (x, Status::OK),
-        Class::Infinity { .. } => (F::NAN, Status::INVALID),
-        Class::Zero { sign, .. } => (if sign { F::NEG_ZERO } else { F::ZERO }, Status::OK),
+        Class::SignalingNaN { .. } => Some((x.nan_from(), Status::INVALID)),
+        Class::QuietNaN { .. } => Some((x, Status::OK)),
+        Class::Infinity { .. } => Some((F::NAN, Status::INVALID)),
+        Class::Zero { sign, .. } => Some((if sign { F::NEG_ZERO } else { F::ZERO }, Status::OK)),
         Class::Finite { .. } => sincos_kernel::<F, E>(x, rm).0,
     }
 }
@@ -135,16 +143,23 @@ pub(crate) fn sin_kernel_body<F: DecimalFormat, E: ExtNum>(x: F, rm: RoundingMod
 /// nearest-mode tie; the unconditional `INEXACT` is correct in every
 /// mode.
 pub fn cos_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
-    cos_kernel_body::<F, Extended>(x, rm)
+    ladder::run(
+        || cos_kernel_body::<F, Extended>(x, rm),
+        || cos_kernel_body::<F, Extended2>(x, rm),
+    )
 }
 
-/// Generic body of [`cos_kernel`] (M4, ADR-0059).
-pub(crate) fn cos_kernel_body<F: DecimalFormat, E: ExtNum>(x: F, rm: RoundingMode) -> (F, Status) {
+/// Generic body of [`cos_kernel`] (M4, ADR-0059); `None` escalates
+/// (M8 ladder).
+pub(crate) fn cos_kernel_body<F: DecimalFormat, E: ExtNum>(
+    x: F,
+    rm: RoundingMode,
+) -> Option<(F, Status)> {
     match x.classify() {
-        Class::SignalingNaN { .. } => (x.nan_from(), Status::INVALID),
-        Class::QuietNaN { .. } => (x, Status::OK),
-        Class::Infinity { .. } => (F::NAN, Status::INVALID),
-        Class::Zero { .. } => (F::ONE, Status::OK),
+        Class::SignalingNaN { .. } => Some((x.nan_from(), Status::INVALID)),
+        Class::QuietNaN { .. } => Some((x, Status::OK)),
+        Class::Infinity { .. } => Some((F::NAN, Status::INVALID)),
+        Class::Zero { .. } => Some((F::ONE, Status::OK)),
         Class::Finite { .. } => sincos_kernel::<F, E>(x, rm).1,
     }
 }
@@ -171,48 +186,62 @@ pub(crate) fn cos_kernel_body<F: DecimalFormat, E: ExtNum>(x: F, rm: RoundingMod
 /// reason (odd multiples of π/2 are irrational), so the `±∞` branch is
 /// working-precision saturation, not an exact-case claim.
 pub fn tan_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
-    tan_kernel_body::<F, Extended>(x, rm)
+    ladder::run(
+        || tan_kernel_body::<F, Extended>(x, rm),
+        || tan_kernel_body::<F, Extended2>(x, rm),
+    )
 }
 
-/// Generic body of [`tan_kernel`] (M4, ADR-0059).
-pub(crate) fn tan_kernel_body<F: DecimalFormat, E: ExtNum>(x: F, rm: RoundingMode) -> (F, Status) {
+/// Generic body of [`tan_kernel`] (M4, ADR-0059); `None` escalates
+/// (M8 ladder).
+pub(crate) fn tan_kernel_body<F: DecimalFormat, E: ExtNum>(
+    x: F,
+    rm: RoundingMode,
+) -> Option<(F, Status)> {
     match x.classify() {
-        Class::SignalingNaN { .. } => return (x.nan_from(), Status::INVALID),
-        Class::QuietNaN { .. } => return (x, Status::OK),
-        Class::Infinity { .. } => return (F::NAN, Status::INVALID),
+        Class::SignalingNaN { .. } => return Some((x.nan_from(), Status::INVALID)),
+        Class::QuietNaN { .. } => return Some((x, Status::OK)),
+        Class::Infinity { .. } => return Some((F::NAN, Status::INVALID)),
         Class::Zero { sign, .. } => {
-            return (if sign { F::NEG_ZERO } else { F::ZERO }, Status::OK);
+            return Some((if sign { F::NEG_ZERO } else { F::ZERO }, Status::OK));
         }
         Class::Finite { .. } => {}
     }
     let (sin_ext, cos_ext, status_red) = sincos_extended_body::<F, E>(x);
     if cos_ext.is_zero() {
         // sin/cos at the asymptote: return ±∞ with the sign of sin.
+        // Unguarded: the asymptote is never hit by a true value (odd
+        // multiples of π/2 are irrational), so this is a working-
+        // precision saturation whose verdict rung 2 shares.
         let sign = sin_ext.sign();
-        return (
+        return Some((
             if sign { F::NEG_INFINITY } else { F::INFINITY },
             status_red | Status::INEXACT,
-        );
+        ));
     }
     let tan_ext = sin_ext.div::<F>(cos_ext);
     // Grid-stuck at the input (ADR-0051): a small argument absorbs
     // every correction and the quotient is exactly `x`; the directed
     // modes need the side, and `|tan x| > |x|` is a theorem.
+    // Unguarded: the anchor leg runs before the ladder's predicate.
     let x_anchor = E::from_format(x);
     if tan_ext.sticks_to(x_anchor) {
         let (tan_d, st) = x_anchor.to_format_with_residual::<F>(true, rm);
-        return (tan_d, st | status_red | Status::INEXACT);
+        return Some((tan_d, st | status_red | Status::INEXACT));
     }
-    let (tan_d, st) = tan_ext.to_format::<F>(0, rm);
-    (tan_d, st | status_red | Status::INEXACT)
+    let (tan_d, st) = ladder::round_guarded::<F, E>(tan_ext, rm, &ladder::TAN)?;
+    Some((tan_d, st | status_red))
 }
 
 /// Compute both `(sin(x), status)` and `(cos(x), status)` from one
-/// reduction. Returns them as `((sin, sin_status), (cos, cos_status))`.
+/// reduction. Returns them as `((sin, sin_status), (cos, cos_status))`;
+/// a `None` component escalates that component's caller to rung 2 (M8
+/// ladder) while the anchor deliveries stay unconditional.
+#[allow(clippy::type_complexity)]
 fn sincos_kernel<F: DecimalFormat, E: ExtNum>(
     x: F,
     rm: RoundingMode,
-) -> ((F, Status), (F, Status)) {
+) -> (Option<(F, Status)>, Option<(F, Status)>) {
     let (sin_x_ext, cos_x_ext, status_red) = sincos_extended_body::<F, E>(x);
     // Grid-stuck anchors (ADR-0051). `sin`: a small argument absorbs
     // every correction and the result is exactly `x` (`|sin x| < |x|`
@@ -226,21 +255,24 @@ fn sincos_kernel<F: DecimalFormat, E: ExtNum>(
     // theorem, not a measurement.
     let x_anchor = E::from_format(x);
     let sin_one = E::ONE.with_sign(sin_x_ext.sign());
-    let (sin_d, sin_status) = if sin_x_ext.sticks_to(x_anchor) {
-        x_anchor.to_format_with_residual::<F>(false, rm)
+    let sin = if sin_x_ext.sticks_to(x_anchor) {
+        Some(x_anchor.to_format_with_residual::<F>(false, rm))
     } else if sin_x_ext.sticks_to(sin_one) {
-        sin_one.to_format_with_residual::<F>(false, rm)
+        Some(sin_one.to_format_with_residual::<F>(false, rm))
     } else {
-        sin_x_ext.to_format::<F>(0, rm)
+        ladder::round_guarded::<F, E>(sin_x_ext, rm, &ladder::SIN)
     };
     let cos_one = E::ONE.with_sign(cos_x_ext.sign());
-    let (cos_d, cos_status) = if cos_x_ext.sticks_to(cos_one) {
-        cos_one.to_format_with_residual::<F>(false, rm)
+    let cos = if cos_x_ext.sticks_to(cos_one) {
+        Some(cos_one.to_format_with_residual::<F>(false, rm))
     } else {
-        cos_x_ext.to_format::<F>(0, rm)
+        ladder::round_guarded::<F, E>(cos_x_ext, rm, &ladder::COS)
     };
     let status = status_red | Status::INEXACT;
-    ((sin_d, sin_status | status), (cos_d, cos_status | status))
+    (
+        sin.map(|(d, st)| (d, st | status)),
+        cos.map(|(d, st)| (d, st | status)),
+    )
 }
 
 /// Compute `(sin(x), cos(x))` at `Extended` precision. Used directly
@@ -259,7 +291,12 @@ pub(crate) fn sincos_extended_body<F: DecimalFormat, E: ExtNum>(x: F) -> (E, E, 
     };
     let abs_x = if neg { x.neg() } else { x };
 
-    let (k_mod_4, r, status_red) = argred::reduce_body::<F, E>(abs_x);
+    // Per-rung reduction dispatch (M8): rung 1 reads the 76-digit
+    // window and 38-digit π/2, rung 2 `reduce_wide`'s 143-digit
+    // window and 115-digit π/2 — re-running the narrow reduction at
+    // wide arithmetic would inherit the truncation escalation exists
+    // to outrun.
+    let (k_mod_4, r, status_red) = E::reduce_trig::<F>(abs_x);
     let r_sq = r.square();
     let sin_r = taylor_sin_ext(r, r_sq);
     let cos_r = taylor_cos_ext(r_sq);

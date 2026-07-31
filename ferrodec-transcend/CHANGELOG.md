@@ -7,7 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- The ADR-0059 two-rung escalation ladder (M8). Every kernel delivery that
+  is not an exact/tie classification, an ADR-0051 anchor residual, a
+  saturation proxy, or an offline-certified constant now runs the M2
+  boundary predicate against a per-function error budget (rederived from
+  op counts, itemized in `ladder.rs` rustdoc, padded ×10); a near-boundary
+  rung 1 result re-runs the identical kernel at the 110-digit `Extended2`
+  rung, whose trig reduction (`reduce_wide`) replaces rung 1's empirically
+  discharged 38-digit `π/2` truncation with an analytic `< 10^-114` bound.
+  Escalation is a deterministic, mode-independent function of the input.
+  Two test-lane cfgs land with it: `--cfg force_escalate` routes every
+  guarded delivery through rung 2 (the anti-rot byte-identity
+  differential — the full root/d64/d32 suites pass under it), and
+  `--cfg ladder_audit` panics on top-rung residual ambiguity (clean over
+  every suite and the S1 witness corpus). Non-escalating latency cost of
+  the guard: ~1.5% on trig, ~6% on the exp/ln family (criterion, vs the
+  pre-M8 baseline).
+
 ### Fixed
+
+- High-decade `Decimal128` trig misrounds (ADR-0059 S1): the 1 819
+  Arb-certified witness rows (sin 643, cos 570, tan 606) that falsified
+  the shipped correctly-rounded claim all round correctly under the
+  ladder, and replay as a pinned regression gate
+  (`tests/transcend_campaign_s1.rs`). The witnesses sit inside rung 1's
+  honest trig budget (the `π/2` truncation item), so the predicate
+  escalates them and rung 2 resolves the side.
 
 - `pow` exactness and ties are now decided from the inputs alone (ADR-0059
   M7), by the decimal analog of the Lauter–Lefèvre criterion: with

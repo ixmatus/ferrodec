@@ -10,7 +10,15 @@ repository = "https://github.com/ixmatus/ferrodec"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
-unexpected_cfgs = { level = "warn", check-cfg = ["cfg(kani)"] }
+# `force_escalate` routes every guarded transcendental delivery through
+# rung 2 (the anti-rot byte-identity differential); `ladder_audit`
+# panics on top-rung residual ambiguity (ADR-0059 M8). Both are
+# test-lane cfgs, set via RUSTFLAGS="--cfg force_escalate" etc.
+unexpected_cfgs = { level = "warn", check-cfg = [
+    "cfg(kani)",
+    "cfg(force_escalate)",
+    "cfg(ladder_audit)",
+] }
 
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }

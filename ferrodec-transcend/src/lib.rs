@@ -39,6 +39,7 @@ pub mod extended;
 // seam.
 mod extended2;
 mod format;
+mod ladder;
 #[cfg(test)]
 mod mock_format;
 

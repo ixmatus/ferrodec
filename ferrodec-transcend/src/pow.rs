@@ -73,7 +73,9 @@
 
 use crate::exp::exp_from_extended_body;
 use crate::extended::{ExtNum, Extended};
+use crate::extended2::Extended2;
 use crate::format::DecimalFormat;
+use crate::ladder;
 use crate::ln::ln_extended_body;
 use ferrodec_ieee::{decimal_digit_count_u128 as decimal_digit_count, IeeeDecodedClass as Class};
 use ferrodec_ieee::{RoundingMode, Status};
@@ -205,17 +207,21 @@ pub fn pow_special_cases<F: DecimalFormat>(x: F, y: F) -> Option<(F, Status)> {
 /// `exact::pow_exact_input`. Past the classifier `x^y` is irrational
 /// and the unconditional `INEXACT` is correct in every mode.
 pub fn pow_kernel<F: DecimalFormat>(x: F, y: F, rm: RoundingMode) -> (F, Status) {
-    pow_kernel_body::<F, Extended>(x, y, rm)
+    ladder::run(
+        || pow_kernel_body::<F, Extended>(x, y, rm),
+        || pow_kernel_body::<F, Extended2>(x, y, rm),
+    )
 }
 
-/// Generic body of [`pow_kernel`] (M4, ADR-0059).
+/// Generic body of [`pow_kernel`] (M4, ADR-0059); `None` escalates
+/// (M8 ladder).
 pub(crate) fn pow_kernel_body<F: DecimalFormat, E: ExtNum>(
     x: F,
     y: F,
     rm: RoundingMode,
-) -> (F, Status) {
+) -> Option<(F, Status)> {
     if let Some(early) = pow_special_cases(x, y) {
-        return early;
+        return Some(early);
     }
 
     // Rule 8: general path. `pow_special_cases` returned None, so x is
@@ -230,7 +236,7 @@ pub(crate) fn pow_kernel_body<F: DecimalFormat, E: ExtNum>(
     let y_int = integer_test(y);
     if let Some((v, status)) = pow_integer_fast_path(x, y, &y_int, rm) {
         if !status.inexact() {
-            return (v, status);
+            return Some((v, status));
         }
         // Fall through: int_pow accumulated rounding error; the
         // Extended pipeline below is more accurate.
@@ -258,7 +264,7 @@ pub(crate) fn pow_kernel_body<F: DecimalFormat, E: ExtNum>(
     // completeness proofs), so the kernel's unconditional INEXACT is
     // correct in every mode.
     if let Some((mag, status)) = crate::exact::pow_exact_input::<F>(x.abs(), y, eff_rm) {
-        return (if sign_neg { mag.neg() } else { mag }, status);
+        return Some((if sign_neg { mag.neg() } else { mag }, status));
     }
 
     // General path: pow(x, y) = exp(y · ln(|x|)) evaluated entirely at
@@ -271,9 +277,9 @@ pub(crate) fn pow_kernel_body<F: DecimalFormat, E: ExtNum>(
     let ln_x_ext = ln_extended_body::<F, E>(abs_x);
     let y_ext = E::from_format(y);
     let y_ln_x_ext = y_ext.mul(ln_x_ext);
-    let (result, status) = exp_from_extended_body::<F, E>(y_ln_x_ext, eff_rm);
+    let (result, status) = exp_from_extended_body::<F, E>(y_ln_x_ext, eff_rm, &ladder::POW)?;
     let signed = if sign_neg { result.neg() } else { result };
-    (signed, status)
+    Some((signed, status))
 }
 
 /// Try the square-and-multiply fast path for integer `y` up to `±256`.

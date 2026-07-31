@@ -33,7 +33,9 @@
 
 use crate::exp::exp_from_extended_body;
 use crate::extended::{ExtNum, Extended};
+use crate::extended2::Extended2;
 use crate::format::DecimalFormat;
+use crate::ladder;
 use crate::ln::ln_extended_body;
 use ferrodec_ieee::IeeeDecodedClass as Class;
 use ferrodec_ieee::{RoundingMode, Status};
@@ -50,16 +52,23 @@ use ferrodec_ieee::{RoundingMode, Status};
 /// irrational and the unconditional `INEXACT` is correct in every
 /// mode.
 pub fn cbrt_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
-    cbrt_kernel_body::<F, Extended>(x, rm)
+    ladder::run(
+        || cbrt_kernel_body::<F, Extended>(x, rm),
+        || cbrt_kernel_body::<F, Extended2>(x, rm),
+    )
 }
 
-/// Generic body of [`cbrt_kernel`] (M4, ADR-0059).
-pub(crate) fn cbrt_kernel_body<F: DecimalFormat, E: ExtNum>(x: F, rm: RoundingMode) -> (F, Status) {
+/// Generic body of [`cbrt_kernel`] (M4, ADR-0059); `None` escalates
+/// (M8 ladder).
+pub(crate) fn cbrt_kernel_body<F: DecimalFormat, E: ExtNum>(
+    x: F,
+    rm: RoundingMode,
+) -> Option<(F, Status)> {
     match x.classify() {
-        Class::SignalingNaN { .. } => return (x.nan_from(), Status::INVALID),
-        Class::QuietNaN { .. } => return (x, Status::OK),
-        Class::Infinity { .. } => return (x, Status::OK),
-        Class::Zero { .. } => return (x, Status::OK),
+        Class::SignalingNaN { .. } => return Some((x.nan_from(), Status::INVALID)),
+        Class::QuietNaN { .. } => return Some((x, Status::OK)),
+        Class::Infinity { .. } => return Some((x, Status::OK)),
+        Class::Zero { .. } => return Some((x, Status::OK)),
         Class::Finite { .. } => {}
     }
     // cbrt(x) = sign(x) · exp(ln(|x|) / 3) — the negative-argument
@@ -82,7 +91,7 @@ pub(crate) fn cbrt_kernel_body<F: DecimalFormat, E: ExtNum>(x: F, rm: RoundingMo
     // exact, so re-applying the sign needs no rounding-direction
     // reflection.
     if let Some((root, status)) = crate::exact::cbrt_exact_input::<F>(abs_x, rm) {
-        return (if sign_neg { root.neg() } else { root }, status);
+        return Some((if sign_neg { root.neg() } else { root }, status));
     }
 
     // ln(|x|) at working precision.
@@ -97,12 +106,13 @@ pub(crate) fn cbrt_kernel_body<F: DecimalFormat, E: ExtNum>(x: F, rm: RoundingMo
     // modes round a negative cube root the wrong way by up to one
     // ULP (fd-r5m, found by the S5 faithful-rounding oracle).
     let eff_rm = if sign_neg { rm.for_negation() } else { rm };
-    let (mut result, status) = exp_from_extended_body::<F, E>(one_third_ln_x, eff_rm);
+    let (mut result, status) =
+        exp_from_extended_body::<F, E>(one_third_ln_x, eff_rm, &ladder::CBRT)?;
     if sign_neg {
         result = result.neg();
     }
     // `exp_from_extended` raised INEXACT, and here that is correct
     // unconditionally: the perfect cubes returned above, and cbrt has
     // no other exact cases and no ties (`exact::cbrt_exact_input`).
-    (result, status)
+    Some((result, status))
 }

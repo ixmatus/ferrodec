@@ -381,16 +381,22 @@ impl Extended2 {
         if self.is_zero() {
             return true;
         }
-        let dig = self.coef.decimal_digit_count();
-        debug_assert!(
-            dig <= EXT2_PRECISION,
-            "near_rounding_boundary: caller must uphold the \
-             ≤ EXT2_PRECISION-digit coefficient invariant"
-        );
+        // Normalize to the rung width first: values delivered straight
+        // from a hand-curated constant carry up to
+        // `EXT2_PRECISION + 5` digits (the `parse_str` envelope); see
+        // the rung 1 mirror for why not normalizing would silently
+        // under-escalate (M8).
+        let (coef, exp) = if self.coef.decimal_digit_count() > EXT2_PRECISION {
+            let (c, shift) = round_u384_to_ext2(self.coef, false);
+            (c, self.exp + shift as i32)
+        } else {
+            (self.coef, self.exp)
+        };
+        let dig = coef.decimal_digit_count();
 
         let scale = EXT2_PRECISION.saturating_sub(dig);
-        let coef_w = self.coef.mul_pow10(scale);
-        let exp_w = self.exp - scale as i32;
+        let coef_w = coef.mul_pow10(scale);
+        let exp_w = exp - scale as i32;
         let digits = dig + scale;
 
         let qmin = -F::BIAS;
@@ -913,6 +919,17 @@ impl ExtNum for Extended2 {
     }
     fn near_rounding_boundary<F: DecimalFormat>(self, budget: u128) -> bool {
         Extended2::near_rounding_boundary::<F>(self, budget)
+    }
+
+    // Top fixed rung: deliver unconditionally (Tier 2 model); the
+    // rung-2 budget feeds only the `ladder_audit` ambiguity check.
+    const ESCALATES: bool = false;
+    fn rung_budget(budget: &crate::ladder::Budget) -> u128 {
+        budget.rung2
+    }
+    #[cfg(feature = "trig")]
+    fn reduce_trig<F: DecimalFormat>(x: F) -> (u32, Self, Status) {
+        crate::argred::reduce_wide::<F>(x)
     }
 }
 

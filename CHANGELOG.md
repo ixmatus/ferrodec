@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- High-decade `Decimal128` `sin` / `cos` / `tan` misrounds (ADR-0059): the
+  S1 falsification probe's 1 819 Arb-certified witness rows (inputs with
+  full 34-digit coefficients at decades up to ~10^6100, never reached by
+  the sampled corpus) all round correctly under the M8 escalation ladder —
+  a near-boundary 50-digit result re-runs the kernel at 110 digits with
+  the wide Payne–Hanek reduction. The corpus replays as a pinned
+  regression gate (`tests/transcend_campaign_s1.rs`, exact per-file row
+  counts). Escalation is deterministic in the input; the non-escalating
+  path pays only the boundary predicate (~1.5% on trig, ~6% on exp/ln,
+  criterion-measured).
+
 - `Decimal128::pow` exact rational powers and ties (ADR-0059 M7), via
   input-side classification (the decimal Lauter–Lefèvre criterion):
   `pow(4, 0.5)` at `TowardZero` / `TowardNegative` returned `1.999…9` with

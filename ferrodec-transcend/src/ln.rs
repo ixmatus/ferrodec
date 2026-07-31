@@ -84,7 +84,9 @@
 //! reason as `ln(1) = 0`; the kernel short circuits each.
 
 use crate::extended::{ExtNum, Extended};
+use crate::extended2::Extended2;
 use crate::format::DecimalFormat;
+use crate::ladder;
 use ferrodec_ieee::IeeeDecodedClass as Class;
 use ferrodec_ieee::{RoundingMode, Status};
 
@@ -100,23 +102,29 @@ use ferrodec_ieee::{RoundingMode, Status};
 /// so the same argument rules ties out; the unconditional `INEXACT` is
 /// correct in every mode.
 pub fn ln_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
-    ln_kernel_body::<F, Extended>(x, rm)
+    ladder::run(
+        || ln_kernel_body::<F, Extended>(x, rm),
+        || ln_kernel_body::<F, Extended2>(x, rm),
+    )
 }
 
-/// Generic body of [`ln_kernel`] (M4, ADR-0059).
-pub(crate) fn ln_kernel_body<F: DecimalFormat, E: ExtNum>(x: F, rm: RoundingMode) -> (F, Status) {
+/// Generic body of [`ln_kernel`] (M4, ADR-0059); `None` escalates
+/// (M8 ladder).
+pub(crate) fn ln_kernel_body<F: DecimalFormat, E: ExtNum>(
+    x: F,
+    rm: RoundingMode,
+) -> Option<(F, Status)> {
     if let Some(early) = ln_special_cases(x) {
-        return early;
+        return Some(early);
     }
     if matches!(
         x.partial_cmp_fmt(F::ONE).0,
         Some(core::cmp::Ordering::Equal)
     ) {
-        return (F::ZERO, Status::OK);
+        return Some((F::ZERO, Status::OK));
     }
     let result_ext = ln_extended_body::<F, E>(x);
-    let (result, status) = result_ext.to_format::<F>(0, rm);
-    (result, status | Status::INEXACT)
+    ladder::round_guarded::<F, E>(result_ext, rm, &ladder::LN)
 }
 
 /// Base-10 logarithm.
@@ -135,33 +143,36 @@ pub(crate) fn ln_kernel_body<F: DecimalFormat, E: ExtNum>(x: F, rm: RoundingMode
 /// than one. The kernel's unconditional `INEXACT` is therefore
 /// correct in every mode.
 pub fn log10_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
-    log10_kernel_body::<F, Extended>(x, rm)
+    ladder::run(
+        || log10_kernel_body::<F, Extended>(x, rm),
+        || log10_kernel_body::<F, Extended2>(x, rm),
+    )
 }
 
-/// Generic body of [`log10_kernel`] (M4, ADR-0059).
+/// Generic body of [`log10_kernel`] (M4, ADR-0059); `None` escalates
+/// (M8 ladder).
 pub(crate) fn log10_kernel_body<F: DecimalFormat, E: ExtNum>(
     x: F,
     rm: RoundingMode,
-) -> (F, Status) {
+) -> Option<(F, Status)> {
     if let Some(early) = ln_special_cases(x) {
-        return early;
+        return Some(early);
     }
     if matches!(
         x.partial_cmp_fmt(F::ONE).0,
         Some(core::cmp::Ordering::Equal)
     ) {
-        return (F::ZERO, Status::OK);
+        return Some((F::ZERO, Status::OK));
     }
     // Exact powers of ten (fd-aqs.8): `log10(10^k) = k` exactly, at
     // every rounding direction, with no INEXACT (IEEE 754-2019 §7.5).
     if let Some(exact) = crate::exact::log10_exact::<F>(x, rm) {
-        return exact;
+        return Some(exact);
     }
     // log10(x) = ln(x) · (1/ln(10)) at working precision.
     let ln_ext = ln_extended_body::<F, E>(x);
     let result_ext = ln_ext.mul(E::inv_ln10());
-    let (result, status) = result_ext.to_format::<F>(0, rm);
-    (result, status | Status::INEXACT)
+    ladder::round_guarded::<F, E>(result_ext, rm, &ladder::LOG10)
 }
 
 /// Base-2 logarithm.
@@ -178,29 +189,35 @@ pub(crate) fn log10_kernel_body<F: DecimalFormat, E: ExtNum>(
 /// `PRECISION + 1`-digit coefficient, magnitude ≥ 10^7). The
 /// unconditional `INEXACT` is correct in every mode.
 pub fn log2_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
-    log2_kernel_body::<F, Extended>(x, rm)
+    ladder::run(
+        || log2_kernel_body::<F, Extended>(x, rm),
+        || log2_kernel_body::<F, Extended2>(x, rm),
+    )
 }
 
-/// Generic body of [`log2_kernel`] (M4, ADR-0059).
-pub(crate) fn log2_kernel_body<F: DecimalFormat, E: ExtNum>(x: F, rm: RoundingMode) -> (F, Status) {
+/// Generic body of [`log2_kernel`] (M4, ADR-0059); `None` escalates
+/// (M8 ladder).
+pub(crate) fn log2_kernel_body<F: DecimalFormat, E: ExtNum>(
+    x: F,
+    rm: RoundingMode,
+) -> Option<(F, Status)> {
     if let Some(early) = ln_special_cases(x) {
-        return early;
+        return Some(early);
     }
     if matches!(
         x.partial_cmp_fmt(F::ONE).0,
         Some(core::cmp::Ordering::Equal)
     ) {
-        return (F::ZERO, Status::OK);
+        return Some((F::ZERO, Status::OK));
     }
     // Exact powers of two (fd-aqs.8): `log2(2^k) = k` exactly, at
     // every rounding direction, with no INEXACT (IEEE 754-2019 §7.5).
     if let Some(exact) = crate::exact::log2_exact::<F>(x, rm) {
-        return exact;
+        return Some(exact);
     }
     let ln_ext = ln_extended_body::<F, E>(x);
     let result_ext = ln_ext.mul(E::inv_ln2());
-    let (result, status) = result_ext.to_format::<F>(0, rm);
-    (result, status | Status::INEXACT)
+    ladder::round_guarded::<F, E>(result_ext, rm, &ladder::LOG2)
 }
 
 /// Short-circuit the special cases shared by `ln` and `log10`.

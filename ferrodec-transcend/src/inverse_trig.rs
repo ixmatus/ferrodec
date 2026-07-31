@@ -102,7 +102,9 @@
 //! are the empirical witnesses.
 
 use crate::extended::{ExtNum, Extended};
+use crate::extended2::Extended2;
 use crate::format::DecimalFormat;
+use crate::ladder;
 use ferrodec_ieee::IeeeDecodedClass as Class;
 use ferrodec_ieee::{RoundingMode, Status};
 
@@ -120,24 +122,34 @@ use ferrodec_ieee::{RoundingMode, Status};
 /// to the rounding grid is certified offline with the `consts.rs`
 /// constants (ADR-0059 M8), not by the runtime predicate.
 pub fn atan_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
-    atan_kernel_body::<F, Extended>(x, rm)
+    ladder::run(
+        || atan_kernel_body::<F, Extended>(x, rm),
+        || atan_kernel_body::<F, Extended2>(x, rm),
+    )
 }
 
-/// Generic body of [`atan_kernel`] (M4, ADR-0059).
-pub(crate) fn atan_kernel_body<F: DecimalFormat, E: ExtNum>(x: F, rm: RoundingMode) -> (F, Status) {
+/// Generic body of [`atan_kernel`] (M4, ADR-0059); `None` escalates
+/// (M8 ladder).
+pub(crate) fn atan_kernel_body<F: DecimalFormat, E: ExtNum>(
+    x: F,
+    rm: RoundingMode,
+) -> Option<(F, Status)> {
     match x.classify() {
-        Class::SignalingNaN { .. } => return (x.nan_from(), Status::INVALID),
-        Class::QuietNaN { .. } => return (x, Status::OK),
+        Class::SignalingNaN { .. } => return Some((x.nan_from(), Status::INVALID)),
+        Class::QuietNaN { .. } => return Some((x, Status::OK)),
         Class::Infinity { sign } => {
             // atan(−∞) = −π/2: round the magnitude under the
             // negation-reflected mode before flipping the sign, so the
             // two directed modes land on the correct neighbour (the
             // cbrt `for_negation` rule; fd-aqs.5).
             let rm_mag = if sign { rm.for_negation() } else { rm };
+            // Unguarded constant delivery: π/2's boundary distance is
+            // certified offline against the 115-digit rung 2 constant
+            // (consts::tests, ADR-0059 M8).
             let half_pi = E::pi_over_two().to_format::<F>(0, rm_mag).0;
-            return (if sign { half_pi.neg() } else { half_pi }, Status::INEXACT);
+            return Some((if sign { half_pi.neg() } else { half_pi }, Status::INEXACT));
         }
-        Class::Zero { .. } => return (x, Status::OK),
+        Class::Zero { .. } => return Some((x, Status::OK)),
         Class::Finite { .. } => {}
     }
     let x_ext = E::from_format(x);
@@ -145,12 +157,12 @@ pub(crate) fn atan_kernel_body<F: DecimalFormat, E: ExtNum>(x: F, rm: RoundingMo
     // Grid-stuck at the input (ADR-0051): a small argument absorbs
     // every correction and the result is exactly `x`; the directed
     // modes need the side, and `|atan x| < |x|` is a theorem.
+    // Unguarded: the anchor leg runs before the ladder's predicate.
     if result_ext.sticks_to(x_ext) {
         let (result, status) = x_ext.to_format_with_residual::<F>(false, rm);
-        return (result, status | Status::INEXACT);
+        return Some((result, status | Status::INEXACT));
     }
-    let (result, status) = result_ext.to_format::<F>(0, rm);
-    (result, status | Status::INEXACT)
+    ladder::round_guarded::<F, E>(result_ext, rm, &ladder::ATAN)
 }
 
 /// Inverse sine. Domain `[-1, +1]`; outside is NaN + INVALID.
@@ -167,31 +179,39 @@ pub(crate) fn atan_kernel_body<F: DecimalFormat, E: ExtNum>(x: F, rm: RoundingMo
 /// delivered at `x = ±1` is an irrational constant, certified
 /// offline with `consts.rs` (ADR-0059 M8).
 pub fn asin_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
-    asin_kernel_body::<F, Extended>(x, rm)
+    ladder::run(
+        || asin_kernel_body::<F, Extended>(x, rm),
+        || asin_kernel_body::<F, Extended2>(x, rm),
+    )
 }
 
-/// Generic body of [`asin_kernel`] (M4, ADR-0059).
-pub(crate) fn asin_kernel_body<F: DecimalFormat, E: ExtNum>(x: F, rm: RoundingMode) -> (F, Status) {
+/// Generic body of [`asin_kernel`] (M4, ADR-0059); `None` escalates
+/// (M8 ladder).
+pub(crate) fn asin_kernel_body<F: DecimalFormat, E: ExtNum>(
+    x: F,
+    rm: RoundingMode,
+) -> Option<(F, Status)> {
     match x.classify() {
-        Class::SignalingNaN { .. } => return (x.nan_from(), Status::INVALID),
-        Class::QuietNaN { .. } => return (x, Status::OK),
-        Class::Infinity { .. } => return (F::NAN, Status::INVALID),
-        Class::Zero { .. } => return (x, Status::OK),
+        Class::SignalingNaN { .. } => return Some((x.nan_from(), Status::INVALID)),
+        Class::QuietNaN { .. } => return Some((x, Status::OK)),
+        Class::Infinity { .. } => return Some((F::NAN, Status::INVALID)),
+        Class::Zero { .. } => return Some((x, Status::OK)),
         Class::Finite { .. } => {}
     }
     let abs_x = x.abs();
     let (cmp_one, _) = abs_x.partial_cmp_fmt(F::ONE);
     match cmp_one {
-        Some(core::cmp::Ordering::Greater) => return (F::NAN, Status::INVALID),
+        Some(core::cmp::Ordering::Greater) => return Some((F::NAN, Status::INVALID)),
         Some(core::cmp::Ordering::Equal) => {
             // asin(±1) = ±π/2. Round the magnitude under the
             // negation-reflected mode before flipping the sign
-            // (fd-aqs.5).
+            // (fd-aqs.5). Unguarded constant delivery: certified
+            // offline (consts::tests, ADR-0059 M8).
             let neg = x.is_sign_negative();
             let rm_mag = if neg { rm.for_negation() } else { rm };
             let half_pi = E::pi_over_two().to_format::<F>(0, rm_mag).0;
             let signed = if neg { half_pi.neg() } else { half_pi };
-            return (signed, Status::INEXACT);
+            return Some((signed, Status::INEXACT));
         }
         _ => {}
     }
@@ -199,12 +219,12 @@ pub(crate) fn asin_kernel_body<F: DecimalFormat, E: ExtNum>(x: F, rm: RoundingMo
     let result_ext = asin_ext::<F, E>(x_ext);
     // Grid-stuck at the input (ADR-0051): `|asin x| > |x|` is a
     // theorem, so the residual side is the growing one.
+    // Unguarded: the anchor leg runs before the ladder's predicate.
     if result_ext.sticks_to(x_ext) {
         let (result, status) = x_ext.to_format_with_residual::<F>(true, rm);
-        return (result, status | Status::INEXACT);
+        return Some((result, status | Status::INEXACT));
     }
-    let (result, status) = result_ext.to_format::<F>(0, rm);
-    (result, status | Status::INEXACT)
+    ladder::round_guarded::<F, E>(result_ext, rm, &ladder::ASIN)
 }
 
 /// Inverse cosine. Domain `[-1, +1]`; outside is NaN + INVALID.
@@ -221,32 +241,42 @@ pub(crate) fn asin_kernel_body<F: DecimalFormat, E: ExtNum>(x: F, rm: RoundingMo
 /// `x = -1` are irrational constants, certified offline with
 /// `consts.rs` (ADR-0059 M8).
 pub fn acos_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
-    acos_kernel_body::<F, Extended>(x, rm)
+    ladder::run(
+        || acos_kernel_body::<F, Extended>(x, rm),
+        || acos_kernel_body::<F, Extended2>(x, rm),
+    )
 }
 
-/// Generic body of [`acos_kernel`] (M4, ADR-0059).
-pub(crate) fn acos_kernel_body<F: DecimalFormat, E: ExtNum>(x: F, rm: RoundingMode) -> (F, Status) {
+/// Generic body of [`acos_kernel`] (M4, ADR-0059); `None` escalates
+/// (M8 ladder).
+pub(crate) fn acos_kernel_body<F: DecimalFormat, E: ExtNum>(
+    x: F,
+    rm: RoundingMode,
+) -> Option<(F, Status)> {
     match x.classify() {
-        Class::SignalingNaN { .. } => return (x.nan_from(), Status::INVALID),
-        Class::QuietNaN { .. } => return (x, Status::OK),
-        Class::Infinity { .. } => return (F::NAN, Status::INVALID),
+        Class::SignalingNaN { .. } => return Some((x.nan_from(), Status::INVALID)),
+        Class::QuietNaN { .. } => return Some((x, Status::OK)),
+        Class::Infinity { .. } => return Some((F::NAN, Status::INVALID)),
         Class::Zero { .. } => {
+            // Unguarded constant delivery: certified offline
+            // (consts::tests, ADR-0059 M8).
             let half_pi = E::pi_over_two().to_format::<F>(0, rm).0;
-            return (half_pi, Status::INEXACT);
+            return Some((half_pi, Status::INEXACT));
         }
         Class::Finite { .. } => {}
     }
     let abs_x = x.abs();
     let (cmp_one, _) = abs_x.partial_cmp_fmt(F::ONE);
     match cmp_one {
-        Some(core::cmp::Ordering::Greater) => return (F::NAN, Status::INVALID),
+        Some(core::cmp::Ordering::Greater) => return Some((F::NAN, Status::INVALID)),
         Some(core::cmp::Ordering::Equal) => {
-            // acos(1) = 0; acos(-1) = π.
+            // acos(1) = 0; acos(-1) = π (constant delivery, certified
+            // offline).
             if x.is_sign_negative() {
                 let pi_d = E::pi().to_format::<F>(0, rm).0;
-                return (pi_d, Status::INEXACT);
+                return Some((pi_d, Status::INEXACT));
             }
-            return (F::ZERO, Status::OK);
+            return Some((F::ZERO, Status::OK));
         }
         _ => {}
     }
@@ -270,8 +300,7 @@ pub(crate) fn acos_kernel_body<F: DecimalFormat, E: ExtNum>(x: F, rm: RoundingMo
     let t = num.div::<F>(den).sqrt::<F>();
     let half = atan_ext::<F, E>(t);
     let result_ext = half.add(half);
-    let (result, status) = result_ext.to_format::<F>(0, rm);
-    (result, status | Status::INEXACT)
+    ladder::round_guarded::<F, E>(result_ext, rm, &ladder::ACOS)
 }
 
 /// Two-argument arctangent `atan2(y, x)`. Range `(-π, +π]`.
@@ -289,21 +318,25 @@ pub(crate) fn acos_kernel_body<F: DecimalFormat, E: ExtNum>(x: F, rm: RoundingMo
 /// `consts.rs` (ADR-0059 M8), and everything else is neither exact
 /// nor a tie: the unconditional `INEXACT` is correct in every mode.
 pub fn atan2_kernel<F: DecimalFormat>(y: F, x: F, rm: RoundingMode) -> (F, Status) {
-    atan2_kernel_body::<F, Extended>(y, x, rm)
+    ladder::run(
+        || atan2_kernel_body::<F, Extended>(y, x, rm),
+        || atan2_kernel_body::<F, Extended2>(y, x, rm),
+    )
 }
 
-/// Generic body of [`atan2_kernel`] (M4, ADR-0059).
+/// Generic body of [`atan2_kernel`] (M4, ADR-0059); `None` escalates
+/// (M8 ladder).
 pub(crate) fn atan2_kernel_body<F: DecimalFormat, E: ExtNum>(
     y: F,
     x: F,
     rm: RoundingMode,
-) -> (F, Status) {
+) -> Option<(F, Status)> {
     // NaN propagation (sNaN raises INVALID).
     if y.is_signaling_nan() || x.is_signaling_nan() {
-        return (y.propagate_nan2(x), Status::INVALID);
+        return Some((y.propagate_nan2(x), Status::INVALID));
     }
     if y.is_nan() || x.is_nan() {
-        return (y.propagate_nan2(x), Status::OK);
+        return Some((y.propagate_nan2(x), Status::OK));
     }
     let y_neg = y.is_sign_negative();
     // Round a positive π-family constant at the point of use, carrying
@@ -321,26 +354,27 @@ pub(crate) fn atan2_kernel_body<F: DecimalFormat, E: ExtNum>(
         }
     };
 
-    // Inf handling.
+    // Inf handling. Every π-family delivery below is an unguarded
+    // constant: certified offline (consts::tests, ADR-0059 M8).
     if x.is_infinite() && y.is_infinite() {
         // ±π/4 or ±3π/4 depending on signs.
-        return if x.is_sign_negative() {
+        return Some(if x.is_sign_negative() {
             let three_quarter_pi = E::pi_over_four().mul(E::from_i32(3));
             (signed_const(three_quarter_pi), Status::INEXACT)
         } else {
             (signed_const(E::pi_over_four()), Status::INEXACT)
-        };
+        });
     }
     if y.is_infinite() {
         // ±π/2.
-        return (signed_const(E::pi_over_two()), Status::INEXACT);
+        return Some((signed_const(E::pi_over_two()), Status::INEXACT));
     }
     if x.is_infinite() {
-        return if x.is_sign_negative() {
+        return Some(if x.is_sign_negative() {
             (signed_const(E::pi()), Status::INEXACT)
         } else {
             (if y_neg { F::NEG_ZERO } else { F::ZERO }, Status::OK)
-        };
+        });
     }
     // Both finite. Cover x = 0.
     if x.is_zero() {
@@ -350,19 +384,19 @@ pub(crate) fn atan2_kernel_body<F: DecimalFormat, E: ExtNum>(
             // x < 0 arm below (fd-aqs.5 flag-fidelity fix; the zero
             // result is exact and stays OK).
             if x.is_sign_negative() {
-                return (signed_const(E::pi()), Status::INEXACT);
+                return Some((signed_const(E::pi()), Status::INEXACT));
             }
-            return (if y_neg { F::NEG_ZERO } else { F::ZERO }, Status::OK);
+            return Some((if y_neg { F::NEG_ZERO } else { F::ZERO }, Status::OK));
         }
-        return (signed_const(E::pi_over_two()), Status::INEXACT);
+        return Some((signed_const(E::pi_over_two()), Status::INEXACT));
     }
     if y.is_zero() {
         // atan2(±0, x): 0 if x > 0, ±π if x < 0.
-        return if x.is_sign_negative() {
+        return Some(if x.is_sign_negative() {
             (signed_const(E::pi()), Status::INEXACT)
         } else {
             (if y_neg { F::NEG_ZERO } else { F::ZERO }, Status::OK)
-        };
+        });
     }
     // Both finite non-zero. Compute y/x at working precision, run
     // atan, then quadrant-shift.
@@ -378,8 +412,7 @@ pub(crate) fn atan2_kernel_body<F: DecimalFormat, E: ExtNum>(
             result_ext = result_ext.add(E::pi());
         }
     }
-    let (result, status) = result_ext.to_format::<F>(0, rm);
-    (result, status | Status::INEXACT)
+    ladder::round_guarded::<F, E>(result_ext, rm, &ladder::ATAN2)
 }
 
 /// `atan(x)` at working precision. Pre-conditions: `x` is finite
