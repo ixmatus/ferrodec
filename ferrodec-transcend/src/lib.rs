@@ -34,7 +34,13 @@
 
 pub mod consts;
 pub mod extended;
+// Rung 2 of the ADR-0059 escalation ladder. Crate-internal until M8
+// wires the ladder; the kernels reach it only through the `ExtNum`
+// seam.
+mod extended2;
 mod format;
+#[cfg(test)]
+mod mock_format;
 
 // Exact-result detection for cbrt / pow (§7.5 INEXACT contract). Gated on
 // `exp-log` (cbrt); `pow` implies `exp-log`, so both consumers see it.
