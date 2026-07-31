@@ -40,6 +40,15 @@ use ferrodec_ieee::{RoundingMode, Status};
 
 /// Cube root. Defined for all real `x`:
 /// `cbrt(0) = 0`, `cbrt(-x) = -cbrt(x)`.
+///
+/// ## Exactness and ties (ADR-0059 classification leg)
+///
+/// Exactness is decided from the input alone — stripped
+/// `|x| = c · 10^e` is a perfect cube iff `c = t³` and `3 | e` — and
+/// `cbrt` provably has no nearest-mode ties; both proofs live on
+/// `exact::cbrt_exact_input`. Past the classifier the result is
+/// irrational and the unconditional `INEXACT` is correct in every
+/// mode.
 pub fn cbrt_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
     cbrt_kernel_body::<F, Extended>(x, rm)
 }

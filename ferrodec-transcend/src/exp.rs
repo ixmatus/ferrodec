@@ -57,6 +57,19 @@ use crate::format::DecimalFormat;
 use ferrodec_ieee::IeeeDecodedClass as Class;
 use ferrodec_ieee::{RoundingMode, Status};
 
+/// Natural exponential.
+///
+/// ## Exactness and ties (ADR-0059 classification leg)
+///
+/// `e^r` is transcendental for every algebraic `r ≠ 0` (Lindemann;
+/// docs/references/shidlovskii-transcendence.md, with Niven's
+/// *Irrational Numbers* as the accessible source —
+/// docs/references/niven-irrational-numbers.md). Representable inputs
+/// are rational, so beyond the `exp(±0) = 1` short-circuit no input
+/// has an exact result and none lands on a nearest-mode tie (ties are
+/// rational): the kernel's unconditional `INEXACT` is correct in
+/// every mode, and every input sits a finite distance from its
+/// rounding boundary (the escalation ladder's standing assumption).
 pub fn exp_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
     exp_kernel_body::<F, Extended>(x, rm)
 }
@@ -97,7 +110,17 @@ pub(crate) fn exp_kernel_body<F: DecimalFormat, E: ExtNum>(x: F, rm: RoundingMod
 /// ADR-0059 M7 the tie is delivered exactly by the input-side
 /// classifier (`exact::exp2_exact_or_tie`), not by the approximation
 /// kernel, whose error cannot resolve a value that is itself a
-/// rounding boundary. Sampled corpus minima
+/// rounding boundary.
+///
+/// ## Exactness and ties (ADR-0059 classification leg)
+///
+/// `2^x` is exact or on a nearest-mode tie only at integer `x` (a
+/// rational `2^(a/b)` forces `b = 1` by unique factorization; the
+/// full completeness proof lives on `exact::exp2_exact_or_tie`), and
+/// the classifier catches every such case, so the kernel's
+/// unconditional `INEXACT` is correct on everything it still sees.
+///
+/// Sampled corpus minima
 /// (`tests/vectors/transcend/exp2.prov`, ADR-0026 fd-97a) are
 /// `3.515e-2` at `Decimal64` and `2.015e-2` at `Decimal128`, both
 /// cleared by the composed bound by more than thirty orders of

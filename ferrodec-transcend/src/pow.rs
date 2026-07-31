@@ -193,6 +193,17 @@ pub fn pow_special_cases<F: DecimalFormat>(x: F, y: F) -> Option<(F, Status)> {
     None
 }
 
+/// `x` raised to the power `y`.
+///
+/// ## Exactness and ties (ADR-0059 classification leg)
+///
+/// Exactness and ties are decided from the inputs alone by the
+/// decimal Lauter–Lefèvre criterion (`b | α`, `b | β`, `t = s^b`;
+/// docs/references/lauter-lefevre-pow-boundary.md), including the
+/// real `PRECISION + 1` ties such as `pow(5, 49)`; the criterion, its
+/// tie handling, and the per-bail completeness proofs live on
+/// `exact::pow_exact_input`. Past the classifier `x^y` is irrational
+/// and the unconditional `INEXACT` is correct in every mode.
 pub fn pow_kernel<F: DecimalFormat>(x: F, y: F, rm: RoundingMode) -> (F, Status) {
     pow_kernel_body::<F, Extended>(x, y, rm)
 }

@@ -107,6 +107,18 @@ use ferrodec_ieee::IeeeDecodedClass as Class;
 use ferrodec_ieee::{RoundingMode, Status};
 
 /// Inverse tangent. Range `(-π/2, +π/2)`.
+///
+/// ## Exactness and ties (ADR-0059 classification leg)
+///
+/// `atan(x) = r` with `r` rational and `x` representable forces
+/// `x = tan(r)`, transcendental for `r ≠ 0` (Lindemann–Weierstrass;
+/// docs/references/shidlovskii-transcendence.md,
+/// docs/references/niven-irrational-numbers.md): only `atan(±0) = ±0`
+/// is exact, ties (rational values) are equally impossible, and the
+/// unconditional `INEXACT` is correct in every mode. The `±π/2`
+/// delivered at `x = ±∞` is an irrational constant; its own distance
+/// to the rounding grid is certified offline with the `consts.rs`
+/// constants (ADR-0059 M8), not by the runtime predicate.
 pub fn atan_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
     atan_kernel_body::<F, Extended>(x, rm)
 }
@@ -143,6 +155,17 @@ pub(crate) fn atan_kernel_body<F: DecimalFormat, E: ExtNum>(x: F, rm: RoundingMo
 
 /// Inverse sine. Domain `[-1, +1]`; outside is NaN + INVALID.
 /// Range `[-π/2, +π/2]`.
+///
+/// ## Exactness and ties (ADR-0059 classification leg)
+///
+/// `asin(x) = r` with `r` rational forces `x = sin(r)`,
+/// transcendental for `r ≠ 0` (Lindemann–Weierstrass;
+/// docs/references/shidlovskii-transcendence.md,
+/// docs/references/niven-irrational-numbers.md): only
+/// `asin(±0) = ±0` is exact, ties are impossible, and the
+/// unconditional `INEXACT` is correct in every mode. The `±π/2`
+/// delivered at `x = ±1` is an irrational constant, certified
+/// offline with `consts.rs` (ADR-0059 M8).
 pub fn asin_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
     asin_kernel_body::<F, Extended>(x, rm)
 }
@@ -186,6 +209,17 @@ pub(crate) fn asin_kernel_body<F: DecimalFormat, E: ExtNum>(x: F, rm: RoundingMo
 
 /// Inverse cosine. Domain `[-1, +1]`; outside is NaN + INVALID.
 /// Range `[0, π]`.
+///
+/// ## Exactness and ties (ADR-0059 classification leg)
+///
+/// `acos(x) = r` with `r` rational forces `x = cos(r)`,
+/// transcendental for `r ≠ 0` (Lindemann–Weierstrass;
+/// docs/references/shidlovskii-transcendence.md,
+/// docs/references/niven-irrational-numbers.md): only `acos(1) = 0`
+/// is exact, ties are impossible, and the unconditional `INEXACT` is
+/// correct in every mode. The `π/2` and `π` delivered at `x = 0` and
+/// `x = -1` are irrational constants, certified offline with
+/// `consts.rs` (ADR-0059 M8).
 pub fn acos_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
     acos_kernel_body::<F, Extended>(x, rm)
 }
@@ -242,6 +276,18 @@ pub(crate) fn acos_kernel_body<F: DecimalFormat, E: ExtNum>(x: F, rm: RoundingMo
 
 /// Two-argument arctangent `atan2(y, x)`. Range `(-π, +π]`.
 /// Quadrant per IEEE 754-2019 §9.2.1.
+///
+/// ## Exactness and ties (ADR-0059 classification leg)
+///
+/// On the open quadrants `atan2(y, x) = atan(y/x)` up to a `±π`
+/// shift: a rational result `r` would make `tan(r)` — transcendental
+/// for `r ≠ 0` — equal the rational `y/x`, or place `r ∓ π` rational
+/// with `π` irrational (docs/references/shidlovskii-transcendence.md,
+/// docs/references/niven-irrational-numbers.md). Only the axis
+/// special cases (`atan2(±0, x)`) produce exact zeros; the `±π/2` and
+/// `±π` axis constants are irrational, certified offline with
+/// `consts.rs` (ADR-0059 M8), and everything else is neither exact
+/// nor a tie: the unconditional `INEXACT` is correct in every mode.
 pub fn atan2_kernel<F: DecimalFormat>(y: F, x: F, rm: RoundingMode) -> (F, Status) {
     atan2_kernel_body::<F, Extended>(y, x, rm)
 }

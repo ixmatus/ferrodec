@@ -88,6 +88,17 @@ use crate::format::DecimalFormat;
 use ferrodec_ieee::IeeeDecodedClass as Class;
 use ferrodec_ieee::{RoundingMode, Status};
 
+/// Natural logarithm.
+///
+/// ## Exactness and ties (ADR-0059 classification leg)
+///
+/// `ln(x) = r` with `r` rational and `x` representable forces
+/// `x = e^r`, transcendental for `r ≠ 0` (Lindemann;
+/// docs/references/shidlovskii-transcendence.md,
+/// docs/references/niven-irrational-numbers.md): only `ln(1) = 0` is
+/// exact, and it short-circuits. A nearest-mode tie value is rational,
+/// so the same argument rules ties out; the unconditional `INEXACT` is
+/// correct in every mode.
 pub fn ln_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
     ln_kernel_body::<F, Extended>(x, rm)
 }
@@ -108,6 +119,21 @@ pub(crate) fn ln_kernel_body<F: DecimalFormat, E: ExtNum>(x: F, rm: RoundingMode
     (result, status | Status::INEXACT)
 }
 
+/// Base-10 logarithm.
+///
+/// ## Exactness and ties (ADR-0059 classification leg)
+///
+/// `log10(x) = a/b` in lowest terms forces `x^b = 10^a`, and unique
+/// factorization then forces `x = 10^k` with `b = 1`: a rational
+/// `log10` of a representable `x` is an *integer*, and the exact
+/// cases — precisely the powers of ten — are all caught input-side by
+/// `exact::log10_exact`. A nearest-mode tie value is rational, hence
+/// would be an integer; but a midpoint is never an integer here: a
+/// normal-range midpoint's stripped coefficient has `PRECISION + 1`
+/// digits ending in 5, needing magnitude ≥ 10^7 while `|log10(x)|`
+/// stays below `10^5`, and subnormal-range midpoints are smaller
+/// than one. The kernel's unconditional `INEXACT` is therefore
+/// correct in every mode.
 pub fn log10_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
     log10_kernel_body::<F, Extended>(x, rm)
 }
@@ -138,6 +164,19 @@ pub(crate) fn log10_kernel_body<F: DecimalFormat, E: ExtNum>(
     (result, status | Status::INEXACT)
 }
 
+/// Base-2 logarithm.
+///
+/// ## Exactness and ties (ADR-0059 classification leg)
+///
+/// The mirror of [`log10_kernel`]'s argument: `log2(x) = a/b` in
+/// lowest terms forces `x^b = 2^a`, so `x = 2^k` and `b = 1` (unique
+/// factorization) — a rational `log2` of a representable `x` is an
+/// integer, and the exact cases, precisely the powers of two, are all
+/// caught input-side by `exact::log2_exact`. A tie value would be a
+/// non-exact integer-valued midpoint, which cannot exist
+/// (`|log2(x)| < 10^5` while an integer midpoint needs a
+/// `PRECISION + 1`-digit coefficient, magnitude ≥ 10^7). The
+/// unconditional `INEXACT` is correct in every mode.
 pub fn log2_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
     log2_kernel_body::<F, Extended>(x, rm)
 }

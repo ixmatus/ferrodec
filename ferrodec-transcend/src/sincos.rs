@@ -97,6 +97,18 @@ use ferrodec_ieee::IeeeDecodedClass as Class;
 use ferrodec_ieee::{RoundingMode, Status};
 
 /// Sine, in radians.
+///
+/// ## Exactness and ties (ADR-0059 classification leg)
+///
+/// `sin(r)` is transcendental for every algebraic `r ≠ 0`
+/// (Lindemann–Weierstrass; docs/references/shidlovskii-transcendence.md,
+/// with Niven's *Irrational Numbers* as the accessible source —
+/// docs/references/niven-irrational-numbers.md). Representable inputs
+/// are rational, so beyond the `sin(±0) = ±0` short-circuit no input
+/// has an exact result and none lands on a nearest-mode tie (ties are
+/// rational): the kernel's unconditional `INEXACT` is correct in every
+/// mode, and every input sits a finite distance from its rounding
+/// boundary (the escalation ladder's standing assumption).
 pub fn sin_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
     sin_kernel_body::<F, Extended>(x, rm)
 }
@@ -113,6 +125,15 @@ pub(crate) fn sin_kernel_body<F: DecimalFormat, E: ExtNum>(x: F, rm: RoundingMod
 }
 
 /// Cosine, in radians.
+///
+/// ## Exactness and ties (ADR-0059 classification leg)
+///
+/// `cos(r)` is transcendental for every algebraic `r ≠ 0`
+/// (Lindemann–Weierstrass; docs/references/shidlovskii-transcendence.md,
+/// docs/references/niven-irrational-numbers.md), so beyond
+/// `cos(±0) = 1` no representable input has an exact result or a
+/// nearest-mode tie; the unconditional `INEXACT` is correct in every
+/// mode.
 pub fn cos_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
     cos_kernel_body::<F, Extended>(x, rm)
 }
@@ -137,6 +158,18 @@ pub(crate) fn cos_kernel_body<F: DecimalFormat, E: ExtNum>(x: F, rm: RoundingMod
 /// `DIV_BY_ZERO` (since `tan` of a finite input doesn't fit the
 /// IEEE 754 §7.3 division-by-zero condition — it's just an
 /// asymptote).
+///
+/// ## Exactness and ties (ADR-0059 classification leg)
+///
+/// `tan(r)` is transcendental for every algebraic `r ≠ 0` (a corollary
+/// of Lindemann–Weierstrass: a rational `tan(r)` would make `e^{2ir}`
+/// algebraic; docs/references/shidlovskii-transcendence.md,
+/// docs/references/niven-irrational-numbers.md), so beyond
+/// `tan(±0) = ±0` no representable input has an exact result or a
+/// nearest-mode tie; the unconditional `INEXACT` is correct in every
+/// mode. The `cos(x) = 0` asymptote is never hit exactly for the same
+/// reason (odd multiples of π/2 are irrational), so the `±∞` branch is
+/// working-precision saturation, not an exact-case claim.
 pub fn tan_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
     tan_kernel_body::<F, Extended>(x, rm)
 }

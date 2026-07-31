@@ -404,8 +404,9 @@ fn as_small_int<F: DecimalFormat>(x: F, limit: u128) -> Option<(u128, bool)> {
 /// is rational, `x = a/b` in lowest terms, and `2^a = v^b`; unique
 /// factorization forces every prime factor of `v` to be 2, so
 /// `v = 2^k` and `a = k·b`, hence `b = 1`: `x` is an integer (the
-/// standard rational-power argument; Niven, *Irrational Numbers*,
-/// ch. 2). A midpoint's stripped coefficient has at most
+/// standard rational-power argument; Niven, *Irrational Numbers* —
+/// docs/references/niven-irrational-numbers.md). A midpoint's
+/// stripped coefficient has at most
 /// `PRECISION + 1` digits and ends in 5, so the width gate below
 /// admits every tie; a wider `2^n` is neither representable nor a
 /// midpoint, and the kernel's unconditional `INEXACT` stays correct

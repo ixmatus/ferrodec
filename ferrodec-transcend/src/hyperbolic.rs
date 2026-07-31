@@ -125,6 +125,18 @@ use ferrodec_ieee::IeeeDecodedClass as Class;
 use ferrodec_ieee::{RoundingMode, Status};
 
 /// Hyperbolic sine.
+///
+/// ## Exactness and ties (ADR-0059 classification leg)
+///
+/// `sinh(r) = (e^r − e^{-r})/2` is transcendental for every algebraic
+/// `r ≠ 0` (Lindemann–Weierstrass: a rational value would make `e^r`
+/// algebraic; docs/references/shidlovskii-transcendence.md,
+/// docs/references/niven-irrational-numbers.md). Beyond the
+/// `sinh(±0) = ±0` short-circuit no representable input has an exact
+/// result or a nearest-mode tie (ties are rational); the
+/// unconditional `INEXACT` is correct in every mode, and every input
+/// sits a finite distance from its rounding boundary (the escalation
+/// ladder's standing assumption).
 pub fn sinh_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
     sinh_kernel_body::<F, Extended>(x, rm)
 }
@@ -151,6 +163,13 @@ pub(crate) fn sinh_kernel_body<F: DecimalFormat, E: ExtNum>(x: F, rm: RoundingMo
 }
 
 /// Hyperbolic cosine.
+///
+/// ## Exactness and ties (ADR-0059 classification leg)
+///
+/// `cosh(r)` is transcendental for every algebraic `r ≠ 0` (the
+/// [`sinh_kernel`] argument), so beyond `cosh(±0) = 1` no
+/// representable input has an exact result or a nearest-mode tie;
+/// the unconditional `INEXACT` is correct in every mode.
 pub fn cosh_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
     cosh_kernel_body::<F, Extended>(x, rm)
 }
@@ -177,6 +196,18 @@ pub(crate) fn cosh_kernel_body<F: DecimalFormat, E: ExtNum>(x: F, rm: RoundingMo
 }
 
 /// Hyperbolic tangent.
+///
+/// ## Exactness and ties (ADR-0059 classification leg)
+///
+/// `tanh(r)` is transcendental for every algebraic `r ≠ 0` (a
+/// rational value would make `e^{2r}` algebraic;
+/// docs/references/shidlovskii-transcendence.md,
+/// docs/references/niven-irrational-numbers.md), so beyond
+/// `tanh(±0) = ±0` no representable input has an exact result or a
+/// nearest-mode tie; the unconditional `INEXACT` is correct in every
+/// mode. The saturation to `±1` at large `|x|` delivers a grid point
+/// through the ADR-0051 residual seam, an inexact-by-construction
+/// path, not an exact-case claim.
 pub fn tanh_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
     tanh_kernel_body::<F, Extended>(x, rm)
 }
@@ -244,6 +275,15 @@ pub(crate) fn tanh_kernel_body<F: DecimalFormat, E: ExtNum>(x: F, rm: RoundingMo
 }
 
 /// Inverse hyperbolic sine, defined for all real `x`.
+///
+/// ## Exactness and ties (ADR-0059 classification leg)
+///
+/// `asinh(x) = r` with `r` rational forces `x = sinh(r)`,
+/// transcendental for `r ≠ 0` (docs/references/
+/// shidlovskii-transcendence.md,
+/// docs/references/niven-irrational-numbers.md): only
+/// `asinh(±0) = ±0` is exact, ties are impossible, and the
+/// unconditional `INEXACT` is correct in every mode.
 pub fn asinh_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
     asinh_kernel_body::<F, Extended>(x, rm)
 }
@@ -304,6 +344,15 @@ pub(crate) fn asinh_kernel_body<F: DecimalFormat, E: ExtNum>(
 }
 
 /// Inverse hyperbolic cosine, defined for `x ≥ 1`.
+///
+/// ## Exactness and ties (ADR-0059 classification leg)
+///
+/// `acosh(x) = r` with `r` rational forces `x = cosh(r)`,
+/// transcendental for `r ≠ 0` (docs/references/
+/// shidlovskii-transcendence.md,
+/// docs/references/niven-irrational-numbers.md): only
+/// `acosh(1) = 0` is exact, ties are impossible, and the
+/// unconditional `INEXACT` is correct in every mode.
 pub fn acosh_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
     acosh_kernel_body::<F, Extended>(x, rm)
 }
@@ -376,6 +425,15 @@ pub(crate) fn acosh_kernel_body<F: DecimalFormat, E: ExtNum>(
 }
 
 /// Inverse hyperbolic tangent, defined for `|x| < 1`.
+///
+/// ## Exactness and ties (ADR-0059 classification leg)
+///
+/// `atanh(x) = r` with `r` rational forces `x = tanh(r)`,
+/// transcendental for `r ≠ 0` (docs/references/
+/// shidlovskii-transcendence.md,
+/// docs/references/niven-irrational-numbers.md): only
+/// `atanh(±0) = ±0` is exact, ties are impossible, and the
+/// unconditional `INEXACT` is correct in every mode.
 pub fn atanh_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
     atanh_kernel_body::<F, Extended>(x, rm)
 }

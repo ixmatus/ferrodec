@@ -36,6 +36,7 @@ One line per entry; the entry file is the single home for every fact
 - [mpmath](mpmath.md) — oracle — adaptive precision breadth oracle and anchor band corpus generator
 - [muller-elementary-functions](muller-elementary-functions.md) — algorithm — Elementary Functions, the per-function range reduction playbook
 - [muller-handbook-2018](muller-handbook-2018.md) — algorithm — Handbook of Floating-Point Arithmetic, the fixed precision envelope proofs
+- [niven-irrational-numbers](niven-irrational-numbers.md) — algorithm — Irrational Numbers, the accessible no-ties corollaries per kernel
 - [num-bigint](num-bigint.md) — oracle — exact integer oracle for the closed arithmetic operations
 - [paterson-stockmeyer-1973](paterson-stockmeyer-1973.md) — algorithm — rectangular polynomial evaluation behind the ln series kernel
 - [payne-hanek-1983](payne-hanek-1983.md) — algorithm — windowed radian reduction for full range sin and cos
