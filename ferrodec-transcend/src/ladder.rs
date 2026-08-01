@@ -474,12 +474,11 @@ mod tests {
                     let bound = v2.abs().mul(tenth);
                     assert!(
                         d.cmp(bound) != core::cmp::Ordering::Greater,
-                        "{file} {name}({x_raw}): rung 1 error {:?} \
-                         exceeds a tenth of the budget ({:?}) — the \
-                         budget model is unsound over its falsifying \
-                         band (the ADR-0050 shape); stop the lane",
-                        d,
-                        bound,
+                        "{file} {name}({x_raw}): rung 1 error {d:?} \
+                         exceeds a tenth of the budget ({bound:?}) — \
+                         the budget model is unsound over its \
+                         falsifying band (the ADR-0050 shape); stop \
+                         the lane",
                     );
                 }
                 audited += 1;
