@@ -53,14 +53,17 @@ use ferrodec_ieee::{RoundingMode, Status};
 /// mode.
 pub fn cbrt_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
     ladder::run(
-        || cbrt_kernel_body::<F, Extended>(x, rm),
-        || cbrt_kernel_body::<F, Extended2>(x, rm),
+        || cbrt_kernel_body::<F, Extended>(Extended::ZERO, x, rm),
+        || cbrt_kernel_body::<F, Extended2>(Extended2::ZERO, x, rm),
     )
 }
 
 /// Generic body of [`cbrt_kernel`] (M4, ADR-0059); `None` escalates
-/// (M8 ladder).
+/// (M8 ladder). `ex` is the working-precision exemplar (M8b): the
+/// receiver the constant and constructor surface reads its width from,
+/// never a value the result depends on.
 pub(crate) fn cbrt_kernel_body<F: DecimalFormat, E: ExtNum>(
+    ex: E,
     x: F,
     rm: RoundingMode,
 ) -> Option<(F, Status)> {
@@ -95,7 +98,7 @@ pub(crate) fn cbrt_kernel_body<F: DecimalFormat, E: ExtNum>(
     }
 
     // ln(|x|) at working precision.
-    let ln_x_ext = ln_extended_body::<F, E>(abs_x);
+    let ln_x_ext = ln_extended_body::<F, E>(ex, abs_x);
     // Divide by 3 at working precision.
     let one_third_ln_x = ln_x_ext.div_u32(3);
     // exp(...) → format datum, threading OVERFLOW / UNDERFLOW. For a

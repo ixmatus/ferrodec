@@ -103,14 +103,17 @@ use ferrodec_ieee::{RoundingMode, Status};
 /// correct in every mode.
 pub fn ln_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
     ladder::run(
-        || ln_kernel_body::<F, Extended>(x, rm),
-        || ln_kernel_body::<F, Extended2>(x, rm),
+        || ln_kernel_body::<F, Extended>(Extended::ZERO, x, rm),
+        || ln_kernel_body::<F, Extended2>(Extended2::ZERO, x, rm),
     )
 }
 
 /// Generic body of [`ln_kernel`] (M4, ADR-0059); `None` escalates
-/// (M8 ladder).
+/// (M8 ladder). `ex` is the working-precision exemplar (M8b): the
+/// receiver the constant and constructor surface reads its width from,
+/// never a value the result depends on.
 pub(crate) fn ln_kernel_body<F: DecimalFormat, E: ExtNum>(
+    ex: E,
     x: F,
     rm: RoundingMode,
 ) -> Option<(F, Status)> {
@@ -123,7 +126,7 @@ pub(crate) fn ln_kernel_body<F: DecimalFormat, E: ExtNum>(
     ) {
         return Some((F::ZERO, Status::OK));
     }
-    let result_ext = ln_extended_body::<F, E>(x);
+    let result_ext = ln_extended_body::<F, E>(ex, x);
     ladder::round_guarded::<F, E>(result_ext, rm, &ladder::LN)
 }
 
@@ -144,14 +147,15 @@ pub(crate) fn ln_kernel_body<F: DecimalFormat, E: ExtNum>(
 /// correct in every mode.
 pub fn log10_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
     ladder::run(
-        || log10_kernel_body::<F, Extended>(x, rm),
-        || log10_kernel_body::<F, Extended2>(x, rm),
+        || log10_kernel_body::<F, Extended>(Extended::ZERO, x, rm),
+        || log10_kernel_body::<F, Extended2>(Extended2::ZERO, x, rm),
     )
 }
 
 /// Generic body of [`log10_kernel`] (M4, ADR-0059); `None` escalates
-/// (M8 ladder).
+/// (M8 ladder). `ex` is the working-precision exemplar (M8b).
 pub(crate) fn log10_kernel_body<F: DecimalFormat, E: ExtNum>(
+    ex: E,
     x: F,
     rm: RoundingMode,
 ) -> Option<(F, Status)> {
@@ -170,8 +174,8 @@ pub(crate) fn log10_kernel_body<F: DecimalFormat, E: ExtNum>(
         return Some(exact);
     }
     // log10(x) = ln(x) · (1/ln(10)) at working precision.
-    let ln_ext = ln_extended_body::<F, E>(x);
-    let result_ext = ln_ext.mul(E::inv_ln10());
+    let ln_ext = ln_extended_body::<F, E>(ex, x);
+    let result_ext = ln_ext.mul(ex.inv_ln10());
     ladder::round_guarded::<F, E>(result_ext, rm, &ladder::LOG10)
 }
 
@@ -190,14 +194,15 @@ pub(crate) fn log10_kernel_body<F: DecimalFormat, E: ExtNum>(
 /// unconditional `INEXACT` is correct in every mode.
 pub fn log2_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
     ladder::run(
-        || log2_kernel_body::<F, Extended>(x, rm),
-        || log2_kernel_body::<F, Extended2>(x, rm),
+        || log2_kernel_body::<F, Extended>(Extended::ZERO, x, rm),
+        || log2_kernel_body::<F, Extended2>(Extended2::ZERO, x, rm),
     )
 }
 
 /// Generic body of [`log2_kernel`] (M4, ADR-0059); `None` escalates
-/// (M8 ladder).
+/// (M8 ladder). `ex` is the working-precision exemplar (M8b).
 pub(crate) fn log2_kernel_body<F: DecimalFormat, E: ExtNum>(
+    ex: E,
     x: F,
     rm: RoundingMode,
 ) -> Option<(F, Status)> {
@@ -215,8 +220,8 @@ pub(crate) fn log2_kernel_body<F: DecimalFormat, E: ExtNum>(
     if let Some(exact) = crate::exact::log2_exact::<F>(x, rm) {
         return Some(exact);
     }
-    let ln_ext = ln_extended_body::<F, E>(x);
-    let result_ext = ln_ext.mul(E::inv_ln2());
+    let ln_ext = ln_extended_body::<F, E>(ex, x);
+    let result_ext = ln_ext.mul(ex.inv_ln2());
     ladder::round_guarded::<F, E>(result_ext, rm, &ladder::LOG2)
 }
 
@@ -239,12 +244,13 @@ pub fn ln_special_cases<F: DecimalFormat>(x: F) -> Option<(F, Status)> {
 /// Compute `ln(x)` at extended precision. Caller has already filtered
 /// NaN / Inf / zero / negative inputs and the `x == 1` edge case.
 pub fn ln_extended<F: DecimalFormat>(x: F) -> Extended {
-    ln_extended_body::<F, Extended>(x)
+    ln_extended_body::<F, Extended>(Extended::ZERO, x)
 }
 
-/// Generic body of [`ln_extended`] (M4, ADR-0059).
-pub(crate) fn ln_extended_body<F: DecimalFormat, E: ExtNum>(x: F) -> E {
-    ln_from_extended_body(E::from_format(x))
+/// Generic body of [`ln_extended`] (M4, ADR-0059); `ex` is the
+/// working-precision exemplar (M8b).
+pub(crate) fn ln_extended_body<F: DecimalFormat, E: ExtNum>(ex: E, x: F) -> E {
+    ln_from_extended_body(ex.from_format(x))
 }
 
 /// Compute `ln(x_ext)` at extended precision, given an extended-
@@ -259,7 +265,8 @@ pub fn ln_from_extended(x_ext: Extended) -> Extended {
     ln_from_extended_body(x_ext)
 }
 
-/// Generic body of [`ln_from_extended`] (M4, ADR-0059).
+/// Generic body of [`ln_from_extended`] (M4, ADR-0059). `x_ext`
+/// doubles as the working-precision exemplar (M8b).
 pub(crate) fn ln_from_extended_body<E: ExtNum>(x_ext: E) -> E {
     // Near-1 direct path (fd-aqs.6): for x ∈ (0.5, 1.5) feed
     // u = x − 1 straight to the log1p series. The subtraction is
@@ -275,18 +282,18 @@ pub(crate) fn ln_from_extended_body<E: ExtNum>(x_ext: E) -> E {
     // 1 the old route happened to stay relative because `u = m − 1`
     // was exact with `q = 0`; routing both sides here makes the
     // near-1 neighbourhood symmetric.
-    let u = x_ext.sub(E::ONE);
-    if u.abs().cmp(E::HALF) == core::cmp::Ordering::Less {
+    let u = x_ext.sub(x_ext.one());
+    if u.abs().cmp(x_ext.half()) == core::cmp::Ordering::Less {
         return taylor_log1p_ext(u);
     }
     let (m_ext, q) = decompose_extended_to_decade(x_ext);
 
     // Reduce m into [2/3, 3/2] by halving/doubling.
     let mut m = m_ext;
-    let mut additional = E::ZERO;
-    let ln2_v = E::ln2();
-    let upper = E::parse_str("1.5");
-    let lower = E::parse_str("0.6666666666666666666666666666666666666666666666666667");
+    let mut additional = x_ext.zero();
+    let ln2_v = x_ext.ln2();
+    let upper = x_ext.parse_str("1.5");
+    let lower = x_ext.parse_str("0.6666666666666666666666666666666666666666666666666667");
 
     // At most ~5 iterations to reach the target window (each halve/double
     // contracts by 2× and m starts in [1, 10)).
@@ -299,7 +306,7 @@ pub(crate) fn ln_from_extended_body<E: ExtNum>(x_ext: E) -> E {
             continue;
         }
         if m.cmp(lower) == core::cmp::Ordering::Less {
-            m = m.mul(E::from_i32(2));
+            m = m.mul(x_ext.from_i32(2));
             additional = additional.sub(ln2_v);
             continue;
         }
@@ -307,7 +314,7 @@ pub(crate) fn ln_from_extended_body<E: ExtNum>(x_ext: E) -> E {
     }
 
     // u = m − 1, |u| ≤ 0.5.
-    let u = m.sub(E::ONE);
+    let u = m.sub(x_ext.one());
     let ln_m = taylor_log1p_ext(u);
 
     // ln(original_m) = ln_m + accumulated halve/double corrections.
@@ -317,7 +324,7 @@ pub(crate) fn ln_from_extended_body<E: ExtNum>(x_ext: E) -> E {
     if q == 0 {
         return ln_orig_m;
     }
-    let q_ln10 = E::from_i32(q).mul(E::ln10());
+    let q_ln10 = x_ext.from_i32(q).mul(x_ext.ln10());
     ln_orig_m.add(q_ln10)
 }
 
@@ -354,15 +361,15 @@ pub(crate) fn log1p_extended_body<E: ExtNum>(u: E) -> E {
 /// working precision. Halts when adding the next term doesn't change
 /// the partial sum at that precision.
 fn taylor_log1p_ext<E: ExtNum>(u: E) -> E {
-    let mut sum = E::ZERO;
-    let mut power = E::ONE; // u^0; updated to u^n inside the loop
+    let mut sum = u.zero();
+    let mut power = u.one(); // u^0; updated to u^n inside the loop
     let mut sign_alt = false;
 
     // |u| ≤ 0.5 → |u^n / n| ≤ 0.5^n / n. To drive the term below
     // 10^{-50} we need n large enough that 0.5^n < 10^{-50} · n,
     // i.e. n ≳ 50 · log2(10) / 1 ≈ 166. The rung 1 cap of 250 carries
     // that safety margin; each rung's cap scales with its digit count.
-    for n in 1u32..=E::LOG1P_SERIES_TERMS {
+    for n in 1u32..=u.log1p_series_terms() {
         let new_power = power.mul(u);
         power = new_power;
         let term = power.div_u32(n);

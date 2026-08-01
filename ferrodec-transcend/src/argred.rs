@@ -432,6 +432,7 @@ fn split_product(mut p: U512) -> Split {
 /// effective precision in `y_mag` is at least 43 digits (76 − 33
 /// leading zeros worst case), more than enough to round `r` faithfully.
 fn make_residual<E: ExtNum>(
+    ex: E,
     frac_digits: [u8; FRAC_DIGITS as usize],
     rounded_up: bool,
     sign: bool,
@@ -455,7 +456,7 @@ fn make_residual<E: ExtNum>(
     };
 
     if y_mag.is_zero() {
-        return E::ZERO;
+        return ex.zero();
     }
 
     let net_sign = sign ^ y_signed_neg;
@@ -472,7 +473,7 @@ fn make_residual<E: ExtNum>(
     // 10^{PI_OVER_TWO_EXP_38} = 10^{-37}, plus the shift introduced by
     // the U384 → U256 collapse.
     let exp = -(FRAC_DIGITS as i32) + PI_OVER_TWO_EXP_38 + shift as i32;
-    E::from_components_with_sticky(coef_u256, exp, net_sign, sticky)
+    ex.from_components_with_sticky(coef_u256, exp, net_sign, sticky)
 }
 
 /// `10^k` as a `U256`. Bounded loop; caller keeps `k` ≤ 76 for the
@@ -511,12 +512,15 @@ fn pow10_u256(k: u32) -> U256 {
 /// `x` must be finite. NaN, Infinity, and Zero are handled by the
 /// caller before reaching here.
 pub fn reduce<F: DecimalFormat>(x: F) -> (u32, Extended, Status) {
-    reduce_body::<F, Extended>(x)
+    reduce_body::<F, Extended>(Extended::ZERO, x)
 }
 
 /// Generic body of [`reduce`] (M4, ADR-0059): identical pipeline, with
 /// the residual delivered into the caller's working-precision rung.
-pub(crate) fn reduce_body<F: DecimalFormat, E: ExtNum>(x: F) -> (u32, E, Status) {
+/// `ex` is that rung's exemplar (M8b): the receiver the residual
+/// constructor reads its width from, never a value the result depends
+/// on.
+pub(crate) fn reduce_body<F: DecimalFormat, E: ExtNum>(ex: E, x: F) -> (u32, E, Status) {
     let cls = x.classify();
     let (biased_exp, c) = match cls {
         Class::Finite {
@@ -525,7 +529,7 @@ pub(crate) fn reduce_body<F: DecimalFormat, E: ExtNum>(x: F) -> (u32, E, Status)
             ..
         } => (biased_exp, coefficient),
         // Caller filters these out, but be defensive.
-        _ => return (0, E::from_format(x), Status::OK),
+        _ => return (0, ex.from_format(x), Status::OK),
     };
     debug_assert!(c != 0);
 
@@ -540,7 +544,7 @@ pub(crate) fn reduce_body<F: DecimalFormat, E: ExtNum>(x: F) -> (u32, E, Status)
     // (i.e., |x| < 0.1 — well below π/4).
     if decade < -1 {
         // r = |x| at working precision.
-        let r = E::from_format(x).abs();
+        let r = ex.from_format(x).abs();
         return (0, r, Status::INEXACT);
     }
 
@@ -553,7 +557,7 @@ pub(crate) fn reduce_body<F: DecimalFormat, E: ExtNum>(x: F) -> (u32, E, Status)
     let i_hi_signed = q + I_HI_OFFSET as i32;
     if i_hi_signed < 1 {
         // Window empty: |x · 2/π| ≪ 10^{-FRAC_DIGITS}, so k = 0.
-        let r = E::from_format(x).abs();
+        let r = ex.from_format(x).abs();
         return (0, r, Status::INEXACT);
     }
     let i_hi = (i_hi_signed as usize).min(table::TWO_OVER_PI_DIGITS);
@@ -613,7 +617,7 @@ pub(crate) fn reduce_body<F: DecimalFormat, E: ExtNum>(x: F) -> (u32, E, Status)
 
     // Build r at extended precision. The caller passes the ABS value;
     // the residual sign is entirely determined by `round_up`.
-    let r = make_residual(split.frac_digits, round_up, false);
+    let r = make_residual(ex, split.frac_digits, round_up, false);
     (k_mod_4, r, Status::INEXACT)
 }
 
@@ -928,7 +932,7 @@ mod tests {
                     exp,
                     sign: false,
                 };
-                let (k1, r1, s1) = reduce_body::<ValueFmt128, Extended>(x);
+                let (k1, r1, s1) = reduce_body::<ValueFmt128, Extended>(Extended::ZERO, x);
                 let (k2, r2, s2) = reduce_wide::<ValueFmt128>(x);
                 assert_eq!(k1, k2, "quadrant split for coef={coef} exp={exp}");
                 assert_eq!(s1, s2, "status for coef={coef} exp={exp}");
@@ -1004,7 +1008,7 @@ mod tests {
         );
         // And rung 1 agrees on the leading digits (its own fidelity
         // floor at maximum cancellation is ~43 digits).
-        let (k1, r1, _) = reduce_body::<ValueFmt128, Extended>(x);
+        let (k1, r1, _) = reduce_body::<ValueFmt128, Extended>(Extended::ZERO, x);
         assert_eq!(k1, 1);
         let d = Extended2::from_extended(r1).sub(r2);
         if !d.is_zero() {

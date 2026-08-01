@@ -463,8 +463,9 @@ mod tests {
                     exp: exp_s.parse::<i32>().unwrap(),
                     sign: false,
                 };
-                let (s1, c1, _) = sincos_extended_body::<ValueFmt128, Extended>(x);
-                let (s2, c2, _) = sincos_extended_body::<ValueFmt128, Extended2>(x);
+                let (s1, c1, _) = sincos_extended_body::<ValueFmt128, Extended>(Extended::ZERO, x);
+                let (s2, c2, _) =
+                    sincos_extended_body::<ValueFmt128, Extended2>(Extended2::ZERO, x);
                 for (name, v1, v2) in [("sin", s1, s2), ("cos", c1, c2)] {
                     let d = Extended2::from_extended(v1).sub(v2).abs();
                     if d.is_zero() {

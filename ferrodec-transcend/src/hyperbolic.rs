@@ -141,14 +141,17 @@ use ferrodec_ieee::{RoundingMode, Status};
 /// ladder's standing assumption).
 pub fn sinh_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
     ladder::run(
-        || sinh_kernel_body::<F, Extended>(x, rm),
-        || sinh_kernel_body::<F, Extended2>(x, rm),
+        || sinh_kernel_body::<F, Extended>(Extended::ZERO, x, rm),
+        || sinh_kernel_body::<F, Extended2>(Extended2::ZERO, x, rm),
     )
 }
 
 /// Generic body of [`sinh_kernel`] (M4, ADR-0059); `None`
-/// escalates (M8 ladder).
+/// escalates (M8 ladder). `ex` is the working-precision exemplar
+/// (M8b): the receiver the constant and constructor surface reads its
+/// width from, never a value the result depends on.
 pub(crate) fn sinh_kernel_body<F: DecimalFormat, E: ExtNum>(
+    ex: E,
     x: F,
     rm: RoundingMode,
 ) -> Option<(F, Status)> {
@@ -159,7 +162,7 @@ pub(crate) fn sinh_kernel_body<F: DecimalFormat, E: ExtNum>(
         Class::Zero { .. } => return Some((x, Status::OK)),
         Class::Finite { .. } => {}
     }
-    let x_ext = E::from_format(x);
+    let x_ext = ex.from_format(x);
     let result_ext = sinh_ext::<F, E>(x_ext);
     // Grid-stuck at the input (ADR-0051): `|sinh x| > |x|` is a
     // theorem, so the residual side is the growing one.
@@ -181,14 +184,16 @@ pub(crate) fn sinh_kernel_body<F: DecimalFormat, E: ExtNum>(
 /// the unconditional `INEXACT` is correct in every mode.
 pub fn cosh_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
     ladder::run(
-        || cosh_kernel_body::<F, Extended>(x, rm),
-        || cosh_kernel_body::<F, Extended2>(x, rm),
+        || cosh_kernel_body::<F, Extended>(Extended::ZERO, x, rm),
+        || cosh_kernel_body::<F, Extended2>(Extended2::ZERO, x, rm),
     )
 }
 
 /// Generic body of [`cosh_kernel`] (M4, ADR-0059); `None`
-/// escalates (M8 ladder).
+/// escalates (M8 ladder). `ex` is the working-precision exemplar
+/// (M8b).
 pub(crate) fn cosh_kernel_body<F: DecimalFormat, E: ExtNum>(
+    ex: E,
     x: F,
     rm: RoundingMode,
 ) -> Option<(F, Status)> {
@@ -199,13 +204,13 @@ pub(crate) fn cosh_kernel_body<F: DecimalFormat, E: ExtNum>(
         Class::Zero { .. } => return Some((F::ONE, Status::OK)),
         Class::Finite { .. } => {}
     }
-    let x_ext = E::from_format(x).abs();
+    let x_ext = ex.from_format(x).abs();
     let result_ext = cosh_ext::<F, E>(x_ext);
     // Grid-stuck at the 1 anchor (ADR-0051): `cosh x > 1` for every
     // finite nonzero `x`, so the residual side is the growing one.
     // Unguarded: the anchor leg runs before the ladder's predicate.
-    if result_ext.sticks_to(E::ONE) {
-        let (result, status) = E::ONE.to_format_with_residual::<F>(true, rm);
+    if result_ext.sticks_to(ex.one()) {
+        let (result, status) = ex.one().to_format_with_residual::<F>(true, rm);
         return Some((result, status | Status::INEXACT));
     }
     ladder::round_guarded::<F, E>(result_ext, rm, &ladder::COSH)
@@ -226,14 +231,16 @@ pub(crate) fn cosh_kernel_body<F: DecimalFormat, E: ExtNum>(
 /// path, not an exact-case claim.
 pub fn tanh_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
     ladder::run(
-        || tanh_kernel_body::<F, Extended>(x, rm),
-        || tanh_kernel_body::<F, Extended2>(x, rm),
+        || tanh_kernel_body::<F, Extended>(Extended::ZERO, x, rm),
+        || tanh_kernel_body::<F, Extended2>(Extended2::ZERO, x, rm),
     )
 }
 
 /// Generic body of [`tanh_kernel`] (M4, ADR-0059); `None`
-/// escalates (M8 ladder).
+/// escalates (M8 ladder). `ex` is the working-precision exemplar
+/// (M8b).
 pub(crate) fn tanh_kernel_body<F: DecimalFormat, E: ExtNum>(
+    ex: E,
     x: F,
     rm: RoundingMode,
 ) -> Option<(F, Status)> {
@@ -266,8 +273,8 @@ pub(crate) fn tanh_kernel_body<F: DecimalFormat, E: ExtNum>(
     // boundary round cannot collapse to exactly 1. (The previous 80
     // threshold left a `~58 < |x| ≤ 80` band where the quotient
     // rounded to 1 at 50 digits and reproduced the saturation defect.)
-    let abs_ext = E::from_format(x).abs();
-    if abs_ext.cmp(E::parse_str("45")) == core::cmp::Ordering::Greater {
+    let abs_ext = ex.from_format(x).abs();
+    if abs_ext.cmp(ex.parse_str("45")) == core::cmp::Ordering::Greater {
         // The proxy feeds the format rounder directly, so it stays on
         // the rung-1 carrier regardless of the running rung.
         let nines = Extended::parse_str("0.99999999999999999999999999999999999999999999999999");
@@ -284,7 +291,7 @@ pub(crate) fn tanh_kernel_body<F: DecimalFormat, E: ExtNum>(
         // mode's answer, independent of the rung.
         return Some((result, status | Status::INEXACT));
     }
-    let x_ext = E::from_format(x);
+    let x_ext = ex.from_format(x);
     let s = sinh_ext::<F, E>(x_ext);
     let c = cosh_ext::<F, E>(x_ext.abs());
     // tanh inherits the sign of x via sinh; cosh is symmetric.
@@ -311,14 +318,16 @@ pub(crate) fn tanh_kernel_body<F: DecimalFormat, E: ExtNum>(
 /// unconditional `INEXACT` is correct in every mode.
 pub fn asinh_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
     ladder::run(
-        || asinh_kernel_body::<F, Extended>(x, rm),
-        || asinh_kernel_body::<F, Extended2>(x, rm),
+        || asinh_kernel_body::<F, Extended>(Extended::ZERO, x, rm),
+        || asinh_kernel_body::<F, Extended2>(Extended2::ZERO, x, rm),
     )
 }
 
 /// Generic body of [`asinh_kernel`] (M4, ADR-0059); `None`
-/// escalates (M8 ladder).
+/// escalates (M8 ladder). `ex` is the working-precision exemplar
+/// (M8b).
 pub(crate) fn asinh_kernel_body<F: DecimalFormat, E: ExtNum>(
+    ex: E,
     x: F,
     rm: RoundingMode,
 ) -> Option<(F, Status)> {
@@ -332,7 +341,7 @@ pub(crate) fn asinh_kernel_body<F: DecimalFormat, E: ExtNum>(
     // asinh(x) = sign(x) · ln(|x| + sqrt(x² + 1))
     // Working on |x| keeps the inner sum strictly positive.
     let neg = x.is_sign_negative();
-    let abs_x_ext = E::from_format(x).abs();
+    let abs_x_ext = ex.from_format(x).abs();
     // Small-|x| band (fd-aqs.6): `|x| + sqrt(x² + 1)` hands `1 + |x|`
     // to the 50-significant-digit representation, absorbing the
     // argument once it sinks below the working resolution (up to
@@ -345,14 +354,14 @@ pub(crate) fn asinh_kernel_body<F: DecimalFormat, E: ExtNum>(
     // above it the original path is well-conditioned
     // (`asinh 0.3 ≈ 0.296` against ~1e-49 absolute error).
     // 0.3 (the concrete kernels' `LOG1P_THRESHOLD` literal).
-    let log1p_threshold = E::from_parts_u128(3, -1, false);
+    let log1p_threshold = ex.from_parts_u128(3, -1, false);
     let result_ext = if abs_x_ext.cmp(log1p_threshold) == core::cmp::Ordering::Less {
         let x_sq = abs_x_ext.square();
-        let denom = E::ONE.add(x_sq.add(E::ONE).sqrt::<F>());
+        let denom = ex.one().add(x_sq.add(ex.one()).sqrt::<F>());
         let u = abs_x_ext.add(x_sq.div::<F>(denom));
         log1p_extended_body(u)
     } else {
-        let x_sq_plus_one = abs_x_ext.square().add(E::ONE);
+        let x_sq_plus_one = abs_x_ext.square().add(ex.one());
         let inner = abs_x_ext.add(x_sq_plus_one.sqrt::<F>());
         // Pass `inner` to `ln_from_extended_body` directly — keeping
         // the argument at working precision avoids a format-width
@@ -364,7 +373,7 @@ pub(crate) fn asinh_kernel_body<F: DecimalFormat, E: ExtNum>(
     // Grid-stuck at the input (ADR-0051): `|asinh x| < |x|` is a
     // theorem, so the residual side is the shrinking one.
     // Unguarded: the anchor leg runs before the ladder's predicate.
-    let x_anchor = E::from_format(x);
+    let x_anchor = ex.from_format(x);
     if signed_ext.sticks_to(x_anchor) {
         let (result, status) = x_anchor.to_format_with_residual::<F>(false, rm);
         return Some((result, status | Status::INEXACT));
@@ -384,14 +393,16 @@ pub(crate) fn asinh_kernel_body<F: DecimalFormat, E: ExtNum>(
 /// unconditional `INEXACT` is correct in every mode.
 pub fn acosh_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
     ladder::run(
-        || acosh_kernel_body::<F, Extended>(x, rm),
-        || acosh_kernel_body::<F, Extended2>(x, rm),
+        || acosh_kernel_body::<F, Extended>(Extended::ZERO, x, rm),
+        || acosh_kernel_body::<F, Extended2>(Extended2::ZERO, x, rm),
     )
 }
 
 /// Generic body of [`acosh_kernel`] (M4, ADR-0059); `None`
-/// escalates (M8 ladder).
+/// escalates (M8 ladder). `ex` is the working-precision exemplar
+/// (M8b).
 pub(crate) fn acosh_kernel_body<F: DecimalFormat, E: ExtNum>(
+    ex: E,
     x: F,
     rm: RoundingMode,
 ) -> Option<(F, Status)> {
@@ -440,16 +451,16 @@ pub(crate) fn acosh_kernel_body<F: DecimalFormat, E: ExtNum>(
     // threshold further would shift the work back to the direct
     // path without breaking anything; raising it would force
     // log1p past its smooth convergence window.
-    let x_ext = E::from_format(x);
-    let y = x_ext.sub(E::ONE);
+    let x_ext = ex.from_format(x);
+    let y = x_ext.sub(ex.one());
     // 0.01 (the concrete kernels' `LOG1P_THRESHOLD` literal).
-    let log1p_threshold = E::from_parts_u128(1, -2, false);
+    let log1p_threshold = ex.from_parts_u128(1, -2, false);
     let result_ext = if y.cmp(log1p_threshold) == core::cmp::Ordering::Less {
-        let x_plus_one = x_ext.add(E::ONE);
+        let x_plus_one = x_ext.add(ex.one());
         let inner = y.add(y.mul(x_plus_one).sqrt::<F>());
         log1p_extended_body(inner)
     } else {
-        let x_sq_minus_one = x_ext.square().sub(E::ONE);
+        let x_sq_minus_one = x_ext.square().sub(ex.one());
         let inner = x_ext.add(x_sq_minus_one.sqrt::<F>());
         ln_from_extended_body(inner)
     };
@@ -468,14 +479,16 @@ pub(crate) fn acosh_kernel_body<F: DecimalFormat, E: ExtNum>(
 /// unconditional `INEXACT` is correct in every mode.
 pub fn atanh_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
     ladder::run(
-        || atanh_kernel_body::<F, Extended>(x, rm),
-        || atanh_kernel_body::<F, Extended2>(x, rm),
+        || atanh_kernel_body::<F, Extended>(Extended::ZERO, x, rm),
+        || atanh_kernel_body::<F, Extended2>(Extended2::ZERO, x, rm),
     )
 }
 
 /// Generic body of [`atanh_kernel`] (M4, ADR-0059); `None`
-/// escalates (M8 ladder).
+/// escalates (M8 ladder). `ex` is the working-precision exemplar
+/// (M8b).
 pub(crate) fn atanh_kernel_body<F: DecimalFormat, E: ExtNum>(
+    ex: E,
     x: F,
     rm: RoundingMode,
 ) -> Option<(F, Status)> {
@@ -504,7 +517,7 @@ pub(crate) fn atanh_kernel_body<F: DecimalFormat, E: ExtNum>(
         }
         _ => {}
     }
-    let x_ext = E::from_format(x);
+    let x_ext = ex.from_format(x);
     // Small-|x| band (fd-aqs.6): the ratio form hands `1 ± x` to the
     // 50-significant-digit representation, absorbing `x` (and the
     // `x²`-order correction) once `|x|` sinks below the working
@@ -519,17 +532,17 @@ pub(crate) fn atanh_kernel_body<F: DecimalFormat, E: ExtNum>(
     // the log1p series' convergence budget; above it the ratio path
     // is well-conditioned (`|atanh x| ≥ 0.15` against ~1e-49
     // absolute error).
-    let log1p_threshold = E::from_parts_u128(15, -2, false);
+    let log1p_threshold = ex.from_parts_u128(15, -2, false);
     let result_ext = if x_ext.abs().cmp(log1p_threshold) == core::cmp::Ordering::Less {
         let two_x = x_ext.add(x_ext);
-        let one_minus = E::ONE.sub(x_ext);
+        let one_minus = ex.one().sub(x_ext);
         let u = two_x.div::<F>(one_minus);
         log1p_extended_body(u).div_u32(2)
     } else {
         // atanh(x) = ½·ln((1 + x) / (1 − x)) — ratio stays at
         // working precision through the ln call.
-        let one_plus = E::ONE.add(x_ext);
-        let one_minus = E::ONE.sub(x_ext);
+        let one_plus = ex.one().add(x_ext);
+        let one_minus = ex.one().sub(x_ext);
         let ratio = one_plus.div::<F>(one_minus);
         ln_from_extended_body(ratio).div_u32(2)
     };
@@ -551,14 +564,14 @@ fn sinh_ext<F: DecimalFormat, E: ExtNum>(x: E) -> E {
     // For |x| < 0.5 use Taylor directly to avoid cancellation in
     // (eˣ − e⁻ˣ)/2. The threshold 0.5 keeps Taylor convergence at
     // ≤ ~40 iterations for 50-digit precision.
-    if x.abs().cmp(E::HALF) == core::cmp::Ordering::Less {
+    if x.abs().cmp(x.half()) == core::cmp::Ordering::Less {
         return sinh_taylor(x);
     }
     // Saturation: |x| past the format's exp convergence ceiling lands
     // outside the format's range. Return a pre-overflow magnitude with
     // the sign of x; the boundary round produces ±∞ + OVERFLOW.
-    if x.abs().cmp(E::from_extended(F::exp_overflow_limit())) == core::cmp::Ordering::Greater {
-        return E::saturate_overflow(x.sign());
+    if x.abs().cmp(x.from_extended(F::exp_overflow_limit())) == core::cmp::Ordering::Greater {
+        return x.saturate_overflow(x.sign());
     }
     // sinh(x) = (e^x − e^{-x}) / 2, evaluated entirely at working
     // precision so the cancellation is bounded by the working
@@ -578,7 +591,7 @@ fn sinh_taylor<E: ExtNum>(x: E) -> E {
     let mut term = x;
     let x_sq = x.square();
     let mut n: u32 = 1;
-    for _ in 0..E::SINH_COSH_SERIES_TERMS {
+    for _ in 0..x.sinh_cosh_series_terms() {
         n += 1;
         let denom = (2 * n - 2) * (2 * n - 1);
         term = term.mul(x_sq).div_u32(denom);
@@ -599,16 +612,16 @@ fn sinh_taylor<E: ExtNum>(x: E) -> E {
 /// value (cosh is even).
 fn cosh_ext<F: DecimalFormat, E: ExtNum>(abs_x: E) -> E {
     if abs_x.is_zero() {
-        return E::ONE;
+        return abs_x.one();
     }
     // For small |x| (<0.5), Taylor is more accurate (no cancellation).
-    if abs_x.cmp(E::HALF) == core::cmp::Ordering::Less {
+    if abs_x.cmp(abs_x.half()) == core::cmp::Ordering::Less {
         return cosh_taylor(abs_x);
     }
     // Saturation: |x| past the format's exp convergence ceiling lands
     // outside the format's range. cosh is always positive.
-    if abs_x.cmp(E::from_extended(F::exp_overflow_limit())) == core::cmp::Ordering::Greater {
-        return E::saturate_overflow(false);
+    if abs_x.cmp(abs_x.from_extended(F::exp_overflow_limit())) == core::cmp::Ordering::Greater {
+        return abs_x.saturate_overflow(false);
     }
     // cosh(x) = (e^x + e^{-x}) / 2, end-to-end at working precision.
     let e_pos = exp_extended_body(abs_x);
@@ -618,11 +631,11 @@ fn cosh_ext<F: DecimalFormat, E: ExtNum>(abs_x: E) -> E {
 
 /// `cosh(x) = 1 + x²/2! + x⁴/4! + …` for small `|x|`.
 fn cosh_taylor<E: ExtNum>(x: E) -> E {
-    let mut sum = E::ONE;
-    let mut term = E::ONE;
+    let mut sum = x.one();
+    let mut term = x.one();
     let x_sq = x.square();
     let mut n: u32 = 0;
-    for _ in 0..E::SINH_COSH_SERIES_TERMS {
+    for _ in 0..x.sinh_cosh_series_terms() {
         n += 1;
         let denom = (2 * n - 1) * (2 * n);
         term = term.mul(x_sq).div_u32(denom);

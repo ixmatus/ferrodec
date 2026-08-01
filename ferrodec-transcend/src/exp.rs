@@ -74,14 +74,17 @@ use ferrodec_ieee::{RoundingMode, Status};
 /// rounding boundary (the escalation ladder's standing assumption).
 pub fn exp_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
     ladder::run(
-        || exp_kernel_body::<F, Extended>(x, rm),
-        || exp_kernel_body::<F, Extended2>(x, rm),
+        || exp_kernel_body::<F, Extended>(Extended::ZERO, x, rm),
+        || exp_kernel_body::<F, Extended2>(Extended2::ZERO, x, rm),
     )
 }
 
 /// Generic body of [`exp_kernel`] (M4, ADR-0059); `None` escalates
-/// (M8 ladder).
+/// (M8 ladder). `ex` is the working-precision exemplar (M8b): the
+/// receiver the constant and constructor surface reads its width from,
+/// never a value the result depends on.
 pub(crate) fn exp_kernel_body<F: DecimalFormat, E: ExtNum>(
+    ex: E,
     x: F,
     rm: RoundingMode,
 ) -> Option<(F, Status)> {
@@ -99,7 +102,7 @@ pub(crate) fn exp_kernel_body<F: DecimalFormat, E: ExtNum>(
         Class::Finite { .. } => {}
     }
 
-    let x_ext = E::from_format(x);
+    let x_ext = ex.from_format(x);
     exp_from_extended_body::<F, E>(x_ext, rm, &ladder::EXP)
 }
 
@@ -136,14 +139,15 @@ pub(crate) fn exp_kernel_body<F: DecimalFormat, E: ExtNum>(
 /// magnitude.
 pub fn exp2_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
     ladder::run(
-        || exp2_kernel_body::<F, Extended>(x, rm),
-        || exp2_kernel_body::<F, Extended2>(x, rm),
+        || exp2_kernel_body::<F, Extended>(Extended::ZERO, x, rm),
+        || exp2_kernel_body::<F, Extended2>(Extended2::ZERO, x, rm),
     )
 }
 
 /// Generic body of [`exp2_kernel`] (M4, ADR-0059); `None` escalates
-/// (M8 ladder).
+/// (M8 ladder). `ex` is the working-precision exemplar (M8b).
 pub(crate) fn exp2_kernel_body<F: DecimalFormat, E: ExtNum>(
+    ex: E,
     x: F,
     rm: RoundingMode,
 ) -> Option<(F, Status)> {
@@ -174,7 +178,7 @@ pub(crate) fn exp2_kernel_body<F: DecimalFormat, E: ExtNum>(
     if let Some(result) = crate::exact::exp2_exact_or_tie::<F>(x, rm) {
         return Some(result);
     }
-    let arg_ext = E::from_format(x).mul(E::ln2());
+    let arg_ext = ex.from_format(x).mul(ex.ln2());
     exp_from_extended_body::<F, E>(arg_ext, rm, &ladder::EXP2)
 }
 
@@ -204,6 +208,10 @@ pub fn exp_from_extended<F: DecimalFormat>(x_ext: Extended, rm: RoundingMode) ->
 /// [`ladder::EXP2`], and the composed kernels (`pow`, `cbrt`) pass
 /// their own composition budgets, so the one guarded delivery site
 /// serves every pipeline that ends here with the right total.
+///
+/// `x_ext` doubles as the working-precision exemplar (M8b): it is a
+/// value at the running rung's width, which is all the constant and
+/// constructor surface reads off a receiver.
 pub(crate) fn exp_from_extended_body<F: DecimalFormat, E: ExtNum>(
     x_ext: E,
     rm: RoundingMode,
@@ -219,7 +227,7 @@ pub(crate) fn exp_from_extended_body<F: DecimalFormat, E: ExtNum>(
     // must NOT short-circuit to zero, the Taylor pipeline handles
     // them.
     let abs = x_ext.abs();
-    let limit = E::from_extended(if x_ext.sign() {
+    let limit = x_ext.from_extended(if x_ext.sign() {
         F::exp_underflow_limit()
     } else {
         F::exp_overflow_limit()
@@ -262,8 +270,8 @@ pub(crate) fn exp_from_extended_body<F: DecimalFormat, E: ExtNum>(
     // Unguarded delivery: the anchor leg runs before the ladder's
     // predicate by the ADR-0059 tripod (no finite rung separates a
     // grid-hugging residual; the theorem-backed side does).
-    if !x_ext.is_zero() && result_ext.sticks_to(E::ONE) {
-        let (result, status) = E::ONE.to_format_with_residual::<F>(!x_ext.sign(), rm);
+    if !x_ext.is_zero() && result_ext.sticks_to(x_ext.one()) {
+        let (result, status) = x_ext.one().to_format_with_residual::<F>(!x_ext.sign(), rm);
         return Some((result, status | Status::INEXACT));
     }
     ladder::round_guarded::<F, E>(result_ext, rm, budget)
@@ -289,9 +297,9 @@ pub fn exp_extended(x_ext: Extended) -> Extended {
 /// Generic body of [`exp_extended`] (M4, ADR-0059).
 pub(crate) fn exp_extended_body<E: ExtNum>(x_ext: E) -> E {
     // Reduction: x = k · ln(10) + r, with |r| ≤ ln(10)/2.
-    let q = x_ext.mul(E::inv_ln10());
+    let q = x_ext.mul(x_ext.inv_ln10());
     let k = round_to_i32(q);
-    let r = x_ext.sub(E::from_i32(k).mul(E::ln10()));
+    let r = x_ext.sub(x_ext.from_i32(k).mul(x_ext.ln10()));
 
     // Taylor series at working precision.
     let exp_r = taylor_exp_ext(r);
@@ -310,9 +318,9 @@ fn round_to_i32<E: ExtNum>(q: E) -> i32 {
     }
     // Add ±0.5 (depending on sign), then truncate toward zero.
     let nudged = if q.sign() {
-        q.sub(E::HALF)
+        q.sub(q.half())
     } else {
-        q.add(E::HALF)
+        q.add(q.half())
     };
     nudged.trunc_to_i32()
 }
@@ -322,13 +330,13 @@ fn round_to_i32<E: ExtNum>(q: E) -> i32 {
 /// Convergence: `|r| ≤ ln(10)/2 ≈ 1.151`, and `|r|^n / n!` decays
 /// faster than geometrically once `n > |r|`. ~36 terms drives the
 /// term magnitude below `10^{-49}`, well past `EXT_PRECISION = 50`;
-/// the rung's cap ([`ExtNum::EXP_SERIES_TERMS`]) scales with its
-/// digit count.
+/// the rung's cap ([`ExtNum::exp_series_terms`], read off `r` as the
+/// exemplar) scales with its digit count.
 fn taylor_exp_ext<E: ExtNum>(r: E) -> E {
-    let mut sum = E::ONE;
-    let mut term = E::ONE;
+    let mut sum = r.one();
+    let mut term = r.one();
     // Halt early if `term` falls below the working significance.
-    for n in 1u32..=E::EXP_SERIES_TERMS {
+    for n in 1u32..=r.exp_series_terms() {
         term = term.mul(r).div_u32(n);
         let next_sum = sum.add(term);
         // Early exit: if `next_sum` matches `sum` at extended

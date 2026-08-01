@@ -757,8 +757,11 @@ fn round_u384_to_ext2(mut coef: U384, pre_sticky: bool) -> (U384, u32) {
 // ----------------------------------------------------------------------------
 // The ExtNum seam: rung 2 speaks the same contract as rung 1.
 
+// Rung 2's width is fixed at `EXT2_PRECISION`, so every
+// exemplar-relative member ignores its receiver and delegates verbatim
+// to the inherent surface, exactly as rung 1 does.
 impl ExtNum for Extended2 {
-    fn precision() -> u32 {
+    fn precision(&self) -> u32 {
         EXT2_PRECISION
     }
 
@@ -776,70 +779,92 @@ impl ExtNum for Extended2 {
     //
     // Every loop still exits early on `next_sum == sum`, so the caps
     // are convergence backstops, not iteration counts.
-    const EXP_SERIES_TERMS: u32 = 120;
-    const SIN_COS_SERIES_TERMS: u32 = 240;
-    const SINH_COSH_SERIES_TERMS: u32 = 240;
-    const LOG1P_SERIES_TERMS: u32 = 550;
-    const ATAN_SERIES_TERMS: u32 = 450;
+    fn exp_series_terms(&self) -> u32 {
+        120
+    }
+    fn sin_cos_series_terms(&self) -> u32 {
+        240
+    }
+    fn sinh_cosh_series_terms(&self) -> u32 {
+        240
+    }
+    fn log1p_series_terms(&self) -> u32 {
+        550
+    }
+    fn atan_series_terms(&self) -> u32 {
+        450
+    }
 
-    const ZERO: Self = Extended2::ZERO;
-    const ONE: Self = Extended2::ONE;
-    const HALF: Self = Extended2::HALF;
+    fn zero(&self) -> Self {
+        Extended2::ZERO
+    }
+    fn one(&self) -> Self {
+        Extended2::ONE
+    }
+    fn half(&self) -> Self {
+        Extended2::HALF
+    }
 
-    fn pi() -> Self {
+    fn pi(&self) -> Self {
         crate::consts::pi_ext2()
     }
-    fn e() -> Self {
+    fn e(&self) -> Self {
         crate::consts::e_ext2()
     }
-    fn ln2() -> Self {
+    fn ln2(&self) -> Self {
         crate::consts::ln2_ext2()
     }
-    fn ln10() -> Self {
+    fn ln10(&self) -> Self {
         crate::consts::ln10_ext2()
     }
-    fn inv_ln10() -> Self {
+    fn inv_ln10(&self) -> Self {
         crate::consts::inv_ln10_ext2()
     }
-    fn inv_ln2() -> Self {
+    fn inv_ln2(&self) -> Self {
         crate::consts::inv_ln2_ext2()
     }
-    fn pi_over_two() -> Self {
+    fn pi_over_two(&self) -> Self {
         crate::consts::pi_over_two_ext2()
     }
-    fn pi_over_four() -> Self {
+    fn pi_over_four(&self) -> Self {
         crate::consts::pi_over_four_ext2()
     }
-    fn tan_pi_over_eight() -> Self {
+    fn tan_pi_over_eight(&self) -> Self {
         crate::consts::tan_pi_over_eight_ext2()
     }
 
-    fn from_i32(n: i32) -> Self {
+    fn from_i32(&self, n: i32) -> Self {
         Extended2::from_i32(n)
     }
-    fn parse_str(s: &str) -> Self {
+    fn parse_str(&self, s: &str) -> Self {
         Extended2::parse_str(s)
     }
-    fn from_parts_u128(coef: u128, exp: i32, sign: bool) -> Self {
+    fn from_parts_u128(&self, coef: u128, exp: i32, sign: bool) -> Self {
         Self {
             coef: U384::from_u128(coef),
             exp,
             sign,
         }
     }
-    fn from_components_with_sticky(coef: U256, exp: i32, sign: bool, pre_sticky: bool) -> Self {
+    fn from_components_with_sticky(
+        &self,
+        coef: U256,
+        exp: i32,
+        sign: bool,
+        pre_sticky: bool,
+    ) -> Self {
         Extended2::from_components_with_sticky(U384::from_u256(coef), exp, sign, pre_sticky)
     }
-    fn from_format<F: DecimalFormat>(d: F) -> Self {
+    fn from_format<F: DecimalFormat>(&self, d: F) -> Self {
         Extended2::from_format(d)
     }
-    fn from_extended(x: Extended) -> Self {
+    fn from_extended(&self, x: Extended) -> Self {
         Extended2::from_extended(x)
     }
-    fn saturate_overflow(sign: bool) -> Self {
+    fn saturate_overflow(&self, sign: bool) -> Self {
         Extended2::saturate_overflow(sign)
     }
-    fn saturate_underflow() -> Self {
+    fn saturate_underflow(&self) -> Self {
         Extended2::saturate_underflow()
     }
 
@@ -928,7 +953,7 @@ impl ExtNum for Extended2 {
         budget.rung2
     }
     #[cfg(feature = "trig")]
-    fn reduce_trig<F: DecimalFormat>(x: F) -> (u32, Self, Status) {
+    fn reduce_trig<F: DecimalFormat>(&self, x: F) -> (u32, Self, Status) {
         crate::argred::reduce_wide::<F>(x)
     }
 }
@@ -1059,12 +1084,13 @@ mod tests {
 
     #[test]
     fn series_caps_pin_rung2_values() {
-        assert_eq!(<Extended2 as ExtNum>::EXP_SERIES_TERMS, 120);
-        assert_eq!(<Extended2 as ExtNum>::SIN_COS_SERIES_TERMS, 240);
-        assert_eq!(<Extended2 as ExtNum>::SINH_COSH_SERIES_TERMS, 240);
-        assert_eq!(<Extended2 as ExtNum>::LOG1P_SERIES_TERMS, 550);
-        assert_eq!(<Extended2 as ExtNum>::ATAN_SERIES_TERMS, 450);
-        assert_eq!(<Extended2 as ExtNum>::precision(), EXT2_PRECISION);
+        let ex = Extended2::ZERO;
+        assert_eq!(ex.exp_series_terms(), 120);
+        assert_eq!(ex.sin_cos_series_terms(), 240);
+        assert_eq!(ex.sinh_cosh_series_terms(), 240);
+        assert_eq!(ex.log1p_series_terms(), 550);
+        assert_eq!(ex.atan_series_terms(), 450);
+        assert_eq!(ex.precision(), EXT2_PRECISION);
     }
 
     #[test]

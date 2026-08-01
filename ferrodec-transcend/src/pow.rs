@@ -208,14 +208,17 @@ pub fn pow_special_cases<F: DecimalFormat>(x: F, y: F) -> Option<(F, Status)> {
 /// and the unconditional `INEXACT` is correct in every mode.
 pub fn pow_kernel<F: DecimalFormat>(x: F, y: F, rm: RoundingMode) -> (F, Status) {
     ladder::run(
-        || pow_kernel_body::<F, Extended>(x, y, rm),
-        || pow_kernel_body::<F, Extended2>(x, y, rm),
+        || pow_kernel_body::<F, Extended>(Extended::ZERO, x, y, rm),
+        || pow_kernel_body::<F, Extended2>(Extended2::ZERO, x, y, rm),
     )
 }
 
 /// Generic body of [`pow_kernel`] (M4, ADR-0059); `None` escalates
-/// (M8 ladder).
+/// (M8 ladder). `ex` is the working-precision exemplar (M8b): the
+/// receiver the constant and constructor surface reads its width from,
+/// never a value the result depends on.
 pub(crate) fn pow_kernel_body<F: DecimalFormat, E: ExtNum>(
+    ex: E,
     x: F,
     y: F,
     rm: RoundingMode,
@@ -274,8 +277,8 @@ pub(crate) fn pow_kernel_body<F: DecimalFormat, E: ExtNum>(
     // the half-ULP grid at every format precision; see the module
     // Accuracy section and ADR-0032 §Decision).
     let abs_x = x.abs();
-    let ln_x_ext = ln_extended_body::<F, E>(abs_x);
-    let y_ext = E::from_format(y);
+    let ln_x_ext = ln_extended_body::<F, E>(ex, abs_x);
+    let y_ext = ex.from_format(y);
     let y_ln_x_ext = y_ext.mul(ln_x_ext);
     let (result, status) = exp_from_extended_body::<F, E>(y_ln_x_ext, eff_rm, &ladder::POW)?;
     let signed = if sign_neg { result.neg() } else { result };

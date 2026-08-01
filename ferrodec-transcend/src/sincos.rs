@@ -112,14 +112,17 @@ use ferrodec_ieee::{RoundingMode, Status};
 /// boundary (the escalation ladder's standing assumption).
 pub fn sin_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
     ladder::run(
-        || sin_kernel_body::<F, Extended>(x, rm),
-        || sin_kernel_body::<F, Extended2>(x, rm),
+        || sin_kernel_body::<F, Extended>(Extended::ZERO, x, rm),
+        || sin_kernel_body::<F, Extended2>(Extended2::ZERO, x, rm),
     )
 }
 
 /// Generic body of [`sin_kernel`] (M4, ADR-0059); `None` escalates
-/// (M8 ladder).
+/// (M8 ladder). `ex` is the working-precision exemplar (M8b): the
+/// receiver the constant and constructor surface reads its width from,
+/// never a value the result depends on.
 pub(crate) fn sin_kernel_body<F: DecimalFormat, E: ExtNum>(
+    ex: E,
     x: F,
     rm: RoundingMode,
 ) -> Option<(F, Status)> {
@@ -128,7 +131,7 @@ pub(crate) fn sin_kernel_body<F: DecimalFormat, E: ExtNum>(
         Class::QuietNaN { .. } => Some((x, Status::OK)),
         Class::Infinity { .. } => Some((F::NAN, Status::INVALID)),
         Class::Zero { sign, .. } => Some((if sign { F::NEG_ZERO } else { F::ZERO }, Status::OK)),
-        Class::Finite { .. } => sincos_kernel::<F, E>(x, rm).0,
+        Class::Finite { .. } => sincos_kernel::<F, E>(ex, x, rm).0,
     }
 }
 
@@ -144,14 +147,15 @@ pub(crate) fn sin_kernel_body<F: DecimalFormat, E: ExtNum>(
 /// mode.
 pub fn cos_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
     ladder::run(
-        || cos_kernel_body::<F, Extended>(x, rm),
-        || cos_kernel_body::<F, Extended2>(x, rm),
+        || cos_kernel_body::<F, Extended>(Extended::ZERO, x, rm),
+        || cos_kernel_body::<F, Extended2>(Extended2::ZERO, x, rm),
     )
 }
 
 /// Generic body of [`cos_kernel`] (M4, ADR-0059); `None` escalates
-/// (M8 ladder).
+/// (M8 ladder). `ex` is the working-precision exemplar (M8b).
 pub(crate) fn cos_kernel_body<F: DecimalFormat, E: ExtNum>(
+    ex: E,
     x: F,
     rm: RoundingMode,
 ) -> Option<(F, Status)> {
@@ -160,7 +164,7 @@ pub(crate) fn cos_kernel_body<F: DecimalFormat, E: ExtNum>(
         Class::QuietNaN { .. } => Some((x, Status::OK)),
         Class::Infinity { .. } => Some((F::NAN, Status::INVALID)),
         Class::Zero { .. } => Some((F::ONE, Status::OK)),
-        Class::Finite { .. } => sincos_kernel::<F, E>(x, rm).1,
+        Class::Finite { .. } => sincos_kernel::<F, E>(ex, x, rm).1,
     }
 }
 
@@ -187,14 +191,15 @@ pub(crate) fn cos_kernel_body<F: DecimalFormat, E: ExtNum>(
 /// working-precision saturation, not an exact-case claim.
 pub fn tan_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
     ladder::run(
-        || tan_kernel_body::<F, Extended>(x, rm),
-        || tan_kernel_body::<F, Extended2>(x, rm),
+        || tan_kernel_body::<F, Extended>(Extended::ZERO, x, rm),
+        || tan_kernel_body::<F, Extended2>(Extended2::ZERO, x, rm),
     )
 }
 
 /// Generic body of [`tan_kernel`] (M4, ADR-0059); `None` escalates
-/// (M8 ladder).
+/// (M8 ladder). `ex` is the working-precision exemplar (M8b).
 pub(crate) fn tan_kernel_body<F: DecimalFormat, E: ExtNum>(
+    ex: E,
     x: F,
     rm: RoundingMode,
 ) -> Option<(F, Status)> {
@@ -207,7 +212,7 @@ pub(crate) fn tan_kernel_body<F: DecimalFormat, E: ExtNum>(
         }
         Class::Finite { .. } => {}
     }
-    let (sin_ext, cos_ext, status_red) = sincos_extended_body::<F, E>(x);
+    let (sin_ext, cos_ext, status_red) = sincos_extended_body::<F, E>(ex, x);
     if cos_ext.is_zero() {
         // sin/cos at the asymptote: return ±∞ with the sign of sin.
         // Unguarded: the asymptote is never hit by a true value (odd
@@ -224,7 +229,7 @@ pub(crate) fn tan_kernel_body<F: DecimalFormat, E: ExtNum>(
     // every correction and the quotient is exactly `x`; the directed
     // modes need the side, and `|tan x| > |x|` is a theorem.
     // Unguarded: the anchor leg runs before the ladder's predicate.
-    let x_anchor = E::from_format(x);
+    let x_anchor = ex.from_format(x);
     if tan_ext.sticks_to(x_anchor) {
         let (tan_d, st) = x_anchor.to_format_with_residual::<F>(true, rm);
         return Some((tan_d, st | status_red | Status::INEXACT));
@@ -239,10 +244,11 @@ pub(crate) fn tan_kernel_body<F: DecimalFormat, E: ExtNum>(
 /// ladder) while the anchor deliveries stay unconditional.
 #[allow(clippy::type_complexity)]
 fn sincos_kernel<F: DecimalFormat, E: ExtNum>(
+    ex: E,
     x: F,
     rm: RoundingMode,
 ) -> (Option<(F, Status)>, Option<(F, Status)>) {
-    let (sin_x_ext, cos_x_ext, status_red) = sincos_extended_body::<F, E>(x);
+    let (sin_x_ext, cos_x_ext, status_red) = sincos_extended_body::<F, E>(ex, x);
     // Grid-stuck anchors (ADR-0051). `sin`: a small argument absorbs
     // every correction and the result is exactly `x` (`|sin x| < |x|`
     // is a theorem), and an argument within ~10^-25 of `±π/2 + 2πk`
@@ -253,8 +259,8 @@ fn sincos_kernel<F: DecimalFormat, E: ExtNum>(
     // near the odd multiples (`|cos x| < 1` strictly likewise). The
     // magnitude shrinks in every case, so the residual side is a
     // theorem, not a measurement.
-    let x_anchor = E::from_format(x);
-    let sin_one = E::ONE.with_sign(sin_x_ext.sign());
+    let x_anchor = ex.from_format(x);
+    let sin_one = ex.one().with_sign(sin_x_ext.sign());
     let sin = if sin_x_ext.sticks_to(x_anchor) {
         Some(x_anchor.to_format_with_residual::<F>(false, rm))
     } else if sin_x_ext.sticks_to(sin_one) {
@@ -262,7 +268,7 @@ fn sincos_kernel<F: DecimalFormat, E: ExtNum>(
     } else {
         ladder::round_guarded::<F, E>(sin_x_ext, rm, &ladder::SIN)
     };
-    let cos_one = E::ONE.with_sign(cos_x_ext.sign());
+    let cos_one = ex.one().with_sign(cos_x_ext.sign());
     let cos = if cos_x_ext.sticks_to(cos_one) {
         Some(cos_one.to_format_with_residual::<F>(false, rm))
     } else {
@@ -280,11 +286,12 @@ fn sincos_kernel<F: DecimalFormat, E: ExtNum>(
 /// sin(x) / cos(x)` (which divides the two extended values before
 /// rounding). Caller filters NaN / Inf / Zero.
 pub fn sincos_extended<F: DecimalFormat>(x: F) -> (Extended, Extended, Status) {
-    sincos_extended_body::<F, Extended>(x)
+    sincos_extended_body::<F, Extended>(Extended::ZERO, x)
 }
 
-/// Generic body of [`sincos_extended`] (M4, ADR-0059).
-pub(crate) fn sincos_extended_body<F: DecimalFormat, E: ExtNum>(x: F) -> (E, E, Status) {
+/// Generic body of [`sincos_extended`] (M4, ADR-0059); `ex` is the
+/// working-precision exemplar (M8b).
+pub(crate) fn sincos_extended_body<F: DecimalFormat, E: ExtNum>(ex: E, x: F) -> (E, E, Status) {
     let neg = match x.classify() {
         Class::Finite { sign, .. } => sign,
         _ => false,
@@ -296,7 +303,7 @@ pub(crate) fn sincos_extended_body<F: DecimalFormat, E: ExtNum>(x: F) -> (E, E, 
     // window and 115-digit π/2 — re-running the narrow reduction at
     // wide arithmetic would inherit the truncation escalation exists
     // to outrun.
-    let (k_mod_4, r, status_red) = E::reduce_trig::<F>(abs_x);
+    let (k_mod_4, r, status_red) = ex.reduce_trig::<F>(abs_x);
     let r_sq = r.square();
     let sin_r = taylor_sin_ext(r, r_sq);
     let cos_r = taylor_cos_ext(r_sq);
@@ -323,7 +330,7 @@ fn taylor_sin_ext<E: ExtNum>(r: E, r_sq: E) -> E {
                         // n indexes the term series (term_n = r^{2n-1} / (2n-1)!).
                         // Update: term_{n+1} = term_n · r² / ((2n)(2n+1)).
     let mut n: u32 = 1;
-    for _ in 0..E::SIN_COS_SERIES_TERMS {
+    for _ in 0..r.sin_cos_series_terms() {
         n += 1;
         let denom = (2 * n - 2) * (2 * n - 1); // u32, fits up to n ≈ 32k
         term = term.mul(r_sq).div_u32(denom);
@@ -344,11 +351,11 @@ fn taylor_sin_ext<E: ExtNum>(r: E, r_sq: E) -> E {
 
 /// `cos(r) = 1 − r²/2! + r⁴/4! − …` for `|r| ≤ π/4`.
 fn taylor_cos_ext<E: ExtNum>(r_sq: E) -> E {
-    let mut sum = E::ONE;
-    let mut term = E::ONE;
+    let mut sum = r_sq.one();
+    let mut term = r_sq.one();
     let mut alt = true; // next term subtracts.
     let mut n: u32 = 0;
-    for _ in 0..E::SIN_COS_SERIES_TERMS {
+    for _ in 0..r_sq.sin_cos_series_terms() {
         n += 1;
         let denom = (2 * n - 1) * (2 * n);
         term = term.mul(r_sq).div_u32(denom);

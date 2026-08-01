@@ -797,93 +797,128 @@ impl Extended {
 /// * the named transcendental constants, provided per implementation
 ///   because a wider rung needs *wider* literals, not a widening of
 ///   the 55-digit ones (M5 delivers the 110-digit set);
-/// * the series iteration caps, associated constants so each rung
-///   sizes its Taylor loops to its own precision (the loops terminate
-///   early on `next_sum == sum`, so a wider cap is behavior neutral at
-///   rung 1 — but the cap must grow with the digit count for the
-///   wider rungs to converge).
+/// * the series iteration caps, one method per loop so each rung sizes
+///   its Taylor loops to its own precision (the loops terminate early
+///   on `next_sum == sum`, so a wider cap is behavior neutral at rung 1
+///   — but the cap must grow with the digit count for the wider rungs
+///   to converge).
 ///
 /// Implementations are `Copy` value types; the kernels pass them by
 /// value exactly as they pass `Extended` today.
+///
+/// ## The exemplar receiver (M8b)
+///
+/// The precision query, the series caps, the constants, and the
+/// constructors are all *instance* methods whose receiver supplies
+/// nothing but the working-precision context: `ex.one()`,
+/// `ex.pi_over_two()`, `ex.from_format(x)`. Rust cannot monomorphize
+/// unboundedly many precisions from const generics, so a heap-backed
+/// rung must carry its precision as a runtime value — and a static
+/// surface (`E::ONE`, `E::pi()`) has no slot to carry one into a kernel
+/// body. A scoped precision global was rejected: ambient state in a
+/// pure kernel, and thumbv6m has no CAS to lock it with. The fixed
+/// rungs ignore the receiver entirely and constant fold, so the seam is
+/// behavior neutral for rungs 1 and 2 (the M4 byte-identity gate,
+/// re-run, is the evidence).
+///
+/// A generic body obtains its exemplar either from an `E`-typed
+/// argument it already carries (a working value is at the rung's
+/// precision by construction) or from a leading `ex: E` parameter the
+/// public wrapper fills with the concrete rung's zero.
+// `wrong_self_convention`: the `from_*` constructors keep the names of
+// the inherent constructors they delegate to, and their receiver is the
+// precision context rather than the value being converted — the very
+// shape the exemplar seam exists to express.
+#[allow(clippy::wrong_self_convention)]
 pub(crate) trait ExtNum: Copy + core::fmt::Debug {
     // ---- working-precision metadata ------------------------------------
 
-    /// Working precision in decimal digits. A method rather than an
-    /// associated constant so a heap-backed top rung can report a
-    /// dynamic precision while the fixed rungs constant fold.
-    fn precision() -> u32;
+    /// Working precision in decimal digits. An instance method rather
+    /// than an associated constant so a heap-backed top rung can report
+    /// the dynamic precision its receiver carries, while the fixed
+    /// rungs ignore the receiver and constant fold.
+    fn precision(&self) -> u32;
 
     // ---- series iteration caps -----------------------------------------
 
     /// Cap for `exp`'s Taylor loop (`Σ rⁿ/n!`, `|r| ≤ ln(10)/2`).
-    const EXP_SERIES_TERMS: u32;
+    fn exp_series_terms(&self) -> u32;
     /// Cap for the `sin`/`cos` Taylor loops (`|r| ≤ π/4`).
-    const SIN_COS_SERIES_TERMS: u32;
+    fn sin_cos_series_terms(&self) -> u32;
     /// Cap for the `sinh`/`cosh` small-argument Taylor loops
     /// (`|x| < 0.5`).
-    const SINH_COSH_SERIES_TERMS: u32;
+    fn sinh_cosh_series_terms(&self) -> u32;
     /// Cap for the `ln(1 + u)` Taylor loop (`|u| ≤ ~0.6`).
-    const LOG1P_SERIES_TERMS: u32;
+    fn log1p_series_terms(&self) -> u32;
     /// Cap for `atan`'s Taylor loop (`|t| ≤ tan(π/8)`).
-    const ATAN_SERIES_TERMS: u32;
+    fn atan_series_terms(&self) -> u32;
 
     // ---- constants -----------------------------------------------------
 
     /// Canonical zero.
-    const ZERO: Self;
+    fn zero(&self) -> Self;
     /// `1`.
-    const ONE: Self;
+    fn one(&self) -> Self;
     /// `0.5`.
-    const HALF: Self;
+    fn half(&self) -> Self;
 
     /// `π` at this rung's working precision.
-    fn pi() -> Self;
+    fn pi(&self) -> Self;
     /// Euler's number `e`.
-    fn e() -> Self;
+    fn e(&self) -> Self;
     /// `ln(2)`.
-    fn ln2() -> Self;
+    fn ln2(&self) -> Self;
     /// `ln(10)`.
-    fn ln10() -> Self;
+    fn ln10(&self) -> Self;
     /// `1/ln(10)`.
-    fn inv_ln10() -> Self;
+    fn inv_ln10(&self) -> Self;
     /// `1/ln(2)`.
-    fn inv_ln2() -> Self;
+    fn inv_ln2(&self) -> Self;
     /// `π/2`.
-    fn pi_over_two() -> Self;
+    fn pi_over_two(&self) -> Self;
     /// `π/4`.
-    fn pi_over_four() -> Self;
+    fn pi_over_four(&self) -> Self;
     /// `tan(π/8)` — atan's inner reduction threshold.
-    fn tan_pi_over_eight() -> Self;
+    fn tan_pi_over_eight(&self) -> Self;
 
     // ---- constructors --------------------------------------------------
+    //
+    // Exemplar-relative like the constants above: the receiver names the
+    // width to build at, never a value the result depends on.
 
-    fn from_i32(n: i32) -> Self;
+    fn from_i32(&self, n: i32) -> Self;
     /// Parse a hand-curated decimal literal (panics on invalid input;
     /// see [`Extended::parse_str`] for the accepted grammar). Literals
     /// wider than the rung's working precision are narrowed by the
     /// implementation's own invariant machinery.
-    fn parse_str(s: &str) -> Self;
+    fn parse_str(&self, s: &str) -> Self;
     /// Exact small-component constructor: `(-1)^sign · coef · 10^exp`
     /// with a `u128` coefficient. Replaces the concrete kernels'
     /// `Extended { coef, exp, sign }` literals (thresholds and similar
     /// values whose coefficients fit `u128`).
-    fn from_parts_u128(coef: u128, exp: i32, sign: bool) -> Self;
+    fn from_parts_u128(&self, coef: u128, exp: i32, sign: bool) -> Self;
     /// Widening constructor from `U256` components plus a pre-dropped
     /// sticky residue, rounding into the rung's working precision
     /// (argred's residual delivery seam).
-    fn from_components_with_sticky(coef: U256, exp: i32, sign: bool, pre_sticky: bool) -> Self;
+    fn from_components_with_sticky(
+        &self,
+        coef: U256,
+        exp: i32,
+        sign: bool,
+        pre_sticky: bool,
+    ) -> Self;
     /// Decode a finite or zero format datum (panics on NaN / Inf, which
     /// the kernels dispatch at the public boundary).
-    fn from_format<F: DecimalFormat>(d: F) -> Self;
+    fn from_format<F: DecimalFormat>(&self, d: F) -> Self;
     /// Lossless widening from the rung-1 carrier. The [`DecimalFormat`]
     /// seam delivers its `Extended`-typed values (the `exp` magnitude
     /// gate limits) into whichever rung is running through this;
     /// `Extended`'s own impl is the identity.
-    fn from_extended(x: Extended) -> Self;
+    fn from_extended(&self, x: Extended) -> Self;
     /// Overflow saturation proxy (see [`Extended::saturate_overflow`]).
-    fn saturate_overflow(sign: bool) -> Self;
+    fn saturate_overflow(&self, sign: bool) -> Self;
     /// Underflow saturation proxy (see [`Extended::saturate_underflow`]).
-    fn saturate_underflow() -> Self;
+    fn saturate_underflow(&self) -> Self;
 
     // ---- accessors and component edits ---------------------------------
 
@@ -984,81 +1019,106 @@ pub(crate) trait ExtNum: Copy + core::fmt::Debug {
     /// reduction at wide arithmetic would inherit the very
     /// truncation the escalation is trying to outrun.
     #[cfg(feature = "trig")]
-    fn reduce_trig<F: DecimalFormat>(x: F) -> (u32, Self, Status);
+    fn reduce_trig<F: DecimalFormat>(&self, x: F) -> (u32, Self, Status);
 }
 
+// The receiver of every exemplar-relative member below is unused: rung
+// 1's width is fixed at `EXT_PRECISION`, so each one delegates verbatim
+// to the inherent surface and constant folds away.
 impl ExtNum for Extended {
-    fn precision() -> u32 {
+    fn precision(&self) -> u32 {
         EXT_PRECISION
     }
 
     // The caps reproduce the concrete kernels' loop bounds exactly;
     // `series_caps_pin_the_concrete_loop_bounds` (tests below) is the
     // drift guard the M4 genericization relies on.
-    const EXP_SERIES_TERMS: u32 = 60;
-    const SIN_COS_SERIES_TERMS: u32 = 120;
-    const SINH_COSH_SERIES_TERMS: u32 = 120;
-    const LOG1P_SERIES_TERMS: u32 = 250;
-    const ATAN_SERIES_TERMS: u32 = 200;
+    fn exp_series_terms(&self) -> u32 {
+        60
+    }
+    fn sin_cos_series_terms(&self) -> u32 {
+        120
+    }
+    fn sinh_cosh_series_terms(&self) -> u32 {
+        120
+    }
+    fn log1p_series_terms(&self) -> u32 {
+        250
+    }
+    fn atan_series_terms(&self) -> u32 {
+        200
+    }
 
-    const ZERO: Self = Extended::ZERO;
-    const ONE: Self = Extended::ONE;
-    const HALF: Self = Extended::HALF;
+    fn zero(&self) -> Self {
+        Extended::ZERO
+    }
+    fn one(&self) -> Self {
+        Extended::ONE
+    }
+    fn half(&self) -> Self {
+        Extended::HALF
+    }
 
-    fn pi() -> Self {
+    fn pi(&self) -> Self {
         crate::consts::pi_ext()
     }
-    fn e() -> Self {
+    fn e(&self) -> Self {
         crate::consts::e_ext()
     }
-    fn ln2() -> Self {
+    fn ln2(&self) -> Self {
         crate::consts::ln2_ext()
     }
-    fn ln10() -> Self {
+    fn ln10(&self) -> Self {
         crate::consts::ln10_ext()
     }
-    fn inv_ln10() -> Self {
+    fn inv_ln10(&self) -> Self {
         crate::consts::inv_ln10_ext()
     }
-    fn inv_ln2() -> Self {
+    fn inv_ln2(&self) -> Self {
         crate::consts::inv_ln2_ext()
     }
-    fn pi_over_two() -> Self {
+    fn pi_over_two(&self) -> Self {
         crate::consts::pi_over_two_ext()
     }
-    fn pi_over_four() -> Self {
+    fn pi_over_four(&self) -> Self {
         crate::consts::pi_over_four_ext()
     }
-    fn tan_pi_over_eight() -> Self {
+    fn tan_pi_over_eight(&self) -> Self {
         crate::consts::tan_pi_over_eight_ext()
     }
 
-    fn from_i32(n: i32) -> Self {
+    fn from_i32(&self, n: i32) -> Self {
         Extended::from_i32(n)
     }
-    fn parse_str(s: &str) -> Self {
+    fn parse_str(&self, s: &str) -> Self {
         Extended::parse_str(s)
     }
-    fn from_parts_u128(coef: u128, exp: i32, sign: bool) -> Self {
+    fn from_parts_u128(&self, coef: u128, exp: i32, sign: bool) -> Self {
         Self {
             coef: U256::from_u128(coef),
             exp,
             sign,
         }
     }
-    fn from_components_with_sticky(coef: U256, exp: i32, sign: bool, pre_sticky: bool) -> Self {
+    fn from_components_with_sticky(
+        &self,
+        coef: U256,
+        exp: i32,
+        sign: bool,
+        pre_sticky: bool,
+    ) -> Self {
         Extended::from_components_with_sticky(coef, exp, sign, pre_sticky)
     }
-    fn from_format<F: DecimalFormat>(d: F) -> Self {
+    fn from_format<F: DecimalFormat>(&self, d: F) -> Self {
         Extended::from_format(d)
     }
-    fn from_extended(x: Extended) -> Self {
+    fn from_extended(&self, x: Extended) -> Self {
         x
     }
-    fn saturate_overflow(sign: bool) -> Self {
+    fn saturate_overflow(&self, sign: bool) -> Self {
         Extended::saturate_overflow(sign)
     }
-    fn saturate_underflow() -> Self {
+    fn saturate_underflow(&self) -> Self {
         Extended::saturate_underflow()
     }
 
@@ -1169,8 +1229,8 @@ impl ExtNum for Extended {
         budget.rung1
     }
     #[cfg(feature = "trig")]
-    fn reduce_trig<F: DecimalFormat>(x: F) -> (u32, Self, Status) {
-        crate::argred::reduce_body::<F, Extended>(x)
+    fn reduce_trig<F: DecimalFormat>(&self, x: F) -> (u32, Self, Status) {
+        crate::argred::reduce_body::<F, Extended>(*self, x)
     }
 }
 
@@ -1974,45 +2034,37 @@ mod tests {
         use crate::extended::ExtNum;
 
         /// The M4 genericization rewrites the kernels' literal loop
-        /// bounds to these constants; exact pins per cap, so a drifted
+        /// bounds to these caps; exact pins per cap, so a drifted
         /// value fails here before it silently changes a Taylor loop.
+        /// The exemplar (M8b) is `ZERO` throughout: the fixed rung
+        /// reads nothing but the width off it.
         #[test]
         fn series_caps_pin_the_concrete_loop_bounds() {
-            assert_eq!(<Extended as ExtNum>::EXP_SERIES_TERMS, 60);
-            assert_eq!(<Extended as ExtNum>::SIN_COS_SERIES_TERMS, 120);
-            assert_eq!(<Extended as ExtNum>::SINH_COSH_SERIES_TERMS, 120);
-            assert_eq!(<Extended as ExtNum>::LOG1P_SERIES_TERMS, 250);
-            assert_eq!(<Extended as ExtNum>::ATAN_SERIES_TERMS, 200);
-            assert_eq!(<Extended as ExtNum>::precision(), EXT_PRECISION);
+            let ex = Extended::ZERO;
+            assert_eq!(ex.exp_series_terms(), 60);
+            assert_eq!(ex.sin_cos_series_terms(), 120);
+            assert_eq!(ex.sinh_cosh_series_terms(), 120);
+            assert_eq!(ex.log1p_series_terms(), 250);
+            assert_eq!(ex.atan_series_terms(), 200);
+            assert_eq!(ex.precision(), EXT_PRECISION);
         }
 
         /// Every named constant delegates to the same literal the
         /// concrete kernels parse today.
         #[test]
         fn named_constants_delegate_to_consts() {
+            let ex = Extended::ZERO;
             let pairs = [
-                (<Extended as ExtNum>::pi(), crate::consts::pi_ext()),
-                (<Extended as ExtNum>::e(), crate::consts::e_ext()),
-                (<Extended as ExtNum>::ln2(), crate::consts::ln2_ext()),
-                (<Extended as ExtNum>::ln10(), crate::consts::ln10_ext()),
+                (ex.pi(), crate::consts::pi_ext()),
+                (ex.e(), crate::consts::e_ext()),
+                (ex.ln2(), crate::consts::ln2_ext()),
+                (ex.ln10(), crate::consts::ln10_ext()),
+                (ex.inv_ln10(), crate::consts::inv_ln10_ext()),
+                (ex.inv_ln2(), crate::consts::inv_ln2_ext()),
+                (ex.pi_over_two(), crate::consts::pi_over_two_ext()),
+                (ex.pi_over_four(), crate::consts::pi_over_four_ext()),
                 (
-                    <Extended as ExtNum>::inv_ln10(),
-                    crate::consts::inv_ln10_ext(),
-                ),
-                (
-                    <Extended as ExtNum>::inv_ln2(),
-                    crate::consts::inv_ln2_ext(),
-                ),
-                (
-                    <Extended as ExtNum>::pi_over_two(),
-                    crate::consts::pi_over_two_ext(),
-                ),
-                (
-                    <Extended as ExtNum>::pi_over_four(),
-                    crate::consts::pi_over_four_ext(),
-                ),
-                (
-                    <Extended as ExtNum>::tan_pi_over_eight(),
+                    ex.tan_pi_over_eight(),
                     crate::consts::tan_pi_over_eight_ext(),
                 ),
             ];
@@ -2028,7 +2080,7 @@ mod tests {
         /// `LOG1P_THRESHOLD` shapes in `hyperbolic.rs`).
         #[test]
         fn from_parts_u128_matches_struct_literals() {
-            let t = <Extended as ExtNum>::from_parts_u128(15, -2, false);
+            let t = Extended::ZERO.from_parts_u128(15, -2, false);
             assert_eq!(t.coef, U256::from_u128(15));
             assert_eq!(t.exp, -2);
             assert!(!t.sign);
@@ -2038,7 +2090,7 @@ mod tests {
         /// kernels' field-edit struct literals.
         #[test]
         fn component_edits_match_field_pokes() {
-            let one_neg = <Extended as ExtNum>::ONE.with_sign(true);
+            let one_neg = Extended::ZERO.one().with_sign(true);
             let literal = Extended {
                 sign: true,
                 ..Extended::ONE
@@ -2083,7 +2135,7 @@ mod tests {
         #[test]
         fn trait_dispatch_equals_inherent_dispatch() {
             fn via_trait<E: ExtNum>(a: E, b: E) -> E {
-                a.mul(b).add(E::ONE).sub(b.square()).div_u32(3).neg().abs()
+                a.mul(b).add(a.one()).sub(b.square()).div_u32(3).neg().abs()
             }
             let a = ext("3.14159265358979323846264338327950288419716939937510");
             let b = ext("-2.71828182845904523536028747135266249775724709369996");
