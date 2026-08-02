@@ -12,12 +12,15 @@ repository = "https://github.com/ixmatus/ferrodec"
 unsafe_code = "forbid"
 # `force_escalate` routes every guarded transcendental delivery through
 # rung 2 (the anti-rot byte-identity differential); `ladder_audit`
-# panics on top-rung residual ambiguity (ADR-0059 M8). Both are
+# panics on top-rung residual ambiguity (ADR-0059 M8); `force_rung3`
+# routes every guarded delivery through the unbounded rung (M8b; a
+# no-op unless the `unbounded-ladder` feature is on). All are
 # test-lane cfgs, set via RUSTFLAGS="--cfg force_escalate" etc.
 unexpected_cfgs = { level = "warn", check-cfg = [
     "cfg(kani)",
     "cfg(force_escalate)",
     "cfg(ladder_audit)",
+    "cfg(force_rung3)",
 ] }
 
 [workspace.lints.clippy]
@@ -106,6 +109,14 @@ pow = ["exp-log", "ferrodec-transcend/pow"]
 # pre-1.2 `transcendentals = ["fmt"]` shape carried the same effect,
 # so existing dependents that ask for `transcendentals` see no change.
 transcendentals = ["trig", "exp-log", "hyperbolic", "pow"]
+# The unbounded rung of the ADR-0059 escalation ladder (M8b): opt-in
+# third transcendental rung with no exception set — a near-boundary
+# escalation widens its working precision at run time instead of
+# delivering from a fixed top rung. Allocates (pulls the growable
+# coefficient substrate via `ferrodec-transcend`); off by default, and
+# default/no-alloc builds are unchanged. Meaningful only alongside a
+# transcendental feature cluster.
+unbounded-ladder = ["ferrodec-transcend/unbounded-ladder"]
 # f32 / f64 conversions. Opt-in for soft-float-only targets.
 # Pulls in `fmt` because the conversion routes Decimal128 ↔ f64 via
 # the canonical decimal-string round-trip.

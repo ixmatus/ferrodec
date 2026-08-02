@@ -21,6 +21,21 @@
 //! ADR-0059: expected residual ambiguity is negligible and a build
 //! with `--cfg ladder_audit` panics if it is ever observed).
 //!
+//! Under the `unbounded-ladder` feature (M8b) the ladder has no top
+//! fixed rung: rung 2 escalates on its own budget exactly as rung 1
+//! does, and [`run3`]'s Ziv loop re-runs the kernel on the dynamic
+//! rung (`ExtendedDyn`, per-attempt arena, constants computed at run
+//! time) at 220 digits, doubling the width until the predicate clears
+//! at that width's `budget.dynamic(p)`. There is then no Tier 2
+//! exception set — a near-boundary verdict always widens instead of
+//! delivering — and `ladder_audit` is vacuous by construction in such
+//! builds (nothing delivers unconditionally for it to audit); the cfg
+//! keeps its meaning for default builds, where rung 2 is still the
+//! top. The `--cfg force_rung3` test lane routes both fixed rungs'
+//! guarded deliveries to the dynamic rung, making every existing pin
+//! a byte-identity reference for it, exactly as `force_escalate` does
+//! for rung 2.
+//!
 //! Escalation is a deterministic function of the input alone: the
 //! predicate is mode-independent and tests both boundary families
 //! (grid and midpoint) unconditionally, so a single escalation
@@ -82,10 +97,22 @@ use ferrodec_ieee::{RoundingMode, Status};
 pub(crate) struct Budget {
     /// Rung 1 (50-digit `Extended`) total-error budget.
     pub rung1: u128,
-    /// Rung 2 (110-digit `Extended2`) total-error budget, used only
-    /// by the `ladder_audit` residual-ambiguity check (delivery on
-    /// the top fixed rung is unconditional).
+    /// Rung 2 (110-digit `Extended2`) total-error budget. Without the
+    /// `unbounded-ladder` feature it feeds only the `ladder_audit`
+    /// residual-ambiguity check (delivery on the top fixed rung is
+    /// unconditional); with the feature it is rung 2's escalation
+    /// threshold, exactly as `rung1` is rung 1's.
     pub rung2: u128,
+    /// Dynamic-rung budget at working precision `p`: the same
+    /// itemization as the fixed rungs re-evaluated at `p` (series
+    /// items scale with the precision-derived caps, the constant
+    /// items are precision-independent, Newton-seeded ops charge a
+    /// flat 60 covering the derived step count for every supported
+    /// `p`), ×10 pad included by each formula. A plain fn pointer so
+    /// the catalog stays const. Read only by the dynamic rung's
+    /// `rung_budget`.
+    #[cfg_attr(not(feature = "unbounded-ladder"), allow(dead_code))]
+    pub dynamic: fn(u32) -> u128,
 }
 
 /// Deliver a working-precision result through the format rounder,
@@ -112,17 +139,27 @@ pub(crate) fn round_guarded<F: DecimalFormat, E: ExtNum>(
     budget: &Budget,
 ) -> Option<(F, Status)> {
     if E::ESCALATES {
+        // The test-lane skips key on the rung position, not on
+        // ESCALATES, so each lane keeps its meaning in every build:
+        // force_escalate routes rung 1 to rung 2 (and no further),
+        // force_rung3 routes both fixed rungs to the dynamic one
+        // (meaningful only with `unbounded-ladder`; without it rung 2
+        // has ESCALATES = false and delivers below).
         #[cfg(force_escalate)]
-        {
+        if E::RUNG == 1 {
             return None;
         }
-        if v.near_rounding_boundary::<F>(E::rung_budget(budget)) {
+        #[cfg(force_rung3)]
+        if E::RUNG <= 2 {
+            return None;
+        }
+        if v.near_rounding_boundary::<F>(v.rung_budget(budget)) {
             return None;
         }
     } else {
         #[cfg(ladder_audit)]
         assert!(
-            !v.near_rounding_boundary::<F>(E::rung_budget(budget)),
+            !v.near_rounding_boundary::<F>(v.rung_budget(budget)),
             "ladder_audit: top-rung residual ambiguity (value within \
              the rung 2 budget of a rounding boundary)"
         );
@@ -138,6 +175,7 @@ pub(crate) fn round_guarded<F: DecimalFormat, E: ExtNum>(
 ///
 /// A plain function (not a method) so the wrappers stay one
 /// expression; the closures monomorphize per rung with zero dispatch.
+#[cfg(not(feature = "unbounded-ladder"))]
 pub(crate) fn run<F: DecimalFormat>(
     rung1: impl FnOnce() -> Option<(F, Status)>,
     rung2: impl FnOnce() -> Option<(F, Status)>,
@@ -147,6 +185,107 @@ pub(crate) fn run<F: DecimalFormat>(
         None => rung2().expect("top rung delivers unconditionally"),
     }
 }
+
+/// The Ziv driver's starting precision: double rung 2's width, per the
+/// plan of record ("doubling from 220 digits").
+#[cfg(feature = "unbounded-ladder")]
+const ZIV_START_PRECISION: u32 = 220;
+
+/// Run the unbounded ladder for a kernel body: rung 1, rung 2 (which
+/// escalates under this feature instead of delivering
+/// unconditionally), then the Ziv loop — the identical body on the
+/// dynamic rung at 220 digits, doubling until [`round_guarded`]'s
+/// predicate clears at that width's `budget.dynamic(p)`.
+///
+/// Termination: the M7 input-side classifiers deliver every exact and
+/// tie case before the ladder, so any true result reaching the loop is
+/// irrational and sits at a finite distance from every rounding
+/// boundary; `budget(p)` grows linearly in `p` while that distance,
+/// measured in `10^-p` predicate units, grows as `10^p`, so the
+/// predicate clears at some finite width. The constant generators cap
+/// their depth at 100,000 digits, so a pathological non-clearing input
+/// would panic loudly there rather than deliver a wrong rounding; the
+/// widths reachable from 220 by doubling put that at `p = 57,344`
+/// after eight escalations beyond rung 3's entry, each of which has
+/// probability ~`budget/10^p` under the ADR-0059 model.
+#[cfg(feature = "unbounded-ladder")]
+pub(crate) fn run3<F: DecimalFormat>(
+    rung1: impl FnOnce() -> Option<(F, Status)>,
+    rung2: impl FnOnce() -> Option<(F, Status)>,
+    attempt: impl Fn(u32) -> Option<(F, Status)>,
+) -> (F, Status) {
+    if let Some(result) = rung1() {
+        return result;
+    }
+    if let Some(result) = rung2() {
+        return result;
+    }
+    let mut p = ZIV_START_PRECISION;
+    loop {
+        if let Some(result) = attempt(p) {
+            return result;
+        }
+        p = p
+            .checked_mul(2)
+            .expect("Ziv doubling overflowed the precision counter");
+    }
+}
+
+/// The one wrapper macro every public kernel runs the ladder through.
+///
+/// The caller names the exemplar slot and writes the body call once;
+/// the macro instantiates it per rung, filling the slot with that
+/// rung's exemplar (`Extended::ZERO`, `Extended2::ZERO`, or a
+/// fresh-per-attempt [`crate::extended_dyn::DynArena`] exemplar whose
+/// arena is dropped when the attempt returns):
+///
+/// ```ignore
+/// ladder::ladder_run!(|ex| sin_kernel_body::<F, _>(ex, x, rm))
+/// ```
+///
+/// Without the `unbounded-ladder` feature the expansion is exactly the
+/// pre-M8b two-closure [`run`] call — only a `let`-binding inside each
+/// closure distinguishes it, so rungs 1 and 2 stay byte-identical.
+#[cfg(not(feature = "unbounded-ladder"))]
+macro_rules! ladder_run {
+    (|$ex:ident| $body:expr) => {
+        $crate::ladder::run(
+            || {
+                let $ex = $crate::extended::Extended::ZERO;
+                $body
+            },
+            || {
+                let $ex = $crate::extended2::Extended2::ZERO;
+                $body
+            },
+        )
+    };
+}
+
+/// The `unbounded-ladder` expansion of [`ladder_run!`]: the same two
+/// fixed rungs, then the Ziv loop over per-attempt arenas.
+#[cfg(feature = "unbounded-ladder")]
+macro_rules! ladder_run {
+    (|$ex:ident| $body:expr) => {
+        $crate::ladder::run3(
+            || {
+                let $ex = $crate::extended::Extended::ZERO;
+                $body
+            },
+            || {
+                let $ex = $crate::extended2::Extended2::ZERO;
+                $body
+            },
+            |p| {
+                let arena = $crate::extended_dyn::DynArena::new(p);
+                let $ex = arena.exemplar();
+                $body
+            },
+        )
+    };
+}
+
+pub(crate) use ladder_run;
 
 // ----------------------------------------------------------------------------
 // The budget catalog. Derivation constants used throughout:
@@ -162,6 +301,118 @@ pub(crate) fn run<F: DecimalFormat>(
 // * Series items are `3 × cap` per the module doc; rung 1 caps are
 //   EXP 60, SIN_COS 120, SINH_COSH 120, LOG1P 250, ATAN 200, and the
 //   rung 2 caps 120 / 240 / 240 / 550 / 450 (M5).
+
+// ----------------------------------------------------------------------------
+// Dynamic-rung budget formulas (M8b): the catalog's itemizations
+// re-evaluated at the runtime precision `p`, one `fn(u32) -> u128` per
+// budget shape. Shared derivation facts:
+//
+// * Series items are `3 × cap(p)` with the precision-derived caps
+//   (exp `p + 10`, sin/cos and sinh/cosh `2p + 20`, log1p `5p`, atan
+//   `4p + 10`).
+// * The constant items (reduction const-multiplies, amplification
+//   factors) are precision-independent — the same numbers the rung 1
+//   and rung 2 itemizations carry, because the amplification depends
+//   on the argument ranges, not the working width.
+// * Newton-seeded `div` / `recip` / `sqrt` charge a flat 60: the
+//   derived step count is `⌈log2(2p / F::PRECISION)⌉ ≤ 15` for every
+//   supported `p ≤ 10^5` even from the 7-digit Decimal32 seed, and
+//   `3 × 15 + 3 < 60`.
+// * The runtime trig reduction's items (documented at
+//   `argred::reduce_dyn`) total under 2 units at any `p`: the π/2
+//   constant `< 10^-(p+3)` relative, the window-plus-generator
+//   truncation `≤ 2·10^-(p+36)` absolute in `x·2/π` (≤ 2·10^-2 units
+//   after the worst 33-digit cancellation), the residual truncation
+//   `< 10^-(p+4)` relative, and one final half-even rounding.
+// * Every formula reproduces its rung 2 constant to within ±30% at
+//   `p = 110` (`dynamic_budgets_track_the_rung2_catalog` pins the
+//   ratio inside [1/5, 5]), which is the evidence the formulas are
+//   the same model and not a second policy. The ×10 pad is inside
+//   each formula.
+
+/// [`EXP`] at `p`: reduction 22,201 + series `3(p + 10)`, ×10.
+fn exp_budget_dyn(p: u32) -> u128 {
+    10 * (22_300 + 3 * u128::from(p))
+}
+/// [`EXP2`] at `p`: [`exp_budget_dyn`]'s items + the argument
+/// const-multiply 22,200, ×10.
+fn exp2_budget_dyn(p: u32) -> u128 {
+    10 * (44_500 + 3 * u128::from(p))
+}
+/// [`LN`] (and [`LOG10`] / [`LOG2`]) at `p`: decade path ~160 + log1p
+/// series `3 · 5p` + closing ops, ×10. Reproduces the catalog's 950
+/// at 50 and 1,850 at 110 before the pad.
+fn ln_budget_dyn(p: u32) -> u128 {
+    10 * (200 + 15 * u128::from(p))
+}
+/// [`SIN`] / [`COS`] at `p`: the runtime reduction's ≤ 2 units (see
+/// the block comment above) + window survival ~1 + series
+/// `3(2p + 20)` + recomposition ≤ 10, ×10. No 10^13-unit truncation
+/// item here: the runtime reduction's π/2 depth follows `p`, which is
+/// exactly what rung 1's fixed 38-digit constant could not do.
+fn sin_budget_dyn(p: u32) -> u128 {
+    10 * (6 * u128::from(p) + 80)
+}
+/// [`TAN`] at `p`: both components' items through the quotient +
+/// Newton 60, ×10.
+fn tan_budget_dyn(p: u32) -> u128 {
+    10 * (12 * u128::from(p) + 175)
+}
+/// [`ATAN`] at `p`: Newton 60 + inner reduction 16 + series
+/// `3(4p + 10)` + recomposition 10, ×10.
+fn atan_budget_dyn(p: u32) -> u128 {
+    10 * (12 * u128::from(p) + 120)
+}
+/// [`ASIN`] / [`ACOS`] at `p`: sqrt 60 + div 60 + the atan core +
+/// doubling, ×10.
+fn asin_budget_dyn(p: u32) -> u128 {
+    10 * (12 * u128::from(p) + 240)
+}
+/// [`ATAN2`] at `p`: div 60 + the atan core + quadrant adjustment,
+/// ×10.
+fn atan2_budget_dyn(p: u32) -> u128 {
+    10 * (12 * u128::from(p) + 180)
+}
+/// [`SINH`] at `p`: two exp cores through the `coth(0.5) ≈ 2.17`
+/// cancellation + the small-band series, ×10.
+fn sinh_budget_dyn(p: u32) -> u128 {
+    10 * (96_600 + 14 * u128::from(p))
+}
+/// [`COSH`] at `p`: two exp cores, no cancellation, ×10.
+fn cosh_budget_dyn(p: u32) -> u128 {
+    10 * (44_500 + 6 * u128::from(p))
+}
+/// [`TANH`] at `p`: the sinh and cosh sums through the quotient +
+/// Newton 60, ×10.
+fn tanh_budget_dyn(p: u32) -> u128 {
+    10 * (141_100 + 20 * u128::from(p))
+}
+/// [`ASINH`] at `p`: the log1p series `3 · 5p` + argument ops and
+/// Newton charges, ×10.
+fn asinh_budget_dyn(p: u32) -> u128 {
+    10 * (15 * u128::from(p) + 450)
+}
+/// [`ACOSH`] at `p`: the direct band's ×7 amplification items + the
+/// ln core, ×10.
+fn acosh_budget_dyn(p: u32) -> u128 {
+    10 * (15 * u128::from(p) + 2_700)
+}
+/// [`ATANH`] at `p`: the ratio band's ops + the ln core, ×10.
+fn atanh_budget_dyn(p: u32) -> u128 {
+    10 * (15 * u128::from(p) + 400)
+}
+/// [`CBRT`] at `p`: the ln sum amplified through `|ln x|/3 ≤ 4,717`,
+/// plus the exp series, ×10. Reproduces the catalog's 4.6e6 at 50
+/// and 8.7e6 at 110 before the pad.
+fn cbrt_budget_dyn(p: u32) -> u128 {
+    10 * ((200 + 15 * u128::from(p)) * 4_717 + 3 * u128::from(p) + 31)
+}
+/// [`POW`] at `p`: the ln sum + product rounding amplified through
+/// `|y·ln x| ≤ 14,151` + the exp series, ×10. Reproduces the
+/// catalog's 1.35e7 at 50 and 2.62e7 at 110 before the pad.
+fn pow_budget_dyn(p: u32) -> u128 {
+    10 * ((201 + 15 * u128::from(p)) * 14_151 + 3 * (u128::from(p) + 10))
+}
 
 /// `exp`. Itemization (rung 1):
 ///
@@ -179,6 +430,7 @@ pub(crate) fn run<F: DecimalFormat>(
 pub(crate) const EXP: Budget = Budget {
     rung1: 250_000,
     rung2: 250_000,
+    dynamic: exp_budget_dyn,
 };
 
 /// `exp2 = exp(x·ln2)`. Itemization: the argument const-multiply
@@ -188,6 +440,7 @@ pub(crate) const EXP: Budget = Budget {
 pub(crate) const EXP2: Budget = Budget {
     rung1: 500_000,
     rung2: 500_000,
+    dynamic: exp2_budget_dyn,
 };
 
 /// `ln`. Itemization (rung 1):
@@ -209,6 +462,7 @@ pub(crate) const EXP2: Budget = Budget {
 pub(crate) const LN: Budget = Budget {
     rung1: 15_000,
     rung2: 25_000,
+    dynamic: ln_budget_dyn,
 };
 
 /// `log10 = ln(x) · (1/ln10)`: [`LN`] plus one const-multiply on the
@@ -217,12 +471,14 @@ pub(crate) const LN: Budget = Budget {
 pub(crate) const LOG10: Budget = Budget {
     rung1: 15_000,
     rung2: 25_000,
+    dynamic: ln_budget_dyn,
 };
 
 /// `log2 = ln(x) · (1/ln2)`: as [`LOG10`].
 pub(crate) const LOG2: Budget = Budget {
     rung1: 15_000,
     rung2: 25_000,
+    dynamic: ln_budget_dyn,
 };
 
 /// `sin`. Itemization (rung 1):
@@ -250,6 +506,7 @@ pub(crate) const LOG2: Budget = Budget {
 pub(crate) const SIN: Budget = Budget {
     rung1: 150_000_000_000_000,
     rung2: 10_000,
+    dynamic: sin_budget_dyn,
 };
 
 /// `cos`: identical pipeline to [`SIN`]; the reduced-range map factor
@@ -257,6 +514,7 @@ pub(crate) const SIN: Budget = Budget {
 pub(crate) const COS: Budget = Budget {
     rung1: 150_000_000_000_000,
     rung2: 10_000,
+    dynamic: sin_budget_dyn,
 };
 
 /// `tan = sin/cos` on the shared reduction: both operands' relative
@@ -265,6 +523,7 @@ pub(crate) const COS: Budget = Budget {
 pub(crate) const TAN: Budget = Budget {
     rung1: 300_000_000_000_000,
     rung2: 25_000,
+    dynamic: tan_budget_dyn,
 };
 
 /// `atan`. Itemization (rung 1): outer `recip` inversion ≤ 15, inner
@@ -275,6 +534,7 @@ pub(crate) const TAN: Budget = Budget {
 pub(crate) const ATAN: Budget = Budget {
     rung1: 10_000,
     rung2: 20_000,
+    dynamic: atan_budget_dyn,
 };
 
 /// `asin = 2·atan(x / (1 + sqrt((1−|x|)(1+|x|))))` (fd-aqs.6, exact
@@ -283,6 +543,7 @@ pub(crate) const ATAN: Budget = Budget {
 pub(crate) const ASIN: Budget = Budget {
     rung1: 10_000,
     rung2: 20_000,
+    dynamic: asin_budget_dyn,
 };
 
 /// `acos = 2·atan(sqrt((1−x)/(1+x)))` (fd-aqs.6, exact factors):
@@ -292,6 +553,7 @@ pub(crate) const ASIN: Budget = Budget {
 pub(crate) const ACOS: Budget = Budget {
     rung1: 10_000,
     rung2: 20_000,
+    dynamic: asin_budget_dyn,
 };
 
 /// `atan2`: quotient `y/x` (15) + [`ATAN`] core (≈ 640) + quadrant
@@ -302,6 +564,7 @@ pub(crate) const ACOS: Budget = Budget {
 pub(crate) const ATAN2: Budget = Budget {
     rung1: 10_000,
     rung2: 20_000,
+    dynamic: atan2_budget_dyn,
 };
 
 /// `sinh`. Itemization (rung 1): small band (`|x| < 0.5`) is the
@@ -314,6 +577,7 @@ pub(crate) const ATAN2: Budget = Budget {
 pub(crate) const SINH: Budget = Budget {
     rung1: 1_000_000,
     rung2: 1_000_000,
+    dynamic: sinh_budget_dyn,
 };
 
 /// `cosh = (e^x + e^{-x})/2`: two [`EXP`]-core runs through an
@@ -322,6 +586,7 @@ pub(crate) const SINH: Budget = Budget {
 pub(crate) const COSH: Budget = Budget {
     rung1: 500_000,
     rung2: 500_000,
+    dynamic: cosh_budget_dyn,
 };
 
 /// `tanh = sinh/cosh` below the nines-saturation band: the two cores'
@@ -330,6 +595,7 @@ pub(crate) const COSH: Budget = Budget {
 pub(crate) const TANH: Budget = Budget {
     rung1: 1_500_000,
     rung2: 1_500_000,
+    dynamic: tanh_budget_dyn,
 };
 
 /// `asinh`. Small band (`|x| < 0.3`, fd-aqs.6):
@@ -343,6 +609,7 @@ pub(crate) const TANH: Budget = Budget {
 pub(crate) const ASINH: Budget = Budget {
     rung1: 15_000,
     rung2: 30_000,
+    dynamic: asinh_budget_dyn,
 };
 
 /// `acosh`. Near-1 band (`x − 1 < 0.01`, fd-aqs.6): exact factors
@@ -355,6 +622,7 @@ pub(crate) const ASINH: Budget = Budget {
 pub(crate) const ACOSH: Budget = Budget {
     rung1: 30_000,
     rung2: 50_000,
+    dynamic: acosh_budget_dyn,
 };
 
 /// `atanh`. Small band (`|x| < 0.15`): `½·log1p(2x/(1−x))` with
@@ -367,6 +635,7 @@ pub(crate) const ACOSH: Budget = Budget {
 pub(crate) const ATANH: Budget = Budget {
     rung1: 15_000,
     rung2: 30_000,
+    dynamic: atanh_budget_dyn,
 };
 
 /// `cbrt = exp(ln|x|/3)`: `ln`'s relative error (≤ 950 units,
@@ -378,6 +647,7 @@ pub(crate) const ATANH: Budget = Budget {
 pub(crate) const CBRT: Budget = Budget {
     rung1: 50_000_000,
     rung2: 100_000_000,
+    dynamic: cbrt_budget_dyn,
 };
 
 /// `pow = exp(y·ln|x|)`: `ln`'s relative error (≤ 950 units) plus the
@@ -390,6 +660,7 @@ pub(crate) const CBRT: Budget = Budget {
 pub(crate) const POW: Budget = Budget {
     rung1: 150_000_000,
     rung2: 300_000_000,
+    dynamic: pow_budget_dyn,
 };
 
 // Escalation-rate summary (Decimal128, the widest exposure; rate ≈
@@ -532,16 +803,130 @@ mod tests {
         }
     }
 
-    /// The rung hooks pick their own side of the pair.
+    /// The rung hooks pick their own side of the pair, and the
+    /// escalation flags encode the build's ladder shape: rung 1 always
+    /// escalates, rung 2 only when the unbounded rung exists above it.
     #[test]
     fn rung_budget_selects_by_rung() {
         let b = Budget {
             rung1: 7,
             rung2: 11,
+            dynamic: |p| u128::from(p) + 13,
         };
-        assert_eq!(<Extended as ExtNum>::rung_budget(&b), 7);
-        assert_eq!(<Extended2 as ExtNum>::rung_budget(&b), 11);
+        assert_eq!(Extended::ZERO.rung_budget(&b), 7);
+        assert_eq!(Extended2::ZERO.rung_budget(&b), 11);
+        assert_eq!((b.dynamic)(220), 233);
         assert!(<Extended as ExtNum>::ESCALATES);
-        assert!(!<Extended2 as ExtNum>::ESCALATES);
+        assert_eq!(
+            <Extended2 as ExtNum>::ESCALATES,
+            cfg!(feature = "unbounded-ladder")
+        );
+        assert_eq!(<Extended as ExtNum>::RUNG, 1);
+        assert_eq!(<Extended2 as ExtNum>::RUNG, 2);
+    }
+
+    /// The Ziv driver's control flow, exercised with synthetic
+    /// closures: entry at 220 digits, doubling on `None`, delivery at
+    /// the first clearing width. No corpus input can reach the
+    /// doubling arm honestly (entering rung 3 at all is a ~1e-36
+    /// event, doubling within it rarer still), so this is the loop's
+    /// only executable witness.
+    #[cfg(feature = "unbounded-ladder")]
+    #[test]
+    fn run3_doubles_until_the_attempt_clears() {
+        use crate::mock_format::ValueFmt128;
+        use std::vec::Vec;
+
+        let widths = core::cell::RefCell::new(Vec::new());
+        let (result, status) = run3::<ValueFmt128>(
+            || None,
+            || None,
+            |p| {
+                widths.borrow_mut().push(p);
+                if p >= 880 {
+                    Some((
+                        ValueFmt128 {
+                            coef: u128::from(p),
+                            exp: 0,
+                            sign: false,
+                        },
+                        Status::INEXACT,
+                    ))
+                } else {
+                    None
+                }
+            },
+        );
+        assert_eq!(*widths.borrow(), alloc::vec![220, 440, 880]);
+        assert_eq!(result.coef, 880);
+        assert_eq!(status, Status::INEXACT);
+
+        // Rungs 1 and 2 still short-circuit the loop entirely.
+        let hit = core::cell::Cell::new(false);
+        let (r1, _) = run3::<ValueFmt128>(
+            || {
+                Some((
+                    ValueFmt128 {
+                        coef: 1,
+                        exp: 0,
+                        sign: false,
+                    },
+                    Status::OK,
+                ))
+            },
+            || unreachable!("rung 1 delivered"),
+            |_| {
+                hit.set(true);
+                None
+            },
+        );
+        assert_eq!(r1.coef, 1);
+        assert!(!hit.get(), "the Ziv loop must not run when rung 1 delivers");
+    }
+
+    /// The dynamic formulas are the rung 2 itemizations re-evaluated,
+    /// not a second policy: at `p = 110` every one lands within a
+    /// factor of five of its rung 2 constant (observed: within ±30%).
+    /// A formula drifting outside that band means the model and the
+    /// catalog have diverged and one of them is wrong.
+    #[test]
+    fn dynamic_budgets_track_the_rung2_catalog() {
+        let all: [(&str, &Budget); 20] = [
+            ("exp", &EXP),
+            ("exp2", &EXP2),
+            ("ln", &LN),
+            ("log10", &LOG10),
+            ("log2", &LOG2),
+            ("sin", &SIN),
+            ("cos", &COS),
+            ("tan", &TAN),
+            ("atan", &ATAN),
+            ("asin", &ASIN),
+            ("acos", &ACOS),
+            ("atan2", &ATAN2),
+            ("sinh", &SINH),
+            ("cosh", &COSH),
+            ("tanh", &TANH),
+            ("asinh", &ASINH),
+            ("acosh", &ACOSH),
+            ("atanh", &ATANH),
+            ("cbrt", &CBRT),
+            ("pow", &POW),
+        ];
+        for (name, b) in all {
+            let at_110 = (b.dynamic)(110);
+            assert!(
+                at_110 >= b.rung2 / 5 && at_110 <= b.rung2 * 5,
+                "{name}: dynamic(110) = {at_110} outside [rung2/5, 5*rung2] \
+                 (rung2 = {})",
+                b.rung2
+            );
+            // Monotone in p, and sane at the Ziv start width.
+            assert!((b.dynamic)(220) >= at_110, "{name}: not monotone");
+            assert!(
+                (b.dynamic)(220) < 10u128.pow(12),
+                "{name}: dynamic(220) implausibly wide"
+            );
+        }
     }
 }

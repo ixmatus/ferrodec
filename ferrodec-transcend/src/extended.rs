@@ -1004,11 +1004,22 @@ pub(crate) trait ExtNum: Copy + core::fmt::Debug {
     /// `true` when a near-boundary verdict at this rung escalates to
     /// the next one; `false` only for the top fixed rung, whose
     /// delivery is unconditional (the Tier 2 model; `ladder_audit`
-    /// builds panic there instead).
+    /// builds panic there instead). Under the `unbounded-ladder`
+    /// feature there is no top *fixed* rung: rung 2 escalates too, and
+    /// the dynamic rung above it widens instead of ever delivering an
+    /// ambiguous value.
     const ESCALATES: bool;
-    /// This rung's side of a per-function [`crate::ladder::Budget`]
-    /// pair, in this rung's own predicate units.
-    fn rung_budget(budget: &crate::ladder::Budget) -> u128;
+    /// Ladder position: 1 (`Extended`), 2 (`Extended2`), 3 (the
+    /// dynamic rung). Read only by the test-lane cfg skips in
+    /// `round_guarded` — `force_escalate` forces rung 1 alone,
+    /// `force_rung3` forces rungs 1 and 2 — so each lane keeps its
+    /// meaning regardless of which rungs escalate in a given build.
+    const RUNG: u8;
+    /// This rung's side of a per-function [`crate::ladder::Budget`],
+    /// in this rung's own predicate units. Takes the receiver so the
+    /// dynamic rung can evaluate its precision-dependent formula; the
+    /// fixed rungs ignore it and constant fold.
+    fn rung_budget(&self, budget: &crate::ladder::Budget) -> u128;
     /// This rung's Payne–Hanek reduction: `(k mod 4, |x| reduced into
     /// `[0, π/4]`, status)`. Rung 1 reads the 76-fractional-digit
     /// window and the 38-digit `π/2` (empirically discharged
@@ -1225,7 +1236,8 @@ impl ExtNum for Extended {
     }
 
     const ESCALATES: bool = true;
-    fn rung_budget(budget: &crate::ladder::Budget) -> u128 {
+    const RUNG: u8 = 1;
+    fn rung_budget(&self, budget: &crate::ladder::Budget) -> u128 {
         budget.rung1
     }
     #[cfg(feature = "trig")]

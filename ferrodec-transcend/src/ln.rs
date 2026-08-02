@@ -84,7 +84,6 @@
 //! reason as `ln(1) = 0`; the kernel short circuits each.
 
 use crate::extended::{ExtNum, Extended};
-use crate::extended2::Extended2;
 use crate::format::DecimalFormat;
 use crate::ladder;
 use ferrodec_ieee::IeeeDecodedClass as Class;
@@ -102,10 +101,7 @@ use ferrodec_ieee::{RoundingMode, Status};
 /// so the same argument rules ties out; the unconditional `INEXACT` is
 /// correct in every mode.
 pub fn ln_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
-    ladder::run(
-        || ln_kernel_body::<F, Extended>(Extended::ZERO, x, rm),
-        || ln_kernel_body::<F, Extended2>(Extended2::ZERO, x, rm),
-    )
+    ladder::ladder_run!(|ex| ln_kernel_body::<F, _>(ex, x, rm))
 }
 
 /// Generic body of [`ln_kernel`] (M4, ADR-0059); `None` escalates
@@ -146,10 +142,7 @@ pub(crate) fn ln_kernel_body<F: DecimalFormat, E: ExtNum>(
 /// than one. The kernel's unconditional `INEXACT` is therefore
 /// correct in every mode.
 pub fn log10_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
-    ladder::run(
-        || log10_kernel_body::<F, Extended>(Extended::ZERO, x, rm),
-        || log10_kernel_body::<F, Extended2>(Extended2::ZERO, x, rm),
-    )
+    ladder::ladder_run!(|ex| log10_kernel_body::<F, _>(ex, x, rm))
 }
 
 /// Generic body of [`log10_kernel`] (M4, ADR-0059); `None` escalates
@@ -193,10 +186,7 @@ pub(crate) fn log10_kernel_body<F: DecimalFormat, E: ExtNum>(
 /// `PRECISION + 1`-digit coefficient, magnitude ≥ 10^7). The
 /// unconditional `INEXACT` is correct in every mode.
 pub fn log2_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
-    ladder::run(
-        || log2_kernel_body::<F, Extended>(Extended::ZERO, x, rm),
-        || log2_kernel_body::<F, Extended2>(Extended2::ZERO, x, rm),
-    )
+    ladder::ladder_run!(|ex| log2_kernel_body::<F, _>(ex, x, rm))
 }
 
 /// Generic body of [`log2_kernel`] (M4, ADR-0059); `None` escalates

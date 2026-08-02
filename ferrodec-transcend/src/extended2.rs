@@ -946,10 +946,15 @@ impl ExtNum for Extended2 {
         Extended2::near_rounding_boundary::<F>(self, budget)
     }
 
-    // Top fixed rung: deliver unconditionally (Tier 2 model); the
-    // rung-2 budget feeds only the `ladder_audit` ambiguity check.
-    const ESCALATES: bool = false;
-    fn rung_budget(budget: &crate::ladder::Budget) -> u128 {
+    // Top fixed rung. Without the `unbounded-ladder` feature its
+    // delivery is unconditional (the Tier 2 model) and the rung-2
+    // budget feeds only the `ladder_audit` ambiguity check. With the
+    // feature there is a wider rung to escalate to, so a near-boundary
+    // verdict here escalates exactly as rung 1's does — that is the
+    // whole meaning of "no exception set".
+    const ESCALATES: bool = cfg!(feature = "unbounded-ladder");
+    const RUNG: u8 = 2;
+    fn rung_budget(&self, budget: &crate::ladder::Budget) -> u128 {
         budget.rung2
     }
     #[cfg(feature = "trig")]

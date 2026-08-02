@@ -72,8 +72,7 @@
 //! corpus `tests/vectors/transcend/anchor_bands/` pins the class).
 
 use crate::exp::exp_from_extended_body;
-use crate::extended::{ExtNum, Extended};
-use crate::extended2::Extended2;
+use crate::extended::ExtNum;
 use crate::format::DecimalFormat;
 use crate::ladder;
 use crate::ln::ln_extended_body;
@@ -207,10 +206,7 @@ pub fn pow_special_cases<F: DecimalFormat>(x: F, y: F) -> Option<(F, Status)> {
 /// `exact::pow_exact_input`. Past the classifier `x^y` is irrational
 /// and the unconditional `INEXACT` is correct in every mode.
 pub fn pow_kernel<F: DecimalFormat>(x: F, y: F, rm: RoundingMode) -> (F, Status) {
-    ladder::run(
-        || pow_kernel_body::<F, Extended>(Extended::ZERO, x, y, rm),
-        || pow_kernel_body::<F, Extended2>(Extended2::ZERO, x, y, rm),
-    )
+    ladder::ladder_run!(|ex| pow_kernel_body::<F, _>(ex, x, y, rm))
 }
 
 /// Generic body of [`pow_kernel`] (M4, ADR-0059); `None` escalates

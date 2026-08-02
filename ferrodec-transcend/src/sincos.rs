@@ -91,7 +91,6 @@
 //! are the empirical witnesses.
 
 use crate::extended::{ExtNum, Extended};
-use crate::extended2::Extended2;
 use crate::format::DecimalFormat;
 use crate::ladder;
 use ferrodec_ieee::IeeeDecodedClass as Class;
@@ -111,10 +110,7 @@ use ferrodec_ieee::{RoundingMode, Status};
 /// mode, and every input sits a finite distance from its rounding
 /// boundary (the escalation ladder's standing assumption).
 pub fn sin_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
-    ladder::run(
-        || sin_kernel_body::<F, Extended>(Extended::ZERO, x, rm),
-        || sin_kernel_body::<F, Extended2>(Extended2::ZERO, x, rm),
-    )
+    ladder::ladder_run!(|ex| sin_kernel_body::<F, _>(ex, x, rm))
 }
 
 /// Generic body of [`sin_kernel`] (M4, ADR-0059); `None` escalates
@@ -146,10 +142,7 @@ pub(crate) fn sin_kernel_body<F: DecimalFormat, E: ExtNum>(
 /// nearest-mode tie; the unconditional `INEXACT` is correct in every
 /// mode.
 pub fn cos_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
-    ladder::run(
-        || cos_kernel_body::<F, Extended>(Extended::ZERO, x, rm),
-        || cos_kernel_body::<F, Extended2>(Extended2::ZERO, x, rm),
-    )
+    ladder::ladder_run!(|ex| cos_kernel_body::<F, _>(ex, x, rm))
 }
 
 /// Generic body of [`cos_kernel`] (M4, ADR-0059); `None` escalates
@@ -190,10 +183,7 @@ pub(crate) fn cos_kernel_body<F: DecimalFormat, E: ExtNum>(
 /// reason (odd multiples of π/2 are irrational), so the `±∞` branch is
 /// working-precision saturation, not an exact-case claim.
 pub fn tan_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
-    ladder::run(
-        || tan_kernel_body::<F, Extended>(Extended::ZERO, x, rm),
-        || tan_kernel_body::<F, Extended2>(Extended2::ZERO, x, rm),
-    )
+    ladder::ladder_run!(|ex| tan_kernel_body::<F, _>(ex, x, rm))
 }
 
 /// Generic body of [`tan_kernel`] (M4, ADR-0059); `None` escalates

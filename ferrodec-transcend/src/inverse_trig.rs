@@ -101,8 +101,7 @@
 //! (`ferrodec-test-support/tests/mpfr_gate.rs`, 0 disagreements)
 //! are the empirical witnesses.
 
-use crate::extended::{ExtNum, Extended};
-use crate::extended2::Extended2;
+use crate::extended::ExtNum;
 use crate::format::DecimalFormat;
 use crate::ladder;
 use ferrodec_ieee::IeeeDecodedClass as Class;
@@ -122,10 +121,7 @@ use ferrodec_ieee::{RoundingMode, Status};
 /// to the rounding grid is certified offline with the `consts.rs`
 /// constants (ADR-0059 M8), not by the runtime predicate.
 pub fn atan_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
-    ladder::run(
-        || atan_kernel_body::<F, Extended>(Extended::ZERO, x, rm),
-        || atan_kernel_body::<F, Extended2>(Extended2::ZERO, x, rm),
-    )
+    ladder::ladder_run!(|ex| atan_kernel_body::<F, _>(ex, x, rm))
 }
 
 /// Generic body of [`atan_kernel`] (M4, ADR-0059); `None` escalates
@@ -182,10 +178,7 @@ pub(crate) fn atan_kernel_body<F: DecimalFormat, E: ExtNum>(
 /// delivered at `x = ±1` is an irrational constant, certified
 /// offline with `consts.rs` (ADR-0059 M8).
 pub fn asin_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
-    ladder::run(
-        || asin_kernel_body::<F, Extended>(Extended::ZERO, x, rm),
-        || asin_kernel_body::<F, Extended2>(Extended2::ZERO, x, rm),
-    )
+    ladder::ladder_run!(|ex| asin_kernel_body::<F, _>(ex, x, rm))
 }
 
 /// Generic body of [`asin_kernel`] (M4, ADR-0059); `None` escalates
@@ -245,10 +238,7 @@ pub(crate) fn asin_kernel_body<F: DecimalFormat, E: ExtNum>(
 /// `x = -1` are irrational constants, certified offline with
 /// `consts.rs` (ADR-0059 M8).
 pub fn acos_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
-    ladder::run(
-        || acos_kernel_body::<F, Extended>(Extended::ZERO, x, rm),
-        || acos_kernel_body::<F, Extended2>(Extended2::ZERO, x, rm),
-    )
+    ladder::ladder_run!(|ex| acos_kernel_body::<F, _>(ex, x, rm))
 }
 
 /// Generic body of [`acos_kernel`] (M4, ADR-0059); `None` escalates
@@ -323,10 +313,7 @@ pub(crate) fn acos_kernel_body<F: DecimalFormat, E: ExtNum>(
 /// `consts.rs` (ADR-0059 M8), and everything else is neither exact
 /// nor a tie: the unconditional `INEXACT` is correct in every mode.
 pub fn atan2_kernel<F: DecimalFormat>(y: F, x: F, rm: RoundingMode) -> (F, Status) {
-    ladder::run(
-        || atan2_kernel_body::<F, Extended>(Extended::ZERO, y, x, rm),
-        || atan2_kernel_body::<F, Extended2>(Extended2::ZERO, y, x, rm),
-    )
+    ladder::ladder_run!(|ex| atan2_kernel_body::<F, _>(ex, y, x, rm))
 }
 
 /// Generic body of [`atan2_kernel`] (M4, ADR-0059); `None` escalates

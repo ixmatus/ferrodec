@@ -32,8 +32,11 @@
 //! format's range, not at the underflow boundary.
 
 use crate::exp::exp_from_extended_body;
-use crate::extended::{ExtNum, Extended};
-use crate::extended2::Extended2;
+use crate::extended::ExtNum;
+// The module doc's [`Extended`] link needs the name in scope; the code
+// itself reaches rung 1 only through the exemplar seam now.
+#[cfg(doc)]
+use crate::extended::Extended;
 use crate::format::DecimalFormat;
 use crate::ladder;
 use crate::ln::ln_extended_body;
@@ -52,10 +55,7 @@ use ferrodec_ieee::{RoundingMode, Status};
 /// irrational and the unconditional `INEXACT` is correct in every
 /// mode.
 pub fn cbrt_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
-    ladder::run(
-        || cbrt_kernel_body::<F, Extended>(Extended::ZERO, x, rm),
-        || cbrt_kernel_body::<F, Extended2>(Extended2::ZERO, x, rm),
-    )
+    ladder::ladder_run!(|ex| cbrt_kernel_body::<F, _>(ex, x, rm))
 }
 
 /// Generic body of [`cbrt_kernel`] (M4, ADR-0059); `None` escalates

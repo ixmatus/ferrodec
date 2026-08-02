@@ -119,7 +119,6 @@
 
 use crate::exp::exp_extended_body;
 use crate::extended::{ExtNum, Extended};
-use crate::extended2::Extended2;
 use crate::format::DecimalFormat;
 use crate::ladder;
 use crate::ln::{ln_from_extended_body, log1p_extended_body};
@@ -140,10 +139,7 @@ use ferrodec_ieee::{RoundingMode, Status};
 /// sits a finite distance from its rounding boundary (the escalation
 /// ladder's standing assumption).
 pub fn sinh_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
-    ladder::run(
-        || sinh_kernel_body::<F, Extended>(Extended::ZERO, x, rm),
-        || sinh_kernel_body::<F, Extended2>(Extended2::ZERO, x, rm),
-    )
+    ladder::ladder_run!(|ex| sinh_kernel_body::<F, _>(ex, x, rm))
 }
 
 /// Generic body of [`sinh_kernel`] (M4, ADR-0059); `None`
@@ -199,10 +195,7 @@ pub(crate) fn sinh_kernel_body<F: DecimalFormat, E: ExtNum>(
 /// representable input has an exact result or a nearest-mode tie;
 /// the unconditional `INEXACT` is correct in every mode.
 pub fn cosh_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
-    ladder::run(
-        || cosh_kernel_body::<F, Extended>(Extended::ZERO, x, rm),
-        || cosh_kernel_body::<F, Extended2>(Extended2::ZERO, x, rm),
-    )
+    ladder::ladder_run!(|ex| cosh_kernel_body::<F, _>(ex, x, rm))
 }
 
 /// Generic body of [`cosh_kernel`] (M4, ADR-0059); `None`
@@ -256,10 +249,7 @@ pub(crate) fn cosh_kernel_body<F: DecimalFormat, E: ExtNum>(
 /// through the ADR-0051 residual seam, an inexact-by-construction
 /// path, not an exact-case claim.
 pub fn tanh_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
-    ladder::run(
-        || tanh_kernel_body::<F, Extended>(Extended::ZERO, x, rm),
-        || tanh_kernel_body::<F, Extended2>(Extended2::ZERO, x, rm),
-    )
+    ladder::ladder_run!(|ex| tanh_kernel_body::<F, _>(ex, x, rm))
 }
 
 /// Generic body of [`tanh_kernel`] (M4, ADR-0059); `None`
@@ -343,10 +333,7 @@ pub(crate) fn tanh_kernel_body<F: DecimalFormat, E: ExtNum>(
 /// `asinh(±0) = ±0` is exact, ties are impossible, and the
 /// unconditional `INEXACT` is correct in every mode.
 pub fn asinh_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
-    ladder::run(
-        || asinh_kernel_body::<F, Extended>(Extended::ZERO, x, rm),
-        || asinh_kernel_body::<F, Extended2>(Extended2::ZERO, x, rm),
-    )
+    ladder::ladder_run!(|ex| asinh_kernel_body::<F, _>(ex, x, rm))
 }
 
 /// Generic body of [`asinh_kernel`] (M4, ADR-0059); `None`
@@ -418,10 +405,7 @@ pub(crate) fn asinh_kernel_body<F: DecimalFormat, E: ExtNum>(
 /// `acosh(1) = 0` is exact, ties are impossible, and the
 /// unconditional `INEXACT` is correct in every mode.
 pub fn acosh_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
-    ladder::run(
-        || acosh_kernel_body::<F, Extended>(Extended::ZERO, x, rm),
-        || acosh_kernel_body::<F, Extended2>(Extended2::ZERO, x, rm),
-    )
+    ladder::ladder_run!(|ex| acosh_kernel_body::<F, _>(ex, x, rm))
 }
 
 /// Generic body of [`acosh_kernel`] (M4, ADR-0059); `None`
@@ -504,10 +488,7 @@ pub(crate) fn acosh_kernel_body<F: DecimalFormat, E: ExtNum>(
 /// `atanh(±0) = ±0` is exact, ties are impossible, and the
 /// unconditional `INEXACT` is correct in every mode.
 pub fn atanh_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
-    ladder::run(
-        || atanh_kernel_body::<F, Extended>(Extended::ZERO, x, rm),
-        || atanh_kernel_body::<F, Extended2>(Extended2::ZERO, x, rm),
-    )
+    ladder::ladder_run!(|ex| atanh_kernel_body::<F, _>(ex, x, rm))
 }
 
 /// Generic body of [`atanh_kernel`] (M4, ADR-0059); `None`

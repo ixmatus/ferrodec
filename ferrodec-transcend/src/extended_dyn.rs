@@ -47,12 +47,11 @@
 //! differential in this file's test module (`ExtendedDyn` at
 //! `prec = 110` against `Extended2`) is the standing guard.
 //!
-//! One member is still a deliberately loud stub: `rung_budget` (M8b
-//! step 5 wires the dynamic budget formulas together with the ladder).
-//! Nothing reaches this rung until that lands, so an `unimplemented!`
-//! is the honest placeholder rather than a wrong answer. `reduce_trig`
-//! now delegates to `argred::reduce_dyn`, the runtime Payne-Hanek
-//! reduction (M8b step 4).
+//! The full [`ExtNum`] surface is live: `reduce_trig` delegates to
+//! `argred::reduce_dyn`, the runtime Payne-Hanek reduction (M8b step
+//! 4), and `rung_budget` evaluates the per-function `budget.dynamic`
+//! formula at the arena's precision (step 5). The Ziv driver in
+//! `ladder::run3` is what walks this rung.
 
 #![allow(dead_code)]
 
@@ -1297,9 +1296,10 @@ impl ExtNum for ExtendedDyn<'_> {
     // driver simply widens the arena), so a near-boundary verdict here
     // escalates rather than delivering.
     const ESCALATES: bool = true;
+    const RUNG: u8 = 3;
 
-    fn rung_budget(_budget: &crate::ladder::Budget) -> u128 {
-        unimplemented!("M8b step 5 wires the dynamic budget formulas (fd-4zo.17)")
+    fn rung_budget(&self, budget: &crate::ladder::Budget) -> u128 {
+        (budget.dynamic)(self.arena.prec)
     }
 
     #[cfg(feature = "trig")]
@@ -1314,7 +1314,12 @@ impl ExtNum for ExtendedDyn<'_> {
 mod tests {
     use super::*;
     use crate::extended2::Extended2;
-    use crate::mock_format::{MockFmt, ValueFmt128};
+    use crate::mock_format::MockFmt;
+    // Only the composed `exp` differential feeds format data in; the
+    // import rides its gate so a `trig,unbounded-ladder` build without
+    // `exp-log` stays warning-free.
+    #[cfg(feature = "exp-log")]
+    use crate::mock_format::ValueFmt128;
     use alloc::string::String;
     use ferrodec_ieee::IeeeDecodedClass as Class;
     use ferrodec_multiword::U384;

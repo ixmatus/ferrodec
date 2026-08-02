@@ -76,6 +76,14 @@ hyperbolic = ["exp-log", "dep:ferrodec-transcend", "dep:ferrodec-multiword", "fe
 pow = ["exp-log", "dep:ferrodec-transcend", "dep:ferrodec-multiword", "ferrodec-transcend/pow"]
 # Convenience meta-feature: enable every transcendental at once.
 transcendentals = ["trig", "exp-log", "hyperbolic", "pow"]
+# The unbounded rung of the ADR-0059 escalation ladder (M8b): opt-in
+# third transcendental rung with no exception set — a near-boundary
+# escalation widens its working precision at run time instead of
+# delivering from a fixed top rung. Allocates (pulls the growable
+# coefficient substrate via `ferrodec-transcend`); off by default, and
+# default/no-alloc builds are unchanged. Meaningful only alongside a
+# transcendental feature cluster.
+unbounded-ladder = ["ferrodec-transcend/unbounded-ladder"]
 # `core::ops` operator overloads (Add / Sub / Mul / Div / Rem and the
 # *Assign variants, plus Neg). Opt-in: defaults to
 # RoundingMode::NearestEven and drops the per-operation Status. `%`

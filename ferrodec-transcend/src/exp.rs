@@ -53,7 +53,6 @@
 //! the canonical sweep enumeration.
 
 use crate::extended::{ExtNum, Extended};
-use crate::extended2::Extended2;
 use crate::format::DecimalFormat;
 use crate::ladder;
 use ferrodec_ieee::IeeeDecodedClass as Class;
@@ -73,10 +72,7 @@ use ferrodec_ieee::{RoundingMode, Status};
 /// every mode, and every input sits a finite distance from its
 /// rounding boundary (the escalation ladder's standing assumption).
 pub fn exp_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
-    ladder::run(
-        || exp_kernel_body::<F, Extended>(Extended::ZERO, x, rm),
-        || exp_kernel_body::<F, Extended2>(Extended2::ZERO, x, rm),
-    )
+    ladder::ladder_run!(|ex| exp_kernel_body::<F, _>(ex, x, rm))
 }
 
 /// Generic body of [`exp_kernel`] (M4, ADR-0059); `None` escalates
@@ -138,10 +134,7 @@ pub(crate) fn exp_kernel_body<F: DecimalFormat, E: ExtNum>(
 /// cleared by the composed bound by more than thirty orders of
 /// magnitude.
 pub fn exp2_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
-    ladder::run(
-        || exp2_kernel_body::<F, Extended>(Extended::ZERO, x, rm),
-        || exp2_kernel_body::<F, Extended2>(Extended2::ZERO, x, rm),
-    )
+    ladder::ladder_run!(|ex| exp2_kernel_body::<F, _>(ex, x, rm))
 }
 
 /// Generic body of [`exp2_kernel`] (M4, ADR-0059); `None` escalates
@@ -190,16 +183,13 @@ pub(crate) fn exp2_kernel_body<F: DecimalFormat, E: ExtNum>(
 /// any magnitude this routine handles the OVERFLOW / UNDERFLOW
 /// thresholds internally.
 pub fn exp_from_extended<F: DecimalFormat>(x_ext: Extended, rm: RoundingMode) -> (F, Status) {
-    ladder::run(
-        || exp_from_extended_body::<F, Extended>(x_ext, rm, &ladder::EXP),
-        || {
-            exp_from_extended_body::<F, Extended2>(
-                Extended2::from_extended(x_ext),
-                rm,
-                &ladder::EXP,
-            )
-        },
-    )
+    // The exemplar slot doubles as the widening seam: `from_extended`
+    // is the identity on rung 1 and the width lift on the others.
+    ladder::ladder_run!(|ex| exp_from_extended_body::<F, _>(
+        ex.from_extended(x_ext),
+        rm,
+        &ladder::EXP
+    ))
 }
 
 /// Generic body of [`exp_from_extended`] (M4, ADR-0059); `None`
