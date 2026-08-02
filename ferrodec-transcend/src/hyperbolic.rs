@@ -163,7 +163,23 @@ pub(crate) fn sinh_kernel_body<F: DecimalFormat, E: ExtNum>(
         Class::Finite { .. } => {}
     }
     let x_ext = ex.from_format(x);
-    let result_ext = sinh_ext::<F, E>(x_ext);
+    // Saturation: |x| past the format's exp convergence ceiling lands
+    // outside the format's range in every mode, so the proxy feeds the
+    // format rounder directly (mirroring `exp_from_extended_body`'s
+    // gate — the module doc's unguarded-by-design list). It must NOT
+    // reach the guarded delivery below: a proxy's one-digit
+    // coefficient sits exactly ON a working grid point, a distance no
+    // rung can grow — before this gate moved here every saturating
+    // call paid a full rung 2 re-run, `ladder_audit` panicked on the
+    // narrow formats (whose overflow region random samplers actually
+    // reach), and the unbounded rung would widen forever.
+    if x_ext.abs().cmp(ex.from_extended(F::exp_overflow_limit())) == core::cmp::Ordering::Greater {
+        let sat = Extended::saturate_overflow(x_ext.sign());
+        let (result, status) =
+            F::round_and_pack_finite(sat.coef, sat.exp, 0, sat.sign, true, rm, Status::OK);
+        return Some((result, status | Status::INEXACT));
+    }
+    let result_ext = sinh_ext::<E>(x_ext);
     // Grid-stuck at the input (ADR-0051): `|sinh x| > |x|` is a
     // theorem, so the residual side is the growing one.
     // Unguarded: the anchor leg runs before the ladder's predicate.
@@ -205,7 +221,17 @@ pub(crate) fn cosh_kernel_body<F: DecimalFormat, E: ExtNum>(
         Class::Finite { .. } => {}
     }
     let x_ext = ex.from_format(x).abs();
-    let result_ext = cosh_ext::<F, E>(x_ext);
+    // Saturation, hoisted out of the working-precision helper for the
+    // same reason as [`sinh_kernel_body`]'s gate: the proxy must feed
+    // the rounder directly, never the guarded delivery. cosh is
+    // always positive.
+    if x_ext.cmp(ex.from_extended(F::exp_overflow_limit())) == core::cmp::Ordering::Greater {
+        let sat = Extended::saturate_overflow(false);
+        let (result, status) =
+            F::round_and_pack_finite(sat.coef, sat.exp, 0, sat.sign, true, rm, Status::OK);
+        return Some((result, status | Status::INEXACT));
+    }
+    let result_ext = cosh_ext::<E>(x_ext);
     // Grid-stuck at the 1 anchor (ADR-0051): `cosh x > 1` for every
     // finite nonzero `x`, so the residual side is the growing one.
     // Unguarded: the anchor leg runs before the ladder's predicate.
@@ -292,8 +318,8 @@ pub(crate) fn tanh_kernel_body<F: DecimalFormat, E: ExtNum>(
         return Some((result, status | Status::INEXACT));
     }
     let x_ext = ex.from_format(x);
-    let s = sinh_ext::<F, E>(x_ext);
-    let c = cosh_ext::<F, E>(x_ext.abs());
+    let s = sinh_ext::<E>(x_ext);
+    let c = cosh_ext::<E>(x_ext.abs());
     // tanh inherits the sign of x via sinh; cosh is symmetric.
     let result_ext = s.div::<F>(c);
     // Grid-stuck at the input (ADR-0051): `|tanh x| < |x|` is a
@@ -557,7 +583,7 @@ pub(crate) fn atanh_kernel_body<F: DecimalFormat, E: ExtNum>(
 }
 
 /// `sinh(x)` at working precision.
-fn sinh_ext<F: DecimalFormat, E: ExtNum>(x: E) -> E {
+fn sinh_ext<E: ExtNum>(x: E) -> E {
     if x.is_zero() {
         return x;
     }
@@ -567,12 +593,11 @@ fn sinh_ext<F: DecimalFormat, E: ExtNum>(x: E) -> E {
     if x.abs().cmp(x.half()) == core::cmp::Ordering::Less {
         return sinh_taylor(x);
     }
-    // Saturation: |x| past the format's exp convergence ceiling lands
-    // outside the format's range. Return a pre-overflow magnitude with
-    // the sign of x; the boundary round produces ±∞ + OVERFLOW.
-    if x.abs().cmp(x.from_extended(F::exp_overflow_limit())) == core::cmp::Ordering::Greater {
-        return x.saturate_overflow(x.sign());
-    }
+    // Caller contract (mirrors `exp_extended_body`'s): |x| stays
+    // within the format's exp convergence window. The kernel bodies
+    // gate saturation before calling — the proxy must feed the format
+    // rounder directly, never a guarded delivery — and `tanh`'s
+    // 45-threshold band returns long before any format's window.
     // sinh(x) = (e^x − e^{-x}) / 2, evaluated entirely at working
     // precision so the cancellation is bounded by the working
     // envelope rather than the format's. Combined with the |x| < 0.5
@@ -610,7 +635,7 @@ fn sinh_taylor<E: ExtNum>(x: E) -> E {
 
 /// `cosh(x)` at working precision. Caller passes the absolute
 /// value (cosh is even).
-fn cosh_ext<F: DecimalFormat, E: ExtNum>(abs_x: E) -> E {
+fn cosh_ext<E: ExtNum>(abs_x: E) -> E {
     if abs_x.is_zero() {
         return abs_x.one();
     }
@@ -618,11 +643,9 @@ fn cosh_ext<F: DecimalFormat, E: ExtNum>(abs_x: E) -> E {
     if abs_x.cmp(abs_x.half()) == core::cmp::Ordering::Less {
         return cosh_taylor(abs_x);
     }
-    // Saturation: |x| past the format's exp convergence ceiling lands
-    // outside the format's range. cosh is always positive.
-    if abs_x.cmp(abs_x.from_extended(F::exp_overflow_limit())) == core::cmp::Ordering::Greater {
-        return abs_x.saturate_overflow(false);
-    }
+    // Caller contract as at [`sinh_ext`]: the kernel bodies gate
+    // saturation before calling, so |x| is inside the format's exp
+    // convergence window here.
     // cosh(x) = (e^x + e^{-x}) / 2, end-to-end at working precision.
     let e_pos = exp_extended_body(abs_x);
     let e_neg = exp_extended_body(abs_x.neg());
