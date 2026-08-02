@@ -29,6 +29,8 @@ CONSTS = [
     ("LN10_PINS", lambda: log(10), 0),
     ("E_PINS", lambda: +e, 0),
     ("TAN_PI_OVER_EIGHT_PINS", lambda: sqrt(2) - 1, -1),
+    ("INV_LN2_PINS", lambda: 1 / log(2), 0),
+    ("INV_LN10_PINS", lambda: 1 / log(10), -1),
 ]
 
 

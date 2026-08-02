@@ -12,12 +12,12 @@
 //!
 //! A generator returns the first `n` significant decimal digits of its
 //! constant `c` as the integer `floor(c · 10^(n − 1 − E))`, where
-//! `E = floor(log10 c)` is the constant's decimal exponent. Three of the
-//! six constants sit above 1 (`π`, `ln 10`, `e`; `E = 0`, scale
-//! `10^(n − 1)`) and three below it (`2/π`, `ln 2`, `tan(π/8)`;
-//! `E = −1`, scale `10^n`), so every function states its own scale
-//! rather than leaving the reader to infer it. The returned integer
-//! always has exactly `n` decimal digits.
+//! `E = floor(log10 c)` is the constant's decimal exponent. Four of the
+//! eight constants sit above 1 (`π`, `ln 10`, `e`, `1/ln 2`; `E = 0`,
+//! scale `10^(n − 1)`) and four below it (`2/π`, `ln 2`, `tan(π/8)`,
+//! `1/ln 10`; `E = −1`, scale `10^n`), so every function states its own
+//! scale rather than leaving the reader to infer it. The returned
+//! integer always has exactly `n` decimal digits.
 //!
 //! # Error bounds
 //!
@@ -393,6 +393,86 @@ pub fn tan_pi_over_eight_digits(n: u64) -> DecBig {
     root.sub(&DecBig::pow10(n))
 }
 
+/// `1/ln 2` to `n` significant digits: `floor((1/ln 2) · 10^(n − 1))`.
+///
+/// The ladder's base 2 pipelines need the reciprocal directly, and a
+/// division into the computed original keeps the whole error argument
+/// inside this module (the [`two_over_pi_digits`] pattern):
+/// `(1/ln 2) · 10^(n − 1) = 10^(n − 1 + S) / (ln 2 · 10^S)` with
+/// `S = n + 24`.
+///
+/// # Error
+///
+/// Let `A` be the scaled `ln 2` from the `2·atanh(1/3)` series at
+/// working scale `S`, so `A = ln 2 · 10^S − δ` with `0 ≤ δ < 8S + 10`
+/// (twice the series lemma's `E(S)`), under `8.1 · 10^5` at the
+/// contract cap. Perturbing a quotient's divisor moves it by the
+/// quotient's own relative share of the perturbation:
+/// `|N/A − N/(ln 2 · 10^S)| = (N/(ln 2 · 10^S)) · δ / A`, which with
+/// `N = 10^(n − 1 + S)` is `1.443 · 10^(n − 1) · δ / (0.693 · 10^S)`,
+/// under `10^-18`. The truncating division then moves the result by
+/// under one, so the returned integer differs from
+/// `floor((1/ln 2) · 10^(n − 1))` by at most **1**.
+///
+/// # Panics
+///
+/// Panics when `n` falls outside [`MIN_DIGITS`]`..=`[`MAX_DIGITS`].
+///
+/// ```
+/// use ferrodec_multiword::bigconst::inv_ln2_digits;
+/// assert_eq!(inv_ln2_digits(10).to_string(), "1442695040");
+/// ```
+#[must_use]
+pub fn inv_ln2_digits(n: u64) -> DecBig {
+    let n = checked_digits(n);
+    // 1/ln 2 ≈ 1.443 ∈ [1, 10), so the first `n` digits are
+    // `floor((1/ln 2) · 10^(n − 1))`. The guard rides in the divisor
+    // depth: dividing `10^(n − 1 + S)` by `ln 2 · 10^S` lands on the
+    // output scale directly.
+    let scale = n + GUARD;
+    let divisor = odd_reciprocal_series(3, scale, Series::Atanh).mul(&DecBig::from_u32(2));
+    DecBig::pow10(n - 1 + scale).div_rem(&divisor).0
+}
+
+/// `1/ln 10` to `n` significant digits: `floor((1/ln 10) · 10^n)`.
+///
+/// The decade split of the `exp` pipeline needs the reciprocal
+/// directly; as with [`inv_ln2_digits`] the division into the computed
+/// original keeps the error argument local:
+/// `(1/ln 10) · 10^n = 10^(n + S) / (ln 10 · 10^S)` with `S = n + 24`.
+///
+/// # Error
+///
+/// Let `A` be the scaled `ln 10` from the `4·atanh(1/2) + 2·atanh(1/19)`
+/// series pair at working scale `S`, so `A = ln 10 · 10^S − δ` with
+/// `0 ≤ δ < 24S + 30` (six times the series lemma's `E(S)`), under
+/// `2.5 · 10^6` at the contract cap. The divisor perturbation moves the
+/// quotient `N/A` with `N = 10^(n + S)` by
+/// `0.434 · 10^n · δ / (2.302 · 10^S)`, under `10^-17`. The truncating
+/// division then moves the result by under one, so the returned integer
+/// differs from `floor((1/ln 10) · 10^n)` by at most **1**.
+///
+/// # Panics
+///
+/// Panics when `n` falls outside [`MIN_DIGITS`]`..=`[`MAX_DIGITS`].
+///
+/// ```
+/// use ferrodec_multiword::bigconst::inv_ln10_digits;
+/// assert_eq!(inv_ln10_digits(10).to_string(), "4342944819");
+/// ```
+#[must_use]
+pub fn inv_ln10_digits(n: u64) -> DecBig {
+    let n = checked_digits(n);
+    // 1/ln 10 ≈ 0.434 ∈ [0.1, 1), so the first `n` digits are
+    // `floor((1/ln 10) · 10^n)`. The guard rides in the divisor depth,
+    // as in [`inv_ln2_digits`].
+    let scale = n + GUARD;
+    let two_ln3 = odd_reciprocal_series(2, scale, Series::Atanh).mul(&DecBig::from_u32(4));
+    let ln_ten_ninths = odd_reciprocal_series(19, scale, Series::Atanh).mul(&DecBig::from_u32(2));
+    let divisor = two_ln3.add(&ln_ten_ninths);
+    DecBig::pow10(n + scale).div_rem(&divisor).0
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -431,6 +511,18 @@ mod tests {
         (120, "271828182845904523536028747135266249775724709369995957496696762772407663035354759457138217852516642742746639193200305992"),
         (220, "2718281828459045235360287471352662497757247093699959574966967627724076630353547594571382178525166427427466391932003059921817413596629043572900334295260595630738132328627943490763233829880753195251019011573834187930702154"),
         (500, "27182818284590452353602874713526624977572470936999595749669676277240766303535475945713821785251664274274663919320030599218174135966290435729003342952605956307381323286279434907632338298807531952510190115738341879307021540891499348841675092447614606680822648001684774118537423454424371075390777449920695517027618386062613313845830007520449338265602976067371132007093287091274437470472306969772093101416928368190255151086574637721112523897844250569536967707854499699679468644549059879316368892300987931"),
+    ];
+    const INV_LN2_PINS: [(u64, &str); 4] = [
+        (50, "14426950408889634073599246810018921374266459541529"),
+        (120, "144269504088896340735992468100189213742664595415298593413544940693110921918118507988552662289350634449699751830965254425"),
+        (220, "1442695040888963407359924681001892137426645954152985934135449406931109219181185079885526622893506344496997518309652544255593101687168359642720662158223479336274537369884718493630701387663532015533894318916664837643128615"),
+        (500, "14426950408889634073599246810018921374266459541529859341354494069311092191811850798855266228935063444969975183096525442555931016871683596427206621582234793362745373698847184936307013876635320155338943189166648376431286154240474784222894979047950915303513385880549688658930969963680361105110756308441454272158283449418919339085777157900441712802468483413745226951823690112390940344599685399061134217228862780291580106300619767624456526059950737532406256558154759381783052397255107248130771562675458075"),
+    ];
+    const INV_LN10_PINS: [(u64, &str); 4] = [
+        (50, "43429448190325182765112891891660508229439700580366"),
+        (120, "434294481903251827651128918916605082294397005803666566114453783165864649208870774729224949338431748318706106744766303733"),
+        (220, "4342944819032518276511289189166050822943970058036665661144537831658646492088707747292249493384317483187061067447663037336416792871589639065692210646628122658521270865686703295933708696588266883311636077384905142844348666"),
+        (500, "43429448190325182765112891891660508229439700580366656611445378316586464920887077472922494933843174831870610674476630373364167928715896390656922106466281226585212708656867032959337086965882668833116360773849051428443486667686465860851355614821234876534354343573172538356222813956030486466523660955393773561763234319167109914115978949629935124579349263576554690776710824191504799109896749001032775376535702700873285509517314406746979518995135940880404239315188681084025446540897970298632868287626241440"),
     ];
     const TAN_PI_OVER_EIGHT_PINS: [(u64, &str); 4] = [
         (50, "41421356237309504880168872420969807856967187537694"),
@@ -508,6 +600,47 @@ mod tests {
     }
 
     #[test]
+    fn inv_ln2_matches_oracle() {
+        check_pins("inv_ln2_digits", inv_ln2_digits, &INV_LN2_PINS, 1);
+    }
+
+    #[test]
+    fn inv_ln10_matches_oracle() {
+        check_pins("inv_ln10_digits", inv_ln10_digits, &INV_LN10_PINS, 1);
+    }
+
+    #[test]
+    fn ln2_times_inv_ln2_is_one() {
+        // With `P = ln 2 · 10^300 + a` and `Q = (1/ln 2) · 10^299 + b`,
+        // where `|a|, |b| < 2` (one unit of documented bound plus one
+        // of truncation), the product sits within
+        // `2 · 1.443 · 10^299 + 2 · 0.694 · 10^300 + 4 < 1.7 · 10^300`
+        // of `10^599`. The assertion allows `2 · 10^300`.
+        let product = ln2_digits(300).mul(&inv_ln2_digits(300));
+        let target = DecBig::pow10(599);
+        let slack = DecBig::from_u32(2).mul_pow10(300);
+        let off = abs_diff(&product, &target);
+        assert_eq!(off.cmp_ref(&slack), Ordering::Less, "ln2 · (1/ln2) drifted");
+    }
+
+    #[test]
+    fn ln10_times_inv_ln10_is_one() {
+        // With `P = ln 10 · 10^299 + a` and `Q = (1/ln 10) · 10^300 + b`,
+        // `|a|, |b| < 2`, the product sits within
+        // `2 · 0.435 · 10^300 + 2 · 2.303 · 10^299 + 4 < 1.4 · 10^300`
+        // of `10^599`. The assertion allows `2 · 10^300`.
+        let product = ln10_digits(300).mul(&inv_ln10_digits(300));
+        let target = DecBig::pow10(599);
+        let slack = DecBig::from_u32(2).mul_pow10(300);
+        let off = abs_diff(&product, &target);
+        assert_eq!(
+            off.cmp_ref(&slack),
+            Ordering::Less,
+            "ln10 · (1/ln10) drifted"
+        );
+    }
+
+    #[test]
     fn pi_times_two_over_pi_is_two() {
         // With `P = π·10^299 + a` and `Q = (2/π)·10^300 + b`, where
         // `|a|, |b| < 2` (one unit of documented bound plus one of
@@ -558,6 +691,8 @@ mod tests {
         for (name, shallow, deep) in [
             ("pi_digits", pi_digits(50), pi_digits(120)),
             ("ln2_digits", ln2_digits(50), ln2_digits(120)),
+            ("inv_ln2_digits", inv_ln2_digits(50), inv_ln2_digits(120)),
+            ("inv_ln10_digits", inv_ln10_digits(50), inv_ln10_digits(120)),
         ] {
             let truncated = deep.div_rem_pow10(70).0;
             let off = abs_diff(&shallow, &truncated)
@@ -580,6 +715,8 @@ mod tests {
                 "tan_pi_over_eight_digits",
                 tan_pi_over_eight_digits(MIN_DIGITS),
             ),
+            ("inv_ln2_digits", inv_ln2_digits(MIN_DIGITS)),
+            ("inv_ln10_digits", inv_ln10_digits(MIN_DIGITS)),
         ] {
             assert_eq!(got.decimal_digit_count(), MIN_DIGITS, "{name} digit count");
         }

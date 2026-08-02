@@ -28,9 +28,10 @@
 //! `10^9`; see the [`decbig`] module documentation for the
 //! representation invariant, the algorithm provenance, and the
 //! performance rationale (ADR-0043). The [`bigconst`] module rides on
-//! the same feature: it computes π, 2/π, ln 2, ln 10, e, and tan(π/8)
-//! to any requested depth, each with a derived error bound, for the
-//! arbitrary precision rung of the transcendental ladder.
+//! the same feature: it computes π, 2/π, ln 2, ln 10, e, tan(π/8),
+//! 1/ln 2, and 1/ln 10 to any requested depth, each with a derived
+//! error bound, for the arbitrary precision rung of the transcendental
+//! ladder.
 //!
 //! This is a support crate for the ferrodec decimal family: the surface
 //! is shaped for the family's needs rather than as a general-purpose
