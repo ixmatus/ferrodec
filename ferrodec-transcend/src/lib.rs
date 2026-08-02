@@ -37,12 +37,24 @@
 #[cfg(test)]
 extern crate std;
 
+// The unbounded rung allocates (its coefficients are heap-backed);
+// nothing else in the crate does, so the dependency is feature-gated
+// rather than crate-wide.
+#[cfg(feature = "unbounded-ladder")]
+extern crate alloc;
+
 pub mod consts;
 pub mod extended;
 // Rung 2 of the ADR-0059 escalation ladder. Crate-internal until M8
 // wires the ladder; the kernels reach it only through the `ExtNum`
 // seam.
 mod extended2;
+// The unbounded rung of the same ladder (M8b): the working type whose
+// precision is chosen at run time, behind the `unbounded-ladder`
+// feature because it is the crate's only allocating code. The Ziv
+// driver that walks it lands in M8b step 5.
+#[cfg(feature = "unbounded-ladder")]
+mod extended_dyn;
 mod format;
 mod ladder;
 #[cfg(test)]

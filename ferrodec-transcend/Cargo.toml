@@ -23,6 +23,12 @@ exp-log = ["fmt"]
 hyperbolic = ["exp-log"]
 pow = ["exp-log"]
 transcendentals = ["trig", "exp-log", "hyperbolic", "pow"]
+# The unbounded rung of the ADR-0059 escalation ladder (M8b): a working
+# type whose precision is chosen at run time, on the growable `DecBig`
+# substrate. Off by default and orthogonal to the kernel selection
+# above, because it is the one part of this crate that allocates —
+# a Cortex-M0+ build keeps the fixed rungs and never sees a heap.
+unbounded-ladder = ["ferrodec-multiword/alloc"]
 
 [dependencies]
 ferrodec-ieee = { path = "../ferrodec-ieee", version = "0.1.4" }
