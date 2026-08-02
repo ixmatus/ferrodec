@@ -64,10 +64,13 @@ ships under his name. The disciplines above narrow the failure surface; they do 
 process is most exposed to subtle bugs that a careful human reading of the code would catch but tests, types, and
 formal verification would not. For correctly rounded decimal arithmetic that specifically includes rounding errors on boundary cases the decTest
 suite did not cover, rounding or boundary errors in the arbitrary precision ferrodec-decimal type on operands wider
-than the u128 ground truth oracle reaches that the sampled libmpdec differential did not draw, rounding errors on
-Decimal64 or Decimal128 transcendental boundary inputs the sampled Arb worst-case search did not surface (the
-Decimal32 §9.2 transcendentals and square root are now searched exhaustively across the full canonical input space
-rather than sampled), or conformance regressions in operations no harness happened to exercise. Issues are welcome and will be triaged as time allows; no SLA is offered. This README describes the project's
+than the u128 ground truth oracle reaches that the sampled libmpdec differential did not draw, misrounds on
+Decimal64 or Decimal128 transcendental boundary inputs if one of the escalation ladder's two auditable premises fails:
+an unsound per function error budget or a gap in the input side exact and tie classification. The ladder replaced the
+earlier sampled-search discharge after the project's own falsification campaign refuted it on high decade Decimal128
+trigonometric inputs; under the statistical model stated in the accepted design records, the expected residual for
+default builds is around one in 10^36 calls, builds with the unbounded rung carry no such residual, and the Decimal32
+transcendentals and square root remain exhaustively verified. The process is also exposed to conformance regressions in operations no harness happened to exercise. Issues are welcome and will be triaged as time allows; no SLA is offered. This README describes the project's
 development process and is not a warranty; see the LICENSE file for the legal terms governing use.
 
 ## What ferrodec is
@@ -143,6 +146,7 @@ ferrodec is feature gated so the embedded floor pays only for what it uses.
 | `hyperbolic` | no | `sinh`, `cosh`, `tanh`, `asinh`, `acosh`, `atanh`. Implies `exp-log` | +22 KB over `exp-log` |
 | `pow` | no | `pow`. Implies `exp-log` (`pow(x, y) = exp(y · ln x)`) | +15 KB over `exp-log` |
 | `transcendentals` | no | Meta-feature pulling all four above. The pre-1.2 shape; existing dependents see no change. | +185 KB |
+| `unbounded-ladder` | no | The ADR-0059 unbounded escalation rung: no exception set, working precision widens at run time until each rounding is decided. Requires an allocator; meaningful only alongside a transcendental cluster. Default and no-alloc builds are unchanged. | needs `alloc`; ~+190 KB pre-link |
 | `binary-float` | no | `to_f64`, `to_f32`, `from_f64`, `from_f32` (pulls in `fmt`) | small |
 | `ops` | no | `core::ops` operator overloads (`+`, `-`, `*`, `/`, `%`, `Neg`, `*Assign`). Default rounding mode `NearestEven`; status discarded. `%` routes to `rem_near` on this format (IEEE 754-2019 §5.3.1) and to `rem_trunc` on the siblings (GDA truncated); ADR-0027 records the per-format choice. See *Why no `core::ops`* below. | tiny |
 | `serde` | no | `Serialize` / `Deserialize` via the canonical decimal string. Helper module `ferrodec::serde_bid` for raw 128-bit BID serialization in binary formats. (pulls in `fmt`) | small |
@@ -150,7 +154,7 @@ ferrodec is feature gated so the embedded floor pays only for what it uses.
 | `dpd` | no | `Decimal128::to_dpd_bytes` / `from_dpd_bytes` for IEEE 754:2019 Densely Packed Decimal byte-pattern interchange. Storage and arithmetic stay BID; this is a byte-level adapter for round-tripping with IBM decNumber, z/Architecture decimal-FP hardware, and the upstream `dqEncode` / `dqCanonical` conformance vectors. | +7 KB |
 | `kani` | no | Compile the formal verification harnesses; off in normal builds | none in production |
 
-(Sizes are the `libferrodec.rlib` delta in release mode, measured at the 1.3.0 release and representative since; the feature surface they cover is unchanged. The actual `.text` section in a linked binary will be somewhat smaller. Numbers are illustrative; profile your own application before deciding.)
+(Sizes are the `libferrodec.rlib` delta in release mode, measured at the 1.3.0 release. The ADR-0059 escalation ladder adds about 83 KB of pre-link `.text` + `.rodata` on `thumbv6m` to any build with transcendental features — the 110 digit mirror kernel and its wide reduction; ADR-0059 §Outcome records the measurement. The actual `.text` section in a linked binary will be somewhat smaller. Numbers are illustrative; profile your own application before deciding.)
 
 ## What you can call
 
@@ -194,11 +198,15 @@ The IEEE 754:2019 §5.3 quantum surface: `quantize(target, rm)` rescales `self` 
 
 ## Accuracy
 
-ferrodec promises correctly rounded results, meaning exactly the single nearest representable value at 34 digits (ties to even at `NearestEven`, the directed grid point at the four IEEE 754 directed modes), for the core IEEE operations (ADR-0021) and for every §9.2 transcendental across the supported domain (ADR-0032; supersedes ADR-0024's faithful contract). One behavioural caveat applies at the boundary.
+ferrodec promises correctly rounded results, meaning exactly the single nearest representable value at 34 digits (ties to even at `NearestEven`, the directed grid point at the four IEEE 754 directed modes), for the core IEEE operations (ADR-0021) and for the §9.2 transcendental surface.
+
+For the transcendentals the discharge is the ADR-0059 escalation ladder, which replaced the earlier fixed precision argument after the project's own falsification campaign refuted it: certified misround witnesses on high decade Decimal128 trigonometric inputs, exactly where the statistical model said the sampled evidence was thin. Those witnesses now round correctly and replay as a pinned regression gate. The ladder's construction: inputs whose true result is exact or on a nearest mode tie are classified arithmetically before any kernel runs; results that hug a grid point asymptotically are decided by side theorems (ADR-0051); everything else evaluates at 50 digits and delivers only when the result clears a per function error budget against every rounding boundary, escalating to a 110 digit rung otherwise. The claim is tiered honestly: unconditionally, every result lies within the top rung's quantified bracket; correct rounding holds by construction conditional on two auditable premises (budget soundness and classification completeness); and the expected residual under the statistical model is about 10^-36 per call for default builds. The opt-in `unbounded-ladder` feature removes even that: its rung widens the working precision at run time until the rounding is decided, so such builds carry no exception set. ADR-0059 and its Outcome section carry the full record, including the measured costs.
+
+One behavioural caveat applies at the boundary.
 
 * **`tan(x)` near the asymptotes** at odd multiples of π/2 returns ±∞. Note the absence of a `DIV_BY_ZERO` flag: `tan` produces a transcendental asymptote, not a literal IEEE division by zero. The ±∞ return is itself the correctly rounded result.
 
-The trigonometric reduction handles the full Decimal128 magnitude range. `sin(10^15)` and `sin(10^3000)` round as accurately as `sin(0.5)` does, because argument reduction uses the algorithm of Payne and Hanek with a 6 300 digit table of 2/π. Inputs that fall within one ULP of an integer multiple of π/2 (the rounded value of π itself, for example) cancel down to a 33 digit residual; the windowed multiplication widens to U512 to recover the remaining 50 digits, so even those boundary points round to the correctly rounded value.
+The trigonometric reduction handles the full Decimal128 magnitude range. `sin(10^15)` and `sin(10^3000)` round as accurately as `sin(0.5)` does, because argument reduction uses the algorithm of Payne and Hanek with a 6 408 digit table of 2/π (sized for the 110 digit rung's wide window; the unbounded rung computes its window at whatever depth its precision demands). Inputs that fall within one ULP of an integer multiple of π/2 (the rounded value of π itself, for example) cancel down to a 33 digit residual; the windowed multiplication carries enough width that even those boundary points deliver the correctly rounded value, escalating to the wide reduction when the 50 digit rung's bracket cannot decide the rounding.
 
 ## Supported targets
 
@@ -225,6 +233,8 @@ ferrodec leans on five overlapping verification stacks.
 
 8. **Exhaustive identity sweep for Decimal32** ([ADR-0034](docs/decisions/0034-empirical-coverage-extension.md), `ferrodec-decimal32/tests/identity_exhaustive.rs`, on-demand). A pure-Rust walk over the full 2^32 Decimal32 encoding space closes the identities the bounded Kani harnesses ([ADR-0015](docs/decisions/0015-kani-scope-policy.md), [ADR-0016](docs/decisions/0016-kani-harness-shim-routing.md)) cannot reach. Total order reflexivity (`total_cmp(x, x)`) holds for every one of the 2^32 encodings, across every cohort and NaN payload, beyond the same-cohort finite-finite domain Kani proves. The 3.84 billion canonical finite values additionally satisfy, with zero violations, the Display-then-parse round trip bit for bit (a path neither Kani nor the existing fuzz sampling established exhaustively), the `x + 0` value identity through the general add path, and the `next_up`/`next_down` successor inverse. The test is `#[ignore]`d so the multi-second walk stays out of the default suite while still compiling under CI; run it explicitly with `--release -- --ignored`.
 
+9. **Escalation ladder witnesses and differentials** ([ADR-0059](docs/decisions/0059-correctly-rounded-decimal128-lane.md)). The S1 falsification corpus — 1 819 Arb-certified Decimal128 trig misround witnesses against the pre-ladder kernel (sin 643, cos 570, tan 606) — replays on every run as a pinned gate with exact per-file counts (`tests/transcend_campaign_s1.rs`). Three build configurations keep the ladder from rotting: `--cfg force_escalate` routes every guarded delivery through the 110-digit rung and demands byte identity with the full pinned corpus, `--cfg force_rung3` does the same through the `unbounded-ladder` dynamic rung, and `--cfg ladder_audit` panics on any top-rung residual ambiguity. The budget audit harness asserts rung 1's observed error stays under a tenth of each trig budget over the witness bands, and the runtime constant generators are pinned against mpmath oracles at four depths with algebraic cross-identities.
+
 For the transcendentals specifically, `docs/testing.md` is the
 conceptual map: it explains the correlated failure surface that the
 shared Extended kernel creates, why a structurally independent oracle
@@ -249,6 +259,8 @@ A tight feedback loop matters more than chasing microseconds, but the criterion 
 These are the standing measured numbers since the dedicated perf pass (recorded in [`docs/decisions/0008-perf-results.md`](docs/decisions/0008-perf-results.md), which moved the headline operations 23 % to 27 % faster); the kernels have not changed since, but the numbers are host specific, so reproduce them with `cargo bench` on your target rather than relying on the absolute values.
 
 Run `cargo bench --features=transcendentals --bench transcendentals` for the math kernels, `cargo bench --features=fmt --bench conversions` for parse and format throughput, and `cargo bench --features=fmt --bench comparison` for `partial_cmp` / `total_cmp` shapes.
+
+The ADR-0059 correctness ladder carries a measured cost on the transcendentals, accepted correctness-first: on typical inputs the boundary guard adds 0.7 % to 6.3 % depending on the function, and on full-range random Decimal128 trigonometric inputs (where roughly 3 % of calls, 6 % for `tan`, escalate to the 110-digit rung) the averages are sin +31 %, cos +32 %, tan +64 % against the pre-ladder kernel. The `unbounded-ladder` feature adds nothing measurable until its rung is entered, which is a ~10^-36 per call event. ADR-0059 §Outcome records the methodology; the tightening target is the rung-1 reduction bound, not the pad.
 
 The arbitrary-precision sibling carries its own performance story: a measured pass sped its high-precision transcendental kernels by 2.7x to 5.0x, with the before-and-after table in [`ferrodec-decimal/README.md`](ferrodec-decimal/) (and ADR-0043, ADR-0044, ADR-0046).
 
