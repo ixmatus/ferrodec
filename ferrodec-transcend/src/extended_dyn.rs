@@ -47,12 +47,12 @@
 //! differential in this file's test module (`ExtendedDyn` at
 //! `prec = 110` against `Extended2`) is the standing guard.
 //!
-//! Two members are deliberately loud stubs: `rung_budget` (M8b step 5
-//! wires the dynamic budget formulas together with the ladder) and
-//! `reduce_trig` (M8b step 4 lands the runtime Payne-Hanek reduction).
-//! Nothing reaches this rung until those land, so an
-//! `unimplemented!` is the honest placeholder rather than a wrong
-//! answer.
+//! One member is still a deliberately loud stub: `rung_budget` (M8b
+//! step 5 wires the dynamic budget formulas together with the ladder).
+//! Nothing reaches this rung until that lands, so an `unimplemented!`
+//! is the honest placeholder rather than a wrong answer. `reduce_trig`
+//! now delegates to `argred::reduce_dyn`, the runtime Payne-Hanek
+//! reduction (M8b step 4).
 
 #![allow(dead_code)]
 
@@ -1303,8 +1303,8 @@ impl ExtNum for ExtendedDyn<'_> {
     }
 
     #[cfg(feature = "trig")]
-    fn reduce_trig<F: DecimalFormat>(&self, _x: F) -> (u32, Self, Status) {
-        unimplemented!("M8b step 4 lands the runtime reduction (fd-4zo.17)")
+    fn reduce_trig<F: DecimalFormat>(&self, x: F) -> (u32, Self, Status) {
+        crate::argred::reduce_dyn::<F>(*self, x)
     }
 }
 

@@ -45,6 +45,15 @@
 //! surviving digits; its truncation discharge is analytic, not
 //! empirical (< 10^-114 relative).
 //!
+//! `reduce_dyn` (M8b, behind the `unbounded-ladder` feature) is the
+//! third sibling: the same pipeline with every width a function of the
+//! rung's runtime precision `p`, and both constants computed per call
+//! rather than read from storage. The table below cannot serve it — a
+//! stored table caps the precision a rung can reach, and the Ziv
+//! driver's doubling has no cap — so the `2/π` digits come from
+//! `ferrodec_multiword::bigconst::two_over_pi_digits` and the `π/2`
+//! coefficient from `bigconst::pi_digits`.
+//!
 //! ## Storage budget for the table
 //!
 //! The rung 1 window is `d_{q-1} … d_{q + 113}` and the rung 2 window
@@ -64,9 +73,13 @@
 
 use crate::extended::{ExtNum, Extended};
 use crate::extended2::Extended2;
+#[cfg(feature = "unbounded-ladder")]
+use crate::extended_dyn::ExtendedDyn;
 use crate::format::DecimalFormat;
 use ferrodec_ieee::Status;
 use ferrodec_ieee::{decimal_digit_count_u128 as decimal_digit_count, IeeeDecodedClass as Class};
+#[cfg(feature = "unbounded-ladder")]
+use ferrodec_multiword::{bigconst, DecBig};
 use ferrodec_multiword::{
     u256::widening_mul_u128, u768::u384_mul_u384_to_u768, U256, U384, U512, U768,
 };
@@ -832,6 +845,302 @@ pub(crate) fn reduce_wide<F: DecimalFormat>(x: F) -> (u32, Extended2, Status) {
 }
 
 // ----------------------------------------------------------------------------
+// The unbounded rung: the runtime reduction (ADR-0059 M8b).
+//
+// [`reduce_dyn`] is [`reduce_wide`] with every width a function of the
+// rung's runtime precision `p = ex.precision()` and both constants
+// computed per call. Three things change and nothing else does:
+//
+//   * the `2/π` digits come from `bigconst::two_over_pi_digits(i_hi)`
+//     instead of the 6 408-digit table, since a table caps the
+//     precision a rung can reach and the Ziv driver's doubling has no
+//     cap;
+//   * the `π/2` coefficient comes from `bigconst::pi_digits` at
+//     `p + 5` digits instead of a hand-curated literal;
+//   * the coefficients live on the growable `DecBig` substrate, so
+//     there is no fixed buffer to size and no `shift_right_to_*`
+//     collapse — `ExtendedDyn::from_decbig_with_sticky` performs the
+//     single rounding that ends the pipeline.
+//
+// Every width below reproduces its rung 2 constant at `p = 110`, which
+// is what makes the dynamic rung a continuation of the ladder rather
+// than a second policy; `reduce_dyn_agrees_with_reduce_wide` is the
+// standing guard on that claim.
+
+/// Fractional decimal digits the dynamic window extracts at working
+/// precision `p`.
+///
+/// Derived exactly as the fixed rungs': the worst case is an input
+/// within 1 ULP of an integer multiple of `π/2`, which cancels up to 33
+/// leading digits of the fractional residual, so `p + 33` extracted
+/// digits still leave `p` surviving significant digits — the rung's
+/// full envelope, where rung 1's 76 leave 43 against its 50. At
+/// `p = 110` this reproduces [`FRAC2_DIGITS`] = 143.
+#[cfg(feature = "unbounded-ladder")]
+const fn frac_digits_dyn(p: u32) -> u32 {
+    p + 33
+}
+
+/// Window high-end offset at working precision `p`, so that
+/// `i_hi = q + i_hi_offset_dyn(p)`.
+///
+/// The same `33 + CARRY_GUARD` tail the fixed offsets carry: 33 digits
+/// of coefficient overlap below the fractional window (a format
+/// coefficient is up to 34 digits wide, so the windowed product's low
+/// 33 digits carry no information the kept fraction needs), plus
+/// [`CARRY_GUARD`] = 4 digits absorbing the unread tail of `2/π`. The
+/// offset is therefore `(p + 33) + 33 + 4 = p + 70`, reproducing
+/// [`I_HI_OFFSET2`] = 180 at `p = 110`.
+///
+/// The M8b plan sketch quoted the read depth as `q + p + ~45`; the
+/// exact rung 2 mirror derivation gives `q + p + 70`, and that is the
+/// number the code uses.
+///
+/// The generator caps its depth at `bigconst::MAX_DIGITS = 100_000`,
+/// and the deepest read is `q_max + p + 70 = 6181 + p`, so every input
+/// stays inside the cap for `p ≤ 93_819`. The Ziv driver doubles from
+/// 110, so the widths it can reach below `DynArena`'s own construction
+/// cap of `99_993` are `110 · 2^k ≤ 56_320`; the generator's cap is
+/// never the binding constraint in practice, and it panics loudly
+/// rather than silently truncating if some future driver widens past
+/// it.
+#[cfg(feature = "unbounded-ladder")]
+const fn i_hi_offset_dyn(p: u32) -> u32 {
+    frac_digits_dyn(p) + 33 + CARRY_GUARD
+}
+
+/// The `p + 5` leading decimal digits of `π/2` as an integer, so that
+/// `π/2 ≈ coef · 10^-(p + 4)`. The runtime sibling of
+/// [`PI_OVER_TWO_COEF2`], which is exactly this value at `p = 110`
+/// (115 digits, exponent −114).
+///
+/// Scale derivation. `D = pi_digits(p + 6)` is `floor(π · 10^(p + 5))`
+/// up to the generator's documented ≤ 1 unit, so
+/// `|D − π · 10^(p + 5)| < 2`. Integer halving floors, so
+/// `|D/2 − (π/2) · 10^(p + 5)| < 1 + 1/2`. Dropping the last digit
+/// divides that by ten and floors once more, giving
+/// `|coef − (π/2) · 10^(p + 4)| < 1.5/10 + 1 = 1.15`: the coefficient
+/// sits within **2** units of its last digit. `π/2 ≈ 1.5708` keeps
+/// `(π/2) · 10^(p + 4)` at exactly `p + 5` digits, which is why that
+/// last-digit drop is also what lands the requested width.
+///
+/// Truncation-error discharge (the M8b budget's `π/2` term).
+/// `(π/2) · 10^(p + 4) > 1.5 · 10^(p + 4)`, so those 2 units are under
+/// `1.4 · 10^-(p + 4)` of the value: the constant carries
+/// **< 10^-(p + 3) relative error**. The residual `r = y · π/2`
+/// inherits that 1:1, so the reduction's `π/2` term contributes
+/// < 10^-(p + 3) relative to `r` — three orders below the rung's own
+/// `10^-p` working resolution, and the formula restatement of rung 2's
+/// analytic `< 10^-114` at 110 digits.
+#[cfg(feature = "unbounded-ladder")]
+fn pi_over_two_coef_dyn(p: u32) -> DecBig {
+    let deeper = bigconst::pi_digits(u64::from(p) + 6);
+    let halved = deeper.div_rem(&DecBig::from_u32(2)).0;
+    halved.div_rem_pow10(1).0
+}
+
+/// Runtime sibling of [`make_residual_wide`], delivering into
+/// [`ExtendedDyn`] at the arena's width.
+///
+/// `frac` is the extracted fractional magnitude at implicit scale
+/// `10^-frac_dyn` (it may carry fewer than `frac_dyn` digits, since
+/// leading zeros of the fraction are leading zeros of the integer);
+/// `rounded_up` says the reduction chose the next multiple of `π/2`,
+/// leaving a negative residual `y − 1`.
+///
+/// As at rung 2 the fractional magnitude is first truncated to at most
+/// `p + 5` significant digits with the dropped tail folded into a
+/// sticky bit. That truncation costs < 10^-(p + 4) relative — the same
+/// order as the `π/2` constant's own, and below the `10^-p` working
+/// resolution — and it keeps the final multiply at ~`2p + 10` digits
+/// so the error argument is the fixed rung's verbatim. The worst-case
+/// 33-zero cancellation leaves exactly `p` significant digits, in which
+/// case nothing is dropped at all.
+#[cfg(feature = "unbounded-ladder")]
+fn make_residual_dyn(
+    ex: ExtendedDyn<'_>,
+    frac: DecBig,
+    frac_dyn: u32,
+    rounded_up: bool,
+    sign: bool,
+) -> ExtendedDyn<'_> {
+    let p = ex.precision();
+
+    // For `rounded_up`: y_signed = frac · 10^-frac_dyn − 1, so
+    // y_mag = 10^frac_dyn − frac.
+    let mut y_signed_neg = false;
+    let y_mag = if rounded_up {
+        y_signed_neg = true;
+        DecBig::pow10(frac_dyn).sub(&frac)
+    } else {
+        frac
+    };
+
+    if y_mag.is_zero() {
+        return ex.zero();
+    }
+
+    let net_sign = sign ^ y_signed_neg;
+
+    // Truncate y to ≤ p + 5 significant digits, dropped tail into the
+    // sticky the final rounding consumes.
+    let dig_y = u32::try_from(y_mag.decimal_digit_count())
+        .expect("the fractional window is at most p + 33 digits wide");
+    let drop_y = dig_y.saturating_sub(p + 5);
+    let (y_trunc, dropped) = y_mag.div_rem_pow10(drop_y);
+    let sticky = !dropped.is_zero();
+
+    // y (≤ p + 5 digits) · π/2 (p + 5 digits) → ≤ 2p + 10 digits.
+    let prod = y_trunc.mul(&pi_over_two_coef_dyn(p));
+
+    // Combined exponent: y at scale 10^-frac_dyn shifted up by the
+    // truncation, π/2 at 10^-(p + 4). The growable substrate has no
+    // collapse shift to add; `from_decbig_with_sticky` folds its own
+    // rounding shift into the exponent it returns.
+    let exp = -(frac_dyn as i32) + drop_y as i32 - (p as i32 + 4);
+    ex.from_decbig_with_sticky(prod, exp, net_sign, sticky)
+}
+
+/// Runtime reduction: `|x| = k · π/2 + r` with `r` delivered at the
+/// exemplar arena's runtime precision `p`. Same contract as [`reduce`]
+/// otherwise; `x` finite, sign separated by the caller.
+///
+/// `ex` is the width exemplar (the M8b seam): the receiver the residual
+/// constructor reads its arena and its precision from, never a value
+/// the result depends on.
+#[cfg(feature = "unbounded-ladder")]
+pub(crate) fn reduce_dyn<F: DecimalFormat>(
+    ex: ExtendedDyn<'_>,
+    x: F,
+) -> (u32, ExtendedDyn<'_>, Status) {
+    let cls = x.classify();
+    let (biased_exp, c) = match cls {
+        Class::Finite {
+            biased_exp,
+            coefficient,
+            ..
+        } => (biased_exp, coefficient),
+        // Caller filters these out, but be defensive.
+        _ => return (0, ex.from_format(x), Status::OK),
+    };
+    debug_assert!(c != 0);
+
+    let p = ex.precision();
+    let frac_dyn = frac_digits_dyn(p);
+    let offset = i_hi_offset_dyn(p);
+
+    let q = biased_exp as i32 - F::BIAS;
+    let dig_c = decimal_digit_count(c) as i32;
+    let decade = q + dig_c - 1;
+
+    // |x| < 0.1 ≪ π/4: trivially k = 0, r = |x|.
+    if decade < -1 {
+        let r = ex.from_format(x).abs();
+        return (0, r, Status::INEXACT);
+    }
+
+    let i_hi_signed = q + offset as i32;
+    if i_hi_signed < 1 {
+        // Window empty: |x · 2/π| ≪ 10^-frac_dyn, so k = 0.
+        let r = ex.from_format(x).abs();
+        return (0, r, Status::INEXACT);
+    }
+    // Nothing clips the high end: there is no table to run out of, and
+    // the generator produces exactly the digits asked for. The decade
+    // guard above forces `q ≥ −dig_c ≥ −34`, so
+    // `i_hi ≥ p + 70 − 34 ≥ 146` — comfortably above the generator's
+    // `MIN_DIGITS = 8` floor, which is why no low-end clamp is needed
+    // either.
+    let i_hi = i_hi_signed as u32;
+    let i_lo_signed = q - 1;
+    let i_lo = if i_lo_signed < 1 {
+        1
+    } else {
+        i_lo_signed as u32
+    };
+    debug_assert!(i_lo <= i_hi);
+
+    // `two_over_pi_digits(i_hi)` is `floor((2/π) · 10^i_hi)` to within
+    // one unit: an `i_hi`-digit integer whose digit `i` is the `i`-th
+    // significant digit of 2/π. Since `2/π = 0.6366…` has a nonzero
+    // first fractional digit, significant digit `i` IS fractional digit
+    // `i` — the same 1-indexing `two_over_pi_digit` uses against the
+    // static table, which `two_over_pi_generator_indexes_like_the_table`
+    // pins.
+    //
+    // The window `W = D mod 10^(i_hi − i_lo + 1)` drops the digits more
+    // significant than `d_{i_lo}`, exactly the ones
+    // `extract_window_wide` never reads.
+    let d = bigconst::two_over_pi_digits(u64::from(i_hi));
+    let w = d.div_rem_pow10(i_hi - i_lo + 1).1;
+
+    // W spans `i_hi − i_lo + 1 = offset + 2 = p + 72` digits (rung 2's
+    // 182 at p = 110), so P = c × W reaches 34 + p + 72 = p + 106.
+    let prod = w.mul(&DecBig::from_u128(c));
+
+    // Why the discarded high digits cost nothing, and why the
+    // generator's ≤ 1 unit costs nothing (the two truncation
+    // discharges the M8b budget derivation reads).
+    //
+    // Write `A = 2/π` and `D` for the generated digits, so
+    // `|A − D · 10^-i_hi| < 2 · 10^-i_hi`: one unit of the generator's
+    // documented bound plus one of its own floor. Then
+    //
+    //     |x · A − c · D · 10^(q − i_hi)| < 2 · c · 10^(q − i_hi)
+    //                                     = 2 · c · 10^-offset
+    //                                     ≤ 2 · 10^-(p + 36)
+    //
+    // for every supported format (`c < 10^34`). The window step is an
+    // exact integer congruence on top of that: with
+    // `H = floor(D / 10^(i_hi − i_lo + 1))`,
+    //
+    //     c · D · 10^(q − i_hi) − c · W · 10^(q − i_hi)
+    //         = c · H · 10^(q − i_lo + 1) = 100 · c · H
+    //
+    // in the unclipped case `i_lo = q − 1`, and `H = 0` outright in the
+    // clipped case (`D` has exactly `i_hi` digits, and the window then
+    // spans all of them). A multiple of 100 changes neither `k mod 4`
+    // nor the fractional part, which is precisely why the integer is
+    // read `mod 100` two digits up.
+    //
+    // So `P · 10^-offset` reproduces `x · 2/π` mod 100 to within
+    // `2 · 10^-(p + 36)`, and the last fractional digit kept sits at
+    // `10^-(p + 33)`: the combined truncation is ≤ 2 · 10^-3 of that
+    // digit. `CARRY_GUARD = 4` unread guard digits are what pay for it.
+    // Nothing here reasons about individual digit values, so the
+    // generator's unit cannot be amplified by a borrow across the
+    // window boundary.
+    debug_assert!(i_hi as i32 - q == offset as i32);
+
+    // Split: drop the `33 + CARRY_GUARD` unread tail, take the next
+    // `frac_dyn` digits as the fraction, read the integer above it.
+    let (kept, _) = prod.div_rem_pow10(offset - frac_dyn);
+    let (int_part, frac) = kept.div_rem_pow10(frac_dyn);
+    let floor_mod_100 = int_part
+        .div_rem_pow10(2)
+        .1
+        .to_u128()
+        .expect("two decimal digits fit u128") as u32;
+
+    // The fractional part is ≥ 0.5 exactly when its leading digit (the
+    // 10^-1 place) is ≥ 5, i.e. when `frac ≥ 5 · 10^(frac_dyn − 1)`.
+    let half = DecBig::from_u32(5).mul_pow10(frac_dyn - 1);
+    let round_up = frac.cmp_ref(&half) != core::cmp::Ordering::Less;
+
+    let floor_mod_4 = floor_mod_100 % 4;
+    let k_mod_4 = if round_up {
+        (floor_mod_4 + 1) % 4
+    } else {
+        floor_mod_4
+    };
+
+    // The caller passes the ABS value; the residual sign is entirely
+    // determined by `round_up`.
+    let r = make_residual_dyn(ex, frac, frac_dyn, round_up, false);
+    (k_mod_4, r, Status::INEXACT)
+}
+
+// ----------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
@@ -1019,6 +1328,385 @@ mod tests {
             assert!(
                 d_adj <= -34 - 36,
                 "deep-cancellation agreement to 36 digits, divergence decade {d_adj}"
+            );
+        }
+    }
+
+    // -----------------------------------------------------------------
+    // The unbounded rung (M8b, fd-4zo.17).
+
+    #[cfg(feature = "unbounded-ladder")]
+    mod dyn_rung {
+        use super::*;
+        use crate::extended_dyn::{DynArena, ExtendedDyn};
+        use crate::mock_format::ValueFmt128;
+        use ferrodec_multiword::{bigconst, DecBig};
+
+        /// The coefficient of a dynamic value, read back through its
+        /// `Debug` rendering.
+        ///
+        /// The arena *is* the width, so two runs at different
+        /// precisions necessarily live in different arenas and no
+        /// in-crate operation composes them. `Debug` prints the
+        /// coefficient's decimal digits (`DecBig`'s `Display`), which
+        /// makes it the one cross-arena readout the type exposes;
+        /// re-interning those digits in the target arena is how the
+        /// doubling test compares a `p = 440` residual against a
+        /// `p = 220` one. Test-only, and deliberately not a production
+        /// accessor.
+        fn dyn_coef(v: ExtendedDyn<'_>) -> DecBig {
+            let rendered = alloc::format!("{v:?}");
+            let body = rendered
+                .split("coef: ")
+                .nth(1)
+                .expect("ExtendedDyn's Debug renders a `coef:` field");
+            let digits: alloc::vec::Vec<u8> = body
+                .bytes()
+                .take_while(u8::is_ascii_digit)
+                .collect::<alloc::vec::Vec<u8>>();
+            DecBig::from_ascii_digits(&digits)
+        }
+
+        /// Re-intern a dynamic value in another arena, rounded to that
+        /// arena's width.
+        fn rehome<'a>(a: &'a DynArena, v: ExtendedDyn<'_>) -> ExtendedDyn<'a> {
+            a.exemplar()
+                .from_decbig_with_sticky(dyn_coef(v), v.exponent(), v.sign(), false)
+        }
+
+        /// `U384` → `DecBig`, test-only: the differential needs fixed
+        /// rung values on the growable substrate and nothing in
+        /// production does.
+        fn u384_as_decbig(c: U384) -> DecBig {
+            let mut digits = alloc::vec::Vec::new();
+            let mut cur = c;
+            while !cur.is_zero() {
+                let (q, d) = cur.div_rem10();
+                digits.push(b'0' + d as u8);
+                cur = q;
+            }
+            digits.reverse();
+            DecBig::from_ascii_digits(&digits)
+        }
+
+        /// An [`Extended2`] as a dynamic value in `a`. Rung 2 keeps its
+        /// coefficient inside 110 digits, so at any arena width from
+        /// the 110-digit floor up this is exact.
+        fn ext2_as_dyn(a: &DynArena, v: Extended2) -> ExtendedDyn<'_> {
+            a.exemplar()
+                .from_decbig_with_sticky(u384_as_decbig(v.coef), v.exp, v.sign, false)
+        }
+
+        /// Decade of a dynamic value (`exp + digits − 1`).
+        fn adj(v: ExtendedDyn<'_>) -> i32 {
+            v.exponent() + v.digit_count() as i32 - 1
+        }
+
+        /// Assert `|got − want| ≤ 10^(decade(want) + decades)`, both
+        /// operands in the same arena. Exact agreement always passes.
+        fn assert_agrees(
+            got: ExtendedDyn<'_>,
+            want: ExtendedDyn<'_>,
+            decades: i32,
+            label: &str,
+        ) -> i32 {
+            let d = got.sub(want).abs();
+            if d.is_zero() {
+                return i32::MIN;
+            }
+            assert!(
+                !want.is_zero(),
+                "{label}: reference is zero but the difference is not"
+            );
+            let rel = adj(d) - adj(want);
+            assert!(
+                rel <= decades,
+                "{label}: divergence at relative decade {rel} (bound {decades}); \
+                 got {got:?}, want {want:?}"
+            );
+            rel
+        }
+
+        /// Gate 1: the runtime generator indexes `2/π` the way the
+        /// static table does.
+        ///
+        /// `two_over_pi_digits(n)` returns the first `n` *significant*
+        /// digits; `two_over_pi_digit(i)` returns the `i`-th
+        /// *fractional* digit. `2/π = 0.6366…` has a nonzero first
+        /// fractional digit, so the two indexings coincide — and the
+        /// windowed reduction reads the generator with exactly the
+        /// index arithmetic it inherited from the table. Checking the
+        /// deep tail of three runs is what pins that: a scale slip of
+        /// one lands every compared digit wrong.
+        ///
+        /// The generator's documented bound is ≤ 1 unit of its last
+        /// digit, so digit `n` is the one entitled to differ.
+        /// Observed: exact agreement at all three depths, tail digit
+        /// included.
+        #[test]
+        fn two_over_pi_generator_indexes_like_the_table() {
+            let mut compared = 0u32;
+            for n in [50u64, 500, 6300] {
+                let d = bigconst::two_over_pi_digits(n);
+                assert_eq!(d.decimal_digit_count(), n, "{n}-digit run digit count");
+                for i in (n - 9)..=n {
+                    let got = d.div_rem_pow10((n - i) as u32).0.div_rem10().1 as u8;
+                    let want = two_over_pi_digit(i as usize);
+                    assert_eq!(got, want, "digit {i} of the {n}-digit run");
+                    compared += 1;
+                }
+            }
+            assert_eq!(compared, 30, "three runs, ten tail digits each");
+        }
+
+        /// The dynamic widths reproduce the rung 2 constants at
+        /// `p = 110`, which is the whole mirror claim in one assert.
+        #[test]
+        fn dyn_widths_reproduce_rung2_at_110() {
+            assert_eq!(frac_digits_dyn(110), FRAC2_DIGITS);
+            assert_eq!(i_hi_offset_dyn(110), I_HI_OFFSET2);
+            assert_eq!(i_hi_offset_dyn(110), 110 + 70);
+            // …and the π/2 coefficient is the rung 2 literal, digit for
+            // digit. The literal is a *truncation* to 115 digits, and
+            // the generated value is `floor((π/2) · 10^114)` within 2
+            // units, so the assertion is equality up to that bound.
+            // Observed: byte-identical.
+            let generated = pi_over_two_coef_dyn(110);
+            assert_eq!(
+                generated.decimal_digit_count(),
+                115,
+                "p + 5 digits at p = 110"
+            );
+            let literal = u384_as_decbig(PI_OVER_TWO_COEF2);
+            let diff = if generated.cmp_ref(&literal) == core::cmp::Ordering::Less {
+                literal.sub(&generated)
+            } else {
+                generated.sub(&literal)
+            };
+            assert!(
+                diff.to_u128().expect("a small difference fits u128") <= 2,
+                "generated π/2 differs from the rung 2 literal by {diff}"
+            );
+        }
+
+        /// Gate 2: the load-bearing differential. At `p = 110` the
+        /// dynamic pipeline and `reduce_wide` are the same algorithm at
+        /// the same widths on different substrates, so rung 2 is a
+        /// term-for-term oracle over the full M6 grid.
+        ///
+        /// Bound derivation. The two runs differ in exactly three
+        /// places:
+        ///
+        /// * the `2/π` window. Both truncate at the same `i_hi`, so the
+        ///   tail truncation is common and cancels; only the
+        ///   generator's ≤ 1 unit at digit `i_hi` remains, worth
+        ///   ≤ `c · 10^(q − i_hi)` ≤ 10^-146 *absolute* in `x · 2/π` at
+        ///   `p = 110`, hence ≤ 10^-146 · (π/2) absolute in `r`;
+        /// * the `π/2` constant. The rung 2 literal is a truncation to
+        ///   115 digits and the generated one lands within 2 units of
+        ///   the same floor, so they agree to ≤ 1.3 · 10^-114 relative;
+        /// * the final rounding. Both round half-even at 110
+        ///   significant digits, from products that agree to the two
+        ///   terms above; when those products straddle a rounding
+        ///   boundary the delivered coefficients differ by one unit in
+        ///   the 110th digit, i.e. 10^-109 relative.
+        ///
+        /// The third term dominates at 10^-109, and the first is below
+        /// 10^-109 relative for any residual down to decade −37 (the
+        /// M6 sibling test's own 10^-36 agreement floor already bounds
+        /// this grid's residuals well above that). **10^-105** is
+        /// therefore a bound with four orders of margin that still
+        /// fails loudly on a genuine width, index or scale bug — all of
+        /// which move the leading digits, not the 110th.
+        ///
+        /// Observed on this grid: byte-identical residuals on every one
+        /// of the 60 pairs — the expected outcome, since the generated
+        /// `2/π` digits equal the table's and the generated π/2 equals
+        /// the rung 2 literal exactly (both pinned by the two tests
+        /// above), so the two pipelines run identical integers through
+        /// identical clauses. The asserted envelope is what protects
+        /// the test from a future generator whose last digit moves.
+        #[test]
+        fn reduce_dyn_agrees_with_reduce_wide() {
+            let coefs: [u128; 5] = [
+                1,
+                3_141_592_653_589_793_238_462_643_383_279_503,
+                9_999_999_999_999_999_999_999_999_999_999_999,
+                2_718_281_828_459_045_235_360_287_471_352_662,
+                7_071_067_811_865_475_244_008_443_621_048_490,
+            ];
+            let exps: [i32; 12] = [-40, -33, -30, -10, -1, 0, 5, 50, 500, 3000, 6000, 6077];
+
+            let a = DynArena::new(110);
+            let ex = a.exemplar();
+            let mut checked = 0u32;
+            for &coef in &coefs {
+                for &exp in &exps {
+                    let x = ValueFmt128 {
+                        coef,
+                        exp,
+                        sign: false,
+                    };
+                    let (k2, r2, s2) = reduce_wide::<ValueFmt128>(x);
+                    let (kd, rd, sd) = reduce_dyn::<ValueFmt128>(ex, x);
+                    assert_eq!(k2, kd, "quadrant split for coef={coef} exp={exp}");
+                    assert_eq!(s2, sd, "status for coef={coef} exp={exp}");
+                    assert_agrees(
+                        rd,
+                        ext2_as_dyn(&a, r2),
+                        -105,
+                        &alloc::format!("residual for coef={coef} exp={exp}"),
+                    );
+                    checked += 1;
+                }
+            }
+            assert_eq!(checked, 60, "every pair exercised");
+        }
+
+        /// Gate 3: the deep-cancellation witness, the dynamic sibling
+        /// of `reduce_wide_survives_deep_cancellation`. The 34-digit
+        /// truncation of π/2 is the deepest input the format admits:
+        /// `x − π/2 ≈ −4.4 · 10^-34`, so `y = x · 2/π − 1` cancels 33
+        /// to 34 digits and the surviving-precision claim is exercised
+        /// at full depth.
+        ///
+        /// Agreement bound against rung 2. The dynamic run at `p = 220`
+        /// carries its own π/2 truncation (< 10^-223 relative) and one
+        /// 220-digit rounding (10^-219), both negligible here; the
+        /// binding term is rung 2's own delivery, which rounds to 110
+        /// significant digits and so carries up to one unit in the
+        /// 110th digit, 10^-109 relative, on top of its < 10^-114
+        /// truncations. **10^-108** is that floor with an order of
+        /// margin. Observed: agreement at relative decade −109 exactly
+        /// — one unit in rung 2's 110th digit, the predicted binding
+        /// term and nothing above it. The margin here is one decimal
+        /// order rather than the sweep's four, because at maximum
+        /// cancellation rung 2 delivers its narrowest residual and the
+        /// comparison measures that width directly.
+        #[test]
+        fn reduce_dyn_survives_deep_cancellation() {
+            const P: u32 = 220;
+            // round_34(π/2) = 1.570796326794896619231321691639751.
+            let x = ValueFmt128 {
+                coef: 1_570_796_326_794_896_619_231_321_691_639_751,
+                exp: -33,
+                sign: false,
+            };
+
+            let a = DynArena::new(P);
+            let ex = a.exemplar();
+            let (k, r, status) = reduce_dyn::<ValueFmt128>(ex, x);
+            assert_eq!(k, 1, "x is adjacent to 1 · π/2");
+            assert_eq!(status, Status::INEXACT);
+            assert!(r.sign(), "residual sign: x < π/2");
+            assert_eq!(adj(r), -34, "residual decade");
+            assert!(
+                r.digit_count() >= P - 5,
+                "the dynamic residual carries ≥ {} significant digits, got {}",
+                P - 5,
+                r.digit_count()
+            );
+
+            let (k2, r2, _) = reduce_wide::<ValueFmt128>(x);
+            assert_eq!(k2, 1);
+            assert_agrees(r, ext2_as_dyn(&a, r2), -108, "deep-cancellation residual");
+        }
+
+        /// Gate 4: self-consistency across the Ziv doubling. A rung
+        /// that answers differently at 220 and 440 digits cannot be a
+        /// refinement of itself, and every width in the pipeline moves
+        /// between the two runs (window depth, fractional width, both
+        /// constants' depths).
+        ///
+        /// Bound derivation. The `p = 220` residual is delivered
+        /// rounded to 220 significant digits, so it carries up to one
+        /// unit in the 220th digit — 10^-219 relative — against the
+        /// `p = 440` run, whose own error is 220 orders further down.
+        /// Re-interning the wide residual in the 220-digit arena adds
+        /// one more such rounding. **10^-215** is that floor with four
+        /// orders of margin. Observed worst case on this grid:
+        /// byte-identical.
+        #[test]
+        fn reduce_dyn_is_stable_across_the_doubling() {
+            let coefs: [u128; 2] = [
+                3_141_592_653_589_793_238_462_643_383_279_503,
+                9_999_999_999_999_999_999_999_999_999_999_999,
+            ];
+            let exps: [i32; 5] = [-1, 0, 50, 3000, 6077];
+
+            let narrow = DynArena::new(220);
+            let wide = DynArena::new(440);
+            let mut checked = 0u32;
+            for &coef in &coefs {
+                for &exp in &exps {
+                    let x = ValueFmt128 {
+                        coef,
+                        exp,
+                        sign: false,
+                    };
+                    let (k_n, r_n, s_n) = reduce_dyn::<ValueFmt128>(narrow.exemplar(), x);
+                    let (k_w, r_w, s_w) = reduce_dyn::<ValueFmt128>(wide.exemplar(), x);
+                    assert_eq!(k_n, k_w, "quadrant for coef={coef} exp={exp}");
+                    assert_eq!(s_n, s_w, "status for coef={coef} exp={exp}");
+                    assert_agrees(
+                        r_n,
+                        rehome(&narrow, r_w),
+                        -215,
+                        &alloc::format!("doubling residual for coef={coef} exp={exp}"),
+                    );
+                    checked += 1;
+                }
+            }
+            assert_eq!(checked, 10, "every pair exercised");
+        }
+
+        /// Gate 5: the high-exponent smoke test. `q_max` for a
+        /// normalised Decimal128 coefficient is +6111, so
+        /// `coef = 10^34 − 1` at `exp = 6077` sits at the top of the
+        /// representable range and drives the deepest window the
+        /// generator is ever asked for (`i_hi = 6077 + 290 = 6367` at
+        /// `p = 220`).
+        #[test]
+        fn reduce_dyn_handles_the_high_exponent_corner() {
+            let a = DynArena::new(220);
+            let ex = a.exemplar();
+            let x = ValueFmt128 {
+                coef: 9_999_999_999_999_999_999_999_999_999_999_999,
+                exp: 6077,
+                sign: false,
+            };
+            let (k, r, status) = reduce_dyn::<ValueFmt128>(ex, x);
+            assert!(k < 4, "quadrant index in range, got {k}");
+            assert_eq!(status, Status::INEXACT);
+            // |r| ≤ π/4 (loose bound; the contract's ±2 ULP overrun is
+            // far below the slack in 0.7854).
+            let quarter_pi_loose = ex.parse_str("0.7854");
+            assert!(
+                r.abs().cmp(quarter_pi_loose) != core::cmp::Ordering::Greater,
+                "residual out of range: {r:?}"
+            );
+        }
+
+        /// The seam itself: `ExtNum::reduce_trig` on the dynamic rung
+        /// is `reduce_dyn`, so the ladder gets the runtime reduction
+        /// rather than a rung 2 answer widened after the fact.
+        #[test]
+        fn reduce_trig_dispatches_to_reduce_dyn() {
+            let a = DynArena::new(220);
+            let ex = a.exemplar();
+            let x = ValueFmt128 {
+                coef: 2_718_281_828_459_045_235_360_287_471_352_662,
+                exp: 50,
+                sign: false,
+            };
+            let (k_seam, r_seam, s_seam) = ex.reduce_trig::<ValueFmt128>(x);
+            let (k_direct, r_direct, s_direct) = reduce_dyn::<ValueFmt128>(ex, x);
+            assert_eq!(k_seam, k_direct);
+            assert_eq!(s_seam, s_direct);
+            assert_eq!(
+                r_seam.cmp(r_direct),
+                core::cmp::Ordering::Equal,
+                "the seam must deliver the same residual"
             );
         }
     }
