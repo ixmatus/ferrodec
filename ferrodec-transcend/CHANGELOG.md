@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-08-02
+
 ### Added
 
 - The ADR-0059 two-rung escalation ladder (M8). Every kernel delivery that
@@ -41,8 +43,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `p`, pinned within a factor of five of the rung 2 constants at
   `p = 110`. With the feature on, rung 2 escalates on its own budget
   instead of delivering unconditionally: such builds have no exception
-  set (`ladder_audit` is vacuous by construction there), and the M9
-  release finalizes the tier language. Pulls in
+  set (`ladder_audit` is vacuous by construction there); the crate doc
+  states the final three-tier claim and ADR-0059 §Outcome records the
+  measured costs. Pulls in
   `ferrodec-multiword/alloc`; off by default; default, no-alloc, and
   thumbv6m builds are unchanged. A third test-lane cfg lands with it:
   `--cfg force_rung3` routes every guarded delivery through the dynamic

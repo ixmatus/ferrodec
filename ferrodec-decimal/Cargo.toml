@@ -1,6 +1,6 @@
 [package]
 name = "ferrodec-decimal"
-version = "3.0.0"
+version = "3.0.1"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -43,7 +43,7 @@ interop = [
 ferrodec-ieee = { path = "../ferrodec-ieee", version = "0.1.4" }
 # The coefficient backend. `alloc` pulls in the growable DecBig integer; this
 # crate is the reason that feature exists.
-ferrodec-multiword = { path = "../ferrodec-multiword", version = "0.1.0", features = ["alloc"] }
+ferrodec-multiword = { path = "../ferrodec-multiword", version = "0.2.0", features = ["alloc"] }
 # Fixed-format interop, behind the `interop` feature. Only `fmt` is needed
 # (the conversions go through the decimal string), so the transcendental and
 # other surfaces stay out of the build.
