@@ -2,17 +2,41 @@
 //! the ferrodec decimal family.
 //!
 //! The exponential / logarithmic / trigonometric / hyperbolic / power
-//! kernels are evaluated at 50 digit `Extended` working precision and
-//! rounded once at the format boundary, giving correctly rounded results
-//! across the IEEE 754-2019 §9.2 surface on all three formats (ADR-0032;
-//! supersedes ADR-0024's faithful contract). The 50 digit working
-//! precision clears the smallest empirical Arb worst case half ULP margin
-//! (`4.167e-8` for `cosh` at `Decimal32` precision) by more than thirty
-//! orders of magnitude on every format; per function margins and the
-//! shared error model live in ADR-0032 §Decision. The corpus test
-//! (`tests/transcend_vectors.rs` and the sibling mirrors) is the
-//! standing empirical witness, with MPFR cross confirmation behind the
-//! optional `mpfr-gate` feature (ADR-0026).
+//! kernels evaluate on an escalation ladder (ADR-0059, superseding
+//! ADR-0032's fixed 50 digit posture for `Decimal64`/`Decimal128`;
+//! ADR-0033 proved `Decimal32` exhaustively): a 50 digit `Extended`
+//! rung whose delivery is guarded by a per function error budget
+//! against every rounding boundary, a 110 digit `Extended2` rung the
+//! guard escalates to, and, behind the `unbounded-ladder` feature, a
+//! dynamic precision rung that doubles until the boundary is decided.
+//! Exact results and nearest mode ties are classified from the inputs
+//! before any kernel runs, and asymptotic grid huggers are decided by
+//! side theorems (ADR-0051), so the ladder only ever rounds values a
+//! finite bracket can decide.
+//!
+//! The claim is three tiered (ADR-0059 §The claim ladder):
+//!
+//! * **Tier 0, unconditional**: every result lies within the top
+//!   rung's quantified error bracket of the true value — strictly
+//!   stronger than a faithful (≤ 1 ULP) contract.
+//! * **Tier 1, by construction**: correctly rounded, conditional on
+//!   two auditable premises — the per function budgets are sound
+//!   (itemized in `ladder.rs` rustdoc, padded tenfold, audited
+//!   empirically over the historically falsifying bands) and the
+//!   input side exact/tie classification is complete (per function
+//!   number theoretic arguments, cited in each kernel's rustdoc).
+//! * **Tier 2, model**: for default (two rung) builds the expected
+//!   residual exception rate under the equidistribution model is
+//!   ~10^-36 per call. Builds with `unbounded-ladder` have **no
+//!   exception set**: a near boundary escalation widens until the
+//!   rounding is decided instead of delivering from a fixed top rung.
+//!
+//! The standing empirical witnesses: the corpus tests
+//! (`tests/transcend_vectors.rs` and the sibling mirrors), the 1 819
+//! row S1 misround witness corpus replayed as a pinned gate, the
+//! force escalate and force rung 3 byte identity differentials, and
+//! MPFR cross confirmation behind the optional `mpfr-gate` feature
+//! (ADR-0026).
 //!
 //! The kernel is generic over a [`DecimalFormat`] seam so all three
 //! siblings ([`ferrodec`] at Decimal128, `ferrodec-decimal64`,
@@ -26,12 +50,9 @@
 //! precision agnostic fixed width integer math.
 //!
 //! `no_std`, alloc-free by default (the only unconditional `alloc` use
-//! is in test modules). The opt-in `unbounded-ladder` feature adds a
-//! third, allocating rung above the fixed escalation ladder: a
-//! near-boundary escalation then widens its working precision at run
-//! time instead of delivering from a fixed top rung, so such builds
-//! carry no exception set. (Tier language and the per-build contract
-//! table are finalized at M9 of the ADR-0059 lane.)
+//! is in test modules); the `unbounded-ladder` rung is the crate's one
+//! allocating path and stays behind its opt-in feature, so default and
+//! Cortex-M0+ builds are unchanged by its existence.
 //!
 //! [`ferrodec`]: https://crates.io/crates/ferrodec
 //! [`tests/transcend_vectors.rs`]: https://github.com/ixmatus/ferrodec/tree/main/tests/transcend_vectors.rs
