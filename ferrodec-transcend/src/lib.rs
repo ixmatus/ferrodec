@@ -25,7 +25,13 @@
 //! [`DecimalFormat::sqrt_seed`]). Everything between those boundaries is
 //! precision agnostic fixed width integer math.
 //!
-//! `no_std`, alloc-free (the only `alloc` use is in test modules).
+//! `no_std`, alloc-free by default (the only unconditional `alloc` use
+//! is in test modules). The opt-in `unbounded-ladder` feature adds a
+//! third, allocating rung above the fixed escalation ladder: a
+//! near-boundary escalation then widens its working precision at run
+//! time instead of delivering from a fixed top rung, so such builds
+//! carry no exception set. (Tier language and the per-build contract
+//! table are finalized at M9 of the ADR-0059 lane.)
 //!
 //! [`ferrodec`]: https://crates.io/crates/ferrodec
 //! [`tests/transcend_vectors.rs`]: https://github.com/ixmatus/ferrodec/tree/main/tests/transcend_vectors.rs

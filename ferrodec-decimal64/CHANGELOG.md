@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- The `unbounded-ladder` feature (ADR-0059 M8b): an opt-in third
+  transcendental rung above the fixed escalation ladder, forwarded to
+  `ferrodec-transcend`. A near-boundary escalation that reaches it widens
+  its working precision at run time (Ziv doubling from 220 digits, with
+  every constant and the `2/π` window computed at the requested depth), so
+  builds with the feature carry no fixed top rung and no exception set;
+  the per-function budgets become precision formulas audited against the
+  fixed catalog. Requires an allocator; default and no-alloc builds are
+  byte-for-byte unchanged, and the fixed rungs' behavior is identical
+  either way. The `--cfg force_rung3` test lane routes every guarded
+  delivery through the new rung (the full corpus, S1 witness replay
+  included, passes byte-identical to the pinned expectations).
+
 ### Fixed
 
 - `Decimal64::pow` exact rational powers and ties (ADR-0059 M7), via

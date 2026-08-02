@@ -26,7 +26,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the guard: ~1.5% on trig, ~6% on the exp/ln family (criterion, vs the
   pre-M8 baseline).
 
+- The `unbounded-ladder` feature (ADR-0059 M8b): a third, unbounded rung
+  above the fixed ladder. `ExtendedDyn` is a `Copy` handle into a
+  per-attempt arena (coefficients on `ferrodec-multiword`'s growable
+  `DecBig`; the receiver carries the arena and the precision through the
+  M8b exemplar seam), mirroring `extended2.rs` clause for clause at a
+  runtime width. Its constants come from `ferrodec-multiword`'s
+  `bigconst` generators at call time and its trig reduction
+  (`argred::reduce_dyn`) computes the `2/π` window at depth `q + p + 70`
+  per call, because a stored table caps the precision a rung can reach.
+  The Ziv driver (`ladder::run3`) doubles the working precision from 220
+  digits until the boundary predicate clears at that width's
+  `budget.dynamic(p)` — the fixed catalog's itemizations re-evaluated at
+  `p`, pinned within a factor of five of the rung 2 constants at
+  `p = 110`. With the feature on, rung 2 escalates on its own budget
+  instead of delivering unconditionally: such builds have no exception
+  set (`ladder_audit` is vacuous by construction there), and the M9
+  release finalizes the tier language. Pulls in
+  `ferrodec-multiword/alloc`; off by default; default, no-alloc, and
+  thumbv6m builds are unchanged. A third test-lane cfg lands with it:
+  `--cfg force_rung3` routes every guarded delivery through the dynamic
+  rung (full root/d64/d32 suites and the S1 witness replay pass under
+  it, byte-identical to the pinned expectations).
+
 ### Fixed
+
+- `sinh` / `cosh` saturation escalation waste and the `ladder_audit`
+  panic it implied (an M8 defect, surfaced by the M8b unbounded rung):
+  the overflow saturation proxy fed the guarded delivery instead of the
+  format rounder directly, and a proxy's one-digit coefficient sits
+  exactly on a working grid point — a distance no rung can grow. Every
+  saturating `sinh` / `cosh` call silently paid a full rung 2 re-run, a
+  `--cfg ladder_audit` build panicked on any saturating Decimal64 /
+  Decimal32 input (their overflow regions start at `|x| > ~885` and
+  `~222`, squarely inside random samplers, where Decimal128's starts
+  at `|x| > 14150` — the audit lane had only ever run on Decimal128,
+  which is the blind spot that kept this invisible), and the unbounded
+  rung turned the waste into an unbounded widening loop. The gates now
+  sit in the kernel bodies and deliver the proxy directly, mirroring
+  `exp`'s; format results and status are byte-identical. The audit
+  lane runs on all three formats now, and the minimal failing inputs
+  are committed as proptest regression seeds.
 
 - High-decade `Decimal128` trig misrounds (ADR-0059 S1): the 1 819
   Arb-certified witness rows (sin 643, cos 570, tan 606) that falsified

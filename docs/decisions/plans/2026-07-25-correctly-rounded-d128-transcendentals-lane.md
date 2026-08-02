@@ -373,3 +373,44 @@ gate; (2) `DecBig` constant generators plus oracle pins; (3) the
 dynamic working type and its ops; (4) the runtime reduction;
 (5) feature plumbing, ladder wiring, `force_rung3` lane, budget(p);
 (6) CHANGELOG and the tier-language touch-points M9 finalizes.
+
+**Implementation resolutions (recorded 2026-08-02, steps 3 through 5;
+the ADR M9 finalizes inherits these).**
+
+- *The `Copy` constraint.* `ExtNum` requires `Copy` (kernel bodies
+  consume a working value more than once) and `DecBig` is `Vec`
+  backed. Resolution: the working value is a `Copy` handle into an
+  arena the Ziv driver owns per attempt (`DynArena`, a
+  `RefCell<Vec<DecBig>>` plus the precision; handles carry an index,
+  an exponent, and a sign). The exemplar receiver carries the arena
+  reference and the precision, which is exactly the runtime context
+  the seam was built to thread. Values are immutable once interned;
+  no unsafe anywhere. A scoped global was already rejected in the
+  seam decision above; this is its arena-shaped completion.
+- *Reciprocal constants by division, not Newton.* The sketch above
+  says Newton for `1/ln 10` and `1/ln 2`; the landed generators
+  divide into the computed originals instead (the `two_over_pi`
+  pattern). Newton needs a seed, which is either a stored literal
+  (against the runtime-computed decision) or an inner division
+  anyway, and the division's error argument is three lines in the
+  exact shape the module already carries.
+- *Window depth.* The sketch's `q + p + ~45` is `q + p + 70` by the
+  exact rung 2 mirror derivation (`FRAC = p + 33` for full survival
+  under the worst 33-digit cancellation, plus the 33 + 4 coefficient
+  overlap and carry-guard tail); the widths reproduce rung 2's
+  constants exactly at `p = 110`.
+- *Budgets as formulas.* `Budget` gained `dynamic: fn(u32) -> u128`,
+  the fixed catalog's itemizations re-evaluated at `p` (series items
+  scale with the precision-derived caps, constant items are
+  precision-independent, Newton charges a flat 60, the runtime
+  reduction contributes under 2 units at any `p`); every formula
+  lands within a factor of five (observed ±30%) of its rung 2
+  constant at `p = 110`, pinned by a unit test.
+- *Ladder shape.* `Extended2::ESCALATES` is
+  `cfg!(feature = "unbounded-ladder")`; the test-lane cfgs key on a
+  new `ExtNum::RUNG` discriminant so `force_escalate` (rung 1 only)
+  and the new `force_rung3` (rungs 1 and 2) keep their meanings in
+  every build. `ladder_audit` is vacuous by construction under the
+  feature (nothing delivers unconditionally) and keeps its meaning in
+  default builds. The wrappers converted to one `ladder_run!` macro
+  whose feature-off expansion is the pre-M8b two-closure call.
