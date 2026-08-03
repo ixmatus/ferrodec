@@ -1,5 +1,5 @@
-//! Exact-result detection for `cbrt`, `pow`, `exp2`, `log2`, and
-//! `log10` (IEEE 754-2019 §7.5).
+//! Exact-result detection for `cbrt`, `pow`, `exp2`, `log2`,
+//! `log10`, and `log10p1` (IEEE 754-2019 §7.5).
 //!
 //! ## Why
 //!
@@ -12,9 +12,10 @@
 //! `exp`, `ln`, and the trig and hyperbolic families that is correct:
 //! their values at non-special representable inputs are irrational
 //! (Lindemann for the base-`e` family at rational arguments), and the
-//! special inputs short-circuit. Five functions are the exceptions:
+//! special inputs short-circuit. Six functions are the exceptions:
 //! `exp2(n)` with `2^n` in reach of the width gate, `log2(2^k)`,
-//! `log10(10^k)` (fd-aqs.8), a perfect cube under `cbrt`, and an
+//! `log10(10^k)` (fd-aqs.8), `log10p1(10^k − 1)` on the nines
+//! patterns (ADR-0059 Track D), a perfect cube under `cbrt`, and an
 //! exact rational power under `pow` (the decimal Lauter–Lefèvre
 //! criterion). Every one is decided from the *input alone* and
 //! short-circuits before the kernel, which both delivers the exact
@@ -507,6 +508,188 @@ pub(crate) fn log2_exact<F: DecimalFormat>(x: F, rm: RoundingMode) -> Option<(F,
         k < 0,
         rm,
     ))
+}
+
+/// `true` when the `u128` `n ≥ 1` is a power of ten. Decided from the
+/// decimal digit count alone: `n` has `d` digits iff
+/// `10^(d−1) ≤ n < 10^d`, so the only power of ten with `d` digits is
+/// `10^(d−1)`, and equality against it is the whole test. No floats,
+/// no logarithms; `d ≤ 39` for every `u128`, and every caller keeps
+/// `n ≤ 10^34`, so the exponentiation cannot overflow.
+fn is_power_of_ten(n: u128) -> bool {
+    let d = U256::from_u128(n).decimal_digit_count();
+    match 10u128.checked_pow(d - 1) {
+        Some(p) => n == p,
+        None => false,
+    }
+}
+
+/// The exact `log10p1(x) = log10(1 + x)` when `1 + x` is a power of
+/// ten; `None` routes to the kernel. Caller has run
+/// `ln::logp1_special_cases` first, so `x` here is finite, nonzero,
+/// and strictly above `−1`.
+///
+/// ## Rational values are integers (ADR-0059 Track D)
+///
+/// `log10(1 + x) = a/b` in lowest terms forces `(1 + x)^b = 10^a`.
+/// Write `1 + x = p/q` in lowest terms: any prime dividing `q` would
+/// divide `p^b` (mirrored for `a < 0`), contradicting
+/// `gcd(p, q) = 1`, so `1 + x` is an integer power form, and unique
+/// factorization (`10 = 2·5`) makes the 2 exponent and the 5 exponent
+/// of `1 + x` each equal `a/b`, forcing `b | a` and hence `b = 1`.
+/// Every rational value of `log10p1` at a representable input is
+/// therefore an integer `k` with `1 + x = 10^k`, and the exact set is
+/// the nines patterns:
+///
+/// * `k ≥ 1`: `x = 10^k − 1`, the `k` nines integer (`9`, `99`, `999`,
+///   …). It ends in 9, so its stripped exponent is 0 and its stripped
+///   coefficient has exactly `k` digits: representable iff
+///   `k ≤ F::PRECISION`.
+/// * `k = 0`: `x = 0`, disposed of by the caller's special cases; this
+///   classifier never sees it.
+/// * `k = −m ≤ −1`: `x = 10^−m − 1 = −(10^m − 1)·10^−m`, the `m` nines
+///   fraction (`−0.9`, `−0.99`, …). Its stripped coefficient
+///   `10^m − 1` has exactly `m` digits and ends in 9: representable
+///   iff `m ≤ F::PRECISION`.
+///
+/// So `k ∈ [−F::PRECISION, F::PRECISION]`, which every format packs
+/// exactly. Note the asymmetry with [`log10_exact`], whose exact
+/// family spans the format's whole exponent range (`±6176` at
+/// `Decimal128`): here the *input* must carry the nines, so the
+/// binding constraint is the format's digit width, not its exponent
+/// range.
+///
+/// ## No ties
+///
+/// A tie value is rational, hence one of the integers above; but an
+/// integer nearest-mode midpoint needs a `PRECISION + 1`-digit
+/// stripped coefficient ending in 5, so magnitude at least `10^7`,
+/// while `|log10p1(x)| ≤ 6146` at the widest format. No tie exists,
+/// and the kernel's unconditional `INEXACT` past this classifier is
+/// correct in every mode.
+///
+/// ## Bail-site completeness proofs
+///
+/// Each `None` below is provably neither exact nor a tie; the proofs
+/// are carried at their sites.
+pub(crate) fn log10p1_exact<F: DecimalFormat>(x: F, rm: RoundingMode) -> Option<(F, Status)> {
+    let (coef, exp, sign) = x.to_extended_parts()?;
+    if coef.is_zero() {
+        return None; // zero short-circuits at the kernel
+    }
+    let (c, e) = strip_trailing_zeros(coef, exp);
+    // A format coefficient fits u128 (≤ 34 digits); bail defensively.
+    // Such a `c` is outside every format's input set, so no exact or
+    // tie case is lost.
+    if c.hi != 0 {
+        return None;
+    }
+    let k: i32 = if sign {
+        // `x < 0` and the caller's domain gives `x > −1`, so
+        // `0 < |x| < 1`; with `c ≥ 1` that forces `e < 0` (an `e ≥ 0`
+        // would make `|x| = c · 10^e ≥ 1`). A nonnegative `e` here is
+        // therefore outside this classifier's domain, not a missed
+        // case.
+        if e >= 0 {
+            return None;
+        }
+        let m = e.unsigned_abs();
+        // `10^m − 1` has exactly `m` digits, so a format coefficient
+        // (≤ F::PRECISION digits) can never equal it once
+        // `m > F::PRECISION`: no exact case is lost, and the bail
+        // keeps `10^m` inside `u128` (`m ≤ 34`).
+        if m > F::PRECISION {
+            return None;
+        }
+        // Stripped forms are unique, so `1 + x = 10^−m` holds iff the
+        // stripped coefficient is exactly the `m` nines; any other
+        // `c` leaves `1 + x` strictly between two powers of ten (it
+        // lies in `(0, 1)`, which rules out `k ≥ 0` outright).
+        if c.lo != 10u128.pow(m) - 1 {
+            return None;
+        }
+        -(m as i32)
+    } else {
+        // `x > 0` gives `1 + x > 1`, so only `k ≥ 1` can occur, and
+        // `10^k` is then an integer divisible by 10.
+        if e > 0 {
+            // `x = c · 10^e` is an integer divisible by 10, so
+            // `1 + x ≡ 1 (mod 10)` while `10^k ≡ 0 (mod 10)` for
+            // every `k ≥ 1`: no `k`.
+            return None;
+        }
+        if e < 0 {
+            // A stripped `c` shares no factor of ten, so `e < 0`
+            // leaves a nonzero last fractional digit: `1 + x` is a
+            // non-integer above 1, while `10^k` is an integer for
+            // `k ≥ 1` and at most 1 for `k ≤ 0`: no `k`.
+            return None;
+        }
+        // `e = 0`: `x` is the integer `c`, and `1 + x = c + 1` must be
+        // a power of ten. `c ≤ 10^34 − 1`, so the sum stays in `u128`.
+        let n = c.lo + 1;
+        if !is_power_of_ten(n) {
+            // Unique stripped forms again: `c + 1` not a power of ten
+            // means `1 + x ≠ 10^k` for every `k`.
+            return None;
+        }
+        // `n ≥ 2` (`c ≥ 1`), so `n = 10^k` with `k ≥ 1`; the digit
+        // count gives `k` directly.
+        i32::try_from(U256::from_u128(n).decimal_digit_count() - 1).ok()?
+    };
+    Some(pack_value(
+        U256::from_u128(u128::from(k.unsigned_abs())),
+        0,
+        k < 0,
+        rm,
+    ))
+}
+
+/// The integer-anchor exponent of `log10p1` for a power-of-ten input:
+/// `Some(n)` iff `x = 10^n` exactly with `n ≥ 36`; `None` routes to
+/// the kernel. Caller has disposed of the special classes and the
+/// domain (`x` finite, nonzero, `> −1`).
+///
+/// ## Why this family needs the ADR-0051 residual channel
+///
+/// `log10p1(10^n) = n + 10^−n/ln 10`: strictly above the representable
+/// integer `n` by `δ < 10^−36` (for `n ≥ 36`), while the nearest
+/// rounding boundary above `n` — the midpoint toward `next_up(n)` —
+/// sits at least `5·10^−31` away in the widest format (a 4 digit `n`
+/// at 34 digit precision) and further in the narrower ones. The true
+/// value and the residual channel's denoted interval therefore lie
+/// strictly between the same adjacent boundaries, so they round
+/// identically in every mode: `TowardPositive` to `next_up(n)`, the
+/// other four to `n`, always `INEXACT`.
+///
+/// The kernel cannot decide this family on its own: its wide band
+/// forms `t = 1 ⊕ x`, and once `n` passes the working width the `1`
+/// is absorbed, landing the working value exactly ON the grid point
+/// `n` — a distance no fixed rung can grow (the sinh/cosh saturation
+/// lesson in a new costume; found by the D1 review's `ladder_audit`
+/// lane). Base ten is what makes it bite: `logp1`'s absorbed anchor
+/// `n·ln 10` is irrational, and `log2p1`'s representable `2^k`
+/// inputs stop at `k = 112`, whose separation `2^−112/ln 2` rung 1
+/// resolves; only `log10p1` keeps a representable on-grid anchor
+/// across the whole exponent range.
+///
+/// Below the threshold the kernel provably decides: for
+/// `2 ≤ n ≤ 35`, `t = 1 + 10^n` is exact at every rung width and the
+/// separation `δ ≥ 4.3·10^−37` clears the predicate at rung 2 at
+/// worst (`n ≤ 49` is exact at rung 1's 50 digits already). `n ≥ 36`
+/// overlaps that band deliberately: both deliveries are proven, and
+/// the classifier keeps the whole exposed family (`n` past the rung
+/// widths) plus a margin on one uniform proof.
+pub(crate) fn log10p1_power_of_ten_exponent<F: DecimalFormat>(x: F) -> Option<i32> {
+    let (coef, exp, sign) = x.to_extended_parts()?;
+    if sign || coef.is_zero() {
+        return None;
+    }
+    let (c, e) = strip_trailing_zeros(coef, exp);
+    if c.hi != 0 || c.lo != 1 || e < 36 {
+        return None;
+    }
+    Some(e)
 }
 
 // ----------------------------------------------------------------------------

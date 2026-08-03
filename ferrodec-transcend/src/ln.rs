@@ -83,24 +83,32 @@
 //! `log2(1) = 0` are TMD hard at `CAP_BITS = 65536` for the same
 //! reason as `ln(1) = 0`; the kernel short circuits each.
 //!
-//! ## `logp1`
+//! ## The `logp1` family (ADR-0059 Track D)
 //!
-//! `logp1(x) = ln(1 + x)` (IEEE 754-2019 §9.2; the public wrappers
-//! spell it `ln_1p`) reuses this module's series and decade machinery
-//! through two bands. Below `0.5` in magnitude the kernel feeds
-//! `u = x` straight to the `log1p` series: `from_format` is exact at
-//! every rung width, so the series keeps its accuracy *relative* to
-//! `ln(1 + x)` however small that value is, the same fd-aqs.6 argument
-//! the near-1 path above rests on. At or above `0.5` it forms
-//! `t = 1 ⊕ x` and hands `t` to the `ln` core. One seam separates
-//! `logp1` from `ln`: `u = x` reaches all the way down to the
-//! format's smallest subnormal, and once `|x|` drops below roughly
-//! `10^-47` the series sum collapses onto `x` itself, a format grid
-//! point no rung can separate from the true value. The ADR-0051
-//! anchor seam decides those cases from the side theorem
-//! `ln(1 + x) < x` instead, which is what terminates the unbounded
-//! rung there. `logp1` runs on the ADR-0059 escalation ladder from
-//! its first release; its budget is `LOGP1` in `ladder.rs`.
+//! The IEEE 754-2019 §9.2 `logp1` family (`logp1` / `log2p1` /
+//! `log10p1`, public `ln_1p` / `log2_1p` / `log10_1p`) shares this
+//! module's series and decade machinery through
+//! `logp1_extended_core`, which feeds `u = x` straight to the
+//! `log1p` series below half (`from_format` is exact at every rung
+//! width, so the series keeps its accuracy *relative* to the result,
+//! the same fd-aqs.6 argument the near-1 path above rests on) and
+//! routes `t = 1 ⊕ x` through the `ln` core at or above it; and
+//! through `logp1_special_cases` for the §9.2.1 dispositions (the
+//! domain edge `−1 → −∞ + DIV_BY_ZERO` and everything below it
+//! `→ NaN + INVALID`). Each member runs on the ADR-0059 escalation
+//! ladder from its first release, with its own budget in `ladder.rs`.
+//!
+//! One seam separates `logp1` from `ln`: `u = x` reaches all the way
+//! down to the format's smallest subnormal, and once `|x|` drops
+//! below roughly `10^-47` the series sum collapses onto `x` itself,
+//! a format grid point no rung can separate from the true value. The
+//! ADR-0051 anchor seam decides those cases from the side theorem
+//! `ln(1 + x) < x`, which is what terminates the unbounded rung
+//! there. The base variants take the other legs instead: their tiny
+//! results land off grid (slope ≠ 1), and `log10p1` carries an input
+//! side exact classifier (`1 + x` a power of ten) plus its
+//! integer-anchor family (`x = 10^n`, `n ≥ 36`) through the residual
+//! channel (see [`log10p1_kernel`]).
 
 use crate::extended::{ExtNum, Extended};
 use crate::format::DecimalFormat;
@@ -474,6 +482,90 @@ pub(crate) fn logp1_kernel_body<F: DecimalFormat, E: ExtNum>(
         return Some((result, status | Status::INEXACT));
     }
     ladder::round_guarded::<F, E>(result_ext, rm, &ladder::LOGP1)
+}
+
+/// Base-10 logarithm of one plus the argument (IEEE 754-2019 §9.2
+/// `log10p1`; public `log10_1p`).
+///
+/// ## Exactness and ties (ADR-0059 classification leg)
+///
+/// `log10p1(x) = a/b` in lowest terms forces `(1 + x)^b = 10^a`.
+/// Writing `1 + x = p/q` in lowest terms, any prime dividing `q`
+/// would divide `p^b`, contradicting `gcd(p, q) = 1`, so `1 + x` is
+/// an integer power form; unique factorization then makes the 2
+/// exponent and the 5 exponent of `1 + x` each equal `a/b`, forcing
+/// `b | a` and so `b = 1`. A rational `log10p1` of a representable
+/// input is therefore an *integer* `k` with `1 + x = 10^k`, and the
+/// exact cases are precisely the nines patterns: `x = 10^k − 1` (the
+/// `k` nines integer `9`, `99`, `999`, …) for `k ≥ 1`, `x = 0` (the
+/// `±0` short-circuit), and `x = −(10^m − 1)·10^−m` (the `m` nines
+/// fraction `−0.9`, `−0.99`, …) for `k = −m ≤ −1`. All of them are
+/// caught input-side by `exact::log10p1_exact`.
+///
+/// A nearest-mode tie value is rational, hence would be one of those
+/// integers; but an integer midpoint needs a `PRECISION + 1`-digit
+/// coefficient ending in 5, so magnitude at least `10^7`, while
+/// `|log10p1(x)| ≤ 6146` at the widest format. No tie exists, and the
+/// kernel's unconditional `INEXACT` is correct in every mode.
+///
+/// Note the asymmetry with [`log10_kernel`], whose exact family spans
+/// the whole exponent range: here the *input* carries the nines, so
+/// the format's digit width bounds `k` to `[−PRECISION, PRECISION]`,
+/// not its exponent range.
+///
+/// ## The integer-anchor family (ADR-0051 residual channel)
+///
+/// `log10p1(10^n) = n + 10^-n/ln 10` for `n ≥ 36` is delivered input
+/// side through `to_format_with_residual` on the strict side theorem
+/// `log10(1 + x) > log10(x)`: past the working width the wide band's
+/// `1 ⊕ x` absorbs the 1 and the working value lands exactly ON the
+/// grid point `n`, which no fixed rung can move off (and which the
+/// unbounded rung could only resolve by widening past `n` digits).
+/// The threshold and boundary-margin proof live on
+/// `exact::log10p1_power_of_ten_exponent`.
+pub fn log10p1_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
+    ladder::ladder_run!(|ex| log10p1_kernel_body::<F, _>(ex, x, rm))
+}
+
+/// Generic body of [`log10p1_kernel`] (M4, ADR-0059); `None`
+/// escalates (M8 ladder). `ex` is the working-precision exemplar
+/// (M8b): the receiver the constant and constructor surface reads its
+/// width from, never a value the result depends on.
+pub(crate) fn log10p1_kernel_body<F: DecimalFormat, E: ExtNum>(
+    ex: E,
+    x: F,
+    rm: RoundingMode,
+) -> Option<(F, Status)> {
+    if let Some(early) = logp1_special_cases(x) {
+        return Some(early);
+    }
+    // Exact powers of ten on `1 + x` (ADR-0059 Track D): the nines
+    // patterns, at every rounding direction, with no INEXACT (§7.5).
+    if let Some(exact) = crate::exact::log10p1_exact::<F>(x, rm) {
+        return Some(exact);
+    }
+    // Integer-anchor powers of ten on `x` itself:
+    // `log10p1(10^n) = n + 10^−n/ln 10`, strictly above the on-grid
+    // integer `n` by less than `10^−36` once `n ≥ 36`. The wide band
+    // below absorbs the `1` of `1 ⊕ x` past the rung width, landing
+    // the working value exactly ON the grid point `n` — a distance no
+    // fixed rung can grow — so this family is decided input side
+    // through the ADR-0051 residual channel on the strict side
+    // theorem `log10(1 + x) > log10(x)`. Unguarded by design (the
+    // proof lives on `exact::log10p1_power_of_ten_exponent`).
+    if let Some(n) = crate::exact::log10p1_power_of_ten_exponent::<F>(x) {
+        let (result, status) = ex.from_i32(n).to_format_with_residual::<F>(true, rm);
+        return Some((result, status | Status::INEXACT));
+    }
+    let result_ext = logp1_extended_core::<F, E>(ex, x).mul(ex.inv_ln10());
+    // No `sticks_to` anchor seam here, deliberately, on either side.
+    // Tiny inputs: the slope at 0 is `1/ln 10 ≈ 0.4343`, so a tiny
+    // input's result is a generic working value off the format grid
+    // rather than an asymptotic grid hugger, and the ladder's
+    // predicate is the right decider for it. Large inputs: the one
+    // asymptotic grid-hugging family (`x = 10^n`) is delivered input
+    // side above before any working value exists.
+    ladder::round_guarded::<F, E>(result_ext, rm, &ladder::LOG10P1)
 }
 
 /// Taylor series `ln(1 + u) = u − u²/2 + u³/3 − u⁴/4 + …` at

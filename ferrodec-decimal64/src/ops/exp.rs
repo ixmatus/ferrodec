@@ -51,6 +51,14 @@
 //! * `logp1(+∞) = +∞`.
 //! * A subnormal result raises UNDERFLOW alongside INEXACT, which a
 //!   tiny argument reaches because the result hugs the argument.
+//!
+//! # Special cases for `log10_1p` (§9.2.1)
+//!
+//! * `log10_1p(NaN)` propagates (sNaN raises INVALID).
+//! * `log10_1p(±0) = ±0`, sign preserved, no exception.
+//! * `log10_1p(−1) = −∞ + DIV_BY_ZERO`.
+//! * `log10_1p(x)` → NaN + INVALID for `x < −1`, `−∞` included.
+//! * `log10_1p(+∞) = +∞`.
 
 use crate::bid::{classify_bits, Class};
 use crate::decimal::Decimal64;
@@ -128,6 +136,10 @@ impl Decimal64 {
     #[doc(alias = "logp1")]
     pub fn ln_1p(self, rm: RoundingMode) -> (Self, Status) {
         ferrodec_transcend::ln::logp1_kernel::<Decimal64>(self, rm)
+    }
+
+    pub fn log10_1p(self, rm: RoundingMode) -> (Self, Status) {
+        ferrodec_transcend::ln::log10p1_kernel::<Decimal64>(self, rm)
     }
 
     /// Kani-only entry returning the `exp` special-case branch
