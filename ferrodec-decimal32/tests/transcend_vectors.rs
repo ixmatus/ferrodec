@@ -71,6 +71,7 @@ fn kernel(v: &frozen::FrozenVec, rm: RoundingMode) -> Decimal32 {
         "ln" => x.ln(rm).0,
         "log2" => x.log2(rm).0,
         "log10" => x.log10(rm).0,
+        "logp1" => x.ln_1p(rm).0,
         "exp2" => x.exp2(rm).0,
         "cbrt" => x.cbrt(rm).0,
         "sin" => x.sin(rm).0,

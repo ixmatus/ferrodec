@@ -82,6 +82,25 @@
 //! at 50 digit working precision. Both `log10(1) = 0` and
 //! `log2(1) = 0` are TMD hard at `CAP_BITS = 65536` for the same
 //! reason as `ln(1) = 0`; the kernel short circuits each.
+//!
+//! ## `logp1`
+//!
+//! `logp1(x) = ln(1 + x)` (IEEE 754-2019 §9.2; the public wrappers
+//! spell it `ln_1p`) reuses this module's series and decade machinery
+//! through two bands. Below `0.5` in magnitude the kernel feeds
+//! `u = x` straight to the `log1p` series: `from_format` is exact at
+//! every rung width, so the series keeps its accuracy *relative* to
+//! `ln(1 + x)` however small that value is, the same fd-aqs.6 argument
+//! the near-1 path above rests on. At or above `0.5` it forms
+//! `t = 1 ⊕ x` and hands `t` to the `ln` core. One seam separates
+//! `logp1` from `ln`: `u = x` reaches all the way down to the
+//! format's smallest subnormal, and once `|x|` drops below roughly
+//! `10^-47` the series sum collapses onto `x` itself, a format grid
+//! point no rung can separate from the true value. The ADR-0051
+//! anchor seam decides those cases from the side theorem
+//! `ln(1 + x) < x` instead, which is what terminates the unbounded
+//! rung there. `logp1` runs on the ADR-0059 escalation ladder from
+//! its first release; its budget is `LOGP1` in `ladder.rs`.
 
 use crate::extended::{ExtNum, Extended};
 use crate::format::DecimalFormat;
@@ -345,6 +364,116 @@ pub fn log1p_extended(u: Extended) -> Extended {
 /// Generic body of [`log1p_extended`] (M4, ADR-0059).
 pub(crate) fn log1p_extended_body<E: ExtNum>(u: E) -> E {
     taylor_log1p_ext(u)
+}
+
+/// Short-circuit the special values and domain errors shared by the
+/// `logp1` family (`logp1` / `log2p1` / `log10p1`, IEEE 754-2019
+/// §9.2 and §9.2.1): NaN propagation (sNaN raises `INVALID`),
+/// `f(+∞) = +∞`, `f(±0) = ±0` (sign preserved, no exception),
+/// `f(−1) = −∞` with `DIV_BY_ZERO`, and `f(x < −1)` (including
+/// `−∞`) NaN with `INVALID`. `None` means finite, nonzero, strictly
+/// above `−1`: the kernels' domain.
+pub(crate) fn logp1_special_cases<F: DecimalFormat>(x: F) -> Option<(F, Status)> {
+    match x.classify() {
+        Class::SignalingNaN { .. } => Some((x.nan_from(), Status::INVALID)),
+        Class::QuietNaN { .. } => Some((x, Status::OK)),
+        Class::Infinity { sign } => Some(if sign {
+            (F::NAN, Status::INVALID)
+        } else {
+            (F::INFINITY, Status::OK)
+        }),
+        Class::Zero { .. } => Some((x, Status::OK)),
+        Class::Finite { sign, .. } if sign => match x.partial_cmp_fmt(F::NEG_ONE).0 {
+            Some(core::cmp::Ordering::Equal) => Some((F::NEG_INFINITY, Status::DIV_BY_ZERO)),
+            Some(core::cmp::Ordering::Less) => Some((F::NAN, Status::INVALID)),
+            _ => None,
+        },
+        Class::Finite { .. } => None,
+    }
+}
+
+/// `ln(1 + x)` at working precision for a finite nonzero `x > −1`
+/// (the `logp1` family core; the caller has already run
+/// [`logp1_special_cases`]). Two bands:
+///
+/// * `|x| < 0.5`: `u = x` feeds the `log1p` series directly.
+///   `from_format` is exact at every rung width, so the series'
+///   relative accuracy argument (fd-aqs.6, the ADR-0050 lesson)
+///   holds with `u` exact all the way down to the anchor band.
+/// * `|x| ≥ 0.5`: `t = 1 ⊕ x`, then the `ln` core. On the negative
+///   side (`x ∈ (−1, −0.5]`) the sum is exact: `1 − |x|` spans at
+///   most `F::PRECISION + 1 ≤ 35` aligned digits, inside every
+///   rung's width, so `t > 0` holds exactly and no cancellation
+///   error enters. On the positive side the sum is exact until `x`
+///   outgrows the rung width (`|x| ≳ 10^49` at rung 1), where
+///   absorbing the 1 costs at most one working rounding, priced in
+///   the family budgets.
+pub(crate) fn logp1_extended_core<F: DecimalFormat, E: ExtNum>(ex: E, x: F) -> E {
+    let x_ext = ex.from_format(x);
+    if x_ext.abs().cmp(ex.half()) == core::cmp::Ordering::Less {
+        return log1p_extended_body(x_ext);
+    }
+    let t = ex.one().add(x_ext);
+    debug_assert!(!t.is_zero(), "1 + x is exact here and x > -1");
+    ln_from_extended_body(t)
+}
+
+/// `logp1(x) = ln(1 + x)` (IEEE 754-2019 §9.2 `logp1`). The public
+/// wrappers are `Decimal128::ln_1p` and the `Decimal64` /
+/// `Decimal32` siblings.
+///
+/// ## Exactness and ties (ADR-0059 classification leg)
+///
+/// `ln(1 + x) = r` with `r` rational and `x` representable makes
+/// `1 + x` rational too, so `1 + x = e^r`; for rational `r ≠ 0` that
+/// value is transcendental (Lindemann;
+/// docs/references/shidlovskii-transcendence.md,
+/// docs/references/niven-irrational-numbers.md), a contradiction.
+/// Only `r = 0` survives, i.e. `x = 0`: the sole exact case is
+/// `logp1(±0) = ±0`, which `logp1_special_cases` delivers sign
+/// preserved and exception free. A nearest mode tie value is
+/// rational, so the same argument rules every tie out. The
+/// unconditional `INEXACT` past the special cases is therefore
+/// correct in every mode, and every input the kernel rounds sits a
+/// finite distance from its rounding boundary (the ladder's standing
+/// assumption).
+///
+/// ## Accuracy
+///
+/// Correctly rounded on the ADR-0059 escalation ladder: rung 1
+/// evaluates at 50 digits and delivers only when the `ladder::LOGP1`
+/// budget clears every rounding boundary, otherwise the identical body
+/// re-runs at rung 2 (and, under the `unbounded-ladder` feature, at a
+/// dynamic rung that widens until the boundary is decided). The
+/// budget's itemization lives on `ladder::LOGP1`.
+pub fn logp1_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
+    ladder::ladder_run!(|ex| logp1_kernel_body::<F, _>(ex, x, rm))
+}
+
+/// Generic body of [`logp1_kernel`] (M4, ADR-0059); `None` escalates
+/// (M8 ladder). `ex` is the working-precision exemplar (M8b).
+pub(crate) fn logp1_kernel_body<F: DecimalFormat, E: ExtNum>(
+    ex: E,
+    x: F,
+    rm: RoundingMode,
+) -> Option<(F, Status)> {
+    if let Some(early) = logp1_special_cases(x) {
+        return Some(early);
+    }
+    let x_ext = ex.from_format(x);
+    let result_ext = logp1_extended_core::<F, E>(ex, x);
+    // Grid-stuck at the input (ADR-0051): `ln(1+x) < x` strictly for
+    // every in-domain nonzero x, so the residual side is below x:
+    // toward zero for positive x, away from zero for negative x.
+    // Unguarded: the anchor leg runs before the ladder's predicate;
+    // for |x| ≲ 1e-47 the series collapses to exactly x (a grid
+    // point no rung separates) and this seam is what terminates the
+    // unbounded rung there.
+    if result_ext.sticks_to(x_ext) {
+        let (result, status) = x_ext.to_format_with_residual::<F>(x_ext.sign(), rm);
+        return Some((result, status | Status::INEXACT));
+    }
+    ladder::round_guarded::<F, E>(result_ext, rm, &ladder::LOGP1)
 }
 
 /// Taylor series `ln(1 + u) = u − u²/2 + u³/3 − u⁴/4 + …` at
