@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `Decimal128::ln_1p`, `log2_1p`, and `log10_1p` (IEEE 754-2019 §9.2
+  `logp1` / `log2p1` / `log10p1`; ADR-0059 Track D group D1, the first
+  of the four §9.2 surface-completion groups). Correctly rounded on
+  the ADR-0059 escalation ladder from first release, with the full
+  tripod per operation: input-side exact classification (`log2_1p`'s
+  family is `1 + x = 2^k`, `log10_1p`'s the nines patterns; `ln_1p`
+  is exact only at `±0`, and none of the three admits a nearest-mode
+  tie), the ADR-0051 anchor seams (`ln_1p` hugs its argument from
+  below on the side theorem `ln(1+x) < x`; `log10_1p` delivers its
+  integer-anchor family `10^n`, `n ≥ 36`, through the residual
+  channel), and per-operation budgets itemized in
+  `ferrodec-transcend`'s `ladder.rs`. Gated on `exp-log` like the
+  rest of the logarithm surface; 2,772 new Arb-certified corpus rows
+  with exact per-bucket pins, MPFR cross-validated with zero
+  disagreements.
+
 ## [4.1.0] - 2026-08-02
 
 ### Added

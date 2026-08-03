@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- The §9.2 `logp1` family (ADR-0059 Track D D1): `logp1_kernel`,
+  `log2p1_kernel`, `log10p1_kernel` on the generic `ExtNum` bodies,
+  sharing `logp1_special_cases` (§9.2.1 dispositions: sign-preserved
+  zeros, the `−1` pole with `DIV_BY_ZERO`, below-domain `INVALID`)
+  and `logp1_extended_core` (direct `log1p` series band below half,
+  `1 ⊕ x` into the `ln` core at or above it). Input-side classifiers
+  `log2p1_exact` and `log10p1_exact` with completeness proofs at
+  every bail site; `logp1`'s anchor seam on `ln(1+x) < x`;
+  `log10p1_power_of_ten_exponent` delivering the integer-anchor
+  family (`x = 10^n`, `n ≥ 36`) through the ADR-0051 residual
+  channel (past the rung width the wide band's `1 ⊕ x` absorption
+  lands the working value exactly on the grid point `n`, which no
+  fixed rung can move off — found by the D1 review's `ladder_audit`
+  lane and repaired before first release). Budgets `LOGP1`,
+  `LOG2P1`, `LOG10P1` (LN's shape; itemizations in `ladder.rs`).
+
 ## [0.3.0] - 2026-08-02
 
 ### Added
