@@ -315,3 +315,102 @@ changes and any S1 witnesses explicitly. Track D additions are minor too.
   negative write up is the deliverable.
 - The π scaled family is the largest unknown in the surface rider; its group
   goes last so a stall strands nothing.
+
+## M8b design resolutions (settled with Parnell, 2026-07-31)
+
+Two forks settled and one constraint discovered during M8b scoping;
+recorded here so the implementation session inherits decisions, not
+open questions.
+
+**Feature name: `unbounded-ladder`** (Parnell's call; identity
+bearing). Pulls in `alloc`; the README tier sentence reads "builds
+with `unbounded-ladder` have no exception set."
+
+**Constants: computed at runtime** (Parnell's call). The stored
+support cannot follow the Ziv doubling: the nine working constants
+exist at 55 and 115 digits only, and the 2/π table (6 408 digits)
+covers a 220-digit rung-3 reduction at every exponent (6 111 + 220 +
+~41 ≈ 6 372) but not the second doubling at high exponents. Capping
+the rung would contradict the merged ADR's "no exception set"
+language, so the rung computes its own support in `DecBig`:
+
+- π by a Machin-type formula (`16·atan(1/5) − 4·atan(1/239)`, arctan
+  as scaled-integer Taylor with an explicit tail bound); 2/π windows
+  by dividing computed π to depth `q + p + ~45`.
+- `ln 2 = 2·atanh(1/3)`, `ln 3 = 2·atanh(1/2)`,
+  `ln 10 = 2·ln 3 + 2·atanh(1/19)`; `e` by `Σ 1/k!`;
+  `tan(π/8) = √2 − 1` via `DecBig::isqrt`; the reciprocal constants
+  by Newton against the computed originals.
+- Every generator carries its own truncation-plus-rounding bound,
+  folded into the rung's budget formula `budget(p)` (the M8
+  itemizations re-evaluated at precision `p`, plus the generator
+  items), and is pinned against stored mpmath oracle strings at
+  several depths (the M5 constants discipline). Generator speed is
+  irrelevant: rung 3 entry is ~10^-71 per call; only correctness
+  matters, exercised by a `force_rung3`-style test lane.
+
+**The seam constraint (discovered, resolution chosen).** Rust
+monomorphization cannot instantiate unboundedly many precisions from
+const generics, so dynamic precision must be a runtime value — and
+the current `ExtNum` constructor surface (`ONE` / `HALF` as consts,
+`from_format` / `parse_str` / the nine constant fns as statics) has
+no slot to carry it into a kernel body. A scoped precision global
+was considered and rejected: ambient state in a pure kernel, a
+rung-3 race in principle, and thumbv6m has no CAS to lock it with.
+Resolution: the constant and constructor surface becomes
+*exemplar-relative* — instance methods whose receiver supplies only
+the precision context. The fixed rungs ignore the receiver and
+constant-fold, so the refactor is provably behavior-neutral for
+rungs 1 and 2 and lands first as its own M4-style byte-identity
+commit; the Ziv driver then seeds each attempt with
+`from_format_at(x, p)` and doubles `p` until the predicate clears.
+`ExtNum::precision()` becomes `precision(&self)` in the same change
+(the plan's original note, now load bearing). Series caps become
+precision-derived on the dynamic rung.
+
+Execution order for the M8b session: (1) exemplar seam, byte-identity
+gate; (2) `DecBig` constant generators plus oracle pins; (3) the
+dynamic working type and its ops; (4) the runtime reduction;
+(5) feature plumbing, ladder wiring, `force_rung3` lane, budget(p);
+(6) CHANGELOG and the tier-language touch-points M9 finalizes.
+
+**Implementation resolutions (recorded 2026-08-02, steps 3 through 5;
+the ADR M9 finalizes inherits these).**
+
+- *The `Copy` constraint.* `ExtNum` requires `Copy` (kernel bodies
+  consume a working value more than once) and `DecBig` is `Vec`
+  backed. Resolution: the working value is a `Copy` handle into an
+  arena the Ziv driver owns per attempt (`DynArena`, a
+  `RefCell<Vec<DecBig>>` plus the precision; handles carry an index,
+  an exponent, and a sign). The exemplar receiver carries the arena
+  reference and the precision, which is exactly the runtime context
+  the seam was built to thread. Values are immutable once interned;
+  no unsafe anywhere. A scoped global was already rejected in the
+  seam decision above; this is its arena-shaped completion.
+- *Reciprocal constants by division, not Newton.* The sketch above
+  says Newton for `1/ln 10` and `1/ln 2`; the landed generators
+  divide into the computed originals instead (the `two_over_pi`
+  pattern). Newton needs a seed, which is either a stored literal
+  (against the runtime-computed decision) or an inner division
+  anyway, and the division's error argument is three lines in the
+  exact shape the module already carries.
+- *Window depth.* The sketch's `q + p + ~45` is `q + p + 70` by the
+  exact rung 2 mirror derivation (`FRAC = p + 33` for full survival
+  under the worst 33-digit cancellation, plus the 33 + 4 coefficient
+  overlap and carry-guard tail); the widths reproduce rung 2's
+  constants exactly at `p = 110`.
+- *Budgets as formulas.* `Budget` gained `dynamic: fn(u32) -> u128`,
+  the fixed catalog's itemizations re-evaluated at `p` (series items
+  scale with the precision-derived caps, constant items are
+  precision-independent, Newton charges a flat 60, the runtime
+  reduction contributes under 2 units at any `p`); every formula
+  lands within a factor of five (observed ±30%) of its rung 2
+  constant at `p = 110`, pinned by a unit test.
+- *Ladder shape.* `Extended2::ESCALATES` is
+  `cfg!(feature = "unbounded-ladder")`; the test-lane cfgs key on a
+  new `ExtNum::RUNG` discriminant so `force_escalate` (rung 1 only)
+  and the new `force_rung3` (rungs 1 and 2) keep their meanings in
+  every build. `ladder_audit` is vacuous by construction under the
+  feature (nothing delivers unconditionally) and keeps its meaning in
+  default builds. The wrappers converted to one `ladder_run!` macro
+  whose feature-off expansion is the pre-M8b two-closure call.

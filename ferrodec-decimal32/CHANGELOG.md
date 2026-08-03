@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.1.0] - 2026-08-02
+
+### Added
+
+- The `unbounded-ladder` feature (ADR-0059 M8b): an opt-in third
+  transcendental rung above the fixed escalation ladder, forwarded to
+  `ferrodec-transcend`. A near-boundary escalation that reaches it widens
+  its working precision at run time (Ziv doubling from 220 digits, with
+  every constant and the `2/π` window computed at the requested depth), so
+  builds with the feature carry no fixed top rung and no exception set;
+  the per-function budgets become precision formulas audited against the
+  fixed catalog. Requires an allocator; default and no-alloc builds are
+  byte-for-byte unchanged, and the fixed rungs' behavior is identical
+  either way. The `--cfg force_rung3` test lane routes every guarded
+  delivery through the new rung (the full corpus, S1 witness replay
+  included, passes byte-identical to the pinned expectations).
+
+### Fixed
+
+- `Decimal32::pow` exact rational powers and ties (ADR-0059 M7), via
+  input-side classification: `pow(4, 0.5)` at `TowardZero` /
+  `TowardNegative` returned `1.999999` with a spurious `INEXACT` and now
+  returns the exact `2`, status `OK`, at every rounding direction. The
+  8-digit tie `pow(2, -11)` now rounds away at `NearestAway`
+  (`4.882813E-4`) where the kernel's error picked the lower neighbour.
+  Exact results carry the input-derived cohort.
+
+- `Decimal32::cbrt` directed-mode results on perfect cubes (ADR-0059 M7):
+  `cbrt(0.027)` at `TowardZero` / `TowardNegative` returned `0.2999999`
+  with a spurious `INEXACT`; it now returns the exact `0.3` with status
+  `OK` at every rounding direction, via input-side classification. Exact
+  roots carry the input-derived cohort.
+
+- `Decimal32::exp2` nearest-mode tie value (ADR-0059 M7): `exp2(-11)` is an
+  exact midpoint (`5^11 = 48828125`, 8 digits ending in 5), now resolved
+  exactly by the input-side classifier through the format rounder. Changed
+  value: `exp2(-11)` at `NearestAway` is now `4.882813E-4` (was
+  `4.882812E-4`). The pinned `NearestEven` tie-to-even value and all other
+  modes are unchanged.
+
 ## [4.0.0] - 2026-07-25
 
 The decTest skip burn-down: two conformance gaps closed behind one

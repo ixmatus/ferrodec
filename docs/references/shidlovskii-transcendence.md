@@ -15,6 +15,11 @@ provenance: primary
 consumers:
   - docs/decisions/0059-correctly-rounded-decimal128-lane.md
   - docs/decisions/plans/2026-07-25-correctly-rounded-d128-transcendentals-lane.md
+  - ferrodec-transcend/src/exp.rs
+  - ferrodec-transcend/src/ln.rs
+  - ferrodec-transcend/src/sincos.rs
+  - ferrodec-transcend/src/inverse_trig.rs
+  - ferrodec-transcend/src/hyperbolic.rs
 verification:
   - ferrodec-test-support/tests/references_integrity.rs
 notes: "The Siegel-Shidlovskii theory of E-functions: transcendence and transcendence measures for values of exp, sin, cos, sinh, cosh at algebraic points. Grounds two distinct things in the lane. First, the tripod's no ties fact for the exponential family (nonzero rational arguments give transcendental values, so no representable input lands on a rounding boundary). Second, the S5 spike's question of whether the E-function transcendence measures are explicit enough to yield computable ladder caps; the anticipated honest finding is effective but not explicit, in which case matveev-2000's log forms route supplies the explicit caps instead and this entry records the negative result."

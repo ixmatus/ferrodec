@@ -7,6 +7,123 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-08-02
+
+### Added
+
+- The ADR-0059 two-rung escalation ladder (M8). Every kernel delivery that
+  is not an exact/tie classification, an ADR-0051 anchor residual, a
+  saturation proxy, or an offline-certified constant now runs the M2
+  boundary predicate against a per-function error budget (rederived from
+  op counts, itemized in `ladder.rs` rustdoc, padded ×10); a near-boundary
+  rung 1 result re-runs the identical kernel at the 110-digit `Extended2`
+  rung, whose trig reduction (`reduce_wide`) replaces rung 1's empirically
+  discharged 38-digit `π/2` truncation with an analytic `< 10^-114` bound.
+  Escalation is a deterministic, mode-independent function of the input.
+  Two test-lane cfgs land with it: `--cfg force_escalate` routes every
+  guarded delivery through rung 2 (the anti-rot byte-identity
+  differential — the full root/d64/d32 suites pass under it), and
+  `--cfg ladder_audit` panics on top-rung residual ambiguity (clean over
+  every suite and the S1 witness corpus). Non-escalating latency cost of
+  the guard: ~1.5% on trig, ~6% on the exp/ln family (criterion, vs the
+  pre-M8 baseline).
+
+- The `unbounded-ladder` feature (ADR-0059 M8b): a third, unbounded rung
+  above the fixed ladder. `ExtendedDyn` is a `Copy` handle into a
+  per-attempt arena (coefficients on `ferrodec-multiword`'s growable
+  `DecBig`; the receiver carries the arena and the precision through the
+  M8b exemplar seam), mirroring `extended2.rs` clause for clause at a
+  runtime width. Its constants come from `ferrodec-multiword`'s
+  `bigconst` generators at call time and its trig reduction
+  (`argred::reduce_dyn`) computes the `2/π` window at depth `q + p + 70`
+  per call, because a stored table caps the precision a rung can reach.
+  The Ziv driver (`ladder::run3`) doubles the working precision from 220
+  digits until the boundary predicate clears at that width's
+  `budget.dynamic(p)` — the fixed catalog's itemizations re-evaluated at
+  `p`, pinned within a factor of five of the rung 2 constants at
+  `p = 110`. With the feature on, rung 2 escalates on its own budget
+  instead of delivering unconditionally: such builds have no exception
+  set (`ladder_audit` is vacuous by construction there); the crate doc
+  states the final three-tier claim and ADR-0059 §Outcome records the
+  measured costs. Pulls in
+  `ferrodec-multiword/alloc`; off by default; default, no-alloc, and
+  thumbv6m builds are unchanged. A third test-lane cfg lands with it:
+  `--cfg force_rung3` routes every guarded delivery through the dynamic
+  rung (full root/d64/d32 suites and the S1 witness replay pass under
+  it, byte-identical to the pinned expectations).
+
+### Fixed
+
+- `sinh` / `cosh` saturation escalation waste and the `ladder_audit`
+  panic it implied (an M8 defect, surfaced by the M8b unbounded rung):
+  the overflow saturation proxy fed the guarded delivery instead of the
+  format rounder directly, and a proxy's one-digit coefficient sits
+  exactly on a working grid point — a distance no rung can grow. Every
+  saturating `sinh` / `cosh` call silently paid a full rung 2 re-run, a
+  `--cfg ladder_audit` build panicked on any saturating Decimal64 /
+  Decimal32 input (their overflow regions start at `|x| > ~885` and
+  `~222`, squarely inside random samplers, where Decimal128's starts
+  at `|x| > 14150` — the audit lane had only ever run on Decimal128,
+  which is the blind spot that kept this invisible), and the unbounded
+  rung turned the waste into an unbounded widening loop. The gates now
+  sit in the kernel bodies and deliver the proxy directly, mirroring
+  `exp`'s; format results and status are byte-identical. The audit
+  lane runs on all three formats now, and the minimal failing inputs
+  are committed as proptest regression seeds.
+
+- High-decade `Decimal128` trig misrounds (ADR-0059 S1): the 1 819
+  Arb-certified witness rows (sin 643, cos 570, tan 606) that falsified
+  the shipped correctly-rounded claim all round correctly under the
+  ladder, and replay as a pinned regression gate
+  (`tests/transcend_campaign_s1.rs`). The witnesses sit inside rung 1's
+  honest trig budget (the `π/2` truncation item), so the predicate
+  escalates them and rung 2 resolves the side.
+
+- `pow` exactness and ties are now decided from the inputs alone (ADR-0059
+  M7), by the decimal analog of the Lauter–Lefèvre criterion: with
+  `|x| = 2^α · 5^β · t` (`gcd(t, 10) = 1`) and `|y| = a/b` in lowest terms,
+  `x^y` is an exact rational iff `b | α`, `b | β`, and `t = s^b` — decidable
+  in bounded integer arithmetic without factoring — and then equals
+  `s^a · 2^(αa/b) · 5^(βa/b)` exactly, delivered through the format rounder.
+  The ADR-0047 post-hoc proof this replaces was circular and failed in
+  production: `pow(4, 0.5)` at `TowardZero` / `TowardNegative` returned
+  `1.999…9` with a spurious `INEXACT` instead of the exact `2` (all
+  formats), and `pow(-1, y)` with `y` too wide for the rational reduction
+  (e.g. `1E+40`) carried a spurious `INEXACT` in every mode. `pow`'s
+  nearest-mode ties — `PRECISION + 1`-digit exact values ending in 5, e.g.
+  `pow(5, 49)` / `pow(2, -49)` at 34 digits — previously misrounded at
+  `NearestAway` and are now resolved by the rounder's own tie rule, under
+  the negation-reflected mode for odd powers of negative bases. Exact
+  results carry the input-derived cohort. Every bail to the kernel is now
+  documented as provably neither exact nor a tie (classification
+  completeness, the ladder's standing assumption).
+
+- `cbrt` of a perfect cube is now decided from the input alone (ADR-0059
+  M7): stripped `x = c · 10^e` is an exact cube iff `c = t³` and `3 | e`,
+  and the exact root is delivered before any approximation runs — every
+  rounding direction, status `OK`. The ADR-0047 post-hoc proof this
+  replaces was circular (it could only recognise an exact root the kernel
+  had already delivered exactly) and failed in production: `cbrt(0.027)`
+  at `TowardZero` / `TowardNegative` returned `0.2999…9` with a spurious
+  `INEXACT` instead of the exact `0.3`. `cbrt` provably has no nearest-mode
+  ties (midpoint cubes exceed every format's width or range), so the
+  kernel's unconditional `INEXACT` is correct on every remaining input.
+  Exact results now carry the input-derived cohort (`cbrt(0.027)` is `0.3`,
+  quantum −1) where the post-hoc era's cohort was kernel noise (`0.3000…0`
+  at quantum −34 here, bare `2` for `cbrt(8)`).
+
+- `exp2` now resolves nearest-mode ties exactly (ADR-0059 M7). An integer
+  input `n` whose `2^n` is expressible in at most `PRECISION + 1` digits is
+  delivered from the exact coefficient through the format rounder instead of
+  the approximation kernel, whose error lands on an arbitrary side of a true
+  value that is itself a rounding boundary (`5^n` ends in 5, so a
+  `PRECISION + 1`-digit `5^n` makes `exp2(-n)` an exact midpoint). Changed
+  values, all at ties: `exp2(-49)` at `NearestAway` and `exp2(-50)` at
+  `NearestEven` for a 34-digit format; `exp2(-23)` and `exp2(-24)` at
+  `NearestAway` for 16 digits; `exp2(-11)` at `NearestAway` for 7 digits.
+  Every other mode and input is unchanged (the non-tie `PRECISION + 1` cases
+  were already correct and are now pinned).
+
 ## [0.2.0] - 2026-07-03
 
 ### Changed

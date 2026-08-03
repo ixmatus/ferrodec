@@ -1,6 +1,6 @@
 # ADR-0059: The provably correctly rounded decimal128 lane: bounded escalation ladder, falsification program, and §9.2 surface completion
 
-- **Status**: accepted
+- **Status**: accepted (mechanism outcome recorded 2026-08-02; see §Outcome)
 - **Date**: 2026-07-27
 
 ## Context
@@ -322,6 +322,126 @@ verbatim.
   timeboxed with the memo as deliverable, `pow` classification
   carries its own timebox, and a probe find is a deliverable, not a
   failure.
+
+## Outcome (recorded 2026-08-02; mechanism arc M1 through M8b)
+
+The lane's falsification program and mechanism arc are complete. This
+section records what happened against the charter above: the probe
+verdict, the deviations worth naming, the measured costs that replace
+the charter's estimates, and the honest boundary of the proof. The
+witness corpus, the mechanism, this record, and the README edit land
+together in one signed merge; nothing below is public until then.
+
+### The probe verdict
+
+S1 falsified the shipped claim, as the equidistribution model
+predicted it would. The probe produced 1 819 Arb certified misround
+witnesses against the shipped Decimal128 trig kernel (sin 643,
+cos 570, tan 606): high decade inputs with full 34 digit
+coefficients, exactly the band the sampled corpus never reached. The
+witnesses are committed with provenance and replay as a pinned
+regression gate with exact per file counts; under the ladder every
+row rounds correctly, and the force escalate and force rung 3
+configurations replay the corpus byte identically through each upper
+rung. The exp family and pow edge probes surfaced no misrounds, but
+the classification leg repair (M7) fixed live directed mode defects
+the probe was not aimed at: cbrt on perfect cubes and pow on exact
+rational powers returned neighbor values with spurious INEXACT at
+TowardZero and TowardNegative, and the enumerable exp2 ties resolved
+by kernel noise rather than by the tie rule.
+
+### Deviations from the charter worth naming
+
+- **Trig escalation is common, not rare.** The charter's 10^-14
+  escalation shape assumed budgets near the working error. Rung 1's
+  honest trig budget instead carries the 38 digit π/2 truncation as
+  its dominant item (the fd-aqs.10 analytic bound, 10^13 predicate
+  units), so about 3% of full range random Decimal128 trig calls
+  escalate, about 6% for tan. This is the charter's own "rung 1's
+  trig truncation looseness moves into rung 1's honest budget"
+  clause, quantified; the tightening target is the rung 1 reduction
+  bound, not the pad.
+- **The unbounded rung's support is computed, not stored.** Stored
+  constants cannot follow the Ziv doubling, so rung 3 computes π,
+  2/π windows, the logarithm family, and the reciprocals at the
+  requested depth, each generator carrying a derived error bound and
+  oracle pins; the working type is a Copy handle into a per attempt
+  arena (the ExtNum seam's exemplar receiver carries the arena and
+  the precision); the runtime reduction reads its 2/π window at
+  depth q + p + 70, reproducing the fixed rung constants exactly at
+  p = 110. The plan document's "Implementation resolutions" section
+  records each fork and why.
+- **The program's instruments caught a real mechanism defect.** The
+  sinh and cosh saturation proxies fed the guarded delivery instead
+  of the format rounder, contradicting the module doc's unguarded by
+  design list. A proxy's one digit coefficient sits exactly on a
+  working grid point at every precision, so every saturating call
+  paid a silent rung 2 re run, a ladder audit build panicked on
+  saturating Decimal64 and Decimal32 inputs, and the unbounded rung
+  turned the waste into an unbounded widening loop, which is how the
+  widened M8b gate battery surfaced it. The audit lane had only ever
+  run on Decimal128, whose saturation region random samplers barely
+  reach; it now runs on all three formats, and the gate script's
+  pipeline masking defect found in the same investigation is fixed.
+  This is the Consequences section's third inversion realized in
+  miniature, caught by exactly the instruments it prescribed.
+
+### Measured costs (replacing the charter's estimates)
+
+- Typical input predicate tax (criterion, measured at M8): sin and
+  cos about +1.5%, pow +0.7%, the exp and log family +5.6 to +6.3%.
+- Full range random Decimal128 trig (20 000 deterministic inputs
+  spanning the whole exponent range, host, release): sin 116 to
+  152 µs per call (+31%), cos 116 to 153 µs (+32%), tan 120 to
+  197 µs (+64%). Consistent with the measured escalation rates times
+  a roughly tenfold rung 2 cost in the deep window regime. The
+  charter's Consequences said "a few percent"; these numbers replace
+  it, accepted on the correctness first ground that a correct
+  algorithm can be tightened later while an incorrect one causes
+  damage now.
+- The `unbounded-ladder` feature adds no measurable cost when the
+  third rung is not entered (within 0.3% run noise on the same
+  sweep); entry probability is the Tier 2 model figure.
+- Worst case latency for default builds remains the compile time sum
+  of the two fixed rungs, roughly 6 to 9 times rung 1.
+- thumbv6m size, measured as the family rlib `.text` plus `.rodata`
+  totals with LTO disabled for measurability (pre link, so an upper
+  bound on the linked delta): the default `transcendentals` build
+  grows from 324 KB to 408 KB (+83 KB, +26%), which is the rung 2
+  mirror kernel, U768, and the wide reduction; the `unbounded-ladder`
+  build compiles for the target at 595 KB but requires an allocator
+  to be useful.
+
+### Where the proof stands
+
+The tier claims hold as chartered, with the boundary between proof
+kinds now explicit. Analytic, in rustdoc at the site: the per
+function budget itemizations, the reduction truncation discharges
+(rung 2 and rung 3 analytic, rung 1 trig empirical by its honest
+budget), the runtime generator bounds, and the window discard
+congruence that makes the generator's unit error unamplifiable.
+Empirical, in committed harnesses: the S1 band budget audit (rung 1
+error under a tenth of budget over the falsifying bands), the byte
+identity differentials, the cross substrate differential at 110
+digits, and the oracle pins. Model, stated as model: the Tier 2
+residual rate, and the transfer of the budget itemizations to
+arbitrary p, which is pinned against the fixed catalog at p = 110
+and argued, not proved, beyond it. Two permanent asymmetries are
+accepted and named: the Ziv doubling arm is reachable only at the
+Tier 2 rate, so its only executable witness is synthetic; and
+termination of the unbounded rung is a theorem only given the
+classification leg's completeness, with the constant generators'
+depth cap turning any pathology into a loud panic rather than a
+wrong delivery.
+
+### Still open in the lane
+
+S2 deep margin corpora, S3 planted corpus, telemetry pins, and the
+weekly CI workflow, S4 anchor floor certification, the S5
+transcendence measure spike, the Track D surface groups, and the S6
+close out (verification map, testing.md frontier, KNOWN_ISSUES
+posture). The README disclosure edit is drafted under per edit
+approval and lands only with the atomic merge.
 
 ## Related
 

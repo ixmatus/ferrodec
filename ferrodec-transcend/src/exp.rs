@@ -52,29 +52,54 @@
 //! `exp(0) = 1` is handled by the zero short circuit and is not in
 //! the canonical sweep enumeration.
 
-use crate::consts::{inv_ln10_ext, ln10_ext, ln2_ext};
-use crate::extended::Extended;
+use crate::extended::{ExtNum, Extended};
 use crate::format::DecimalFormat;
+use crate::ladder;
 use ferrodec_ieee::IeeeDecodedClass as Class;
 use ferrodec_ieee::{RoundingMode, Status};
 
+/// Natural exponential.
+///
+/// ## Exactness and ties (ADR-0059 classification leg)
+///
+/// `e^r` is transcendental for every algebraic `r ≠ 0` (Lindemann;
+/// docs/references/shidlovskii-transcendence.md, with Niven's
+/// *Irrational Numbers* as the accessible source —
+/// docs/references/niven-irrational-numbers.md). Representable inputs
+/// are rational, so beyond the `exp(±0) = 1` short-circuit no input
+/// has an exact result and none lands on a nearest-mode tie (ties are
+/// rational): the kernel's unconditional `INEXACT` is correct in
+/// every mode, and every input sits a finite distance from its
+/// rounding boundary (the escalation ladder's standing assumption).
 pub fn exp_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
+    ladder::ladder_run!(|ex| exp_kernel_body::<F, _>(ex, x, rm))
+}
+
+/// Generic body of [`exp_kernel`] (M4, ADR-0059); `None` escalates
+/// (M8 ladder). `ex` is the working-precision exemplar (M8b): the
+/// receiver the constant and constructor surface reads its width from,
+/// never a value the result depends on.
+pub(crate) fn exp_kernel_body<F: DecimalFormat, E: ExtNum>(
+    ex: E,
+    x: F,
+    rm: RoundingMode,
+) -> Option<(F, Status)> {
     match x.classify() {
-        Class::SignalingNaN { .. } => return (x.nan_from(), Status::INVALID),
-        Class::QuietNaN { .. } => return (x, Status::OK),
+        Class::SignalingNaN { .. } => return Some((x.nan_from(), Status::INVALID)),
+        Class::QuietNaN { .. } => return Some((x, Status::OK)),
         Class::Infinity { sign } => {
-            return if sign {
+            return Some(if sign {
                 (F::ZERO, Status::OK)
             } else {
                 (F::INFINITY, Status::OK)
-            };
+            });
         }
-        Class::Zero { .. } => return (F::ONE, Status::OK),
+        Class::Zero { .. } => return Some((F::ONE, Status::OK)),
         Class::Finite { .. } => {}
     }
 
-    let x_ext = Extended::from_format(x);
-    exp_from_extended(x_ext, rm)
+    let x_ext = ex.from_format(x);
+    exp_from_extended_body::<F, E>(x_ext, rm, &ladder::EXP)
 }
 
 /// Base-2 exponential `2^x`. Computed as `exp(x · ln(2))` at extended
@@ -89,37 +114,65 @@ pub fn exp_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
 /// exactly at a `NearestEven` tie. NE ties-to-even resolves decisively
 /// (rounds to the even significand `4.882812e-4` over odd
 /// `4.882813e-4`), so this is the tightest possible NE constraint
-/// for any function in the family rather than TMD hard. The kernel
-/// produces the tie value exactly. Sampled corpus minima
+/// for any function in the family rather than TMD hard. Since
+/// ADR-0059 M7 the tie is delivered exactly by the input-side
+/// classifier (`exact::exp2_exact_or_tie`), not by the approximation
+/// kernel, whose error cannot resolve a value that is itself a
+/// rounding boundary.
+///
+/// ## Exactness and ties (ADR-0059 classification leg)
+///
+/// `2^x` is exact or on a nearest-mode tie only at integer `x` (a
+/// rational `2^(a/b)` forces `b = 1` by unique factorization; the
+/// full completeness proof lives on `exact::exp2_exact_or_tie`), and
+/// the classifier catches every such case, so the kernel's
+/// unconditional `INEXACT` is correct on everything it still sees.
+///
+/// Sampled corpus minima
 /// (`tests/vectors/transcend/exp2.prov`, ADR-0026 fd-97a) are
 /// `3.515e-2` at `Decimal64` and `2.015e-2` at `Decimal128`, both
 /// cleared by the composed bound by more than thirty orders of
 /// magnitude.
 pub fn exp2_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
+    ladder::ladder_run!(|ex| exp2_kernel_body::<F, _>(ex, x, rm))
+}
+
+/// Generic body of [`exp2_kernel`] (M4, ADR-0059); `None` escalates
+/// (M8 ladder). `ex` is the working-precision exemplar (M8b).
+pub(crate) fn exp2_kernel_body<F: DecimalFormat, E: ExtNum>(
+    ex: E,
+    x: F,
+    rm: RoundingMode,
+) -> Option<(F, Status)> {
     match x.classify() {
-        Class::SignalingNaN { .. } => return (x.nan_from(), Status::INVALID),
-        Class::QuietNaN { .. } => return (x, Status::OK),
+        Class::SignalingNaN { .. } => return Some((x.nan_from(), Status::INVALID)),
+        Class::QuietNaN { .. } => return Some((x, Status::OK)),
         Class::Infinity { sign } => {
-            return if sign {
+            return Some(if sign {
                 (F::ZERO, Status::OK)
             } else {
                 (F::INFINITY, Status::OK)
-            };
+            });
         }
-        Class::Zero { .. } => return (F::ONE, Status::OK),
+        Class::Zero { .. } => return Some((F::ONE, Status::OK)),
         Class::Finite { .. } => {}
     }
-    // Exact integer cases (fd-aqs.8): `2^n` representable at the
-    // format precision returns exactly, at every rounding direction,
-    // with no INEXACT (IEEE 754-2019 §7.5). Pre-detection also repairs
-    // the directed-mode hazard of the 50-digit approximation landing
-    // on the wrong side of the exact value (`exp2(3)` at
-    // `TowardNegative` returned `7.999999…` before this).
-    if let Some(exact) = crate::exact::exp2_exact::<F>(x, rm) {
-        return exact;
+    // Exact and tie classification (fd-aqs.8; widened to PRECISION + 1
+    // ties by ADR-0059 M7): an integer `n` with `2^n` expressible in
+    // at most PRECISION + 1 digits is delivered from the exact
+    // coefficient through the format rounder — exact results at every
+    // rounding direction with no INEXACT (IEEE 754-2019 §7.5), the
+    // directed-mode hazard of the approximation landing on the wrong
+    // side of an exact value repaired (`exp2(3)` at `TowardNegative`
+    // returned `7.999999…` before fd-aqs.8), and the nearest-mode
+    // ties (`exp2(-49)` / `exp2(-50)` at Decimal128) resolved by the
+    // rounder's own tie rule, which no approximation kernel can do:
+    // the true value IS the boundary.
+    if let Some(result) = crate::exact::exp2_exact_or_tie::<F>(x, rm) {
+        return Some(result);
     }
-    let arg_ext = Extended::from_format(x).mul(ln2_ext());
-    exp_from_extended(arg_ext, rm)
+    let arg_ext = ex.from_format(x).mul(ex.ln2());
+    exp_from_extended_body::<F, E>(arg_ext, rm, &ladder::EXP2)
 }
 
 /// Compute `exp(x_ext)` and round to the format. Used by the public
@@ -130,6 +183,30 @@ pub fn exp2_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
 /// any magnitude this routine handles the OVERFLOW / UNDERFLOW
 /// thresholds internally.
 pub fn exp_from_extended<F: DecimalFormat>(x_ext: Extended, rm: RoundingMode) -> (F, Status) {
+    // The exemplar slot doubles as the widening seam: `from_extended`
+    // is the identity on rung 1 and the width lift on the others.
+    ladder::ladder_run!(|ex| exp_from_extended_body::<F, _>(
+        ex.from_extended(x_ext),
+        rm,
+        &ladder::EXP
+    ))
+}
+
+/// Generic body of [`exp_from_extended`] (M4, ADR-0059); `None`
+/// escalates (M8 ladder). The budget is the caller's: `exp` and this
+/// function's own wrapper pass [`ladder::EXP`], `exp2` passes
+/// [`ladder::EXP2`], and the composed kernels (`pow`, `cbrt`) pass
+/// their own composition budgets, so the one guarded delivery site
+/// serves every pipeline that ends here with the right total.
+///
+/// `x_ext` doubles as the working-precision exemplar (M8b): it is a
+/// value at the running rung's width, which is all the constant and
+/// constructor surface reads off a receiver.
+pub(crate) fn exp_from_extended_body<F: DecimalFormat, E: ExtNum>(
+    x_ext: E,
+    rm: RoundingMode,
+    budget: &ladder::Budget,
+) -> Option<(F, Status)> {
     // Magnitude gate: `exp` overflows past the format's
     // `exp_overflow_limit` and underflows past its
     // `exp_underflow_limit`. The two thresholds are asymmetric
@@ -140,11 +217,11 @@ pub fn exp_from_extended<F: DecimalFormat>(x_ext: Extended, rm: RoundingMode) ->
     // must NOT short-circuit to zero, the Taylor pipeline handles
     // them.
     let abs = x_ext.abs();
-    let limit = if x_ext.sign {
+    let limit = x_ext.from_extended(if x_ext.sign() {
         F::exp_underflow_limit()
     } else {
         F::exp_overflow_limit()
-    };
+    });
     if abs.cmp(limit) == core::cmp::Ordering::Greater {
         // Saturate through the format rounder rather than returning a
         // hardwired `+∞` / `+0`, so the IEEE 754-2019 §7.4 disposition
@@ -157,17 +234,20 @@ pub fn exp_from_extended<F: DecimalFormat>(x_ext: Extended, rm: RoundingMode) ->
         // by the saturated proxy exactly as by the true value. The
         // `pre_sticky = true` residue marks the proxy inexact; the
         // rounder raises OVERFLOW / UNDERFLOW itself (fd-aqs.5).
-        let sat = if x_ext.sign {
+        let sat = if x_ext.sign() {
             Extended::saturate_underflow()
         } else {
             Extended::saturate_overflow(false)
         };
         let (result, status) =
             F::round_and_pack_finite(sat.coef, sat.exp, 0, sat.sign, true, rm, Status::OK);
-        return (result, status | Status::INEXACT);
+        // Unguarded delivery: the gate thresholds prove the true
+        // result past the last boundary with margin, so no rung can
+        // change any mode's answer.
+        return Some((result, status | Status::INEXACT));
     }
 
-    let result_ext = exp_extended(x_ext);
+    let result_ext = exp_extended_body(x_ext);
     // Grid-stuck at the 1 anchor (ADR-0051): for `|x|` below the
     // working resolution the series absorbs every term and the
     // result is exactly 1, a format grid point at every precision;
@@ -177,12 +257,14 @@ pub fn exp_from_extended<F: DecimalFormat>(x_ext: Extended, rm: RoundingMode) ->
     // function. An exactly-zero argument is excluded: there the true
     // result IS 1 (`cbrt(1)` arrives here as `ln(1)/3 = 0`), and the
     // plain path plus the caller's exactness machinery handle it.
-    if !x_ext.is_zero() && result_ext.sticks_to(Extended::ONE) {
-        let (result, status) = Extended::ONE.to_format_with_residual::<F>(!x_ext.sign, rm);
-        return (result, status | Status::INEXACT);
+    // Unguarded delivery: the anchor leg runs before the ladder's
+    // predicate by the ADR-0059 tripod (no finite rung separates a
+    // grid-hugging residual; the theorem-backed side does).
+    if !x_ext.is_zero() && result_ext.sticks_to(x_ext.one()) {
+        let (result, status) = x_ext.one().to_format_with_residual::<F>(!x_ext.sign(), rm);
+        return Some((result, status | Status::INEXACT));
     }
-    let (result, status) = result_ext.to_format::<F>(0, rm);
-    (result, status | Status::INEXACT)
+    ladder::round_guarded::<F, E>(result_ext, rm, budget)
 }
 
 /// Compute `exp(x_ext)` and return the result *at extended precision*.
@@ -199,77 +281,52 @@ pub fn exp_from_extended<F: DecimalFormat>(x_ext: Extended, rm: RoundingMode) ->
 /// can have an exponent outside the format's representable range —
 /// the boundary rounder handles that as OVERFLOW.
 pub fn exp_extended(x_ext: Extended) -> Extended {
-    // Reduction: x = k · ln(10) + r, with |r| ≤ ln(10)/2.
-    let q = x_ext.mul(inv_ln10_ext());
-    let k = round_to_i32(q);
-    let r = x_ext.sub(Extended::from_i32(k).mul(ln10_ext()));
+    exp_extended_body(x_ext)
+}
 
-    // Taylor series at extended precision.
+/// Generic body of [`exp_extended`] (M4, ADR-0059).
+pub(crate) fn exp_extended_body<E: ExtNum>(x_ext: E) -> E {
+    // Reduction: x = k · ln(10) + r, with |r| ≤ ln(10)/2.
+    let q = x_ext.mul(x_ext.inv_ln10());
+    let k = round_to_i32(q);
+    let r = x_ext.sub(x_ext.from_i32(k).mul(x_ext.ln10()));
+
+    // Taylor series at working precision.
     let exp_r = taylor_exp_ext(r);
 
     // exp(x) = exp(r) · 10^k.
     exp_r.mul_pow10_exp(k)
 }
 
-/// Round an [`Extended`] to the nearest `i32`. Used to recover the
-/// reduction integer `k` from `q = x / ln(10)`.
-fn round_to_i32(q: Extended) -> i32 {
+/// Round a working-precision value to the nearest `i32`. Used to
+/// recover the reduction integer `k` from `q = x / ln(10)`. The
+/// truncation itself lives on the [`ExtNum`] seam
+/// (`ExtNum::trunc_to_i32`).
+fn round_to_i32<E: ExtNum>(q: E) -> i32 {
     if q.is_zero() {
         return 0;
     }
     // Add ±0.5 (depending on sign), then truncate toward zero.
-    let nudged = if q.sign {
-        q.sub(Extended::HALF)
+    let nudged = if q.sign() {
+        q.sub(q.half())
     } else {
-        q.add(Extended::HALF)
+        q.add(q.half())
     };
-    truncate_to_i32(nudged)
+    nudged.trunc_to_i32()
 }
 
-/// Truncate an [`Extended`] toward zero into an `i32`. Caller guarantees
-/// the magnitude is well within `i32::MAX`.
-fn truncate_to_i32(v: Extended) -> i32 {
-    if v.is_zero() {
-        return 0;
-    }
-    // Shift coef by exp to recover the integer value.
-    if v.exp >= 0 {
-        // coef · 10^exp — but for our `k` reduction, exp should
-        // always be ≤ 0 (since |x| ≤ 14149 → |q| ≤ 6145 < 10^4 and
-        // the .mul produced ~50-digit coef with exp ≈ -50).
-        // Defensively widen: scale up.
-        let mut c = v.coef;
-        for _ in 0..(v.exp as u32) {
-            c = c.mul10();
-        }
-        let val = c.lo as i64;
-        return if v.sign { -(val as i32) } else { val as i32 };
-    }
-    // exp < 0: shift right.
-    let mut c = v.coef;
-    for _ in 0..((-v.exp) as u32) {
-        let (q, _) = c.div_rem10();
-        c = q;
-    }
-    let val = c.lo as i64;
-    if v.sign {
-        -(val as i32)
-    } else {
-        val as i32
-    }
-}
-
-/// `exp(r) = Σ r^n / n!` evaluated at [`Extended`] precision.
+/// `exp(r) = Σ r^n / n!` evaluated at working precision.
 ///
 /// Convergence: `|r| ≤ ln(10)/2 ≈ 1.151`, and `|r|^n / n!` decays
 /// faster than geometrically once `n > |r|`. ~36 terms drives the
-/// term magnitude below `10^{-49}`, well past `EXT_PRECISION = 50`.
-fn taylor_exp_ext(r: Extended) -> Extended {
-    let mut sum = Extended::ONE;
-    let mut term = Extended::ONE;
-    // Halt early if `term` falls below ~10^{-55} (well below
-    // EXT_PRECISION's significance).
-    for n in 1u32..=60 {
+/// term magnitude below `10^{-49}`, well past `EXT_PRECISION = 50`;
+/// the rung's cap ([`ExtNum::exp_series_terms`], read off `r` as the
+/// exemplar) scales with its digit count.
+fn taylor_exp_ext<E: ExtNum>(r: E) -> E {
+    let mut sum = r.one();
+    let mut term = r.one();
+    // Halt early if `term` falls below the working significance.
+    for n in 1u32..=r.exp_series_terms() {
         term = term.mul(r).div_u32(n);
         let next_sum = sum.add(term);
         // Early exit: if `next_sum` matches `sum` at extended

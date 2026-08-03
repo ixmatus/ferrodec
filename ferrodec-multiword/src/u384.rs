@@ -160,6 +160,66 @@ impl U384 {
         digits
     }
 
+    /// Long-division `self / divisor` returning `(quotient, remainder)`.
+    ///
+    /// Bit-by-bit shift-and-subtract, mirroring [`U256::div_rem_u128`]:
+    /// each iteration shifts a 129-bit running remainder left by one
+    /// (tracking the overflow bit separately, since `divisor` can be up
+    /// to `u128::MAX`) and conditionally subtracts `divisor`. 384
+    /// iterations. Consumed by the rung-2 `Extended2::div_u32` Taylor
+    /// denominators (ADR-0059 M5).
+    ///
+    /// Pre-condition: `divisor != 0`.
+    pub fn div_rem_u128(self, divisor: u128) -> (Self, u128) {
+        debug_assert!(divisor != 0);
+
+        // Short path when both upper limbs are zero.
+        if self.hi == 0 && self.mid == 0 {
+            let q = self.lo / divisor;
+            let r = self.lo - q * divisor;
+            return (Self::from_u128(q), r);
+        }
+
+        let mut rem: u128 = 0;
+        let mut q = Self::ZERO;
+
+        let mut i: u32 = 384;
+        while i > 0 {
+            i -= 1;
+            // Bit `i` of `self`.
+            let bit = if i >= 256 {
+                (self.hi >> (i - 256)) & 1
+            } else if i >= 128 {
+                (self.mid >> (i - 128)) & 1
+            } else {
+                (self.lo >> i) & 1
+            };
+
+            // Shift the running remainder left by 1, tracking the
+            // overflow into a virtual 129th bit.
+            let carry_out = (rem >> 127) & 1;
+            rem = (rem << 1) | bit;
+
+            // After the shift the running value is
+            //   (carry_out << 128) | rem
+            // Compare against `divisor`. Because `divisor < 2^128`, any
+            // `carry_out` makes the running value strictly greater.
+            let geq = carry_out == 1 || rem >= divisor;
+            if geq {
+                rem = rem.wrapping_sub(divisor);
+                if i >= 256 {
+                    q.hi |= 1u128 << (i - 256);
+                } else if i >= 128 {
+                    q.mid |= 1u128 << (i - 128);
+                } else {
+                    q.lo |= 1u128 << i;
+                }
+            }
+        }
+
+        (q, rem)
+    }
+
     /// Shift `self` right by enough decimal digits that the residue fits
     /// in a `U256`, accumulating dropped digits into a sticky bit.
     ///
@@ -439,6 +499,66 @@ mod tests {
         let v = U384::from_u128(12345);
         let (_, _, sticky) = v.shift_right_to_u256(true);
         assert!(sticky);
+    }
+
+    #[test]
+    fn div_rem_u128_short_path() {
+        let (q, r) = U384::from_u128(1000).div_rem_u128(7);
+        assert_eq!(q, U384::from_u128(142));
+        assert_eq!(r, 6);
+    }
+
+    #[test]
+    fn div_rem_u128_inverts_mul_pow10() {
+        // 10^112 / 10^38 = 10^74 exactly — spans all three limbs.
+        let big = U384::from_u128(1).mul_pow10(112);
+        let (q, r) = big.div_rem_u128(10u128.pow(38));
+        assert_eq!(q, U384::from_u128(1).mul_pow10(74));
+        assert_eq!(r, 0);
+    }
+
+    #[test]
+    fn div_rem_u128_general_matches_schoolbook_reference() {
+        // q * d + r == n and r < d, on values occupying the top limb,
+        // checked against an independent base-10 schoolbook long
+        // division. Divisors stay ≤ u128::MAX / 10 so the reference's
+        // per-digit accumulator `rem * 10 + digit` never overflows
+        // (rem < d); the bit-by-bit path under test has no such bound.
+        // Seeds stay ≤ 25 digits so `seed · 10^90 + seed` fits the
+        // 115-digit U384 envelope.
+        let cases: [(u128, u128); 4] = [
+            (3, 7),
+            (999_999_937, 1_000_000_007),
+            (999_999_999_999_999_999_999_999, 3),
+            (12_345_678_901_234_567_890, 10u128.pow(37) + 9),
+        ];
+        for (seed, d) in cases {
+            let n = U384::from_u128(seed)
+                .mul_pow10(90)
+                .add(U384::from_u128(seed));
+            let (q, r) = n.div_rem_u128(d);
+            assert!(r < d, "remainder bound for d={d}");
+
+            // Extract decimal digits LSD-first, then divide MSD-first.
+            let mut digits = [0u8; 116];
+            let mut count = 0usize;
+            let mut cur = n;
+            while !cur.is_zero() {
+                let (nq, dg) = cur.div_rem10();
+                digits[count] = dg as u8;
+                count += 1;
+                cur = nq;
+            }
+            let mut ref_q = U384::ZERO;
+            let mut ref_rem: u128 = 0;
+            for i in (0..count).rev() {
+                let acc = ref_rem * 10 + u128::from(digits[i]);
+                ref_q = ref_q.mul10().add(U384::from_u128(acc / d));
+                ref_rem = acc % d;
+            }
+            assert_eq!(q, ref_q, "quotient for d={d}");
+            assert_eq!(r, ref_rem, "remainder for d={d}");
+        }
     }
 
     #[test]

@@ -277,7 +277,7 @@ checksum = "9f1f227452a390804cdb637b74a86990f2a7d7ba4b7d5693aac9b4dd6defd8d6"
 
 [[package]]
 name = "ferrodec"
-version = "4.0.0"
+version = "4.1.0"
 dependencies = [
  "astro-float",
  "bincode",
@@ -295,8 +295,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "ferrodec-campaign"
+version = "0.1.0"
+dependencies = [
+ "ferrodec",
+ "ferrodec-ieee",
+ "ferrodec-multiword",
+ "ferrodec-transcend",
+]
+
+[[package]]
 name = "ferrodec-decimal"
-version = "3.0.0"
+version = "3.0.1"
 dependencies = [
  "criterion",
  "ferrodec",
@@ -310,7 +320,7 @@ dependencies = [
 
 [[package]]
 name = "ferrodec-decimal32"
-version = "4.0.0"
+version = "4.1.0"
 dependencies = [
  "ferrodec-decimal64",
  "ferrodec-ieee",
@@ -326,7 +336,7 @@ dependencies = [
 
 [[package]]
 name = "ferrodec-decimal64"
-version = "4.0.0"
+version = "4.1.0"
 dependencies = [
  "astro-float",
  "ferrodec-ieee",
@@ -346,7 +356,7 @@ version = "0.1.5"
 
 [[package]]
 name = "ferrodec-multiword"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "criterion",
  "proptest",
@@ -365,7 +375,7 @@ dependencies = [
 
 [[package]]
 name = "ferrodec-transcend"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "astro-float",
  "ferrodec-ieee",

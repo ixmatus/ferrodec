@@ -6,7 +6,7 @@
 //!
 //! `cbrt(x) = sign(x) · |x|^(1/3)`, computed as
 //! `sign(x) · exp(ln(|x|) / 3)` at the
-//! [`Extended`](crate::extended::Extended) precision pipeline.
+//! [`Extended`] precision pipeline.
 //!
 //! ## Accuracy
 //!
@@ -31,20 +31,47 @@
 //! precision because the certified ball is centred well inside the
 //! format's range, not at the underflow boundary.
 
-use crate::exp::exp_from_extended;
+use crate::exp::exp_from_extended_body;
+use crate::extended::ExtNum;
+// The module doc's [`Extended`] link needs the name in scope; the code
+// itself reaches rung 1 only through the exemplar seam now.
+#[cfg(doc)]
+use crate::extended::Extended;
 use crate::format::DecimalFormat;
-use crate::ln::ln_extended;
+use crate::ladder;
+use crate::ln::ln_extended_body;
 use ferrodec_ieee::IeeeDecodedClass as Class;
 use ferrodec_ieee::{RoundingMode, Status};
 
 /// Cube root. Defined for all real `x`:
 /// `cbrt(0) = 0`, `cbrt(-x) = -cbrt(x)`.
+///
+/// ## Exactness and ties (ADR-0059 classification leg)
+///
+/// Exactness is decided from the input alone — stripped
+/// `|x| = c · 10^e` is a perfect cube iff `c = t³` and `3 | e` — and
+/// `cbrt` provably has no nearest-mode ties; both proofs live on
+/// `exact::cbrt_exact_input`. Past the classifier the result is
+/// irrational and the unconditional `INEXACT` is correct in every
+/// mode.
 pub fn cbrt_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
+    ladder::ladder_run!(|ex| cbrt_kernel_body::<F, _>(ex, x, rm))
+}
+
+/// Generic body of [`cbrt_kernel`] (M4, ADR-0059); `None` escalates
+/// (M8 ladder). `ex` is the working-precision exemplar (M8b): the
+/// receiver the constant and constructor surface reads its width from,
+/// never a value the result depends on.
+pub(crate) fn cbrt_kernel_body<F: DecimalFormat, E: ExtNum>(
+    ex: E,
+    x: F,
+    rm: RoundingMode,
+) -> Option<(F, Status)> {
     match x.classify() {
-        Class::SignalingNaN { .. } => return (x.nan_from(), Status::INVALID),
-        Class::QuietNaN { .. } => return (x, Status::OK),
-        Class::Infinity { .. } => return (x, Status::OK),
-        Class::Zero { .. } => return (x, Status::OK),
+        Class::SignalingNaN { .. } => return Some((x.nan_from(), Status::INVALID)),
+        Class::QuietNaN { .. } => return Some((x, Status::OK)),
+        Class::Infinity { .. } => return Some((x, Status::OK)),
+        Class::Zero { .. } => return Some((x, Status::OK)),
         Class::Finite { .. } => {}
     }
     // cbrt(x) = sign(x) · exp(ln(|x|) / 3) — the negative-argument
@@ -54,9 +81,25 @@ pub fn cbrt_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
     let sign_neg = x.is_sign_negative();
     let abs_x = x.abs();
 
-    // ln(|x|) at extended precision.
-    let ln_x_ext = ln_extended(abs_x);
-    // Divide by 3 at extended precision.
+    // Input-side exactness (ADR-0059 M7): a perfect cube delivers its
+    // exact root here — every rounding direction, status OK — before
+    // any approximation runs. This replaces the ADR-0047 post-hoc
+    // proof, which was circular: it could only recognise an exact root
+    // the kernel had already delivered exactly, so at TowardZero /
+    // TowardNegative the kernel's 50-digit error landed cbrt(0.027)
+    // on 0.2999…9, the cube-back check saw a non-cube, and the wrong
+    // value shipped with a spurious INEXACT. cbrt has no ties (see
+    // `exact::cbrt_exact_input`), so past this point the kernel's
+    // unconditional INEXACT is correct in every mode. The root is
+    // exact, so re-applying the sign needs no rounding-direction
+    // reflection.
+    if let Some((root, status)) = crate::exact::cbrt_exact_input::<F>(abs_x, rm) {
+        return Some((if sign_neg { root.neg() } else { root }, status));
+    }
+
+    // ln(|x|) at working precision.
+    let ln_x_ext = ln_extended_body::<F, E>(ex, abs_x);
+    // Divide by 3 at working precision.
     let one_third_ln_x = ln_x_ext.div_u32(3);
     // exp(...) → format datum, threading OVERFLOW / UNDERFLOW. For a
     // negative argument the magnitude is rounded and then negated,
@@ -66,17 +109,13 @@ pub fn cbrt_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
     // modes round a negative cube root the wrong way by up to one
     // ULP (fd-r5m, found by the S5 faithful-rounding oracle).
     let eff_rm = if sign_neg { rm.for_negation() } else { rm };
-    let (mut result, mut status) = exp_from_extended::<F>(one_third_ln_x, eff_rm);
+    let (mut result, status) =
+        exp_from_extended_body::<F, E>(one_third_ln_x, eff_rm, &ladder::CBRT)?;
     if sign_neg {
         result = result.neg();
     }
-    // `exp_from_extended` already raised INEXACT. cbrt can land on an exact
-    // value (a perfect cube root: cbrt(8) = 2, cbrt(-27) = -3), where IEEE
-    // 754-2019 §7.5 forbids the flag. Suppress it only when the delivered
-    // result cubes back to the input exactly. Overflow / ±∞ results never
-    // enter the check (decoding a non-finite datum is undefined).
-    if !status.overflow() && !result.is_infinite() && crate::exact::cube_is_exact(result, x) {
-        status = crate::exact::clear_inexact(status);
-    }
-    (result, status)
+    // `exp_from_extended` raised INEXACT, and here that is correct
+    // unconditionally: the perfect cubes returned above, and cbrt has
+    // no other exact cases and no ties (`exact::cbrt_exact_input`).
+    Some((result, status))
 }

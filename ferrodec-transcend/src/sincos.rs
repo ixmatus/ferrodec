@@ -90,31 +90,74 @@
 //! (`ferrodec-test-support/tests/mpfr_gate.rs`, 0 disagreements)
 //! are the empirical witnesses.
 
-use crate::argred;
-use crate::extended::Extended;
+use crate::extended::{ExtNum, Extended};
 use crate::format::DecimalFormat;
+use crate::ladder;
 use ferrodec_ieee::IeeeDecodedClass as Class;
 use ferrodec_ieee::{RoundingMode, Status};
 
 /// Sine, in radians.
+///
+/// ## Exactness and ties (ADR-0059 classification leg)
+///
+/// `sin(r)` is transcendental for every algebraic `r ≠ 0`
+/// (Lindemann–Weierstrass; docs/references/shidlovskii-transcendence.md,
+/// with Niven's *Irrational Numbers* as the accessible source —
+/// docs/references/niven-irrational-numbers.md). Representable inputs
+/// are rational, so beyond the `sin(±0) = ±0` short-circuit no input
+/// has an exact result and none lands on a nearest-mode tie (ties are
+/// rational): the kernel's unconditional `INEXACT` is correct in every
+/// mode, and every input sits a finite distance from its rounding
+/// boundary (the escalation ladder's standing assumption).
 pub fn sin_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
+    ladder::ladder_run!(|ex| sin_kernel_body::<F, _>(ex, x, rm))
+}
+
+/// Generic body of [`sin_kernel`] (M4, ADR-0059); `None` escalates
+/// (M8 ladder). `ex` is the working-precision exemplar (M8b): the
+/// receiver the constant and constructor surface reads its width from,
+/// never a value the result depends on.
+pub(crate) fn sin_kernel_body<F: DecimalFormat, E: ExtNum>(
+    ex: E,
+    x: F,
+    rm: RoundingMode,
+) -> Option<(F, Status)> {
     match x.classify() {
-        Class::SignalingNaN { .. } => (x.nan_from(), Status::INVALID),
-        Class::QuietNaN { .. } => (x, Status::OK),
-        Class::Infinity { .. } => (F::NAN, Status::INVALID),
-        Class::Zero { sign, .. } => (if sign { F::NEG_ZERO } else { F::ZERO }, Status::OK),
-        Class::Finite { .. } => sincos_kernel(x, rm).0,
+        Class::SignalingNaN { .. } => Some((x.nan_from(), Status::INVALID)),
+        Class::QuietNaN { .. } => Some((x, Status::OK)),
+        Class::Infinity { .. } => Some((F::NAN, Status::INVALID)),
+        Class::Zero { sign, .. } => Some((if sign { F::NEG_ZERO } else { F::ZERO }, Status::OK)),
+        Class::Finite { .. } => sincos_kernel::<F, E>(ex, x, rm).0,
     }
 }
 
 /// Cosine, in radians.
+///
+/// ## Exactness and ties (ADR-0059 classification leg)
+///
+/// `cos(r)` is transcendental for every algebraic `r ≠ 0`
+/// (Lindemann–Weierstrass; docs/references/shidlovskii-transcendence.md,
+/// docs/references/niven-irrational-numbers.md), so beyond
+/// `cos(±0) = 1` no representable input has an exact result or a
+/// nearest-mode tie; the unconditional `INEXACT` is correct in every
+/// mode.
 pub fn cos_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
+    ladder::ladder_run!(|ex| cos_kernel_body::<F, _>(ex, x, rm))
+}
+
+/// Generic body of [`cos_kernel`] (M4, ADR-0059); `None` escalates
+/// (M8 ladder). `ex` is the working-precision exemplar (M8b).
+pub(crate) fn cos_kernel_body<F: DecimalFormat, E: ExtNum>(
+    ex: E,
+    x: F,
+    rm: RoundingMode,
+) -> Option<(F, Status)> {
     match x.classify() {
-        Class::SignalingNaN { .. } => (x.nan_from(), Status::INVALID),
-        Class::QuietNaN { .. } => (x, Status::OK),
-        Class::Infinity { .. } => (F::NAN, Status::INVALID),
-        Class::Zero { .. } => (F::ONE, Status::OK),
-        Class::Finite { .. } => sincos_kernel(x, rm).1,
+        Class::SignalingNaN { .. } => Some((x.nan_from(), Status::INVALID)),
+        Class::QuietNaN { .. } => Some((x, Status::OK)),
+        Class::Infinity { .. } => Some((F::NAN, Status::INVALID)),
+        Class::Zero { .. } => Some((F::ONE, Status::OK)),
+        Class::Finite { .. } => sincos_kernel::<F, E>(ex, x, rm).1,
     }
 }
 
@@ -127,42 +170,75 @@ pub fn cos_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
 /// `DIV_BY_ZERO` (since `tan` of a finite input doesn't fit the
 /// IEEE 754 §7.3 division-by-zero condition — it's just an
 /// asymptote).
+///
+/// ## Exactness and ties (ADR-0059 classification leg)
+///
+/// `tan(r)` is transcendental for every algebraic `r ≠ 0` (a corollary
+/// of Lindemann–Weierstrass: a rational `tan(r)` would make `e^{2ir}`
+/// algebraic; docs/references/shidlovskii-transcendence.md,
+/// docs/references/niven-irrational-numbers.md), so beyond
+/// `tan(±0) = ±0` no representable input has an exact result or a
+/// nearest-mode tie; the unconditional `INEXACT` is correct in every
+/// mode. The `cos(x) = 0` asymptote is never hit exactly for the same
+/// reason (odd multiples of π/2 are irrational), so the `±∞` branch is
+/// working-precision saturation, not an exact-case claim.
 pub fn tan_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
+    ladder::ladder_run!(|ex| tan_kernel_body::<F, _>(ex, x, rm))
+}
+
+/// Generic body of [`tan_kernel`] (M4, ADR-0059); `None` escalates
+/// (M8 ladder). `ex` is the working-precision exemplar (M8b).
+pub(crate) fn tan_kernel_body<F: DecimalFormat, E: ExtNum>(
+    ex: E,
+    x: F,
+    rm: RoundingMode,
+) -> Option<(F, Status)> {
     match x.classify() {
-        Class::SignalingNaN { .. } => return (x.nan_from(), Status::INVALID),
-        Class::QuietNaN { .. } => return (x, Status::OK),
-        Class::Infinity { .. } => return (F::NAN, Status::INVALID),
+        Class::SignalingNaN { .. } => return Some((x.nan_from(), Status::INVALID)),
+        Class::QuietNaN { .. } => return Some((x, Status::OK)),
+        Class::Infinity { .. } => return Some((F::NAN, Status::INVALID)),
         Class::Zero { sign, .. } => {
-            return (if sign { F::NEG_ZERO } else { F::ZERO }, Status::OK);
+            return Some((if sign { F::NEG_ZERO } else { F::ZERO }, Status::OK));
         }
         Class::Finite { .. } => {}
     }
-    let (sin_ext, cos_ext, status_red) = sincos_extended(x);
+    let (sin_ext, cos_ext, status_red) = sincos_extended_body::<F, E>(ex, x);
     if cos_ext.is_zero() {
         // sin/cos at the asymptote: return ±∞ with the sign of sin.
-        let sign = sin_ext.sign;
-        return (
+        // Unguarded: the asymptote is never hit by a true value (odd
+        // multiples of π/2 are irrational), so this is a working-
+        // precision saturation whose verdict rung 2 shares.
+        let sign = sin_ext.sign();
+        return Some((
             if sign { F::NEG_INFINITY } else { F::INFINITY },
             status_red | Status::INEXACT,
-        );
+        ));
     }
     let tan_ext = sin_ext.div::<F>(cos_ext);
     // Grid-stuck at the input (ADR-0051): a small argument absorbs
     // every correction and the quotient is exactly `x`; the directed
     // modes need the side, and `|tan x| > |x|` is a theorem.
-    let x_anchor = Extended::from_format(x);
+    // Unguarded: the anchor leg runs before the ladder's predicate.
+    let x_anchor = ex.from_format(x);
     if tan_ext.sticks_to(x_anchor) {
         let (tan_d, st) = x_anchor.to_format_with_residual::<F>(true, rm);
-        return (tan_d, st | status_red | Status::INEXACT);
+        return Some((tan_d, st | status_red | Status::INEXACT));
     }
-    let (tan_d, st) = tan_ext.to_format::<F>(0, rm);
-    (tan_d, st | status_red | Status::INEXACT)
+    let (tan_d, st) = ladder::round_guarded::<F, E>(tan_ext, rm, &ladder::TAN)?;
+    Some((tan_d, st | status_red))
 }
 
 /// Compute both `(sin(x), status)` and `(cos(x), status)` from one
-/// reduction. Returns them as `((sin, sin_status), (cos, cos_status))`.
-fn sincos_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> ((F, Status), (F, Status)) {
-    let (sin_x_ext, cos_x_ext, status_red) = sincos_extended(x);
+/// reduction. Returns them as `((sin, sin_status), (cos, cos_status))`;
+/// a `None` component escalates that component's caller to rung 2 (M8
+/// ladder) while the anchor deliveries stay unconditional.
+#[allow(clippy::type_complexity)]
+fn sincos_kernel<F: DecimalFormat, E: ExtNum>(
+    ex: E,
+    x: F,
+    rm: RoundingMode,
+) -> (Option<(F, Status)>, Option<(F, Status)>) {
+    let (sin_x_ext, cos_x_ext, status_red) = sincos_extended_body::<F, E>(ex, x);
     // Grid-stuck anchors (ADR-0051). `sin`: a small argument absorbs
     // every correction and the result is exactly `x` (`|sin x| < |x|`
     // is a theorem), and an argument within ~10^-25 of `±π/2 + 2πk`
@@ -173,29 +249,26 @@ fn sincos_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> ((F, Status), (F, 
     // near the odd multiples (`|cos x| < 1` strictly likewise). The
     // magnitude shrinks in every case, so the residual side is a
     // theorem, not a measurement.
-    let x_anchor = Extended::from_format(x);
-    let sin_one = Extended {
-        sign: sin_x_ext.sign,
-        ..Extended::ONE
-    };
-    let (sin_d, sin_status) = if sin_x_ext.sticks_to(x_anchor) {
-        x_anchor.to_format_with_residual::<F>(false, rm)
+    let x_anchor = ex.from_format(x);
+    let sin_one = ex.one().with_sign(sin_x_ext.sign());
+    let sin = if sin_x_ext.sticks_to(x_anchor) {
+        Some(x_anchor.to_format_with_residual::<F>(false, rm))
     } else if sin_x_ext.sticks_to(sin_one) {
-        sin_one.to_format_with_residual::<F>(false, rm)
+        Some(sin_one.to_format_with_residual::<F>(false, rm))
     } else {
-        sin_x_ext.to_format::<F>(0, rm)
+        ladder::round_guarded::<F, E>(sin_x_ext, rm, &ladder::SIN)
     };
-    let cos_one = Extended {
-        sign: cos_x_ext.sign,
-        ..Extended::ONE
-    };
-    let (cos_d, cos_status) = if cos_x_ext.sticks_to(cos_one) {
-        cos_one.to_format_with_residual::<F>(false, rm)
+    let cos_one = ex.one().with_sign(cos_x_ext.sign());
+    let cos = if cos_x_ext.sticks_to(cos_one) {
+        Some(cos_one.to_format_with_residual::<F>(false, rm))
     } else {
-        cos_x_ext.to_format::<F>(0, rm)
+        ladder::round_guarded::<F, E>(cos_x_ext, rm, &ladder::COS)
     };
     let status = status_red | Status::INEXACT;
-    ((sin_d, sin_status | status), (cos_d, cos_status | status))
+    (
+        sin.map(|(d, st)| (d, st | status)),
+        cos.map(|(d, st)| (d, st | status)),
+    )
 }
 
 /// Compute `(sin(x), cos(x))` at `Extended` precision. Used directly
@@ -203,13 +276,24 @@ fn sincos_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> ((F, Status), (F, 
 /// sin(x) / cos(x)` (which divides the two extended values before
 /// rounding). Caller filters NaN / Inf / Zero.
 pub fn sincos_extended<F: DecimalFormat>(x: F) -> (Extended, Extended, Status) {
+    sincos_extended_body::<F, Extended>(Extended::ZERO, x)
+}
+
+/// Generic body of [`sincos_extended`] (M4, ADR-0059); `ex` is the
+/// working-precision exemplar (M8b).
+pub(crate) fn sincos_extended_body<F: DecimalFormat, E: ExtNum>(ex: E, x: F) -> (E, E, Status) {
     let neg = match x.classify() {
         Class::Finite { sign, .. } => sign,
         _ => false,
     };
     let abs_x = if neg { x.neg() } else { x };
 
-    let (k_mod_4, r, status_red) = argred::reduce(abs_x);
+    // Per-rung reduction dispatch (M8): rung 1 reads the 76-digit
+    // window and 38-digit π/2, rung 2 `reduce_wide`'s 143-digit
+    // window and 115-digit π/2 — re-running the narrow reduction at
+    // wide arithmetic would inherit the truncation escalation exists
+    // to outrun.
+    let (k_mod_4, r, status_red) = ex.reduce_trig::<F>(abs_x);
     let r_sq = r.square();
     let sin_r = taylor_sin_ext(r, r_sq);
     let cos_r = taylor_cos_ext(r_sq);
@@ -227,16 +311,16 @@ pub fn sincos_extended<F: DecimalFormat>(x: F) -> (Extended, Extended, Status) {
 }
 
 /// `sin(r) = r − r³/3! + r⁵/5! − …` for `|r| ≤ π/4`. Evaluated at
-/// `Extended` precision; caller passes `r²` so it can be shared with
+/// working precision; caller passes `r²` so it can be shared with
 /// the cosine evaluation.
-fn taylor_sin_ext(r: Extended, r_sq: Extended) -> Extended {
+fn taylor_sin_ext<E: ExtNum>(r: E, r_sq: E) -> E {
     let mut sum = r;
     let mut term = r;
     let mut alt = true; // next term subtracts.
                         // n indexes the term series (term_n = r^{2n-1} / (2n-1)!).
                         // Update: term_{n+1} = term_n · r² / ((2n)(2n+1)).
     let mut n: u32 = 1;
-    for _ in 0..120 {
+    for _ in 0..r.sin_cos_series_terms() {
         n += 1;
         let denom = (2 * n - 2) * (2 * n - 1); // u32, fits up to n ≈ 32k
         term = term.mul(r_sq).div_u32(denom);
@@ -256,12 +340,12 @@ fn taylor_sin_ext(r: Extended, r_sq: Extended) -> Extended {
 }
 
 /// `cos(r) = 1 − r²/2! + r⁴/4! − …` for `|r| ≤ π/4`.
-fn taylor_cos_ext(r_sq: Extended) -> Extended {
-    let mut sum = Extended::ONE;
-    let mut term = Extended::ONE;
+fn taylor_cos_ext<E: ExtNum>(r_sq: E) -> E {
+    let mut sum = r_sq.one();
+    let mut term = r_sq.one();
     let mut alt = true; // next term subtracts.
     let mut n: u32 = 0;
-    for _ in 0..120 {
+    for _ in 0..r_sq.sin_cos_series_terms() {
         n += 1;
         let denom = (2 * n - 1) * (2 * n);
         term = term.mul(r_sq).div_u32(denom);

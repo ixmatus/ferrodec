@@ -71,10 +71,11 @@
 //! `|y|` past ~10^15 at `Decimal128` (2026-06-09 review; the band
 //! corpus `tests/vectors/transcend/anchor_bands/` pins the class).
 
-use crate::exp::exp_from_extended;
-use crate::extended::Extended;
+use crate::exp::exp_from_extended_body;
+use crate::extended::ExtNum;
 use crate::format::DecimalFormat;
-use crate::ln::ln_extended;
+use crate::ladder;
+use crate::ln::ln_extended_body;
 use ferrodec_ieee::{decimal_digit_count_u128 as decimal_digit_count, IeeeDecodedClass as Class};
 use ferrodec_ieee::{RoundingMode, Status};
 
@@ -193,9 +194,33 @@ pub fn pow_special_cases<F: DecimalFormat>(x: F, y: F) -> Option<(F, Status)> {
     None
 }
 
+/// `x` raised to the power `y`.
+///
+/// ## Exactness and ties (ADR-0059 classification leg)
+///
+/// Exactness and ties are decided from the inputs alone by the
+/// decimal Lauter–Lefèvre criterion (`b | α`, `b | β`, `t = s^b`;
+/// docs/references/lauter-lefevre-pow-boundary.md), including the
+/// real `PRECISION + 1` ties such as `pow(5, 49)`; the criterion, its
+/// tie handling, and the per-bail completeness proofs live on
+/// `exact::pow_exact_input`. Past the classifier `x^y` is irrational
+/// and the unconditional `INEXACT` is correct in every mode.
 pub fn pow_kernel<F: DecimalFormat>(x: F, y: F, rm: RoundingMode) -> (F, Status) {
+    ladder::ladder_run!(|ex| pow_kernel_body::<F, _>(ex, x, y, rm))
+}
+
+/// Generic body of [`pow_kernel`] (M4, ADR-0059); `None` escalates
+/// (M8 ladder). `ex` is the working-precision exemplar (M8b): the
+/// receiver the constant and constructor surface reads its width from,
+/// never a value the result depends on.
+pub(crate) fn pow_kernel_body<F: DecimalFormat, E: ExtNum>(
+    ex: E,
+    x: F,
+    y: F,
+    rm: RoundingMode,
+) -> Option<(F, Status)> {
     if let Some(early) = pow_special_cases(x, y) {
-        return early;
+        return Some(early);
     }
 
     // Rule 8: general path. `pow_special_cases` returned None, so x is
@@ -210,10 +235,35 @@ pub fn pow_kernel<F: DecimalFormat>(x: F, y: F, rm: RoundingMode) -> (F, Status)
     let y_int = integer_test(y);
     if let Some((v, status)) = pow_integer_fast_path(x, y, &y_int, rm) {
         if !status.inexact() {
-            return (v, status);
+            return Some((v, status));
         }
         // Fall through: int_pow accumulated rounding error; the
         // Extended pipeline below is more accurate.
+    }
+
+    // The pipeline evaluates |x|^y and re-applies the sign for an odd
+    // integer y over a negative base. Round the magnitude under the
+    // negation-reflected mode so the directed modes land on the
+    // correct neighbour after the sign flip (the cbrt `for_negation`
+    // rule; fd-aqs.5). Both the classifier and the kernel share this
+    // sign treatment.
+    let sign_neg = x.is_sign_negative() && matches!(y_int, IntegerKind::OddInteger);
+    let eff_rm = if sign_neg { rm.for_negation() } else { rm };
+
+    // Input-side exact and tie classification (ADR-0059 M7): an exact
+    // rational power (pow(4, 0.5) = 2, pow(10, 300) = 1E+300) or a
+    // PRECISION + 1 boundary case (the tie pow(5, 49)) is delivered
+    // from its exact coefficient through the format rounder before any
+    // approximation runs. This replaces the ADR-0047 post-hoc proof,
+    // which was circular: it could only recognise an exact power the
+    // kernel had already delivered exactly, so at TowardZero /
+    // TowardNegative the kernel's 50-digit error landed pow(4, 0.5)
+    // on 1.999…9 and the wrong value shipped with a spurious INEXACT.
+    // Past this point x^y is provably irrational (the classifier's
+    // completeness proofs), so the kernel's unconditional INEXACT is
+    // correct in every mode.
+    if let Some((mag, status)) = crate::exact::pow_exact_input::<F>(x.abs(), y, eff_rm) {
+        return Some((if sign_neg { mag.neg() } else { mag }, status));
     }
 
     // General path: pow(x, y) = exp(y · ln(|x|)) evaluated entirely at
@@ -223,37 +273,12 @@ pub fn pow_kernel<F: DecimalFormat>(x: F, y: F, rm: RoundingMode) -> (F, Status)
     // the half-ULP grid at every format precision; see the module
     // Accuracy section and ADR-0032 §Decision).
     let abs_x = x.abs();
-    let ln_x_ext = ln_extended(abs_x);
-    let y_ext = Extended::from_format(y);
+    let ln_x_ext = ln_extended_body::<F, E>(ex, abs_x);
+    let y_ext = ex.from_format(y);
     let y_ln_x_ext = y_ext.mul(ln_x_ext);
-
-    // The pipeline evaluates |x|^y and re-applies the sign for an odd
-    // integer y over a negative base. Round the magnitude under the
-    // negation-reflected mode so the directed modes land on the
-    // correct neighbour after the sign flip (the cbrt `for_negation`
-    // rule; fd-aqs.5).
-    let sign_neg = x.is_sign_negative() && matches!(y_int, IntegerKind::OddInteger);
-    let eff_rm = if sign_neg { rm.for_negation() } else { rm };
-    let (result, status) = exp_from_extended::<F>(y_ln_x_ext, eff_rm);
+    let (result, status) = exp_from_extended_body::<F, E>(y_ln_x_ext, eff_rm, &ladder::POW)?;
     let signed = if sign_neg { result.neg() } else { result };
-
-    // `exp_from_extended` already raised INEXACT. pow can land on an exact
-    // value (an exact integer or rational power: pow(10, 300) = 1E+300,
-    // pow(4, 0.5) = 2), where IEEE 754-2019 §7.5 forbids the flag. Suppress
-    // it only when the delivered result raised back through the exponent
-    // reproduces the input exactly. Overflow / ±∞ results never enter the
-    // check (decoding a non-finite datum is undefined). Small exact integer
-    // powers are already handled by the fast path above and never reach
-    // here.
-    let final_status = if !status.overflow()
-        && !signed.is_infinite()
-        && crate::exact::power_is_exact(signed, x, y)
-    {
-        crate::exact::clear_inexact(status)
-    } else {
-        status
-    };
-    (signed, final_status)
+    Some((signed, status))
 }
 
 /// Try the square-and-multiply fast path for integer `y` up to `±256`.

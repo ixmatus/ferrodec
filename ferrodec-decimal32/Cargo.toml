@@ -1,6 +1,6 @@
 [package]
 name = "ferrodec-decimal32"
-version = "4.0.0"
+version = "4.1.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -72,6 +72,14 @@ hyperbolic = ["exp-log", "dep:ferrodec-transcend", "dep:ferrodec-multiword", "fe
 pow = ["exp-log", "dep:ferrodec-transcend", "dep:ferrodec-multiword", "ferrodec-transcend/pow"]
 # Convenience meta-feature: enable every transcendental at once.
 transcendentals = ["trig", "exp-log", "hyperbolic", "pow"]
+# The unbounded rung of the ADR-0059 escalation ladder (M8b): opt-in
+# third transcendental rung with no exception set — a near-boundary
+# escalation widens its working precision at run time instead of
+# delivering from a fixed top rung. Allocates (pulls the growable
+# coefficient substrate via `ferrodec-transcend`); off by default, and
+# default/no-alloc builds are unchanged. Meaningful only alongside a
+# transcendental feature cluster.
+unbounded-ladder = ["ferrodec-transcend/unbounded-ladder"]
 # `core::ops` operator overloads (Add / Sub / Mul / Div / Rem and the
 # *Assign variants, plus Neg). Opt-in: defaults to
 # RoundingMode::NearestEven and drops the per-operation Status. `%`
@@ -108,8 +116,8 @@ dpd = []
 
 [dependencies]
 ferrodec-ieee = { path = "../ferrodec-ieee", version = "0.1.5" }
-ferrodec-multiword = { path = "../ferrodec-multiword", version = "0.1.0", optional = true }
-ferrodec-transcend = { path = "../ferrodec-transcend", version = "0.2.0", optional = true }
+ferrodec-multiword = { path = "../ferrodec-multiword", version = "0.2.0", optional = true }
+ferrodec-transcend = { path = "../ferrodec-transcend", version = "0.3.0", optional = true }
 num-traits = { version = "0.2", default-features = false, optional = true }
 serde = { version = "1", default-features = false, optional = true }
 

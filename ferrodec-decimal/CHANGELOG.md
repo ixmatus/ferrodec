@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.1] - 2026-08-02
+
+### Changed
+
+- `ferrodec-multiword` requirement raised to 0.2.0 (the release that
+  records the `alloc`/`DecBig` surface this crate consumes and adds the
+  `bigconst` runtime constant generators for the transcendental
+  ladder's unbounded rung). No code changes in this crate.
+
 ## [3.0.0] - 2026-07-25
 
 ### Changed

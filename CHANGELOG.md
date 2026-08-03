@@ -7,6 +7,65 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.1.0] - 2026-08-02
+
+### Added
+
+- The `unbounded-ladder` feature (ADR-0059 M8b): an opt-in third
+  transcendental rung above the fixed escalation ladder, forwarded to
+  `ferrodec-transcend`. A near-boundary escalation that reaches it widens
+  its working precision at run time (Ziv doubling from 220 digits, with
+  every constant and the `2/π` window computed at the requested depth), so
+  builds with the feature carry no fixed top rung and no exception set;
+  the per-function budgets become precision formulas audited against the
+  fixed catalog. Requires an allocator; default and no-alloc builds are
+  byte-for-byte unchanged, and the fixed rungs' behavior is identical
+  either way. The `--cfg force_rung3` test lane routes every guarded
+  delivery through the new rung (the full corpus, S1 witness replay
+  included, passes byte-identical to the pinned expectations).
+
+### Fixed
+
+- High-decade `Decimal128` `sin` / `cos` / `tan` misrounds (ADR-0059): the
+  S1 falsification probe's 1 819 Arb-certified witness rows (inputs with
+  full 34-digit coefficients at decades up to ~10^6100, never reached by
+  the sampled corpus) all round correctly under the M8 escalation ladder —
+  a near-boundary 50-digit result re-runs the kernel at 110 digits with
+  the wide Payne–Hanek reduction. The corpus replays as a pinned
+  regression gate (`tests/transcend_campaign_s1.rs`, exact per-file row
+  counts). Escalation is deterministic in the input; the non-escalating
+  path pays only the boundary predicate (~1.5% on trig, ~6% on exp/ln,
+  criterion-measured).
+
+- `Decimal128::pow` exact rational powers and ties (ADR-0059 M7), via
+  input-side classification (the decimal Lauter–Lefèvre criterion):
+  `pow(4, 0.5)` at `TowardZero` / `TowardNegative` returned `1.999…9` with
+  a spurious `INEXACT` and now returns the exact `2`, status `OK`, at every
+  rounding direction; `pow(-1, 1E+40)` no longer carries a spurious
+  `INEXACT`. The 35-digit ties are resolved exactly: `pow(5, 49)`,
+  `pow(2, -49)`, and `pow(0.5, 49)` at `NearestAway` now round away
+  (`…945313`) where the kernel's error picked the lower neighbour. Exact
+  results carry the input-derived cohort.
+
+- `Decimal128::cbrt` directed-mode results on perfect cubes (ADR-0059 M7):
+  `cbrt(0.027)` at `TowardZero` / `TowardNegative` returned
+  `0.2999999999999999999999999999999999` with a spurious `INEXACT`; it now
+  returns the exact `0.3` with status `OK` at every rounding direction, via
+  input-side classification (the replaced post-hoc proof could only
+  recognise an exact root the kernel had already delivered exactly). Exact
+  roots now carry the input-derived cohort (`0.3` at quantum −1 rather than
+  the kernel-noise `0.3000…0` at quantum −34).
+
+- `Decimal128::exp2` nearest-mode tie values (ADR-0059 M7): `exp2(-49)` and
+  `exp2(-50)` are exact midpoints of adjacent representable values (`5^49`
+  and `5^50` are 35 digits ending in 5), which the 50-digit approximation
+  kernel cannot resolve. The input-side classifier now delivers the exact
+  coefficient through the format rounder. Changed values: `exp2(-49)` at
+  `NearestAway` is now `1.776356839400250464677810668945313E-15` (was
+  `…312E-15`); `exp2(-50)` at `NearestEven` is now
+  `8.881784197001252323389053344726562E-16` (the even significand; was
+  `…563E-16`). All other modes and inputs are unchanged.
+
 ## [4.0.0] - 2026-07-25
 
 The decTest skip burn-down: two conformance gaps closed behind one

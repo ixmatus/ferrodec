@@ -556,7 +556,7 @@ def _decisive(b, fmt, mode):
 
 
 def solve(name, fn, coef, exp, neg, fmt, mode="NearestEven",
-          cap_bits=CAP_BITS, record_cap_hits=True):
+          cap_bits=CAP_BITS, record_cap_hits=True, domain_check=True):
     """Smallest Arb precision at which f(coef·10^exp) is decisive at
     the format precision under `mode`. Returns
     (output_str, P_bits, radius, margin) or None (out of domain, input
@@ -575,7 +575,15 @@ def solve(name, fn, coef, exp, neg, fmt, mode="NearestEven",
     because a tier-1 non-decisive return means "promote to tier 2,"
     not "silent corpus loss"; recording would conflate the two."""
     p = fmt["prec"]
-    if not in_domain(name, coef, exp, neg, fmt):
+    # `domain_check=False` is the ADR-0059 campaign certifier's path:
+    # `in_domain`'s exp-family slack keeps the CORPUS one decade short
+    # of the overflow boundary, but the S1 probe targets exactly that
+    # band, and the certifier only submits rows whose production
+    # outputs are already finite (it routes any non-finite output to
+    # its own overflow-boundary verdict before calling here), so
+    # `_decisive`'s own range rejection is the protection that
+    # remains load bearing. Default behaviour is unchanged.
+    if domain_check and not in_domain(name, coef, exp, neg, fmt):
         return None
     # The argument must be exact in the format, else `parse_str`
     # re-rounds it and ferrodec computes f of a different value than
@@ -658,13 +666,17 @@ def solve_binary(name, fn2, xt, yt, fmt, mode,
         # would build a multi-million-digit exact Fraction endpoint
         # that the rounding helper cannot stringify. The Arb loop and
         # _decisive still enforce exact in-range representability.
-        rx = (-1 if xn else 1) * xc * (10.0 ** xe)
-        ry = (-1 if yn else 1) * yc * (10.0 ** ye)
-        if rx <= 0:
+        # Log-space arithmetic: the earlier `xc * (10.0 ** xe)` float
+        # form raised OverflowError for |xe| past ~290, which the
+        # corpus's moderate decades never drew but the ADR-0059
+        # campaign's edge strip does. Same rejection semantics.
+        if xn or xc == 0:
             return None
-        approx = ry * math.log10(rx)
-        if abs(approx) > fmt["emax"] + 8:
-            return None
+        log10_x = math.log10(xc) + xe
+        if log10_x != 0.0:
+            approx_log10 = math.log10(yc) + ye + math.log10(abs(log10_x))
+            if approx_log10 > math.log10(fmt["emax"] + 8):
+                return None
     x = frac10(xc, xe)
     if xn:
         x = -x
