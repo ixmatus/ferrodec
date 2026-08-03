@@ -1,5 +1,5 @@
 //! Exact-result detection for `cbrt`, `pow`, `exp2`, `log2`,
-//! `log10`, and `log10p1` (IEEE 754-2019 §7.5).
+//! `log10`, `log2p1`, and `log10p1` (IEEE 754-2019 §7.5).
 //!
 //! ## Why
 //!
@@ -12,10 +12,10 @@
 //! `exp`, `ln`, and the trig and hyperbolic families that is correct:
 //! their values at non-special representable inputs are irrational
 //! (Lindemann for the base-`e` family at rational arguments), and the
-//! special inputs short-circuit. Six functions are the exceptions:
+//! special inputs short-circuit. Seven functions are the exceptions:
 //! `exp2(n)` with `2^n` in reach of the width gate, `log2(2^k)`,
-//! `log10(10^k)` (fd-aqs.8), `log10p1(10^k − 1)` on the nines
-//! patterns (ADR-0059 Track D), a perfect cube under `cbrt`, and an
+//! `log10(10^k)` (fd-aqs.8), `log2p1(2^k − 1)` and `log10p1(10^k − 1)`
+//! (ADR-0059 Track D), a perfect cube under `cbrt`, and an
 //! exact rational power under `pow` (the decimal Lauter–Lefèvre
 //! criterion). Every one is decided from the *input alone* and
 //! short-circuits before the kernel, which both delivers the exact
@@ -502,6 +502,123 @@ pub(crate) fn log2_exact<F: DecimalFormat>(x: F, rm: RoundingMode) -> Option<(F,
         }
         e
     };
+    Some(pack_value(
+        U256::from_u128(u128::from(k.unsigned_abs())),
+        0,
+        k < 0,
+        rm,
+    ))
+}
+
+/// The exact `log2p1(x) = log2(1 + x)` when `1 + x` is a power of two;
+/// `None` routes to the kernel. The caller
+/// (`crate::ln::log2p1_kernel_body`) has already run
+/// `logp1_special_cases`, so every `x` reaching here is finite,
+/// nonzero, and strictly above `−1`; zeros, infinities, NaNs, and the
+/// domain errors never arrive.
+///
+/// ## Rational values are integers (ADR-0059 Track D)
+///
+/// Let `log2(1+x) = a/b` in lowest terms with `x` representable, so
+/// `1+x` is rational and `(1+x)^b = 2^a`. Write `1+x = p/q` in lowest
+/// terms: `p^b = 2^a q^b` (taking `a ≥ 0`; the `a < 0` case mirrors
+/// with `p` and `q` swapped). Any prime dividing `q` divides `p^b`,
+/// contradicting `gcd(p,q) = 1`, so `q = 1` and `p^b = 2^a`; unique
+/// factorization forces `p = 2^j` with `jb = a`, and `gcd(a,b) = 1`
+/// then forces `b = 1`. Every rational value of `log2p1` at a
+/// representable input is therefore an INTEGER `k`, with `1 + x = 2^k`.
+///
+/// ## The exact set
+///
+/// * `k ≥ 1`: `x = 2^k − 1`, an odd integer (stripped exponent 0).
+///   Representable iff `2^k − 1` carries at most `PRECISION` digits:
+///   `k ≤ 112` at `Decimal128`, `k ≤ 53` at `Decimal64`, `k ≤ 23` at
+///   `Decimal32`.
+/// * `k = 0`: `x = 0`, delivered sign preserved by
+///   `logp1_special_cases` before this classifier runs, so the
+///   classifier never sees it.
+/// * `k = −m ≤ −1`: `x = 2^−m − 1 = −(10^m − 5^m)·10^−m`. The
+///   coefficient `10^m − 5^m = 5^m(2^m − 1)` is odd, so that IS its
+///   stripped form, and it carries exactly `m` digits (it lies in
+///   `[10^m/2, 10^m)`). Representable iff `m ≤ PRECISION`.
+///
+/// ## No ties
+///
+/// A tie value is rational, hence an integer by the argument above. A
+/// nearest mode midpoint has a stripped coefficient of exactly
+/// `PRECISION + 1` digits ending in 5, so an integer midpoint carries
+/// magnitude at least `10^PRECISION ≥ 10^7` (subnormal range midpoints
+/// are far below 1 and cannot be integers either), while
+/// `|log2p1(x)| ≤ log2(10^6146) < 21,000` at the widest format. No tie
+/// exists, so the kernel's unconditional `INEXACT` on everything this
+/// classifier declines is correct in every mode.
+///
+/// ## Bail site completeness
+///
+/// Every `None` below is provably neither exact nor a tie; each site
+/// carries its proof.
+pub(crate) fn log2p1_exact<F: DecimalFormat>(x: F, rm: RoundingMode) -> Option<(F, Status)> {
+    let (coef, exp, sign) = x.to_extended_parts()?;
+    let (c, e) = strip_trailing_zeros(coef, exp);
+    // A format coefficient fits u128 (≤ 34 digits); bail defensively.
+    if c.hi != 0 {
+        return None;
+    }
+    let k: i32 = if sign {
+        // `−1 < x < 0` in the caller's domain, so `0 < 1 + x < 1` and
+        // any exact `k` is `−m ≤ −1`.
+        if e >= 0 {
+            // Unreachable in domain: a stripped `c ≥ 1` with `e ≥ 0`
+            // gives `|x| ≥ 1`, which the special case handler already
+            // sent to `−∞` or NaN. Bailing loses no exact case.
+            return None;
+        }
+        let m = e.unsigned_abs();
+        // `x = 2^−m − 1` has stripped coefficient `10^m − 5^m`, a
+        // number of exactly `m` digits; a representable `x` carries at
+        // most `PRECISION` significant digits, so `m > PRECISION`
+        // admits no `k`.
+        if m > F::PRECISION {
+            return None;
+        }
+        // `m ≤ PRECISION ≤ 34` for every IEEE decimal format keeps
+        // `10^m` well inside `u128`; the checked forms are defensive.
+        let pow10 = 10u128.checked_pow(m)?;
+        let pow5 = 5u128.checked_pow(m)?;
+        // Stripped forms are unique, so a different coefficient at this
+        // exponent names a different value: not `2^−m`.
+        if c.lo != pow10 - pow5 {
+            return None;
+        }
+        -(m as i32)
+    } else {
+        // `x > 0`, so `1 + x > 1` and any exact `k` is `≥ 1`.
+        if e > 0 {
+            // `x = c·10^e` with `e ≥ 1` is `≡ 0 (mod 10)`, so
+            // `1 + x ≡ 1 (mod 10)`, while `2^k ≡ 2, 4, 8, 6 (mod 10)`
+            // for every `k ≥ 1`: no `k`.
+            return None;
+        }
+        if e < 0 {
+            // A stripped coefficient at `e < 0` leaves a nonzero
+            // fractional digit, so `1 + x` is a non integer above 1
+            // while `2^k` is an integer for every `k ≥ 1`: no `k`.
+            return None;
+        }
+        // `e = 0`: `x = c` and `1 + x = c + 1`, no overflow (a format
+        // coefficient stays below `10^34`). Stripped forms are unique,
+        // so `c + 1` failing the power of two test means `1 + x` is no
+        // `2^k`.
+        let n = c.lo + 1;
+        if !n.is_power_of_two() {
+            return None;
+        }
+        i32::try_from(n.trailing_zeros()).ok()?
+    };
+    // `k` spans `[−34, 112]` at `Decimal128` and narrows at the
+    // siblings: a small integer, exactly representable in every format,
+    // so `pack_value` delivers status `OK` identically in every
+    // rounding mode (IEEE 754-2019 §7.5 forbids `INEXACT` here).
     Some(pack_value(
         U256::from_u128(u128::from(k.unsigned_abs())),
         0,

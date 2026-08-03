@@ -517,6 +517,19 @@ pub(crate) const LOGP1: Budget = Budget {
     dynamic: ln_budget_dyn,
 };
 
+/// `log2p1 = logp1(x) · (1/ln 2)` (IEEE 754-2019 §9.2 `log2p1`;
+/// public `log2_1p`): [`LOGP1`]'s items plus one const-multiply on
+/// the result (relative, ≤ 1.5 units), the same composition shape as
+/// [`LOG2`] over [`LN`]. Same constants; the pad absorbs the
+/// multiply. Tiny inputs deliver `x · (1/ln 2)`, a generic working
+/// value with no grid anchor (slope ≠ 1), so unlike [`LOGP1`] no
+/// anchor seam precedes the guard.
+pub(crate) const LOG2P1: Budget = Budget {
+    rung1: 15_000,
+    rung2: 25_000,
+    dynamic: ln_budget_dyn,
+};
+
 /// `log10p1 = logp1(x) · (1/ln 10)` (IEEE 754-2019 §9.2 `log10p1`;
 /// public `log10_1p`): [`LOGP1`]'s items plus one const-multiply on
 /// the result (relative, ≤ 1.5 units), the same composition shape as
@@ -815,13 +828,14 @@ mod tests {
     /// escalate everything).
     #[test]
     fn budgets_are_positive_and_sane() {
-        let all: [(&str, &Budget); 22] = [
+        let all: [(&str, &Budget); 23] = [
             ("exp", &EXP),
             ("exp2", &EXP2),
             ("ln", &LN),
             ("log10", &LOG10),
             ("log2", &LOG2),
             ("logp1", &LOGP1),
+            ("log2p1", &LOG2P1),
             ("log10p1", &LOG10P1),
             ("sin", &SIN),
             ("cos", &COS),
@@ -942,13 +956,14 @@ mod tests {
     /// catalog have diverged and one of them is wrong.
     #[test]
     fn dynamic_budgets_track_the_rung2_catalog() {
-        let all: [(&str, &Budget); 22] = [
+        let all: [(&str, &Budget); 23] = [
             ("exp", &EXP),
             ("exp2", &EXP2),
             ("ln", &LN),
             ("log10", &LOG10),
             ("log2", &LOG2),
             ("logp1", &LOGP1),
+            ("log2p1", &LOG2P1),
             ("log10p1", &LOG10P1),
             ("sin", &SIN),
             ("cos", &COS),

@@ -105,8 +105,9 @@
 //! ADR-0051 anchor seam decides those cases from the side theorem
 //! `ln(1 + x) < x`, which is what terminates the unbounded rung
 //! there. The base variants take the other legs instead: their tiny
-//! results land off grid (slope ≠ 1), and `log10p1` carries an input
-//! side exact classifier (`1 + x` a power of ten) plus its
+//! results land off grid (slope ≠ 1), `log2p1` carries an input side
+//! exact classifier (`1 + x` a power of two; see [`log2p1_kernel`]),
+//! and `log10p1` carries one too (`1 + x` a power of ten) plus its
 //! integer-anchor family (`x = 10^n`, `n ≥ 36`) through the residual
 //! channel (see [`log10p1_kernel`]).
 
@@ -482,6 +483,63 @@ pub(crate) fn logp1_kernel_body<F: DecimalFormat, E: ExtNum>(
         return Some((result, status | Status::INEXACT));
     }
     ladder::round_guarded::<F, E>(result_ext, rm, &ladder::LOGP1)
+}
+
+/// Base 2 logarithm of one plus the argument: the IEEE 754-2019 §9.2
+/// `log2p1` operation, public as `Decimal128::log2_1p` and the
+/// sibling `log2_1p` methods.
+///
+/// ## Exactness and ties (ADR-0059 classification leg)
+///
+/// `log2(1+x) = a/b` in lowest terms with `x` representable makes
+/// `1+x` rational with `(1+x)^b = 2^a`; writing `1+x = p/q` in lowest
+/// terms, unique factorization forces `q = 1`, `p = 2^j`, and finally
+/// `b = 1`. A rational value of `log2p1` at a representable input is
+/// therefore an integer `k` with `1 + x = 2^k`, and the exact family
+/// splits in two: `x = 2^k − 1` for `k ≥ 1` (an odd integer, up to
+/// `k = 112` at `Decimal128`) and `x = −(10^m − 5^m)·10^−m` for
+/// `k = −m ≤ −1` (an odd `m` digit coefficient, up to `m = PRECISION`).
+/// `k = 0` is `x = 0`, which `logp1_special_cases` delivers sign
+/// preserved before the classifier. `exact::log2p1_exact` catches
+/// every one of them input side, with the bail completeness proofs at
+/// their sites.
+///
+/// A nearest mode tie value is rational, hence an integer by the same
+/// argument; but an integer midpoint needs magnitude at least
+/// `10^PRECISION ≥ 10^7` (a midpoint's stripped coefficient carries
+/// `PRECISION + 1` digits and ends in 5), while
+/// `|log2p1(x)| ≤ log2(10^6146) < 21,000`. No tie exists, so the
+/// unconditional `INEXACT` past the classifier is correct in every
+/// mode, and every input the ladder rounds sits a finite distance
+/// from its rounding boundary.
+pub fn log2p1_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
+    ladder::ladder_run!(|ex| log2p1_kernel_body::<F, _>(ex, x, rm))
+}
+
+/// Generic body of [`log2p1_kernel`] (M4, ADR-0059); `None` escalates
+/// (M8 ladder). `ex` is the working-precision exemplar (M8b).
+pub(crate) fn log2p1_kernel_body<F: DecimalFormat, E: ExtNum>(
+    ex: E,
+    x: F,
+    rm: RoundingMode,
+) -> Option<(F, Status)> {
+    if let Some(early) = logp1_special_cases(x) {
+        return Some(early);
+    }
+    // Exact powers of two on `1 + x` (ADR-0059 Track D): every exact
+    // case, at every rounding direction, with no INEXACT (§7.5).
+    if let Some(exact) = crate::exact::log2p1_exact::<F>(x, rm) {
+        return Some(exact);
+    }
+    // No ADR-0051 anchor seam here, deliberately (Chesterton's fence:
+    // its absence is a decision, not an omission). The slope at 0 is
+    // `1/ln 2 ≈ 1.4427`, so a tiny input's result `x/ln 2` lands off
+    // the format grid generically: the collapsed series value `x` is
+    // multiplied by `inv_ln2` before delivery, and there is no grid
+    // point the result hugs asymptotically. `logp1` needs the seam
+    // because its slope is exactly 1; this kernel does not.
+    let result_ext = logp1_extended_core::<F, E>(ex, x).mul(ex.inv_ln2());
+    ladder::round_guarded::<F, E>(result_ext, rm, &ladder::LOG2P1)
 }
 
 /// Base-10 logarithm of one plus the argument (IEEE 754-2019 §9.2

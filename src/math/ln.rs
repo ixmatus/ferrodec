@@ -1,6 +1,6 @@
 //! Re-export + delegating shim: the ln kernel moved to
 //! ferrodec-transcend (P0a.2 c5). The public `Decimal128::ln` /
-//! `log10` / `log2` / `ln_1p` / `log10_1p` wrappers and their
+//! `log10` / `log2` / `ln_1p` / `log2_1p` / `log10_1p` wrappers and their
 //! behaviour tests stay here as the byte-identical regression gate.
 
 use crate::decimal::Decimal128;
@@ -88,6 +88,10 @@ impl Decimal128 {
     #[doc(alias = "logp1")]
     pub fn ln_1p(self, rm: RoundingMode) -> (Self, Status) {
         ferrodec_transcend::ln::logp1_kernel::<Decimal128>(self, rm)
+    }
+
+    pub fn log2_1p(self, rm: RoundingMode) -> (Self, Status) {
+        ferrodec_transcend::ln::log2p1_kernel::<Decimal128>(self, rm)
     }
 
     pub fn log10_1p(self, rm: RoundingMode) -> (Self, Status) {

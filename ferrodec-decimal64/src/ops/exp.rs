@@ -59,6 +59,16 @@
 //! * `log10_1p(−1) = −∞ + DIV_BY_ZERO`.
 //! * `log10_1p(x)` → NaN + INVALID for `x < −1`, `−∞` included.
 //! * `log10_1p(+∞) = +∞`.
+//!
+//! # Special cases for `log2_1p` (§9.2.1 `log2p1`)
+//!
+//! * `log2_1p(NaN)` propagates; a signaling NaN raises INVALID.
+//! * `log2_1p(±0) = ±0`, sign preserved, no exception.
+//! * `log2_1p(-1) = −∞ + DIV_BY_ZERO`.
+//! * `log2_1p(x)` for `x < −1`, `−∞` included, is NaN + INVALID.
+//! * `log2_1p(+∞) = +∞`.
+//! * A tiny `x` can land the result in the subnormal range, raising
+//!   UNDERFLOW + INEXACT.
 
 use crate::bid::{classify_bits, Class};
 use crate::decimal::Decimal64;
@@ -136,6 +146,10 @@ impl Decimal64 {
     #[doc(alias = "logp1")]
     pub fn ln_1p(self, rm: RoundingMode) -> (Self, Status) {
         ferrodec_transcend::ln::logp1_kernel::<Decimal64>(self, rm)
+    }
+
+    pub fn log2_1p(self, rm: RoundingMode) -> (Self, Status) {
+        ferrodec_transcend::ln::log2p1_kernel::<Decimal64>(self, rm)
     }
 
     pub fn log10_1p(self, rm: RoundingMode) -> (Self, Status) {

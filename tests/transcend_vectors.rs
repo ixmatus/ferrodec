@@ -70,6 +70,7 @@ fn kernel(v: &frozen::FrozenVec, rm: RoundingMode) -> Decimal128 {
         "exp" => x.exp(rm).0,
         "ln" => x.ln(rm).0,
         "log2" => x.log2(rm).0,
+        "log2p1" => x.log2_1p(rm).0,
         "log10" => x.log10(rm).0,
         "logp1" => x.ln_1p(rm).0,
         "log10p1" => x.log10_1p(rm).0,
