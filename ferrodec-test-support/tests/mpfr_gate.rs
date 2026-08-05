@@ -32,7 +32,7 @@ use ferrodec_test_support::round_dec::{
     decimal_magnitude, parse_dec, round_directed_sig, same_value, Round as DecRound,
 };
 use rug::float::Round;
-use rug::ops::{DivAssignRound, PowAssignRound};
+use rug::ops::{DivAssignRound, PowAssignRound, SubAssignRound};
 use rug::Float;
 
 fn dec_round(mode: &str) -> DecRound {
@@ -57,12 +57,33 @@ fn dec_round(mode: &str) -> DecRound {
 /// `x²/2` becomes visible; the base-variant compositions
 /// (`log2p1` / `log10p1`) scale the value away from the grid and
 /// keep the generic headroom.
+/// The functions whose values hug a representable anchor at a depth
+/// that scales with the argument (logp1's tiny band; the expm1
+/// family's x anchor and −1 approach; exp10m1's all-nines positive
+/// side). Their working precision and stringification guard must
+/// reach past the agreement run or the directed modes collapse onto
+/// the anchor (the D1/D2 review's width-collapse family).
+fn is_anchor_hugging(func: &str) -> bool {
+    matches!(func, "logp1" | "expm1" | "exp2m1" | "exp10m1" | "exp10")
+}
+
 fn work_bits(prec: usize, mag: i64, trig: bool, p1_anchor: bool) -> u32 {
     let base = 64 + 4 * (prec as i64 + 30);
     let extra = if trig {
         (mag.unsigned_abs() as i64 * 34 / 10) + 64
     } else if p1_anchor {
-        (mag.unsigned_abs() as i64 * 67 / 10) + 64
+        // Tiny inputs: the residual appears ~2·|mag| digits down
+        // (6.7 bits per digit). Moderate negative inputs (the −1
+        // approach, |x| up to ~10^4): the agreement run is
+        // ~|x|·log10(base) digits, bounded by 10^(mag+1); the cap
+        // keeps the pathological corner inside MPFR's 2^20 ceiling.
+        let tiny = mag.unsigned_abs() as i64 * 67 / 10;
+        let approach = if (0..=4).contains(&mag) {
+            10i64.pow(mag as u32 + 1) * 67 / 10
+        } else {
+            0
+        };
+        tiny.max(approach) + 64
     } else {
         64
     };
@@ -129,6 +150,24 @@ fn eval(fv: &frozen::FrozenVec, p: u32) -> (Float, Ordering) {
         // ternary (a distribution stat only, never part of the
         // verdict) is the final operation's.
         "logp1" => v.ln_1p_round(Round::Nearest),
+        // ADR-0059 Track D D2: expm1 and exp10 are MPFR-native
+        // (mpfr_expm1, mpfr_exp10); the base-m1 variants compose the
+        // native power with an exact subtraction of 1 at the same
+        // generous working precision (the subtraction is a single
+        // correctly rounded op; the ternary stays a distribution
+        // stat).
+        "expm1" => v.exp_m1_round(Round::Nearest),
+        "exp10" => v.exp10_round(Round::Nearest),
+        "exp2m1" => {
+            v.exp2_round(Round::Nearest);
+            let one = Float::with_val(p, 1u32);
+            v.sub_assign_round(&one, Round::Nearest)
+        }
+        "exp10m1" => {
+            v.exp10_round(Round::Nearest);
+            let one = Float::with_val(p, 1u32);
+            v.sub_assign_round(&one, Round::Nearest)
+        }
         "log2p1" => {
             v.ln_1p_round(Round::Nearest);
             let ln2 = Float::with_val(p, rug::float::Constant::Log2);
@@ -163,7 +202,7 @@ fn mpfr_cross_validates_arb_corpus() {
                 prec as usize,
                 mag,
                 TRIG.contains(&v.func.as_str()),
-                v.func == "logp1",
+                is_anchor_hugging(&v.func),
             );
 
             // MPFR at Round::Nearest with generous precision is the
@@ -187,8 +226,14 @@ fn mpfr_cross_validates_arb_corpus() {
             // found in its own mpmath oracle).
             let guard = prec as usize
                 + 15
-                + if v.func == "logp1" {
-                    2 * mag.unsigned_abs() as usize
+                + if is_anchor_hugging(&v.func) {
+                    let tiny = 2 * mag.unsigned_abs() as usize;
+                    let approach = if (0..=4).contains(&mag) {
+                        10usize.pow(mag as u32 + 1)
+                    } else {
+                        0
+                    };
+                    tiny.max(approach)
                 } else {
                     0
                 };
