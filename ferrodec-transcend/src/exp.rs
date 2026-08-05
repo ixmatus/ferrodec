@@ -51,6 +51,46 @@
 //! are the empirical witnesses. `exp` has no TMD hard candidates:
 //! `exp(0) = 1` is handled by the zero short circuit and is not in
 //! the canonical sweep enumeration.
+//!
+//! ## The `expm1` family (ADR-0059 Track D)
+//!
+//! The IEEE 754-2019 §9.2 `expm1` family (`expm1` / `exp2m1` /
+//! `exp10m1`, public `exp_m1` / `exp2_m1` / `exp10_m1`) shares this
+//! module's reduction, series, and decade machinery through
+//! `expm1_ext`, and its §9.2.1 dispositions through
+//! `expm1_special_cases` (`f(+∞) = +∞`, `f(−∞) = −1` exactly with
+//! no exception, `f(±0) = ±0` sign preserved). Each member runs on
+//! the ADR-0059 escalation ladder from its first release, with its
+//! own budget in `ladder.rs`.
+//!
+//! Two gates precede the core (`expm1_gates`, on the base scaled
+//! working argument `u`). Past the format's `exp_overflow_limit` the
+//! true value is whole decades beyond the last finite boundary, so
+//! the saturation proxy feeds the format rounder directly exactly as
+//! `exp`'s own gate does. Below `u = −120` the true value sits
+//! strictly inside `(−1, −1 + 10^−52)`, closer to `−1` than any
+//! format's first boundary toward zero, so every mode's answer is the
+//! `−1` anchor's; that gate also keeps the reduction's
+//! `trunc_to_i32` away from arguments whose reduction integer would
+//! not fit.
+//!
+//! The core splits at `|u| ≤ 1.1513`, the reduction's own `k = 0`
+//! window. Inside it the direct `expm1` series keeps the result's
+//! accuracy relative to `e^u − 1` however small that is, which the
+//! `exp` pipeline followed by a subtraction cannot do; outside it the
+//! `exp` pipeline runs and the closing subtraction of 1 amplifies by
+//! `e^u/(e^u − 1) ≤ 1.47` at the band edge.
+//!
+//! Both grid hugging bands are decided by ADR-0051 anchor seams
+//! rather than by a wider rung. The `−1` anchor catches the working
+//! collapse just above the deep negative gate (the subtraction rounds
+//! to 1 at working width), on the side theorem `e^u − 1 > −1`.
+//! `expm1` carries a second seam at its argument: `e^x − 1 > x`
+//! strictly, so once `|x|` drops below roughly `10^−47` and the
+//! series collapses onto `x` itself the seam supplies the side, the
+//! mirror of `logp1`'s seam in `ln.rs` with the direction reversed.
+//! The base variants take the other legs instead: their slope at 0
+//! is `ln 2` or `ln 10`, so their tiny results land off grid.
 
 use crate::extended::{ExtNum, Extended};
 use crate::format::DecimalFormat;
@@ -173,6 +213,449 @@ pub(crate) fn exp2_kernel_body<F: DecimalFormat, E: ExtNum>(
     }
     let arg_ext = ex.from_format(x).mul(ex.ln2());
     exp_from_extended_body::<F, E>(arg_ext, rm, &ladder::EXP2)
+}
+
+/// Short-circuit the special values shared by the `expm1` family
+/// (`expm1` / `exp2m1` / `exp10m1`, IEEE 754-2019 §9.2 and §9.2.1):
+/// NaN propagation (sNaN raises `INVALID`), `f(+∞) = +∞`,
+/// `f(−∞) = −1` exactly with no exception, and `f(±0) = ±0` (sign
+/// preserved, no exception). `None` means finite nonzero: the
+/// kernels' domain.
+pub(crate) fn expm1_special_cases<F: DecimalFormat>(x: F) -> Option<(F, Status)> {
+    match x.classify() {
+        Class::SignalingNaN { .. } => Some((x.nan_from(), Status::INVALID)),
+        Class::QuietNaN { .. } => Some((x, Status::OK)),
+        Class::Infinity { sign } => Some(if sign {
+            (F::NEG_ONE, Status::OK)
+        } else {
+            (F::INFINITY, Status::OK)
+        }),
+        Class::Zero { .. } => Some((x, Status::OK)),
+        Class::Finite { .. } => None,
+    }
+}
+
+/// The gated deliveries shared by the `expm1` family, on the working
+/// argument `u` (already base-scaled by the caller): `Some` is a
+/// finished delivery, `None` falls through to the series core.
+///
+/// * Overflow: `u` past the format's `exp_overflow_limit` makes
+///   `e^u − 1` overflow with margin (the gate threshold puts `e^u`
+///   a factor of 1.66 to 1.91 past the largest finite magnitude,
+///   measured per format at the integer thresholds, and subtracting
+///   1 from a value at the 10^emax scale cannot bring it back); the
+///   saturation proxy feeds the format rounder directly, exactly as
+///   `exp_from_extended_body`'s gate does, and per the 9f30a98
+///   lesson it must never reach a guarded delivery.
+/// * The −1 band: for `u ≤ −120`, `0 < e^u < 10^−52`, so the true
+///   value sits strictly inside `(−1, −1 + 10^−52)` while the
+///   ADR-0051 residual channel's denoted interval is
+///   `(−1, −1 + 10^−49)`-scaled: both lie strictly between `−1` and
+///   the first boundary toward zero at every format (the nearest is
+///   `5·10^−35` away at the widest), so every mode's answer is the
+///   anchor's (`NearestEven`/`NearestAway`/`TowardNegative` deliver
+///   `−1`, the other two its toward-zero neighbor). The gate sits
+///   BEFORE the reduction, which also keeps `trunc_to_i32` away
+///   from arguments whose reduction integer would not fit.
+pub(crate) fn expm1_gates<F: DecimalFormat, E: ExtNum>(
+    ex: E,
+    u: E,
+    rm: RoundingMode,
+) -> Option<(F, Status)> {
+    if !u.sign() {
+        let limit = ex.from_extended(F::exp_overflow_limit());
+        if u.cmp(limit) == core::cmp::Ordering::Greater {
+            let sat = Extended::saturate_overflow(false);
+            let (result, status) =
+                F::round_and_pack_finite(sat.coef, sat.exp, 0, sat.sign, true, rm, Status::OK);
+            return Some((result, status | Status::INEXACT));
+        }
+        return None;
+    }
+    if u.abs().cmp(ex.from_i32(120)) == core::cmp::Ordering::Greater {
+        let (result, status) = ex.one().neg().to_format_with_residual::<F>(false, rm);
+        return Some((result, status | Status::INEXACT));
+    }
+    None
+}
+
+/// `e^u − 1` at working precision for a finite nonzero `u` inside the
+/// gates (`|u| ≤ max(overflow limit, 120)`). Two bands:
+///
+/// * `|u| ≤ 1.1513` (the reduction's own `k = 0` window): the direct
+///   `expm1` series `u + u²/2! + u³/3! + …`, which keeps the result's
+///   accuracy relative to `e^u − 1` however small `u` is; on the
+///   negative side the alternating terms cancel by at most
+///   `e^{|u|} ≤ 3.17`, priced in the family budgets.
+/// * Otherwise the `exp` pipeline (`k·ln 10` split, Taylor, decade
+///   recomposition) followed by the subtraction of 1, whose
+///   cancellation factor `e^u/(e^u − 1)` is at most `1.47` once
+///   `|u| > 1.1513` (and at most 1 on the negative side).
+pub(crate) fn expm1_ext<E: ExtNum>(ex: E, u: E) -> E {
+    if u.abs().cmp(ex.parse_str("1.1513")) != core::cmp::Ordering::Greater {
+        let mut sum = u;
+        let mut term = u;
+        for n in 2u32..=u.exp_series_terms() {
+            term = term.mul(u).div_u32(n);
+            let next_sum = sum.add(term);
+            if next_sum.cmp(sum) == core::cmp::Ordering::Equal {
+                sum = next_sum;
+                break;
+            }
+            sum = next_sum;
+            if term.is_zero() {
+                break;
+            }
+        }
+        return sum;
+    }
+    exp_extended_body(u).sub(ex.one())
+}
+
+/// `expm1(x) = e^x − 1` (IEEE 754-2019 §9.2 `expm1`). The public
+/// wrappers are `Decimal128::exp_m1` and the `Decimal64` /
+/// `Decimal32` siblings.
+///
+/// ## Exactness and ties (ADR-0059 classification leg)
+///
+/// Suppose `e^x − 1 = r` with `r` rational and `x` representable.
+/// Then `e^x = 1 + r` is rational too, which for rational `x ≠ 0` is
+/// impossible: `e^x` is transcendental there (Lindemann;
+/// docs/references/shidlovskii-transcendence.md,
+/// docs/references/niven-irrational-numbers.md). So `x = ±0` is the
+/// whole exact set, and `expm1_special_cases` delivers it sign
+/// preserved and exception free per §9.2.1. A nearest mode tie value
+/// is rational, so the same argument rules every tie out. The
+/// kernel's unconditional `INEXACT` past the special values is
+/// therefore correct in every mode, and every input the ladder rounds
+/// sits a finite distance from its rounding boundary (the ladder's
+/// standing assumption).
+///
+/// ## Accuracy
+///
+/// Correctly rounded on the ADR-0059 escalation ladder: rung 1
+/// evaluates at 50 digits and delivers only when the `ladder::EXPM1`
+/// budget clears every rounding boundary of the format, otherwise the
+/// identical body re-runs at rung 2 (and, under the
+/// `unbounded-ladder` feature, at a dynamic rung that widens until
+/// the boundary is decided). The budget's itemization lives on
+/// `ladder::EXPM1`; the module doc above derives the gates and the
+/// two bands.
+///
+/// Two ADR-0051 anchor seams run before the guard, each on a strict
+/// side theorem no finite rung can supply: `e^x − 1 > x` at the
+/// argument (the tiny band, where the series collapses onto `x`
+/// itself) and `e^x − 1 > −1` at the deep negative end (where the
+/// subtraction collapses onto `−1`). `UNDERFLOW` rides the format
+/// rounder for subnormal results, which the tiny band reaches because
+/// the result hugs the argument (Table 9.1 lists it for this family).
+pub fn expm1_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
+    ladder::ladder_run!(|ex| expm1_kernel_body::<F, _>(ex, x, rm))
+}
+
+/// Generic body of [`expm1_kernel`] (M4, ADR-0059); `None` escalates
+/// (M8 ladder). `ex` is the working-precision exemplar (M8b): the
+/// receiver the constant and constructor surface reads its width from,
+/// never a value the result depends on.
+pub(crate) fn expm1_kernel_body<F: DecimalFormat, E: ExtNum>(
+    ex: E,
+    x: F,
+    rm: RoundingMode,
+) -> Option<(F, Status)> {
+    if let Some(early) = expm1_special_cases(x) {
+        return Some(early);
+    }
+    let x_ext = ex.from_format(x);
+    if let Some(gated) = expm1_gates::<F, E>(ex, x_ext, rm) {
+        return Some(gated);
+    }
+    let result_ext = expm1_ext(ex, x_ext);
+    // Grid-stuck at the input (ADR-0051): `e^x − 1 > x` strictly, so
+    // the residual side is above x: away from zero for positive x,
+    // toward zero for negative x (the mirror of logp1's seam). For
+    // |x| ≲ 1e-47 the series collapses to exactly x and this seam is
+    // what terminates the unbounded rung there.
+    if result_ext.sticks_to(x_ext) {
+        let (result, status) = x_ext.to_format_with_residual::<F>(!x_ext.sign(), rm);
+        return Some((result, status | Status::INEXACT));
+    }
+    // Collapse onto the −1 anchor (the deep negative band; shared
+    // side theorem `e^x − 1 > −1`).
+    if result_ext.sticks_to(ex.one().neg()) {
+        let (result, status) = ex.one().neg().to_format_with_residual::<F>(false, rm);
+        return Some((result, status | Status::INEXACT));
+    }
+    ladder::round_guarded::<F, E>(result_ext, rm, &ladder::EXPM1)
+}
+
+/// Base 2 exponential minus one: the IEEE 754-2019 §9.2 `exp2m1`
+/// operation, `2^x − 1`, public as `Decimal128::exp2_m1` and the
+/// sibling `exp2_m1` methods. Evaluated as `expm1(x · ln 2)` so an
+/// argument near zero keeps its full relative accuracy instead of
+/// losing it to the cancellation `2^x ⊖ 1` would suffer.
+///
+/// ## Exactness and ties (ADR-0059 classification leg)
+///
+/// `2^x − 1 = r` rational makes `2^x = 1 + r` rational, and unique
+/// factorization then forces a representable `x = a/b` to have
+/// `b = 1`: every exact result and every nearest mode tie sits at an
+/// integer `x = n`, value `2^n − 1`. The exact family is `2^n − 1`
+/// for `1 ≤ n ≤ 112` (34 digits; 53 and 23 at the siblings) and
+/// `−(10^m − 5^m)·10^−m` for `n = −m` with `1 ≤ m ≤ PRECISION`;
+/// `n = 0` is `x = ±0`, delivered by `expm1_special_cases`.
+///
+/// Unlike the `logp1` family, this one has real ties, six of them:
+/// the positive side's `2^n − 1` ends in 5 exactly when `4 | n`, and
+/// the `PRECISION + 1`-digit window holds exactly one such `n`
+/// (`116` / `56` / `24`); the negative side's `10^m − 5^m` always
+/// ends in 5, so `m = PRECISION + 1` (`35` / `17` / `8`) is a tie at
+/// every format. `exact::exp2m1_exact_or_tie` catches all of them
+/// input side and delivers through the format rounder, whose own tie
+/// rule decides a value the approximation kernel cannot: the true
+/// value IS the boundary. Past the classifier the value is
+/// irrational, so the unconditional `INEXACT` is correct in every
+/// mode and every rounded input sits a finite distance from its
+/// rounding boundary (the ladder's standing assumption).
+///
+/// ## Accuracy
+///
+/// Correctly rounded on the ADR-0059 escalation ladder from this
+/// operation's first release: rung 1 evaluates at 50 digits and
+/// delivers only when the `ladder::EXP2M1` budget clears every
+/// rounding boundary of the format, otherwise the identical body
+/// re-runs at rung 2's 110 digits, and under the `unbounded-ladder`
+/// feature at a dynamic rung that widens until the rounding is
+/// decided. The budget's itemization lives on `ladder::EXP2M1`.
+pub fn exp2m1_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
+    ladder::ladder_run!(|ex| exp2m1_kernel_body::<F, _>(ex, x, rm))
+}
+
+/// Generic body of [`exp2m1_kernel`] (M4, ADR-0059); `None` escalates
+/// (M8 ladder). `ex` is the working-precision exemplar (M8b): the
+/// receiver the constant and constructor surface reads its width from,
+/// never a value the result depends on.
+pub(crate) fn exp2m1_kernel_body<F: DecimalFormat, E: ExtNum>(
+    ex: E,
+    x: F,
+    rm: RoundingMode,
+) -> Option<(F, Status)> {
+    if let Some(early) = expm1_special_cases(x) {
+        return Some(early);
+    }
+    // Exact values and the six nearest-mode ties on integer inputs
+    // (ADR-0059 Track D): every one at every rounding direction, with
+    // no INEXACT on the exact ones (§7.5) and the mode's own tie rule
+    // on the midpoints.
+    if let Some(exact) = crate::exact::exp2m1_exact_or_tie::<F>(x, rm) {
+        return Some(exact);
+    }
+    let u = ex.from_format(x).mul(ex.ln2());
+    if let Some(gated) = expm1_gates::<F, E>(ex, u, rm) {
+        return Some(gated);
+    }
+    let result_ext = expm1_ext(ex, u);
+    // No x anchor (slope ln 2 ≠ 1 lands tiny results off grid); the
+    // −1 collapse seam per the shared spec. For `u` in roughly
+    // `(−120, −107)` the subtraction rounds `e^u` away at working
+    // width and the result collapses onto `−1` exactly, a format grid
+    // point no rung separates from the true value; `e^u − 1 > −1` for
+    // every finite `u`, so the true value lies toward zero from the
+    // anchor and `magnitude_grows = false`. Unguarded by design: the
+    // ADR-0051 residual leg runs before the ladder's predicate.
+    if result_ext.sticks_to(ex.one().neg()) {
+        let (result, status) = ex.one().neg().to_format_with_residual::<F>(false, rm);
+        return Some((result, status | Status::INEXACT));
+    }
+    ladder::round_guarded::<F, E>(result_ext, rm, &ladder::EXP2M1)
+}
+
+/// Base-10 exponential `10^x` (IEEE 754-2019 §9.2 `exp10`). Computed
+/// as `exp(x · ln 10)` at working precision, the same composition
+/// shape [`exp2_kernel`] uses for base 2.
+///
+/// ## Exactness and ties (ADR-0059 classification leg)
+///
+/// `10^x` rational at a representable `x = a/b` in lowest terms forces
+/// `b = 1`: the value's 2-exponent and 5-exponent must each equal
+/// `a/b` under unique factorization of `10 = 2·5`, and both are
+/// integers. Every exact case is therefore an integer `n` with value
+/// `10^n`, coefficient 1. No input lands on a nearest-mode tie either:
+/// a midpoint's stripped coefficient ends in 5 while a power of ten's
+/// is 1. `exact::exp10_integer` catches the whole family input side:
+/// *every* integer, not only the representable ones. That breadth is
+/// load bearing for the ladder rather than merely tidy, since a `10^n`
+/// past the range sits exactly ON a grid point at its own exponent, a
+/// distance no rung can grow, and the overflow gate leaves one such
+/// integer per format uncovered (`n = 6145` at `Decimal128`). The kernel's
+/// unconditional `INEXACT` is correct on everything the classifier
+/// declines, since those values are all irrational.
+///
+/// ## Accuracy
+///
+/// Correctly rounded on the ADR-0059 escalation ladder from this
+/// operation's first release: rung 1 evaluates at 50 digits and
+/// delivers only when the `ladder::EXP10` budget clears every
+/// rounding boundary of the format, otherwise the identical body
+/// re-runs at rung 2's 110 digits (and, under the `unbounded-ladder`
+/// feature, at a dynamic rung that widens until the rounding is
+/// decided). The budget's itemization lives on `ladder::EXP10`; the
+/// 1-anchor for tiny `x` and the over/underflow gates are inherited
+/// unchanged from the shared `exp_from_extended_body` core.
+///
+/// ## Special values (IEEE 754-2019 §9.2.1)
+///
+/// `exp10` takes `exp`'s dispositions, not the `expm1` family's:
+/// `exp10(±0) = 1` exactly with no exception, `exp10(−∞) = +0`,
+/// `exp10(+∞) = +∞`, NaN propagates, and a signaling NaN raises
+/// `INVALID`.
+pub fn exp10_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
+    ladder::ladder_run!(|ex| exp10_kernel_body::<F, _>(ex, x, rm))
+}
+
+/// Generic body of [`exp10_kernel`] (M4, ADR-0059); `None` escalates
+/// (M8 ladder). `ex` is the working-precision exemplar (M8b).
+pub(crate) fn exp10_kernel_body<F: DecimalFormat, E: ExtNum>(
+    ex: E,
+    x: F,
+    rm: RoundingMode,
+) -> Option<(F, Status)> {
+    match x.classify() {
+        Class::SignalingNaN { .. } => return Some((x.nan_from(), Status::INVALID)),
+        Class::QuietNaN { .. } => return Some((x, Status::OK)),
+        Class::Infinity { sign } => {
+            return Some(if sign {
+                (F::ZERO, Status::OK)
+            } else {
+                (F::INFINITY, Status::OK)
+            });
+        }
+        Class::Zero { .. } => return Some((F::ONE, Status::OK)),
+        Class::Finite { .. } => {}
+    }
+    // Integer inputs: 10^n delivered through the format rounder's
+    // §7.4 disposition — exact in range, correct overflow and
+    // underflow beyond it. Load bearing for the ladder: an
+    // above-range 10^n is exactly ON a grid point at its own
+    // exponent, which no rung can move off, and the overflow gate's
+    // integer gap (n = 6145 at Decimal128) would otherwise escalate
+    // forever (ADR-0059 Track D; the proof lives on
+    // `exact::exp10_integer`).
+    if let Some(exact) = crate::exact::exp10_integer::<F>(x, rm) {
+        return Some(exact);
+    }
+    let arg_ext = ex.from_format(x).mul(ex.ln10());
+    exp_from_extended_body::<F, E>(arg_ext, rm, &ladder::EXP10)
+}
+
+/// Base-10 exponential minus one: the IEEE 754-2019 §9.2 `exp10m1`
+/// operation, `10^x − 1`, public as `Decimal128::exp10_m1` and the
+/// `Decimal64` / `Decimal32` siblings. Evaluated as
+/// `expm1(x · ln 10)` so an argument near zero keeps its full
+/// relative accuracy instead of losing it to the cancellation
+/// `10^x ⊖ 1` would suffer.
+///
+/// ## Exactness and ties (ADR-0059 classification leg)
+///
+/// `10^x − 1 = r` with `r` rational and `x` representable makes
+/// `1 + r = 10^x` rational; writing `1 + r = p/q` in lowest terms and
+/// `x = a/b` in lowest terms gives `(p/q)^b = 10^a`. Any prime
+/// dividing `q` would divide `p^b`, contradicting `gcd(p, q) = 1`, so
+/// `1 + r` is an integer power form, and unique factorization
+/// (`10 = 2·5`) makes its 2 exponent and its 5 exponent each equal
+/// `a/b`, forcing `b | a` and hence `b = 1`. Every exact value of
+/// `exp10m1` at a representable input therefore sits at an INTEGER
+/// argument `x = n`, with value `10^n − 1`: the `|n|` nines pattern
+/// (`9`, `99`, `999`, … above zero; `−0.9`, `−0.99`, … below it).
+///
+/// No tie exists anywhere: a nearest mode midpoint's stripped
+/// coefficient ends in 5, while `10^n − 1` is all nines and its
+/// stripped coefficient ends in 9 at every `n`. Past the classifier
+/// the true value is irrational, so the unconditional `INEXACT` is
+/// correct in every mode and every rounded input sits a finite
+/// distance from its rounding boundary (the ladder's standing
+/// assumption).
+///
+/// ## The all-nines proxy (the classifier decides EVERY integer)
+///
+/// `exact::exp10m1_integer` is not only the exact-case classifier: it
+/// answers every integer argument the format can name, because the
+/// integers past the exact family are a *constructible* misround
+/// class rather than a model residual. Once `n` passes the working
+/// width, `10^n` absorbs the `−1` and the working value lands exactly
+/// ON the grid point `1·10^n` — a distance no fixed rung grows, so
+/// for `n` past roughly 107 even rung 2's bracket contains the
+/// boundary and a default build would decide the directed modes by
+/// the sign of its own noise, across thousands of inputs (the D1
+/// `log10p1` lesson in its inverse direction). The gap integer
+/// between the overflow gate and the true overflow boundary
+/// (`n = 6145` at `Decimal128`) would escalate forever instead.
+///
+/// The classifier's delivery is uniform and input side: the exact
+/// nines coefficient for `|n| ≤ PRECISION`, and beyond it the
+/// `PRECISION + 1` digit all nines coefficient with `pre_sticky`
+/// marking the dropped nines, which the format rounder then resolves
+/// exactly as it would the true value — overflow disposition (§7.4)
+/// included. The soundness argument is total digit knowledge, not a
+/// margin; it lives on `exact::exp10m1_integer`.
+///
+/// ## Accuracy
+///
+/// Correctly rounded. `exp10m1` runs on the ADR-0059 escalation
+/// ladder from its first release: rung 1 evaluates at 50 digits and
+/// delivers only when the `ladder::EXP10M1` budget clears every
+/// rounding boundary of the format, otherwise the identical body
+/// re-runs at rung 2's 110 digits, and under the `unbounded-ladder`
+/// feature at a dynamic rung that widens until the rounding is
+/// decided. The budget's itemization lives on `ladder::EXP10M1`.
+/// Arguments below the `−1` collapse threshold, where the working
+/// subtraction rounds to exactly `−1`, are decided by the ADR-0051
+/// residual seam from the strict side theorem `10^x − 1 > −1`.
+pub fn exp10m1_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
+    ladder::ladder_run!(|ex| exp10m1_kernel_body::<F, _>(ex, x, rm))
+}
+
+/// Generic body of [`exp10m1_kernel`] (M4, ADR-0059); `None`
+/// escalates (M8 ladder). `ex` is the working-precision exemplar
+/// (M8b): the receiver the constant and constructor surface reads its
+/// width from, never a value the result depends on.
+pub(crate) fn exp10m1_kernel_body<F: DecimalFormat, E: ExtNum>(
+    ex: E,
+    x: F,
+    rm: RoundingMode,
+) -> Option<(F, Status)> {
+    if let Some(early) = expm1_special_cases(x) {
+        return Some(early);
+    }
+    // Every integer argument, decided input side (ADR-0059 Track D).
+    // The exact family (`|n| ≤ PRECISION`, the nines patterns) is the
+    // §7.5 half; the rest is the absorbed-grid hazard: past the
+    // working width `10^n ⊖ 1` keeps every digit of `10^n` and the
+    // working value sits exactly ON the grid point `1·10^n`, which no
+    // rung can move off, so the directed modes would be decided by
+    // noise for thousands of inputs, and the overflow-gate gap
+    // integer would carry the §7.4 disposition of the absorbed proxy
+    // rather than of the true value. `exact::exp10m1_integer` carries
+    // the derivation, the all nines proxy's soundness argument, and
+    // every bail proof. Unguarded by design.
+    if let Some(done) = crate::exact::exp10m1_integer::<F>(x, rm) {
+        return Some(done);
+    }
+    let u = ex.from_format(x).mul(ex.ln10());
+    if let Some(done) = expm1_gates::<F, E>(ex, u, rm) {
+        return Some(done);
+    }
+    let result_ext = expm1_ext(ex, u);
+    // The −1 collapse seam (ADR-0051): for `u` in roughly
+    // `(−120, −107)` the working subtraction rounds to exactly `−1`, a
+    // format grid point no rung separates from the true value. The
+    // side theorem `10^x − 1 > −1` for every finite `x` puts the true
+    // value above the anchor, toward zero: `magnitude_grows = false`.
+    // Unguarded: the anchor leg runs before the ladder's predicate.
+    if result_ext.sticks_to(ex.one().neg()) {
+        let (result, status) = ex.one().neg().to_format_with_residual::<F>(false, rm);
+        return Some((result, status | Status::INEXACT));
+    }
+    ladder::round_guarded::<F, E>(result_ext, rm, &ladder::EXP10M1)
 }
 
 /// Compute `exp(x_ext)` and round to the format. Used by the public

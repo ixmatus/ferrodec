@@ -114,6 +114,7 @@ MODES_ALL = ("NearestEven",) + DIRECTED_MODES
 DIRECTED_FUNCS = (
     "exp", "ln", "sin", "cos", "atan", "cbrt", "log10",
     "logp1", "log2p1", "log10p1",
+    "expm1", "exp2m1", "exp10", "exp10m1",
 )
 BINARY = ("atan2", "pow")
 # Independent rng streams so the NearestEven corpus content is
@@ -191,6 +192,29 @@ def _is_directed_exact_output_unary(name, coef, exp, neg, fmt):
             m = -exp
             return m <= fmt["prec"] and coef == 10 ** m - 1
         return False
+    if name in M1EXP:
+        n = _as_int(coef, exp)
+        if n is None:
+            return False
+        if name == "exp10":
+            # 10^n is exactly representable across the whole exponent
+            # range (coefficient 1, down to etiny = emin - (prec - 1)),
+            # so every in-range integer input is an exact-output
+            # directed straddle.
+            return fmt["emin"] - (fmt["prec"] - 1) <= n <= fmt["emax"]
+        if name == "exp10m1":
+            # 10^n - 1 is the |n| nines pattern: exact iff |n| <= prec.
+            return abs(n) <= fmt["prec"]
+        if name == "exp2m1":
+            # 2^n - 1 (odd) exact iff it fits prec digits; the negative
+            # side's coefficient 10^m - 5^m has exactly m digits.
+            if n > 0:
+                return len(str(2 ** n - 1)) <= fmt["prec"] if n <= 130 else False
+            if n < 0:
+                return -n <= fmt["prec"]
+        # expm1: only x = 0 is exact, and the enumerator's coef >= 1
+        # never produces it.
+        return False
     return False
 
 
@@ -216,6 +240,46 @@ def _is_directed_exact_output_binary(name, xt, yt, fmt):
     if (xc, xe) == (1_234_567, -6) and not yn and yc >= 1:
         return 7 * yc <= fmt["prec"]
     return False
+
+
+def _as_int(coef, exp):
+    """The exact integer value of coef·10^exp, or None if fractional
+    or too wide to matter (|n| beyond 10^7 is far outside every
+    exact family)."""
+    if exp < 0:
+        c, e = coef, exp
+        while c % 10 == 0 and e < 0:
+            c //= 10
+            e += 1
+        if e < 0:
+            return None
+        coef, exp = c, e
+    if exp > 7:
+        return None
+    return coef * 10 ** exp
+
+
+def _is_undecidable_tie(name, coef, exp, neg, fmt):
+    """ADR-0059 D2: exp2m1's nearest-mode ties. The true value IS a
+    rounding midpoint, so a certified ball straddles it at every Arb
+    precision in every mode: no corpus row can exist. The input-side
+    classifier owns these (delivered through the format rounder's tie
+    rule) and explicit test vectors pin them; the scan must skip them
+    or trip the cap-hit integrity assert."""
+    if name != "exp2m1":
+        return False
+    n = _as_int(coef, exp)
+    if n is None:
+        return False
+    prec = fmt["prec"]
+    if neg:
+        return n == prec + 1  # value coefficient 10^(p+1) - 5^(p+1)
+    return (
+        n % 4 == 0
+        and n <= 130
+        and len(str(2 ** n - 1)) == prec + 1
+        and (2 ** n - 1) % 10 == 5
+    )
 
 
 def frac10(coef, exp):
@@ -414,6 +478,16 @@ FUNCS = {
     "logp1": lambda a: a.log1p(),
     "log2p1": lambda a: a.log1p() / arb(2).log(),
     "log10p1": lambda a: a.log1p() / arb(10).log(),
+    # ADR-0059 Track D group D2 (§9.2 expm1/exp2m1/exp10/exp10m1),
+    # appended after D1 for the same stream-stability reason.
+    # arb.expm1 is the certified primitive; the base variants compose
+    # over an exact-argument power (certified ball arithmetic
+    # throughout; near-zero cancellation inflates the ball and the
+    # solve loop widens until decisive).
+    "expm1": lambda a: a.expm1(),
+    "exp2m1": lambda a: arb(2) ** a - arb(1),
+    "exp10": lambda a: arb(10) ** a,
+    "exp10m1": lambda a: arb(10) ** a - arb(1),
 }
 
 # Per-function decimal-magnitude window for the random TMD scan, and
@@ -424,6 +498,7 @@ UNIT = {"asin", "acos", "atanh"}            # |x| < 1
 GE_ONE = {"acosh"}                          # x ≥ 1
 NON_NEGATIVE = {"sqrt"}                      # x ≥ 0 (IEEE §5 sqrt)
 P1LOG = {"logp1", "log2p1", "log10p1"}       # x > -1 (ADR-0059 D1)
+M1EXP = {"expm1", "exp2m1", "exp10", "exp10m1"}  # exp family (ADR-0059 D2)
 
 
 def in_domain(name, coef, exp, neg, fmt):
@@ -446,7 +521,7 @@ def in_domain(name, coef, exp, neg, fmt):
         # x is never zero here; negatives are the NaN special-value
         # contract, not a TMD candidate, so they are excluded.
         return not neg
-    if name in ("exp", "exp2", "sinh", "cosh"):
+    if name in ("exp", "exp2", "sinh", "cosh") or name in M1EXP:
         # ADR-0033 corpus-integrity gate fix. The prior `mag <= 3`
         # bound was sized for d128 (mag=3 means |x| < 10^4 which is
         # well inside d128's emax=6144), but the same predicate
@@ -468,8 +543,10 @@ def in_domain(name, coef, exp, neg, fmt):
         log10_abs_x = math.log10(coef) + exp
         # `e^|x| < 10^emax` ⟺ `|x| < emax·ln(10)` ⟺
         # `log10(|x|) < log10(emax·ln(10)) = log10(emax) + log10(ln(10))`.
-        if name == "exp2":
+        if name in ("exp2", "exp2m1"):
             limit_log10_x = math.log10(fmt["emax"] * math.log2(10))
+        elif name in ("exp10", "exp10m1"):
+            limit_log10_x = math.log10(fmt["emax"])
         else:
             limit_log10_x = math.log10(fmt["emax"] * math.log(10))
         # Reserve a small slack to keep the result one decade short of
@@ -507,6 +584,20 @@ def representative(name):
         return [
             (1_000_001, -6, False),  # 1+δ → log1p path
             (15, -1, False), (2, 0, False), (1, 1, False), (1, 3, False),
+        ]
+    if name in M1EXP:
+        # ADR-0059 D2: both sides of zero (expm1 hugs x below; the
+        # base variants scale by ln 2 / ln 10), the deep-negative -1
+        # saturation approach, and near-one probes. Exact-family
+        # inputs (exp10(k), exp10m1(±k) at integers) come from the
+        # input-side classifiers, not the corpus; the directed scan
+        # filters them.
+        return base + [
+            (5, -1, True), (25, -1, True),
+            (1, -3, True), (1, -3, False),
+            (1, 1, True),            # -10: e^x - 1 near -1
+            (117, 0, True),          # deep in the -1 approach (expm1)
+            (1_000_001, -6, False), (999_999, -6, True),
         ]
     if name in P1LOG:
         # ADR-0059 D1: both sides of zero (the direct log1p band and
@@ -552,6 +643,13 @@ def decades(name, fmt):
                 out.append((314_159, k - 6, False))
                 out.append((271_828, -(k - 6), False))
                 out.append((271_828, -(k - 6), True))
+        return out
+    if name in M1EXP:
+        hi = fmt["emax"] - 4
+        out = []
+        for k in [1, 3, 6, 9, 12, 15, 20, 30, 60, min(120, hi)]:
+            out.append((271_828, -(k - 6), False))
+            out.append((271_828, -(k - 6), True))
         return out
     if name in TRIG or name in POSITIVE or name == "cbrt":
         # ADR-0033: lifted the prior `min(emax-4, 180)` clamp for
@@ -867,9 +965,14 @@ def emit(only=None):
                     # negative draws with |x| >= 1 inside solve().
                     exp = rng.randrange(-8, 7)
                     neg = rng.random() < 0.5
+                elif name in M1EXP:
+                    exp = rng.randrange(-8, 4)
+                    neg = rng.random() < 0.5
                 else:
                     exp = rng.randrange(-6, 9)
                     neg = rng.random() < 0.5
+                if _is_undecidable_tie(name, coef, exp, neg, fmt):
+                    continue
                 r = solve(name, fn, coef, exp, neg, fmt)
                 if r is not None:
                     scanned.append((r[3], coef, exp, neg))
@@ -883,6 +986,8 @@ def emit(only=None):
                 if key in seen:
                     continue
                 seen.add(key)
+                if _is_undecidable_tie(name, coef, exp, neg, fmt):
+                    continue
                 r = solve(name, fn, coef, exp, neg, fmt)
                 if r is None:
                     continue
@@ -921,9 +1026,18 @@ def emit(only=None):
                     elif name in P1LOG:
                         exp = rng_d.randrange(-8, 7)
                         neg = rng_d.random() < 0.5
+                    elif name in M1EXP:
+                        exp = rng_d.randrange(-8, 4)
+                        neg = rng_d.random() < 0.5
                     else:
                         exp = rng_d.randrange(-6, 9)
                         neg = rng_d.random() < 0.5
+                    if _is_undecidable_tie(name, coef, exp, neg, fmt):
+                        continue
+                    if mode != "NearestAway" and _is_directed_exact_output_unary(
+                        name, coef, exp, neg, fmt
+                    ):
+                        continue
                     r = solve(name, fn, coef, exp, neg, fmt, mode)
                     if r is not None:
                         scanned.append((r[3], coef, exp, neg))
@@ -937,6 +1051,12 @@ def emit(only=None):
                     if key in seen:
                         continue
                     seen.add(key)
+                    if _is_undecidable_tie(name, coef, exp, neg, fmt):
+                        continue
+                    if mode != "NearestAway" and _is_directed_exact_output_unary(
+                        name, coef, exp, neg, fmt
+                    ):
+                        continue
                     r = solve(name, fn, coef, exp, neg, fmt, mode)
                     if r is None:
                         continue

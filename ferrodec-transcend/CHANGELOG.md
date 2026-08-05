@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The §9.2 `expm1` family and `exp10` (ADR-0059 Track D D2):
+  `expm1_kernel`, `exp2m1_kernel`, `exp10_kernel`, `exp10m1_kernel`
+  on the generic bodies, sharing `expm1_special_cases`
+  (`f(−∞) = −1` exact), `expm1_gates` (overflow proxy; the `−1`
+  band via the ADR-0051 residual channel), and `expm1_ext` (direct
+  series in the reduction's k = 0 window; exp pipeline plus the
+  closing subtraction outside it). Input-side classifiers:
+  `exp2m1_exact_or_tie` (including the six enumerable ties, resolved
+  by the format rounder's own tie rule), `exp10_integer` (every
+  integer in and beyond range through one `pack_value` call), and
+  `exp10m1_integer` (the all-nines proxy with total digit
+  knowledge). Anchor seams: `expm1`'s x anchor (`e^x − 1 > x`) and
+  the family's `−1` collapse. Budgets `EXPM1`, `EXP2M1`, `EXP10`,
+  `EXP10M1`; catalog arrays at 27.
+
+### Added
+
 - The §9.2 `logp1` family (ADR-0059 Track D D1): `logp1_kernel`,
   `log2p1_kernel`, `log10p1_kernel` on the generic `ExtNum` bodies,
   sharing `logp1_special_cases` (§9.2.1 dispositions: sign-preserved

@@ -12,10 +12,13 @@
 //! `exp`, `ln`, and the trig and hyperbolic families that is correct:
 //! their values at non-special representable inputs are irrational
 //! (Lindemann for the base-`e` family at rational arguments), and the
-//! special inputs short-circuit. Seven functions are the exceptions:
+//! special inputs short-circuit. Ten functions are the exceptions:
 //! `exp2(n)` with `2^n` in reach of the width gate, `log2(2^k)`,
-//! `log10(10^k)` (fd-aqs.8), `log2p1(2^k − 1)` and `log10p1(10^k − 1)`
-//! (ADR-0059 Track D), a perfect cube under `cbrt`, and an
+//! `log10(10^k)` (fd-aqs.8), `log2p1(2^k − 1)`, `log10p1(10^k − 1)`,
+//! `exp2m1(n)`'s exact-and-tie family, `exp10(n)`'s whole-range
+//! integer family, and `exp10m1(n)`'s all-nines family (ADR-0059
+//! Track D), a
+//! perfect cube under `cbrt`, and an
 //! exact rational power under `pow` (the decimal Lauter–Lefèvre
 //! criterion). Every one is decided from the *input alone* and
 //! short-circuits before the kernel, which both delivers the exact
@@ -381,9 +384,15 @@ fn as_small_int<F: DecimalFormat>(x: F, limit: u128) -> Option<(u128, bool)> {
     if e < 0 || c.hi != 0 {
         return None;
     }
-    // `n = c · 10^e`; anything past `limit` (≤ 200 for every caller)
-    // cannot be exact, so coarse bails are fine.
-    if e > 3 || c.lo > limit {
+    // `n = c · 10^e`; anything past `limit` cannot be exact, so coarse
+    // bails are fine. The stripped-exponent bail admits every integer
+    // up to `10^6 − 1`, which [`exp10_integer`]'s five-digit decode
+    // window needs (ADR-0059 Track D). Behaviour for the earlier
+    // callers is unchanged: each passes `limit ≤ 200`, and any `n` the
+    // wider exponent admits is at least `10^4`, so the `n > limit`
+    // check below rejects it exactly as the narrower bail did. The
+    // decode set of every caller is therefore the same set as before.
+    if e > 5 || c.lo > limit {
         return None;
     }
     let n = c.lo.checked_mul(10u128.checked_pow(e as u32)?)?;
@@ -625,6 +634,357 @@ pub(crate) fn log2p1_exact<F: DecimalFormat>(x: F, rm: RoundingMode) -> Option<(
         k < 0,
         rm,
     ))
+}
+
+/// The exact or tie value of `exp2m1(x) = 2^x − 1` when `x` is an
+/// integer `n` whose value is expressible in at most
+/// `F::PRECISION + 1` significant digits; `None` routes to the
+/// kernel. The caller (`crate::exp::exp2m1_kernel_body`) has already
+/// run `expm1_special_cases`, so every `x` arriving here is finite
+/// and nonzero.
+///
+/// ## Rational values force integer inputs (ADR-0059 Track D)
+///
+/// Suppose `2^x − 1 = r` with `r` rational and `x` representable.
+/// Then `2^x = 1 + r` is rational too, and [`exp2_exact_or_tie`]'s
+/// argument applies verbatim: a representable `x` is rational,
+/// `x = a/b` in lowest terms, `2^a = (1 + r)^b`, and unique
+/// factorization forces every prime factor of `1 + r` to be 2, hence
+/// `1 + r = 2^k` with `a = kb` and so `b = 1` (Niven, *Irrational
+/// Numbers* — docs/references/niven-irrational-numbers.md). Every
+/// exact result and every nearest mode tie of `exp2m1` therefore
+/// sits at an integer `x = n`, with value `2^n − 1`.
+///
+/// ## The exact set
+///
+/// * `n ≥ 1`: `2^n − 1` is odd, so that IS its stripped coefficient,
+///   at exponent 0. Representable iff it carries at most
+///   `F::PRECISION` digits: `n ≤ 112` at `Decimal128`, `n ≤ 53` at
+///   `Decimal64`, `n ≤ 23` at `Decimal32`.
+/// * `n = 0`: `x = ±0`, delivered `±0` sign preserved by
+///   `expm1_special_cases` before this classifier runs, so the
+///   classifier never sees it.
+/// * `n = −m ≤ −1`: `2^−m − 1 = −(10^m − 5^m)·10^−m`. The
+///   coefficient `10^m − 5^m = 5^m(2^m − 1)` is odd, so that is its
+///   stripped form, and it carries exactly `m` digits (`5^m ≤ 10^m/2`
+///   puts it in `[5·10^(m−1), 10^m)`). Representable iff
+///   `m ≤ F::PRECISION`.
+///
+/// ## The ties, one per side per format
+///
+/// A nearest mode midpoint's stripped coefficient carries exactly
+/// `PRECISION + 1` digits and ends in 5. Both sides reach that shape,
+/// which is what separates `exp2m1` from the tie free `log2p1`:
+///
+/// * Positive side: `2^n mod 10` cycles `2, 4, 8, 6` over
+///   `n ≡ 1, 2, 3, 0 (mod 4)`, so `2^n − 1` ends in 5 exactly when
+///   `4 | n`. The `n` whose `2^n − 1` carries exactly
+///   `PRECISION + 1` digits span a window three to four wide, holding
+///   exactly one multiple of four: `n = 116` at `Decimal128`,
+///   `n = 56` at `Decimal64`, `n = 24` at `Decimal32`.
+/// * Negative side: `10^m` ends in 0 and `5^m` in 5, so `10^m − 5^m`
+///   always ends in 5 and `m = PRECISION + 1` is a tie at every
+///   format: `n = −35` at `Decimal128`, `n = −17` at `Decimal64`,
+///   `n = −8` at `Decimal32`.
+///
+/// [`pack_value`] hands each midpoint's exact coefficient to the
+/// format rounder, whose own tie rule then resolves it. No
+/// approximation kernel can do that: the true value IS the rounding
+/// boundary, so the kernel's error picks an arbitrary side (ADR-0059,
+/// tripod leg 1). The six tie inputs are deliberately absent from the
+/// sampled corpus — a certified ball around an exact midpoint never
+/// becomes decisive — so `tests/transcend_exact_exp2m1.rs` and its
+/// siblings carry the literal deliveries as their only witnesses.
+///
+/// ## Bail site completeness
+///
+/// Every `None` below is provably neither exact nor a tie; the proofs
+/// sit at their sites. The recurring fact: both closed forms are odd,
+/// so neither carries a trailing zero, and a stripped coefficient
+/// wider than `PRECISION + 1` digits is neither representable nor a
+/// midpoint.
+pub(crate) fn exp2m1_exact_or_tie<F: DecimalFormat>(x: F, rm: RoundingMode) -> Option<(F, Status)> {
+    // A non integer `x` is ruled out by the derivation above, and a
+    // magnitude past 130 cannot be exact or a tie either: `2^131 − 1`
+    // carries 40 digits and `10^131 − 5^131` carries 131, both odd,
+    // both far past every format's `PRECISION + 1 ≤ 35`, and both
+    // grow with `|n|`.
+    let (n, neg) = as_small_int(x, 130)?;
+    let n32 = n as u32;
+    if neg {
+        let m = n32;
+        // `10^m − 5^m` carries exactly `m` digits and is odd, so an
+        // `m` past `PRECISION + 1` is neither representable nor a
+        // midpoint. The bail doubles as the `u128` guard: `m ≤ 35`
+        // keeps `10^m` well inside the envelope.
+        if m > F::PRECISION + 1 {
+            return None;
+        }
+        let pow10 = 10u128.checked_pow(m)?;
+        let pow5 = 5u128.checked_pow(m)?;
+        Some(pack_value(
+            U256::from_u128(pow10 - pow5),
+            -(m as i32),
+            true,
+            rm,
+        ))
+    } else {
+        // `2^n` fits `u128` for `n ≤ 127`; `2^128 − 1` carries 39
+        // digits, past every format's `PRECISION + 1`, and the value
+        // only grows with `n`, so the overflow bail loses nothing.
+        let p = 2u128.checked_pow(n32)?;
+        let coef = U256::from_u128(p - 1);
+        // Odd, hence stripped: more than `PRECISION + 1` digits is
+        // neither representable nor a midpoint.
+        if coef.decimal_digit_count() > F::PRECISION + 1 {
+            return None;
+        }
+        Some(pack_value(coef, 0, false, rm))
+    }
+}
+
+/// The value of `exp10m1(x) = 10^x − 1` at an INTEGER argument,
+/// delivered through the format rounder; `None` routes to the kernel.
+/// Caller (`crate::exp::exp10m1_kernel_body`) has already run
+/// `exp::expm1_special_cases`, so every `x` reaching here is finite
+/// and nonzero.
+///
+/// Unlike the other classifiers in this module, this one is not only
+/// about §7.5 exactness: it must decide EVERY integer the format can
+/// name, because the integers past the exact family are a
+/// *constructible* misround class, not a model residual. Both halves
+/// are proved below.
+///
+/// ## Rational values sit at integer arguments (ADR-0059 Track D)
+///
+/// Let `10^x − 1 = r` with `r` rational and `x` representable. Then
+/// `1 + r = 10^x` is rational; write `1 + r = p/q` in lowest terms and
+/// `x = a/b` in lowest terms, so `(p/q)^b = 10^a` (the `a < 0` case
+/// mirrors with `p` and `q` swapped). Any prime dividing `q` divides
+/// `p^b`, contradicting `gcd(p, q) = 1`, so `1 + r` is an integer
+/// power form; unique factorization (`10 = 2·5`) then makes the 2
+/// exponent and the 5 exponent of `1 + r` each equal `a/b`, forcing
+/// `b | a` and hence `b = 1`. Every exact value of `exp10m1` at a
+/// representable input therefore sits at an integer `x = n`, with
+/// value `10^n − 1`: the `|n|` nines pattern (`9`, `99`, `999`, …
+/// above zero, `−0.9`, `−0.99`, … below it).
+///
+/// ## No ties, anywhere
+///
+/// A nearest mode midpoint's stripped coefficient ends in 5. The
+/// value `10^n − 1` is all nines at every `n`, so its stripped
+/// coefficient ends in 9: no integer argument lands on a tie, and no
+/// non integer argument can (its value is irrational by the argument
+/// above). The kernel's unconditional `INEXACT` past this classifier
+/// is therefore correct in every mode.
+///
+/// ## The delivery, by `n` (positive side)
+///
+/// * `1 ≤ n ≤ PRECISION`: the `n` nines integer is representable.
+///   [`pack_value`] delivers it exactly at every rounding direction
+///   with no `INEXACT` (IEEE 754-2019 §7.5).
+/// * `n = PRECISION + 1`: the `PRECISION + 1` nines value is the
+///   whole truth about the number — there is nothing below its last
+///   digit — so the empty sticky form ([`pack_value`], `pre_sticky =
+///   false`) is exact knowledge, and the rounder resolves it with the
+///   final nine as the round digit: `NearestEven` / `NearestAway` /
+///   `TowardPositive` deliver `10^n`, `TowardZero` / `TowardNegative`
+///   the `PRECISION` nines neighbor, all `INEXACT`.
+/// * `n ≥ PRECISION + 2`, all the way past `emax`: the all nines
+///   proxy. The rounder receives the `PRECISION + 1` digit all nines
+///   coefficient at exponent `n − (PRECISION + 1)` with
+///   `pre_sticky = true`.
+///
+///   Soundness is *total digit knowledge*, not a margin. The true
+///   value's decimal expansion is exactly `n` nines, so aligning it at
+///   the format's drop position gives: kept digits = the top
+///   `PRECISION` nines, round digit = a nine, sticky = the OR over
+///   positions `PRECISION + 2 … n`, every one of them a nine and so
+///   nonzero. The proxy hands the rounder that identical triple, so
+///   every mode's verdict and every flag is the true value's — the
+///   §7.4 overflow disposition for `n > emax` included, since it
+///   comes out of the same rounder call with no special case. Stated
+///   as an interval: the proxy plus its sticky denotes the open
+///   interval `(10^n − 10^(n−PRECISION−1), 10^n)`, and the true value
+///   `10^n − 1` lies inside it for every `n ≥ PRECISION + 2` (the
+///   gap `10^(n−PRECISION−1) − 1` is positive and strictly below the
+///   interval's width).
+///
+/// Negative side (`n = −m`), the mirror:
+///
+/// * `1 ≤ m ≤ PRECISION`: `−(10^m − 1)·10^−m`, the `m` nines
+///   fraction, exactly representable.
+/// * `m = PRECISION + 1`: the same empty sticky delivery at exponent
+///   `−(PRECISION + 1)`, sign set.
+/// * `m ≥ PRECISION + 2`: the negative all nines proxy, coefficient
+///   and exponent frozen at the `PRECISION + 1` nines and
+///   `−(PRECISION + 1)`. Its denoted magnitude interval is
+///   `(1 − 10^−(PRECISION+1), 1)`, and the true magnitude `1 − 10^−m`
+///   lies inside it for every `m ≥ PRECISION + 2` (it is at least
+///   `1 − 10^−(PRECISION+2)`). Both the interval and the true value
+///   sit strictly between the adjacent representable magnitudes
+///   `1 − 10^−PRECISION` and `1`, and above their midpoint
+///   `1 − 5·10^−(PRECISION+1)`, so every mode agrees: the nearest
+///   modes and `TowardNegative` deliver `−1`, `TowardZero` and
+///   `TowardPositive` the `PRECISION` nines neighbor, all `INEXACT`.
+///   The digit identity of the positive side holds here too (kept
+///   `PRECISION` nines, round digit nine, sticky over the remaining
+///   `m − PRECISION − 1` nines).
+///
+/// ## Why the kernel cannot be left to decide the big ones
+///
+/// Once `n` passes the working width, `10^n ⊖ 1` keeps every digit of
+/// `10^n`: the working value lands exactly ON the format grid point
+/// `1·10^n`, a distance no fixed rung grows. Rung 1 absorbs the `1`
+/// from `n = 50` and rung 2 from `n = 110`, so past roughly 107 —
+/// where the surviving residual falls inside rung 2's own budget — a
+/// default build decides the three directed modes by the sign of its
+/// own noise, across thousands of inputs per format: a constructible
+/// family rather than the `10^-36` model residual (the D1 `log10p1`
+/// integer-anchor lesson, inverse direction). The gap integer between
+/// the overflow gate and the true overflow boundary (`n = 6145` at
+/// `Decimal128`, `385` at `Decimal64`, `97` at `Decimal32`) is worse
+/// still: the absorbed proxy `10^n` is past `MAX`, so it raises
+/// `OVERFLOW` in the directed modes where the true value
+/// `10^n − 1`, rounding to `MAX` under an unbounded exponent range,
+/// must not (§7.4); and an `unbounded-ladder` build escalates until
+/// the rung width passes `n` digits before the subtraction means
+/// anything at all.
+///
+/// ## Bail site completeness
+///
+/// Every `None` below is covered by the caller's gates, not by
+/// silence (the `u32` conversion is defensive only: the decode limit
+/// on the line above already bounds `n` by 99,999):
+///
+/// * A non integer `x` has an irrational `10^x − 1` (the derivation
+///   above), so it is neither exact nor a tie, and its true value is
+///   off grid: the ladder is the right decider for it.
+/// * An integer past the decode limit (`|n| > 99,999`) reaches the
+///   caller's `expm1_gates` with `|u| = |n|·ln 10 > 230,258`, which
+///   clears both gates at every format: the overflow gate on the
+///   positive side (the widest threshold is `Decimal128`'s 14,150)
+///   and the `−1` band on the negative side (threshold 120). Both
+///   gated deliveries are sound there — `10^n − 1` for `n > 99,999`
+///   is past `MAX` by tens of thousands of decades, and
+///   `10^−m − 1` for `m > 99,999` sits inside `(−1, −1 + 10^−99999)`,
+///   far inside the `−1` band's proven window.
+pub(crate) fn exp10m1_integer<F: DecimalFormat>(x: F, rm: RoundingMode) -> Option<(F, Status)> {
+    // The decode limit is the gates' floor, not a precision bound: see
+    // the bail-site proof above.
+    let (n, neg) = as_small_int(x, 99_999)?;
+    // `n ≥ 1`: the caller filtered the zero class, and `x` is finite.
+    let n32 = u32::try_from(n).ok()?;
+    // `PRECISION + 1 ≤ 35`, so `10^(PRECISION+1) − 1` (the widest
+    // coefficient this classifier ever packs) stays inside `u128`'s
+    // ~3.4·10^38 envelope with three decades to spare.
+    let p1 = F::PRECISION + 1;
+    if n32 <= F::PRECISION {
+        // The exact family: the `n` nines integer above zero, the `n`
+        // nines fraction below it. Status `OK` in every direction.
+        let coef = 10u128.pow(n32) - 1;
+        let exp = if neg { -(n32 as i32) } else { 0 };
+        return Some(pack_value(U256::from_u128(coef), exp, neg, rm));
+    }
+    // `n ≥ PRECISION + 1`: the `PRECISION + 1` nines coefficient, at
+    // the exponent that places its last digit where the true value's
+    // `(PRECISION + 1)`-th nine sits. The two documented regimes
+    // differ only in the sticky bit — at `n = PRECISION + 1` nothing
+    // lies below that digit (the [`pack_value`] form), beyond it the
+    // dropped positions are all nines and so all nonzero.
+    let nines_p1 = 10u128.pow(p1) - 1;
+    let exp = if neg { -(p1 as i32) } else { (n32 - p1) as i32 };
+    Some(F::round_and_pack_finite(
+        U256::from_u128(nines_p1),
+        exp,
+        0,
+        neg,
+        n32 > p1,
+        rm,
+        Status::OK,
+    ))
+}
+
+/// The exact `exp10(x) = 10^x` when `x` is an integer `n`, delivered
+/// as the coefficient 1 at exponent `n` through the format rounder;
+/// `None` routes to the kernel. The caller
+/// (`crate::exp::exp10_kernel_body`) has already disposed of the
+/// special classes and of `±0`, so every `x` reaching here is finite
+/// and nonzero.
+///
+/// ## Rational values force integer inputs (ADR-0059 Track D)
+///
+/// Suppose `10^x = v` with `v` rational and `x` representable, so
+/// `x = a/b` in lowest terms and `v^b = 10^a`. Unique factorization
+/// through `10 = 2·5` makes the 2-exponent and the 5-exponent of `v`
+/// each equal `a/b`; both are integers, so `b | a` and `gcd(a, b) = 1`
+/// forces `b = 1`. Every exact case is therefore an integer `n` whose
+/// value `10^n` has coefficient 1, exactly representable for every `n`
+/// in `[etiny, emax]`: `[−6176, 6144]` at `Decimal128`, `[−398, 384]`
+/// at `Decimal64`, `[−101, 96]` at `Decimal32`.
+///
+/// ## No ties
+///
+/// A nearest-mode midpoint's stripped coefficient ends in 5; a power
+/// of ten's stripped coefficient is 1. No representable input's
+/// `10^x` is a midpoint, so the kernel's unconditional `INEXACT` past
+/// this classifier is correct in every rounding direction.
+///
+/// ## Every integer, in range or not (the ladder's stake)
+///
+/// This classifier deliberately decides *every* decoded integer rather
+/// than only the representable ones, and all three regimes are load
+/// bearing (the `log10p1` integer-anchor lesson of D1, run in the
+/// inverse direction):
+///
+/// * `etiny ≤ n ≤ emax`: `10^n` is a format grid point, and a grid
+///   point is a rounding boundary no finite rung separates itself
+///   from. Delivered here, [`pack_value`] packs it exactly with status
+///   `OK` in every mode (IEEE 754-2019 §7.5 forbids `INEXACT` on an
+///   exact result).
+/// * `n > emax`: the working value would land exactly ON the grid
+///   point `1·10^n` past the range. The escalation predicate widens at
+///   the value's own exponent and never consults `emax`, so a guarded
+///   delivery would escalate at every rung, panicking the
+///   `ladder_audit` lane and widening without terminating under
+///   `unbounded-ladder`. The `exp` overflow gate does not cover the
+///   whole family: it fires at `|n·ln 10| >` the format's
+///   `exp_overflow_limit`, which leaves exactly one integer per format
+///   in the gap (`n = 6145` at `Decimal128`, whose `6145·ln 10 ≈
+///   14149.4` stays inside the 14150 limit; `n = 385` at `Decimal64`
+///   against 887; `n = 97` at `Decimal32` against 224), and one
+///   further decade trips it. Delivered here, `pack_value` applies the
+///   §7.4 overflow disposition per direction (`+∞` at the nearest
+///   modes and toward `+∞`, the largest finite toward zero and `−∞`)
+///   with `OVERFLOW | INEXACT`.
+/// * `n < etiny`: the true value `10^n ≤ 10^(etiny−1)` is a tenth of
+///   the smallest subnormal, hence far below the half of it that
+///   decides the nearest modes. `pack_value` hands the rounder the
+///   exact coefficient 1 form, which is the true value itself with no
+///   residue, so every mode's verdict is the true value's by
+///   construction: `+0` at the nearest modes, toward zero and toward
+///   `−∞`, the smallest subnormal toward `+∞`, with
+///   `UNDERFLOW | INEXACT`.
+///
+/// ## Beyond the decode limit
+///
+/// Every integer `as_small_int` declines has `|n| > 99,999`, at each
+/// of its bail sites: a stripped exponent past 5 puts `n ≥ 10^6`, a
+/// stripped coefficient past the limit puts `n` past it too (the
+/// exponent only raises the magnitude), and the closing magnitude
+/// check is the limit itself. Those all clear the `exp` gates before a
+/// working value near a grid point can form: `|n·ln 10| > 99,999 ·
+/// 2.3025 > 230,000`, past both the overflow limits (14,150 / 887 /
+/// 224) and the underflow limits (14,221 / 918 / 235) of all three
+/// formats, so the kernel's saturation proxy answers them, unguarded
+/// and correct by its own margin argument.
+pub(crate) fn exp10_integer<F: DecimalFormat>(x: F, rm: RoundingMode) -> Option<(F, Status)> {
+    let (n, neg) = as_small_int(x, 99_999)?;
+    // `n ≤ 99,999` fits `i32` with four orders to spare; the sign of
+    // the input becomes the sign of the exponent (`10^−n`), never of
+    // the value, which is positive for every finite `x`.
+    let exp = if neg { -(n as i32) } else { n as i32 };
+    Some(pack_value(U256::from_u128(1), exp, false, rm))
 }
 
 /// `true` when the `u128` `n ≥ 1` is a power of ten. Decided from the

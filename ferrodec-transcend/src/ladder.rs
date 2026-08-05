@@ -62,7 +62,29 @@
 //!   ON the grid once `n` passes the rung width, so the ADR-0051
 //!   residual channel decides it input side (the side theorem and the
 //!   boundary-margin proof live on
-//!   `exact::log10p1_power_of_ten_exponent`).
+//!   `exact::log10p1_power_of_ten_exponent`);
+//! * `exp10m1`'s whole integer family (`x = n`) — the mirror class:
+//!   `10^n ⊖ 1` keeps every digit of `10^n` past the working width,
+//!   landing the working value exactly ON the grid point `1·10^n`, so
+//!   `exact::exp10m1_integer` answers every integer input side, the
+//!   nines patterns exactly and the rest through an all nines proxy
+//!   whose soundness is total digit knowledge rather than a margin
+//!   (the proof lives at that classifier)..
+//! * `exp10`'s integer family (`x = n`), the integers *outside* the
+//!   format's exponent range included, where the delivery is an
+//!   overflow or underflow rather than an exact value. `10^n` is a
+//!   grid point at its own exponent whether or not that exponent is
+//!   representable, so the predicate reads distance zero and no rung
+//!   improves on it; `exact::exp10_integer` hands the rounder the true
+//!   value and the §7.4 disposition decides every mode.
+//! * the `expm1` family's shared gates (`expm1` / `exp2m1` /
+//!   `exp10m1`) — the overflow saturation proxy (the true value is
+//!   provably past the last boundary with measured margin) and the
+//!   `−1` band delivery for arguments past `−120`, where
+//!   `e^u < 10^-52` sits inside the ADR-0051 residual channel's
+//!   snap band; the post-series `−1` collapse seam behind the gate
+//!   is the same channel (side theorem `e^u − 1 > −1`), and
+//!   `expm1` itself adds the x anchor on `e^x − 1 > x`.
 //!
 //! ## The budget discipline (the ADR-0050 lesson)
 //!
@@ -346,6 +368,20 @@ fn exp_budget_dyn(p: u32) -> u128 {
 fn exp2_budget_dyn(p: u32) -> u128 {
     10 * (44_500 + 3 * u128::from(p))
 }
+/// [`EXPM1`] at `p`: the reduction band's 32,700 constant items +
+/// series `3(p + 10)` through the ≤ 1.47 closing amplification
+/// (≈ 5p), ×10.
+fn expm1_budget_dyn(p: u32) -> u128 {
+    10 * (32_800 + 5 * u128::from(p))
+}
+
+/// [`EXP2M1`] / [`EXP10M1`] at `p`: the two const-item blocks
+/// (argument multiply ≈ 33,000 + [`EXPM1`]'s reduction block
+/// ≈ 32,800) + series `3(p + 10)` through the closing amplification
+/// (≈ 5p), ×10.
+fn expbasem1_budget_dyn(p: u32) -> u128 {
+    10 * (65_800 + 5 * u128::from(p))
+}
 /// [`LN`] (and [`LOG10`] / [`LOG2`]) at `p`: decade path ~160 + log1p
 /// series `3 · 5p` + closing ops, ×10. Reproduces the catalog's 950
 /// at 50 and 1,850 at 110 before the pad.
@@ -448,6 +484,66 @@ pub(crate) const EXP2: Budget = Budget {
     rung1: 500_000,
     rung2: 500_000,
     dynamic: exp2_budget_dyn,
+};
+
+/// `expm1 = e^x − 1` (IEEE 754-2019 §9.2 `expm1`; public `exp_m1`).
+/// Itemization (rung 1), two disjoint branches, budget = the max:
+///
+/// * Direct band (`|x| ≤ 1.1513`, the reduction's own k = 0 window):
+///   the all-positive series for positive `x`; for negative `x` the
+///   alternating terms cancel by at most `e^{|x|} ≤ 3.17` at the band
+///   edge, so the series charge is `3 × cap × 3.17 ≈ 600` units,
+///   relative to the result by the series' construction.
+/// * Reduction band (`|x| > 1.1513`): [`EXP`]'s items (reduction
+///   ≤ 22,201, series ≤ 180) amplified through the closing
+///   subtraction by `e^x/(e^x − 1) ≤ 1.47` at the band edge (and ≤ 1
+///   on the negative side, where the subtraction adds magnitudes),
+///   plus 1 unit for the subtraction itself: ≤ ~33,000.
+///
+/// Sum ≈ 33,000; ×10 → 350,000. Rung 2: identical structure, cap 120
+/// series → ≈ 33,400; ×10 → 350,000. Dynamic: the same itemization at
+/// `p` (series `3(p + 10)` with the ×3.17 band factor folded into the
+/// constant term), ×10 inside the formula.
+pub(crate) const EXPM1: Budget = Budget {
+    rung1: 350_000,
+    rung2: 350_000,
+    dynamic: expm1_budget_dyn,
+};
+
+/// `exp2m1 = expm1(x · ln 2)` (IEEE 754-2019 §9.2 `exp2m1`; public
+/// `exp2_m1`): the argument const-multiply (≤ 22,200 units of the
+/// ≤ 14,151 argument magnitude, mapped 1:1 into result-relative
+/// units through `d(e^u − 1) = e^u du` and the ≤ 1.47 closing
+/// factor: ≤ ~33,000) on top of [`EXPM1`]'s items (≤ ~33,000).
+/// Sum ≈ 66,000; ×10 → 700,000, both rungs.
+pub(crate) const EXP2M1: Budget = Budget {
+    rung1: 700_000,
+    rung2: 700_000,
+    dynamic: expbasem1_budget_dyn,
+};
+
+/// `exp10 = exp(x · ln 10)` (IEEE 754-2019 §9.2 `exp10`): the
+/// argument const-multiply adds ≤ 22,200 units of absolute-in-
+/// argument error on top of [`EXP`]'s items, the identical
+/// composition shape as [`EXP2`] (the ≤ 14,151 argument bound is the
+/// same overflow gate). Sum ≈ 44,600; ×10 → 500,000, both rungs;
+/// dynamic shares [`exp2_budget_dyn`].
+pub(crate) const EXP10: Budget = Budget {
+    rung1: 500_000,
+    rung2: 500_000,
+    dynamic: exp2_budget_dyn,
+};
+
+/// `exp10m1 = expm1(x · ln 10)` (IEEE 754-2019 §9.2 `exp10m1`;
+/// public `exp10_m1`): the argument const-multiply through the
+/// closing amplification (≤ ~33,000) on top of [`EXPM1`]'s items
+/// (≤ ~33,000), the same composition shape as [`EXP2M1`], whose
+/// dynamic formula it shares. Sum ≈ 66,000; ×10 → 700,000, both
+/// rungs.
+pub(crate) const EXP10M1: Budget = Budget {
+    rung1: 700_000,
+    rung2: 700_000,
+    dynamic: expbasem1_budget_dyn,
 };
 
 /// `ln`. Itemization (rung 1):
@@ -828,9 +924,13 @@ mod tests {
     /// escalate everything).
     #[test]
     fn budgets_are_positive_and_sane() {
-        let all: [(&str, &Budget); 23] = [
+        let all: [(&str, &Budget); 27] = [
             ("exp", &EXP),
             ("exp2", &EXP2),
+            ("expm1", &EXPM1),
+            ("exp2m1", &EXP2M1),
+            ("exp10", &EXP10),
+            ("exp10m1", &EXP10M1),
             ("ln", &LN),
             ("log10", &LOG10),
             ("log2", &LOG2),
@@ -956,9 +1056,13 @@ mod tests {
     /// catalog have diverged and one of them is wrong.
     #[test]
     fn dynamic_budgets_track_the_rung2_catalog() {
-        let all: [(&str, &Budget); 23] = [
+        let all: [(&str, &Budget); 27] = [
             ("exp", &EXP),
             ("exp2", &EXP2),
+            ("expm1", &EXPM1),
+            ("exp2m1", &EXP2M1),
+            ("exp10", &EXP10),
+            ("exp10m1", &EXP10M1),
             ("ln", &LN),
             ("log10", &LOG10),
             ("log2", &LOG2),
