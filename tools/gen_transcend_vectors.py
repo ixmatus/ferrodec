@@ -104,7 +104,17 @@ DIRECTED_MODES = (
     "NearestAway",
 )
 MODES_ALL = ("NearestEven",) + DIRECTED_MODES
-DIRECTED_FUNCS = ("exp", "ln", "sin", "cos", "atan", "cbrt", "log10")
+# ADR-0059 D1 appends logp1/log2p1/log10p1 AFTER the legacy names:
+# pass 2 shares one sequential rng across this tuple, so appending
+# keeps the legacy directed draws (and corpus bytes) stable. The D1
+# functions carry directed rows because their classifier-adjacent
+# neighborhoods (inputs beside the exact families) are exactly where
+# directed-mode defects have bitten before (the ADR-0047 post-hoc
+# cbrt/pow failures).
+DIRECTED_FUNCS = (
+    "exp", "ln", "sin", "cos", "atan", "cbrt", "log10",
+    "logp1", "log2p1", "log10p1",
+)
 BINARY = ("atan2", "pow")
 # Independent rng streams so the NearestEven corpus content is
 # byte-stable (the directed/binary passes do not perturb its sequence);
@@ -160,6 +170,27 @@ def _is_directed_exact_output_unary(name, coef, exp, neg, fmt):
         # long as the integer's magnitude fits the format's exponent
         # range and digit count.
         return abs(exp) <= fmt["emax"]
+    # ADR-0059 D1 exact families (the input-side classifier's sets,
+    # re-derived here independently as the generator-side mirror):
+    # log2p1 is exact iff 1+x = 2^k, i.e. x = 2^k - 1 (odd integer,
+    # stripped exp 0) or x = -(10^m - 5^m)·10^-m; log10p1 is exact
+    # iff 1+x = 10^k, i.e. x = k nines or x = -(1 - 10^-m). logp1
+    # has no nonzero exact case (Lindemann), so it needs no filter.
+    if name == "log2p1":
+        if not neg and exp == 0:
+            n = coef + 1
+            return n & (n - 1) == 0
+        if neg and exp < 0:
+            m = -exp
+            return m <= fmt["prec"] and coef == 10 ** m - 5 ** m
+        return False
+    if name == "log10p1":
+        if not neg and exp == 0:
+            return coef == 10 ** len(str(coef)) - 1
+        if neg and exp < 0:
+            m = -exp
+            return m <= fmt["prec"] and coef == 10 ** m - 1
+        return False
     return False
 
 
@@ -373,6 +404,16 @@ FUNCS = {
     "asinh": lambda a: a.asinh(),
     "acosh": lambda a: a.acosh(),
     "atanh": lambda a: a.atanh(),
+    # ADR-0059 Track D group D1 (IEEE 754-2019 §9.2 logp1/log2p1/
+    # log10p1). Appended AFTER the legacy names: pass 1 and pass 2
+    # share one sequential rng per pass, so appending keeps every
+    # legacy function's draw sequence — and therefore the committed
+    # legacy corpus bytes — stable under a full regeneration.
+    # arb.log1p is the certified primitive (tighter balls near the
+    # -1 pole than composing (1+x).log()).
+    "logp1": lambda a: a.log1p(),
+    "log2p1": lambda a: a.log1p() / arb(2).log(),
+    "log10p1": lambda a: a.log1p() / arb(10).log(),
 }
 
 # Per-function decimal-magnitude window for the random TMD scan, and
@@ -382,12 +423,19 @@ POSITIVE = {"ln", "log2", "log10"}          # x > 0
 UNIT = {"asin", "acos", "atanh"}            # |x| < 1
 GE_ONE = {"acosh"}                          # x ≥ 1
 NON_NEGATIVE = {"sqrt"}                      # x ≥ 0 (IEEE §5 sqrt)
+P1LOG = {"logp1", "log2p1", "log10p1"}       # x > -1 (ADR-0059 D1)
 
 
 def in_domain(name, coef, exp, neg, fmt):
     mag = decimal_magnitude(coef, exp)
     if name in POSITIVE and neg:
         return False
+    if name in P1LOG:
+        # Domain x > -1 (§9.2 Table 9.1): a negative argument must
+        # have |x| < 1; the enumerator's coefficient is >= 1 so
+        # mag < 0 is exactly |x| < 1, never -1 itself. Positive
+        # arguments are unrestricted.
+        return (not neg) or mag < 0
     if name in UNIT:
         # |x| = coef·10^exp must be < 1.
         return (not neg or name == "atanh") and mag < 0
@@ -460,6 +508,20 @@ def representative(name):
             (1_000_001, -6, False),  # 1+δ → log1p path
             (15, -1, False), (2, 0, False), (1, 1, False), (1, 3, False),
         ]
+    if name in P1LOG:
+        # ADR-0059 D1: both sides of zero (the direct log1p band and
+        # the anchor seam), the near -1 pole, and the exact-family
+        # neighborhoods (log2p1(3) = 2, log10p1(9) = 1 are exact; the
+        # probes sit beside them, the exact rows themselves come from
+        # the input-side classifier, not the corpus).
+        return base + [
+            (5, -1, True),           # -0.5 (log2p1 exact: value -1)
+            (9, -1, True),           # -0.9 (log10p1 exact: value -1)
+            (999_999, -6, True),     # deep in the -1 pole approach
+            (123_456, -6, True),
+            (1, -3, True), (1, -3, False),
+            (1_000_001, -6, False), (999_999, -6, False),
+        ]
     if name in TRIG:
         return base + [
             (1, 0, False), (1, 0, True), (1_570_796, -6, False),  # ≈ π/2
@@ -478,6 +540,19 @@ def decades(name, fmt):
     range is covered rather than implicitly trusting Payne-Hanek to
     hold past the prior 10^180 clamp."""
     out = []
+    if name in P1LOG:
+        # Large positive decades (logp1 tracks ln there) and tiny
+        # decades on BOTH sides of zero: the anchor-seam band
+        # (|x| ≲ 10^-47) and the escalation band just above it are
+        # exactly where the D1 kernels' delivery machinery changes
+        # regime, so the corpus pins rows across all of it.
+        hi = fmt["emax"] - 4
+        for k in [1, 3, 6, 9, 12, 15, 20, 30, 60, 120, hi]:
+            if k <= hi:
+                out.append((314_159, k - 6, False))
+                out.append((271_828, -(k - 6), False))
+                out.append((271_828, -(k - 6), True))
+        return out
     if name in TRIG or name in POSITIVE or name == "cbrt":
         # ADR-0033: lifted the prior `min(emax-4, 180)` clamp for
         # TRIG and the `min(emax-4, 300)` clamp for non-TRIG. The
@@ -739,9 +814,18 @@ def _scan_arg(rng, p, lo, hi, signed):
     return (coef, exp, neg)
 
 
-def emit():
+def emit(only=None):
     _require_flint()
     os.makedirs(OUT_DIR, exist_ok=True)
+    # `only` (the --funcs flag): restrict generation and file writes
+    # to the named functions, leaving every other committed corpus
+    # file untouched. This is the ADR-0059 Track D accretion mode: a
+    # new function's vectors are generated without re-running (or
+    # re-writing) the frozen legacy corpus, so a python-flint version
+    # skew cannot silently churn committed bytes outside the slice.
+    unary_names = [n for n in FUNCS if only is None or n in only]
+    directed_names = [n for n in DIRECTED_FUNCS if only is None or n in only]
+    binary_names = [n for n in BINARY if only is None or n in only]
     # name -> list of entry tuples
     #   (fmt_idx, mode_idx, sortkey, prec, mode, in_s, in2_s, out, P,
     #    rad, margin)
@@ -756,7 +840,8 @@ def emit():
     # and binary passes draw from independent streams below so they
     # cannot perturb this one. ---
     rng = random.Random(SEED)
-    for name, fn in FUNCS.items():
+    for name in unary_names:
+        fn = FUNCS[name]
         for fkey, fmt in FORMATS.items():
             p = fmt["prec"]
             cand = []
@@ -776,6 +861,11 @@ def emit():
                     neg = False
                 elif name in ("exp", "exp2", "sinh", "cosh"):
                     exp = rng.randrange(-4, 4)
+                    neg = rng.random() < 0.5
+                elif name in P1LOG:
+                    # Both sides of zero; in_domain rejects the
+                    # negative draws with |x| >= 1 inside solve().
+                    exp = rng.randrange(-8, 7)
                     neg = rng.random() < 0.5
                 else:
                     exp = rng.randrange(-6, 9)
@@ -806,7 +896,7 @@ def emit():
 
     # --- Pass 2: directed modes, the bounded unary subset. ---
     rng_d = random.Random(SEED_DIRECTED)
-    for name in DIRECTED_FUNCS:
+    for name in directed_names:
         fn = FUNCS[name]
         for mode in DIRECTED_MODES:
             for fkey, fmt in FORMATS.items():
@@ -827,6 +917,9 @@ def emit():
                         neg = False
                     elif name == "exp":
                         exp = rng_d.randrange(-4, 4)
+                        neg = rng_d.random() < 0.5
+                    elif name in P1LOG:
+                        exp = rng_d.randrange(-8, 7)
                         neg = rng_d.random() < 0.5
                     else:
                         exp = rng_d.randrange(-6, 9)
@@ -857,7 +950,7 @@ def emit():
 
     # --- Pass 3: binary pow/atan2, NearestEven + directed, 2-D TMD. ---
     rng_b = random.Random(SEED_BINARY)
-    for name in BINARY:
+    for name in binary_names:
         fn2 = BIN_FUNCS[name]
         for mode in MODES_ALL:
             for fkey, fmt in FORMATS.items():
@@ -903,7 +996,7 @@ def emit():
                         in2_s, out_s, P, rad, margin,
                     ))
 
-    for name in list(FUNCS) + list(BINARY):
+    for name in unary_names + binary_names:
         entries = sorted(acc[name], key=lambda e: (e[0], e[1], e[2]))
         vec_lines = []
         prov_lines = []
@@ -1080,4 +1173,16 @@ if __name__ == "__main__":
     if "--selftest" in sys.argv[1:]:
         _selftest()
     else:
-        emit()
+        only = None
+        args = sys.argv[1:]
+        for i, a in enumerate(args):
+            if a == "--funcs":
+                only = set(args[i + 1].split(","))
+                unknown = only - set(FUNCS) - set(BINARY)
+                if unknown:
+                    sys.stderr.write(
+                        "--funcs: unknown function(s): %s\n"
+                        % ", ".join(sorted(unknown))
+                    )
+                    sys.exit(2)
+        emit(only)

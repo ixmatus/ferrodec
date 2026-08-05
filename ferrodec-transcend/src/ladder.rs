@@ -55,7 +55,14 @@
 //! * the direct π/2 and π constant deliveries — certified offline,
 //!   once, by `consts::tests` against the 115-digit rung 2 constants
 //!   (their boundary distance exceeds the 50-digit representation
-//!   error by many orders), instead of paying the predicate per call.
+//!   error by many orders), instead of paying the predicate per call;
+//! * `log10p1`'s integer-anchor family (`x = 10^n`, `n ≥ 36`) — the
+//!   true value sits `10^−n/ln 10` above the representable integer
+//!   `n`, a residual the wide band's `1 ⊕ x` absorption lands exactly
+//!   ON the grid once `n` passes the rung width, so the ADR-0051
+//!   residual channel decides it input side (the side theorem and the
+//!   boundary-margin proof live on
+//!   `exact::log10p1_power_of_ten_exponent`).
 //!
 //! ## The budget discipline (the ADR-0050 lesson)
 //!
@@ -481,6 +488,61 @@ pub(crate) const LOG2: Budget = Budget {
     dynamic: ln_budget_dyn,
 };
 
+/// `logp1 = ln(1 + x)` (IEEE 754-2019 §9.2 `logp1`; public `ln_1p`).
+/// Itemization (rung 1):
+///
+/// * Direct band (`|x| < 0.5`): `u = x` is exact at every rung width
+///   (`from_format` is exact), `log1p` series at cap 250 → ≤ 750
+///   units, relative to the result by the series' construction (the
+///   fd-aqs.6 relative accuracy argument, inherited verbatim from
+///   [`LN`]'s near-1 path). Results that collapse onto the input's
+///   own grid point are decided by the ADR-0051 anchor seam before
+///   the predicate (`ln(1+x) < x` strictly; see the kernel), so the
+///   band's guard only ever prices series noise.
+/// * Wide band (`|x| ≥ 0.5`): the argument `t = 1 ⊕ x` is exact on
+///   the whole negative side (≤ 35 aligned digits) and on the
+///   positive side until `x` outgrows the rung width (`≳ 10^49` at
+///   rung 1), where absorbing the 1 costs ≤ 1 unit of `t`, mapped by
+///   `d(ln t)/dt = 1/t` into ≤ 3 result units against the band's
+///   `|ln t| ≥ 0.405` floor; then [`LN`]'s decade items (≤ ~950)
+///   apply to `t` verbatim.
+///
+/// Sum ≤ ~950; ×10 → 15,000: [`LN`]'s constants inherited, the one
+/// extra op absorbed by the pad. Rung 2: cap 550 series → ≈ 1,850;
+/// ×10 → 25,000. Dynamic: [`ln_budget_dyn`], the same itemization
+/// re-evaluated at `p`.
+pub(crate) const LOGP1: Budget = Budget {
+    rung1: 15_000,
+    rung2: 25_000,
+    dynamic: ln_budget_dyn,
+};
+
+/// `log2p1 = logp1(x) · (1/ln 2)` (IEEE 754-2019 §9.2 `log2p1`;
+/// public `log2_1p`): [`LOGP1`]'s items plus one const-multiply on
+/// the result (relative, ≤ 1.5 units), the same composition shape as
+/// [`LOG2`] over [`LN`]. Same constants; the pad absorbs the
+/// multiply. Tiny inputs deliver `x · (1/ln 2)`, a generic working
+/// value with no grid anchor (slope ≠ 1), so unlike [`LOGP1`] no
+/// anchor seam precedes the guard.
+pub(crate) const LOG2P1: Budget = Budget {
+    rung1: 15_000,
+    rung2: 25_000,
+    dynamic: ln_budget_dyn,
+};
+
+/// `log10p1 = logp1(x) · (1/ln 10)` (IEEE 754-2019 §9.2 `log10p1`;
+/// public `log10_1p`): [`LOGP1`]'s items plus one const-multiply on
+/// the result (relative, ≤ 1.5 units), the same composition shape as
+/// [`LOG10`] over [`LN`]. Same constants; the pad absorbs the
+/// multiply. Tiny inputs deliver `x · (1/ln 10)`, a generic working
+/// value with no grid anchor (slope ≠ 1), so unlike [`LOGP1`] no
+/// anchor seam precedes the guard.
+pub(crate) const LOG10P1: Budget = Budget {
+    rung1: 15_000,
+    rung2: 25_000,
+    dynamic: ln_budget_dyn,
+};
+
 /// `sin`. Itemization (rung 1):
 ///
 /// * Payne–Hanek `π/2` truncation: the 38-digit `PI_OVER_TWO_COEF_38`
@@ -766,12 +828,15 @@ mod tests {
     /// escalate everything).
     #[test]
     fn budgets_are_positive_and_sane() {
-        let all: [(&str, &Budget); 20] = [
+        let all: [(&str, &Budget); 23] = [
             ("exp", &EXP),
             ("exp2", &EXP2),
             ("ln", &LN),
             ("log10", &LOG10),
             ("log2", &LOG2),
+            ("logp1", &LOGP1),
+            ("log2p1", &LOG2P1),
+            ("log10p1", &LOG10P1),
             ("sin", &SIN),
             ("cos", &COS),
             ("tan", &TAN),
@@ -891,12 +956,15 @@ mod tests {
     /// catalog have diverged and one of them is wrong.
     #[test]
     fn dynamic_budgets_track_the_rung2_catalog() {
-        let all: [(&str, &Budget); 20] = [
+        let all: [(&str, &Budget); 23] = [
             ("exp", &EXP),
             ("exp2", &EXP2),
             ("ln", &LN),
             ("log10", &LOG10),
             ("log2", &LOG2),
+            ("logp1", &LOGP1),
+            ("log2p1", &LOG2P1),
+            ("log10p1", &LOG10P1),
             ("sin", &SIN),
             ("cos", &COS),
             ("tan", &TAN),

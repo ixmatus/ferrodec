@@ -32,7 +32,7 @@ use ferrodec_test_support::round_dec::{
     decimal_magnitude, parse_dec, round_directed_sig, same_value, Round as DecRound,
 };
 use rug::float::Round;
-use rug::ops::PowAssignRound;
+use rug::ops::{DivAssignRound, PowAssignRound};
 use rug::Float;
 
 fn dec_round(mode: &str) -> DecRound {
@@ -50,10 +50,19 @@ fn dec_round(mode: &str) -> DecRound {
 /// precision plus, for the trig family, ~3.34 bits per decimal digit
 /// of |x| so MPFR's internal argument reduction survives the
 /// cancellation in the skip decades the corpus deliberately reaches.
-fn work_bits(prec: usize, mag: i64, trig: bool) -> u32 {
+/// The `p1_anchor` class (`logp1`, ADR-0059 Track D) needs depth for
+/// the opposite reason: a tiny argument's value hugs the argument
+/// itself at relative distance ~x, so deciding a directed rounding
+/// needs ~2·|mag| decimal digits (~6.7 bits each) before the residual
+/// `x²/2` becomes visible; the base-variant compositions
+/// (`log2p1` / `log10p1`) scale the value away from the grid and
+/// keep the generic headroom.
+fn work_bits(prec: usize, mag: i64, trig: bool, p1_anchor: bool) -> u32 {
     let base = 64 + 4 * (prec as i64 + 30);
     let extra = if trig {
         (mag.unsigned_abs() as i64 * 34 / 10) + 64
+    } else if p1_anchor {
+        (mag.unsigned_abs() as i64 * 67 / 10) + 64
     } else {
         64
     };
@@ -112,6 +121,25 @@ fn eval(fv: &frozen::FrozenVec, p: u32) -> (Float, Ordering) {
         "asinh" => v.asinh_round(Round::Nearest),
         "acosh" => v.acosh_round(Round::Nearest),
         "atanh" => v.atanh_round(Round::Nearest),
+        // ADR-0059 Track D: logp1 is MPFR-native (mpfr_log1p); the
+        // base variants compose `ln_1p / ln(base)` at the same
+        // generous working precision. The composition's second
+        // rounding stays ~2^-(p-2) relative, far inside the decimal
+        // guard-digit slack the whole gate rests on, and the returned
+        // ternary (a distribution stat only, never part of the
+        // verdict) is the final operation's.
+        "logp1" => v.ln_1p_round(Round::Nearest),
+        "log2p1" => {
+            v.ln_1p_round(Round::Nearest);
+            let ln2 = Float::with_val(p, rug::float::Constant::Log2);
+            v.div_assign_round(&ln2, Round::Nearest)
+        }
+        "log10p1" => {
+            v.ln_1p_round(Round::Nearest);
+            let mut ln10 = Float::with_val(p, 10u32);
+            ln10.ln_round(Round::Nearest);
+            v.div_assign_round(&ln10, Round::Nearest)
+        }
         other => panic!("no MPFR mapping for {other:?}"),
     };
     (v, ord)
@@ -131,7 +159,12 @@ fn mpfr_cross_validates_arb_corpus() {
             if let Some(y2) = v.input2.as_deref() {
                 mag += decimal_magnitude(&parse_dec(y2)).unsigned_abs() as i64;
             }
-            let p = work_bits(prec as usize, mag, TRIG.contains(&v.func.as_str()));
+            let p = work_bits(
+                prec as usize,
+                mag,
+                TRIG.contains(&v.func.as_str()),
+                v.func == "logp1",
+            );
 
             // MPFR at Round::Nearest with generous precision is the
             // exact reference; the directed decimal rounding for the
@@ -145,7 +178,20 @@ fn mpfr_cross_validates_arb_corpus() {
             }
 
             let dr = dec_round(&v.mode);
-            let guard = prec as usize + 15;
+            // The stringification guard must reach past the value's
+            // agreement with its decimal anchor: for `logp1`'s tiny
+            // rows the value hugs the argument to ~2·|mag| digits
+            // (the residual is x²/2), so a flat `prec + 15` truncates
+            // the deciding digits and collapses the directed rounding
+            // onto the anchor (the same failure shape the D1 review
+            // found in its own mpmath oracle).
+            let guard = prec as usize
+                + 15
+                + if v.func == "logp1" {
+                    2 * mag.unsigned_abs() as usize
+                } else {
+                    0
+                };
             let mpfr_dec = round_directed_sig(
                 &parse_dec(&y.to_string_radix(10, Some(guard))),
                 prec as usize,
@@ -206,7 +252,7 @@ fn mpfr_cross_validates_exhaustive_worst_cases() {
 
     for v in frozen::load_exhaustive(7) {
         let mag = decimal_magnitude(&parse_dec(&v.input)).unsigned_abs() as i64;
-        let p = work_bits(7, mag, TRIG.contains(&v.func.as_str()));
+        let p = work_bits(7, mag, TRIG.contains(&v.func.as_str()), v.func == "logp1");
         let (y, _ternary) = eval(&v, p);
         let dr = dec_round(&v.mode);
         let guard = 7 + 15;

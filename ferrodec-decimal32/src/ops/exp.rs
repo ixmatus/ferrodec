@@ -2,7 +2,8 @@
 //!
 //! `exp` and `ln` route their finite-non-zero path through the shared
 //! faithful `ferrodec-transcend` Extended-precision kernel. The base
-//! variants `exp2` / `log2` / `log10` are pure delegations onto the
+//! variants `exp2` / `log2` / `log10` and the shifted logarithm
+//! `ln_1p` (IEEE 754-2019 §9.2 `logp1`) are pure delegations onto the
 //! same faithful kernel (it resolves every special case internally),
 //! at exact parity with the `ferrodec` (Decimal128) parent and the
 //! `ferrodec-decimal64` sibling.
@@ -42,6 +43,34 @@
 //! * `ln(negative)` → NaN + INVALID.
 //! * `ln(+∞) = +∞`.
 //! * `ln(1) = +0`.
+//!
+//! # Special cases for `ln_1p` (§9.2 `logp1`, §9.2.1)
+//!
+//! * `logp1(NaN)` propagates (sNaN raises INVALID).
+//! * `logp1(±0) = ±0`, sign preserved, no exception.
+//! * `logp1(−1) = −∞ + DIV_BY_ZERO`.
+//! * `logp1(x) = NaN + INVALID` for every `x < −1`, `−∞` included.
+//! * `logp1(+∞) = +∞`.
+//! * A subnormal result raises UNDERFLOW alongside INEXACT, which a
+//!   tiny argument reaches because the result hugs the argument.
+//!
+//! # Special cases for `log10_1p` (§9.2.1)
+//!
+//! * `log10_1p(NaN)` propagates (sNaN raises INVALID).
+//! * `log10_1p(±0) = ±0`, sign preserved, no exception.
+//! * `log10_1p(−1) = −∞ + DIV_BY_ZERO`.
+//! * `log10_1p(x)` → NaN + INVALID for `x < −1`, `−∞` included.
+//! * `log10_1p(+∞) = +∞`.
+//!
+//! # Special cases for `log2_1p` (§9.2.1 `log2p1`)
+//!
+//! * `log2_1p(NaN)` propagates; a signaling NaN raises INVALID.
+//! * `log2_1p(±0) = ±0`, sign preserved, no exception.
+//! * `log2_1p(-1) = −∞ + DIV_BY_ZERO`.
+//! * `log2_1p(x)` for `x < −1`, `−∞` included, is NaN + INVALID.
+//! * `log2_1p(+∞) = +∞`.
+//! * A tiny `x` can land the result in the subnormal range, raising
+//!   UNDERFLOW + INEXACT.
 
 use crate::bid::{classify_bits, Class};
 use crate::decimal::Decimal32;
@@ -105,6 +134,28 @@ impl Decimal32 {
     #[must_use]
     pub fn log2(self, rm: RoundingMode) -> (Self, Status) {
         ferrodec_transcend::ln::log2_kernel::<Decimal32>(self, rm)
+    }
+
+    /// IEEE 754-2019 §9.2 `logp1(self)`: `ln(1 + self)`, evaluated so
+    /// an argument near zero keeps its full relative accuracy. Pure
+    /// delegation onto the shared kernel, which resolves every §9.2.1
+    /// special value internally (this module's header lists them) and
+    /// runs the ADR-0059 escalation ladder from this operation's first
+    /// release; the derivation of its exactness classification and its
+    /// error budget live on `ferrodec_transcend::ln::logp1_kernel` and
+    /// `ladder::LOGP1`.
+    #[must_use]
+    #[doc(alias = "logp1")]
+    pub fn ln_1p(self, rm: RoundingMode) -> (Self, Status) {
+        ferrodec_transcend::ln::logp1_kernel::<Decimal32>(self, rm)
+    }
+
+    pub fn log2_1p(self, rm: RoundingMode) -> (Self, Status) {
+        ferrodec_transcend::ln::log2p1_kernel::<Decimal32>(self, rm)
+    }
+
+    pub fn log10_1p(self, rm: RoundingMode) -> (Self, Status) {
+        ferrodec_transcend::ln::log10p1_kernel::<Decimal32>(self, rm)
     }
 
     /// Kani-only entry returning the `exp` special-case branch without

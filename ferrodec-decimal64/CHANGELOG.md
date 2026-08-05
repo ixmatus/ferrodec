@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `Decimal64::ln_1p`, `log2_1p`, and `log10_1p` (IEEE 754-2019 §9.2
+  `logp1` / `log2p1` / `log10p1`; ADR-0059 Track D D1): pure
+  delegations onto the shared `ferrodec-transcend` kernels, correctly
+  rounded on the escalation ladder from first release, gated on
+  `exp-log`. Exact families (`log2_1p` at `2^k − 1` up to `k = 53`
+  and the matching negative fractions; `log10_1p` at the nines
+  patterns up to 16 digits) deliver with no `INEXACT` in every mode.
+
 ## [4.1.0] - 2026-08-02
 
 ### Added
