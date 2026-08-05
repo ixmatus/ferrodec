@@ -77,6 +77,7 @@ fn kernel(v: &frozen::FrozenVec, rm: RoundingMode) -> Decimal128 {
         "exp2" => x.exp2(rm).0,
         "expm1" => x.exp_m1(rm).0,
         "exp2m1" => x.exp2_m1(rm).0,
+        "exp10m1" => x.exp10_m1(rm).0,
         "cbrt" => x.cbrt(rm).0,
         "sin" => x.sin(rm).0,
         "cos" => x.cos(rm).0,

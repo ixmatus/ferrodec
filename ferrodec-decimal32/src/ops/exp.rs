@@ -96,6 +96,18 @@
 //!   toward zero and `−∞`) with OVERFLOW + INEXACT.
 //! * A tiny `x` can land the result in the subnormal range, raising
 //!   UNDERFLOW + INEXACT.
+//!
+//! # Special cases for `exp10_m1` (§9.2 `exp10m1`, §9.2.1)
+//!
+//! * `exp10m1(NaN)` propagates (sNaN raises INVALID).
+//! * `exp10m1(±0) = ±0`, sign preserved, no exception.
+//! * `exp10m1(−∞) = −1` exactly, no exception.
+//! * `exp10m1(+∞) = +∞`.
+//! * A large positive argument overflows to the §7.4 disposition for
+//!   the rounding direction with OVERFLOW + INEXACT; a tiny argument
+//!   can land the result in the subnormal range, raising UNDERFLOW +
+//!   INEXACT.
+//!
 
 use crate::bid::{classify_bits, Class};
 use crate::decimal::Decimal32;
@@ -191,6 +203,10 @@ impl Decimal32 {
 
     pub fn exp2_m1(self, rm: RoundingMode) -> (Self, Status) {
         ferrodec_transcend::exp::exp2m1_kernel::<Decimal32>(self, rm)
+    }
+
+    pub fn exp10_m1(self, rm: RoundingMode) -> (Self, Status) {
+        ferrodec_transcend::exp::exp10m1_kernel::<Decimal32>(self, rm)
     }
 
     pub fn log2_1p(self, rm: RoundingMode) -> (Self, Status) {

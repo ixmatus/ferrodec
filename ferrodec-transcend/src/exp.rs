@@ -469,6 +469,117 @@ pub(crate) fn exp2m1_kernel_body<F: DecimalFormat, E: ExtNum>(
     ladder::round_guarded::<F, E>(result_ext, rm, &ladder::EXP2M1)
 }
 
+/// Base-10 exponential minus one: the IEEE 754-2019 §9.2 `exp10m1`
+/// operation, `10^x − 1`, public as `Decimal128::exp10_m1` and the
+/// `Decimal64` / `Decimal32` siblings. Evaluated as
+/// `expm1(x · ln 10)` so an argument near zero keeps its full
+/// relative accuracy instead of losing it to the cancellation
+/// `10^x ⊖ 1` would suffer.
+///
+/// ## Exactness and ties (ADR-0059 classification leg)
+///
+/// `10^x − 1 = r` with `r` rational and `x` representable makes
+/// `1 + r = 10^x` rational; writing `1 + r = p/q` in lowest terms and
+/// `x = a/b` in lowest terms gives `(p/q)^b = 10^a`. Any prime
+/// dividing `q` would divide `p^b`, contradicting `gcd(p, q) = 1`, so
+/// `1 + r` is an integer power form, and unique factorization
+/// (`10 = 2·5`) makes its 2 exponent and its 5 exponent each equal
+/// `a/b`, forcing `b | a` and hence `b = 1`. Every exact value of
+/// `exp10m1` at a representable input therefore sits at an INTEGER
+/// argument `x = n`, with value `10^n − 1`: the `|n|` nines pattern
+/// (`9`, `99`, `999`, … above zero; `−0.9`, `−0.99`, … below it).
+///
+/// No tie exists anywhere: a nearest mode midpoint's stripped
+/// coefficient ends in 5, while `10^n − 1` is all nines and its
+/// stripped coefficient ends in 9 at every `n`. Past the classifier
+/// the true value is irrational, so the unconditional `INEXACT` is
+/// correct in every mode and every rounded input sits a finite
+/// distance from its rounding boundary (the ladder's standing
+/// assumption).
+///
+/// ## The all-nines proxy (the classifier decides EVERY integer)
+///
+/// `exact::exp10m1_integer` is not only the exact-case classifier: it
+/// answers every integer argument the format can name, because the
+/// integers past the exact family are a *constructible* misround
+/// class rather than a model residual. Once `n` passes the working
+/// width, `10^n` absorbs the `−1` and the working value lands exactly
+/// ON the grid point `1·10^n` — a distance no fixed rung grows, so
+/// for `n` past roughly 107 even rung 2's bracket contains the
+/// boundary and a default build would decide the directed modes by
+/// the sign of its own noise, across thousands of inputs (the D1
+/// `log10p1` lesson in its inverse direction). The gap integer
+/// between the overflow gate and the true overflow boundary
+/// (`n = 6145` at `Decimal128`) would escalate forever instead.
+///
+/// The classifier's delivery is uniform and input side: the exact
+/// nines coefficient for `|n| ≤ PRECISION`, and beyond it the
+/// `PRECISION + 1` digit all nines coefficient with `pre_sticky`
+/// marking the dropped nines, which the format rounder then resolves
+/// exactly as it would the true value — overflow disposition (§7.4)
+/// included. The soundness argument is total digit knowledge, not a
+/// margin; it lives on `exact::exp10m1_integer`.
+///
+/// ## Accuracy
+///
+/// Correctly rounded. `exp10m1` runs on the ADR-0059 escalation
+/// ladder from its first release: rung 1 evaluates at 50 digits and
+/// delivers only when the `ladder::EXP10M1` budget clears every
+/// rounding boundary of the format, otherwise the identical body
+/// re-runs at rung 2's 110 digits, and under the `unbounded-ladder`
+/// feature at a dynamic rung that widens until the rounding is
+/// decided. The budget's itemization lives on `ladder::EXP10M1`.
+/// Arguments below the `−1` collapse threshold, where the working
+/// subtraction rounds to exactly `−1`, are decided by the ADR-0051
+/// residual seam from the strict side theorem `10^x − 1 > −1`.
+pub fn exp10m1_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
+    ladder::ladder_run!(|ex| exp10m1_kernel_body::<F, _>(ex, x, rm))
+}
+
+/// Generic body of [`exp10m1_kernel`] (M4, ADR-0059); `None`
+/// escalates (M8 ladder). `ex` is the working-precision exemplar
+/// (M8b): the receiver the constant and constructor surface reads its
+/// width from, never a value the result depends on.
+pub(crate) fn exp10m1_kernel_body<F: DecimalFormat, E: ExtNum>(
+    ex: E,
+    x: F,
+    rm: RoundingMode,
+) -> Option<(F, Status)> {
+    if let Some(early) = expm1_special_cases(x) {
+        return Some(early);
+    }
+    // Every integer argument, decided input side (ADR-0059 Track D).
+    // The exact family (`|n| ≤ PRECISION`, the nines patterns) is the
+    // §7.5 half; the rest is the absorbed-grid hazard: past the
+    // working width `10^n ⊖ 1` keeps every digit of `10^n` and the
+    // working value sits exactly ON the grid point `1·10^n`, which no
+    // rung can move off, so the directed modes would be decided by
+    // noise for thousands of inputs, and the overflow-gate gap
+    // integer would carry the §7.4 disposition of the absorbed proxy
+    // rather than of the true value. `exact::exp10m1_integer` carries
+    // the derivation, the all nines proxy's soundness argument, and
+    // every bail proof. Unguarded by design.
+    if let Some(done) = crate::exact::exp10m1_integer::<F>(x, rm) {
+        return Some(done);
+    }
+    let u = ex.from_format(x).mul(ex.ln10());
+    if let Some(done) = expm1_gates::<F, E>(ex, u, rm) {
+        return Some(done);
+    }
+    let result_ext = expm1_ext(ex, u);
+    // The −1 collapse seam (ADR-0051): for `u` in roughly
+    // `(−120, −107)` the working subtraction rounds to exactly `−1`, a
+    // format grid point no rung separates from the true value. The
+    // side theorem `10^x − 1 > −1` for every finite `x` puts the true
+    // value above the anchor, toward zero: `magnitude_grows = false`.
+    // Unguarded: the anchor leg runs before the ladder's predicate.
+    if result_ext.sticks_to(ex.one().neg()) {
+        let (result, status) = ex.one().neg().to_format_with_residual::<F>(false, rm);
+        return Some((result, status | Status::INEXACT));
+    }
+    ladder::round_guarded::<F, E>(result_ext, rm, &ladder::EXP10M1)
+}
+
 /// Compute `exp(x_ext)` and round to the format. Used by the public
 /// `exp` wrapper and by `pow`'s general `exp(y · ln(x))` path.
 ///

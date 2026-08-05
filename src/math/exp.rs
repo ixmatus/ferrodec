@@ -96,6 +96,10 @@ impl Decimal128 {
     pub fn exp2_m1(self, rm: RoundingMode) -> (Self, Status) {
         ferrodec_transcend::exp::exp2m1_kernel::<Decimal128>(self, rm)
     }
+
+    pub fn exp10_m1(self, rm: RoundingMode) -> (Self, Status) {
+        ferrodec_transcend::exp::exp10m1_kernel::<Decimal128>(self, rm)
+    }
 }
 
 #[cfg(test)]

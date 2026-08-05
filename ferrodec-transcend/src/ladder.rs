@@ -62,7 +62,14 @@
 //!   ON the grid once `n` passes the rung width, so the ADR-0051
 //!   residual channel decides it input side (the side theorem and the
 //!   boundary-margin proof live on
-//!   `exact::log10p1_power_of_ten_exponent`).
+//!   `exact::log10p1_power_of_ten_exponent`);
+//! * `exp10m1`'s whole integer family (`x = n`) — the mirror class:
+//!   `10^n ⊖ 1` keeps every digit of `10^n` past the working width,
+//!   landing the working value exactly ON the grid point `1·10^n`, so
+//!   `exact::exp10m1_integer` answers every integer input side, the
+//!   nines patterns exactly and the rest through an all nines proxy
+//!   whose soundness is total digit knowledge rather than a margin
+//!   (the proof lives at that classifier)..
 //!
 //! ## The budget discipline (the ADR-0050 lesson)
 //!
@@ -500,6 +507,18 @@ pub(crate) const EXP2M1: Budget = Budget {
     dynamic: expbasem1_budget_dyn,
 };
 
+/// `exp10m1 = expm1(x · ln 10)` (IEEE 754-2019 §9.2 `exp10m1`;
+/// public `exp10_m1`): the argument const-multiply through the
+/// closing amplification (≤ ~33,000) on top of [`EXPM1`]'s items
+/// (≤ ~33,000), the same composition shape as [`EXP2M1`], whose
+/// dynamic formula it shares. Sum ≈ 66,000; ×10 → 700,000, both
+/// rungs.
+pub(crate) const EXP10M1: Budget = Budget {
+    rung1: 700_000,
+    rung2: 700_000,
+    dynamic: expbasem1_budget_dyn,
+};
+
 /// `ln`. Itemization (rung 1):
 ///
 /// * Near-1 direct path (`|x−1| < 0.5`): `u` exact, `log1p` series at
@@ -878,11 +897,12 @@ mod tests {
     /// escalate everything).
     #[test]
     fn budgets_are_positive_and_sane() {
-        let all: [(&str, &Budget); 25] = [
+        let all: [(&str, &Budget); 26] = [
             ("exp", &EXP),
             ("exp2", &EXP2),
             ("expm1", &EXPM1),
             ("exp2m1", &EXP2M1),
+            ("exp10m1", &EXP10M1),
             ("ln", &LN),
             ("log10", &LOG10),
             ("log2", &LOG2),
@@ -1008,11 +1028,12 @@ mod tests {
     /// catalog have diverged and one of them is wrong.
     #[test]
     fn dynamic_budgets_track_the_rung2_catalog() {
-        let all: [(&str, &Budget); 25] = [
+        let all: [(&str, &Budget); 26] = [
             ("exp", &EXP),
             ("exp2", &EXP2),
             ("expm1", &EXPM1),
             ("exp2m1", &EXP2M1),
+            ("exp10m1", &EXP10M1),
             ("ln", &LN),
             ("log10", &LOG10),
             ("log2", &LOG2),
