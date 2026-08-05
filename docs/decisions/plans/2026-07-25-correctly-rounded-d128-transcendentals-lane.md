@@ -316,6 +316,103 @@ changes and any S1 witnesses explicitly. Track D additions are minor too.
 - The π scaled family is the largest unknown in the surface rider; its group
   goes last so a stall strands nothing.
 
+## Track D status and the D3/D4 kickoff terms (recorded 2026-08-04)
+
+D1 and D2 are merged public (c410a3e: `ln_1p` / `log2_1p` /
+`log10_1p`; 698de99: `exp_m1` / `exp2_m1` / `exp10` / `exp10_m1`):
+seven of the seventeen operations, each with the full tripod from
+first release. fd-4zo.23 and .24 are closed with commit maps. D3 and
+D4 were deliberately not started; their kickoff terms were settled
+during the Track D sessions and are recorded here so the next session
+inherits decisions, not open questions.
+
+### D3, the algebraic group (fd-4zo.25: pown, powr, rootn, compound, rSqrt, hypot)
+
+- **Blocked on the Liouville caps lemma, derived interactively with
+  Parnell before any agent launches.** The target statement: an
+  algebraic true value with known minimal polynomial degree and
+  height sits at an unconditionally bounded distance from every
+  format grid point and midpoint (a Liouville type bound), which
+  yields a provable finite ladder cap per operation and format. That
+  makes the correctly rounded claim for these six operations
+  *unconditional* in the default two rung build, strictly stronger
+  than the transcendental Tier 1, and is the reason the group is
+  worth its own derivation session rather than a spec transcription.
+  The lemma folds into the surface track's ADR; the ADR-0059 "not
+  specialist verified" banner discipline applies unless external
+  verification is priced. An agent must never improvise this number
+  theory (the Track D stop rule, held twice now).
+- **Exactness is fully decidable input side** and the derivations are
+  the supervisor's, before code: the `pow` classifier's decimal
+  Lauter and Lefevre machinery extends to `pown`/`powr`/`rootn`
+  (rational power criteria on stripped forms), `compound` reduces to
+  `pown` on `1 + x` (the D1 logp1 family's exact-sum analysis
+  applies), `rSqrt` to the perfect square criterion, and `hypot`'s
+  exact set is the Pythagorean family on stripped coefficients.
+  Expect integer-anchor shapes again: `rSqrt(10^{-2k})`,
+  `compound`'s nines adjacency, and `hypot(x, 0)` are the D1/D2
+  lesson's obvious recurrences, and each spec must carry the sweep
+  for them (the checkpoint question is "which inputs land the
+  working value ON a grid point past the rung width").
+- **Naming and signatures are identity bearing and need their own
+  checkpoint**: `pown`/`rootn`/`compound` take an integral second
+  operand (§9.2's integralFormat note), so the Rust surface must
+  choose between `i32` operands and format operands, and between
+  Rust std spellings (`powi`, `hypot`) and IEEE names, before specs
+  exist. The D1 precedent (Rust std spelling where std has the name,
+  IEEE names as doc aliases) is the starting position, not a
+  decision.
+- The §9.2.1 special value tables for `compound` and `rootn`
+  (extracted verbatim from the standard during D1: `compound(x, 0)`
+  is 1 for `x ≥ −1` or quiet NaN, `compound(−1, n < 0)` is `+∞`
+  with `DIV_BY_ZERO`, `rootn(±0, n < 0)` splits on parity, and the
+  rest) go into the specs verbatim, not paraphrased.
+
+### D4, the pi scaled family (fd-4zo.26: sinPi, cosPi, tanPi, asinPi, acosPi, atanPi, atan2Pi)
+
+- **Needs a full design pass with Parnell before any spec exists**;
+  it stays last so a stall strands nothing (the charter's ordering).
+  The knowns going in: argument reduction is exact rational (`x mod
+  2` is exact decimal arithmetic; no Payne and Hanek machinery), and
+  the exact case tables are rich and enumerable (Niven's theorem:
+  the rational multiples of pi with rational sine are exactly the
+  cases the §9.2.1 table names; `sinPi(±n)` is `±0` with sign rules,
+  `cosPi(n + ½)` is `+0`, `tanPi` has signed zeros AND signed
+  infinities with `DIV_BY_ZERO` at half integers on an elaborate
+  parity table already extracted from the standard's PDF during D1).
+- **The anchor lessons recur with force**: `sinPi` hugs `0` at every
+  integer neighborhood (an input side family, not an asymptotic
+  one), `cosPi` hugs `±1` at integers, and `tanPi` hugs its poles;
+  the design pass must decide which of these are classifier
+  territory, which are ADR-0051 residual channel territory, and
+  which the ladder prices, before implementation is delegated.
+- **Every instrument needs the width collapse discipline from day
+  one** (the Track D review's four sightings): the corpus
+  generator's directed exact output filter must learn the family's
+  exact tables, the tie question needs the PRECISION + 1 analysis
+  per operation, and the MPFR gate needs a mapping check up front
+  (`mpfr_sinpi` and friends exist only from MPFR 4.2; the vendored
+  rug/MPFR version decides whether the gate composes or maps
+  natively, and composing `sin(pi·x)` at working precision loses
+  the exact reduction, so this is a real fork to settle, not
+  plumbing).
+
+### Process terms that carry forward (validated at seven agents)
+
+One Opus 5 agent per operation in parallel worktrees under binding
+specs; derivations, budgets, anchor side theorems, naming, and
+cross function coherence are the supervisor's, proved at an
+interactive checkpoint before any code; byte identical shared
+scaffolds pasted per worktree and deduped at integration by
+deterministic rebuild (checkout the landed base, splice from the
+worktree; naive union mangles code); corpus accretion via
+`--funcs` with names appended after every legacy name (stream
+stability); exact per bucket pins, vectors and pins and SHA256SUMS
+atomic per function commit; per group signed merges with the
+YubiKey prompt discipline; adversarial review before landing (full
+diff read, independent gate re runs, fresh code oracles on disjoint
+inputs, supervisor run falsification probes on real corpus rows).
+
 ## M8b design resolutions (settled with Parnell, 2026-07-31)
 
 Two forks settled and one constraint discovered during M8b scoping;
