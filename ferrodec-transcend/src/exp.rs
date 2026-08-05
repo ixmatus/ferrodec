@@ -469,6 +469,84 @@ pub(crate) fn exp2m1_kernel_body<F: DecimalFormat, E: ExtNum>(
     ladder::round_guarded::<F, E>(result_ext, rm, &ladder::EXP2M1)
 }
 
+/// Base-10 exponential `10^x` (IEEE 754-2019 §9.2 `exp10`). Computed
+/// as `exp(x · ln 10)` at working precision, the same composition
+/// shape [`exp2_kernel`] uses for base 2.
+///
+/// ## Exactness and ties (ADR-0059 classification leg)
+///
+/// `10^x` rational at a representable `x = a/b` in lowest terms forces
+/// `b = 1`: the value's 2-exponent and 5-exponent must each equal
+/// `a/b` under unique factorization of `10 = 2·5`, and both are
+/// integers. Every exact case is therefore an integer `n` with value
+/// `10^n`, coefficient 1. No input lands on a nearest-mode tie either:
+/// a midpoint's stripped coefficient ends in 5 while a power of ten's
+/// is 1. `exact::exp10_integer` catches the whole family input side:
+/// *every* integer, not only the representable ones. That breadth is
+/// load bearing for the ladder rather than merely tidy, since a `10^n`
+/// past the range sits exactly ON a grid point at its own exponent, a
+/// distance no rung can grow, and the overflow gate leaves one such
+/// integer per format uncovered (`n = 6145` at `Decimal128`). The kernel's
+/// unconditional `INEXACT` is correct on everything the classifier
+/// declines, since those values are all irrational.
+///
+/// ## Accuracy
+///
+/// Correctly rounded on the ADR-0059 escalation ladder from this
+/// operation's first release: rung 1 evaluates at 50 digits and
+/// delivers only when the `ladder::EXP10` budget clears every
+/// rounding boundary of the format, otherwise the identical body
+/// re-runs at rung 2's 110 digits (and, under the `unbounded-ladder`
+/// feature, at a dynamic rung that widens until the rounding is
+/// decided). The budget's itemization lives on `ladder::EXP10`; the
+/// 1-anchor for tiny `x` and the over/underflow gates are inherited
+/// unchanged from the shared `exp_from_extended_body` core.
+///
+/// ## Special values (IEEE 754-2019 §9.2.1)
+///
+/// `exp10` takes `exp`'s dispositions, not the `expm1` family's:
+/// `exp10(±0) = 1` exactly with no exception, `exp10(−∞) = +0`,
+/// `exp10(+∞) = +∞`, NaN propagates, and a signaling NaN raises
+/// `INVALID`.
+pub fn exp10_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
+    ladder::ladder_run!(|ex| exp10_kernel_body::<F, _>(ex, x, rm))
+}
+
+/// Generic body of [`exp10_kernel`] (M4, ADR-0059); `None` escalates
+/// (M8 ladder). `ex` is the working-precision exemplar (M8b).
+pub(crate) fn exp10_kernel_body<F: DecimalFormat, E: ExtNum>(
+    ex: E,
+    x: F,
+    rm: RoundingMode,
+) -> Option<(F, Status)> {
+    match x.classify() {
+        Class::SignalingNaN { .. } => return Some((x.nan_from(), Status::INVALID)),
+        Class::QuietNaN { .. } => return Some((x, Status::OK)),
+        Class::Infinity { sign } => {
+            return Some(if sign {
+                (F::ZERO, Status::OK)
+            } else {
+                (F::INFINITY, Status::OK)
+            });
+        }
+        Class::Zero { .. } => return Some((F::ONE, Status::OK)),
+        Class::Finite { .. } => {}
+    }
+    // Integer inputs: 10^n delivered through the format rounder's
+    // §7.4 disposition — exact in range, correct overflow and
+    // underflow beyond it. Load bearing for the ladder: an
+    // above-range 10^n is exactly ON a grid point at its own
+    // exponent, which no rung can move off, and the overflow gate's
+    // integer gap (n = 6145 at Decimal128) would otherwise escalate
+    // forever (ADR-0059 Track D; the proof lives on
+    // `exact::exp10_integer`).
+    if let Some(exact) = crate::exact::exp10_integer::<F>(x, rm) {
+        return Some(exact);
+    }
+    let arg_ext = ex.from_format(x).mul(ex.ln10());
+    exp_from_extended_body::<F, E>(arg_ext, rm, &ladder::EXP10)
+}
+
 /// Base-10 exponential minus one: the IEEE 754-2019 §9.2 `exp10m1`
 /// operation, `10^x − 1`, public as `Decimal128::exp10_m1` and the
 /// `Decimal64` / `Decimal32` siblings. Evaluated as

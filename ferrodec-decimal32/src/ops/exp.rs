@@ -108,6 +108,17 @@
 //!   can land the result in the subnormal range, raising UNDERFLOW +
 //!   INEXACT.
 //!
+//!
+//! # Special cases for `exp10` (§9.2 `exp10`, §9.2.1)
+//!
+//! * `exp10(NaN)` propagates (sNaN raises INVALID).
+//! * `exp10(±0) = 1` exactly, no exception.
+//! * `exp10(−∞) = +0`; `exp10(+∞) = +∞`.
+//! * `exp10(n) = 10^n` exactly for every integer `n` in
+//!   `[−101, 96]`, with no INEXACT (§7.5); integers past that range
+//!   deliver the §7.4 overflow or underflow disposition with
+//!   OVERFLOW + INEXACT or UNDERFLOW + INEXACT.
+//!
 
 use crate::bid::{classify_bits, Class};
 use crate::decimal::Decimal32;
@@ -203,6 +214,10 @@ impl Decimal32 {
 
     pub fn exp2_m1(self, rm: RoundingMode) -> (Self, Status) {
         ferrodec_transcend::exp::exp2m1_kernel::<Decimal32>(self, rm)
+    }
+
+    pub fn exp10(self, rm: RoundingMode) -> (Self, Status) {
+        ferrodec_transcend::exp::exp10_kernel::<Decimal32>(self, rm)
     }
 
     pub fn exp10_m1(self, rm: RoundingMode) -> (Self, Status) {
