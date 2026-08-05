@@ -388,6 +388,87 @@ pub(crate) fn expm1_kernel_body<F: DecimalFormat, E: ExtNum>(
     ladder::round_guarded::<F, E>(result_ext, rm, &ladder::EXPM1)
 }
 
+/// Base 2 exponential minus one: the IEEE 754-2019 §9.2 `exp2m1`
+/// operation, `2^x − 1`, public as `Decimal128::exp2_m1` and the
+/// sibling `exp2_m1` methods. Evaluated as `expm1(x · ln 2)` so an
+/// argument near zero keeps its full relative accuracy instead of
+/// losing it to the cancellation `2^x ⊖ 1` would suffer.
+///
+/// ## Exactness and ties (ADR-0059 classification leg)
+///
+/// `2^x − 1 = r` rational makes `2^x = 1 + r` rational, and unique
+/// factorization then forces a representable `x = a/b` to have
+/// `b = 1`: every exact result and every nearest mode tie sits at an
+/// integer `x = n`, value `2^n − 1`. The exact family is `2^n − 1`
+/// for `1 ≤ n ≤ 112` (34 digits; 53 and 23 at the siblings) and
+/// `−(10^m − 5^m)·10^−m` for `n = −m` with `1 ≤ m ≤ PRECISION`;
+/// `n = 0` is `x = ±0`, delivered by `expm1_special_cases`.
+///
+/// Unlike the `logp1` family, this one has real ties, six of them:
+/// the positive side's `2^n − 1` ends in 5 exactly when `4 | n`, and
+/// the `PRECISION + 1`-digit window holds exactly one such `n`
+/// (`116` / `56` / `24`); the negative side's `10^m − 5^m` always
+/// ends in 5, so `m = PRECISION + 1` (`35` / `17` / `8`) is a tie at
+/// every format. `exact::exp2m1_exact_or_tie` catches all of them
+/// input side and delivers through the format rounder, whose own tie
+/// rule decides a value the approximation kernel cannot: the true
+/// value IS the boundary. Past the classifier the value is
+/// irrational, so the unconditional `INEXACT` is correct in every
+/// mode and every rounded input sits a finite distance from its
+/// rounding boundary (the ladder's standing assumption).
+///
+/// ## Accuracy
+///
+/// Correctly rounded on the ADR-0059 escalation ladder from this
+/// operation's first release: rung 1 evaluates at 50 digits and
+/// delivers only when the `ladder::EXP2M1` budget clears every
+/// rounding boundary of the format, otherwise the identical body
+/// re-runs at rung 2's 110 digits, and under the `unbounded-ladder`
+/// feature at a dynamic rung that widens until the rounding is
+/// decided. The budget's itemization lives on `ladder::EXP2M1`.
+pub fn exp2m1_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
+    ladder::ladder_run!(|ex| exp2m1_kernel_body::<F, _>(ex, x, rm))
+}
+
+/// Generic body of [`exp2m1_kernel`] (M4, ADR-0059); `None` escalates
+/// (M8 ladder). `ex` is the working-precision exemplar (M8b): the
+/// receiver the constant and constructor surface reads its width from,
+/// never a value the result depends on.
+pub(crate) fn exp2m1_kernel_body<F: DecimalFormat, E: ExtNum>(
+    ex: E,
+    x: F,
+    rm: RoundingMode,
+) -> Option<(F, Status)> {
+    if let Some(early) = expm1_special_cases(x) {
+        return Some(early);
+    }
+    // Exact values and the six nearest-mode ties on integer inputs
+    // (ADR-0059 Track D): every one at every rounding direction, with
+    // no INEXACT on the exact ones (§7.5) and the mode's own tie rule
+    // on the midpoints.
+    if let Some(exact) = crate::exact::exp2m1_exact_or_tie::<F>(x, rm) {
+        return Some(exact);
+    }
+    let u = ex.from_format(x).mul(ex.ln2());
+    if let Some(gated) = expm1_gates::<F, E>(ex, u, rm) {
+        return Some(gated);
+    }
+    let result_ext = expm1_ext(ex, u);
+    // No x anchor (slope ln 2 ≠ 1 lands tiny results off grid); the
+    // −1 collapse seam per the shared spec. For `u` in roughly
+    // `(−120, −107)` the subtraction rounds `e^u` away at working
+    // width and the result collapses onto `−1` exactly, a format grid
+    // point no rung separates from the true value; `e^u − 1 > −1` for
+    // every finite `u`, so the true value lies toward zero from the
+    // anchor and `magnitude_grows = false`. Unguarded by design: the
+    // ADR-0051 residual leg runs before the ladder's predicate.
+    if result_ext.sticks_to(ex.one().neg()) {
+        let (result, status) = ex.one().neg().to_format_with_residual::<F>(false, rm);
+        return Some((result, status | Status::INEXACT));
+    }
+    ladder::round_guarded::<F, E>(result_ext, rm, &ladder::EXP2M1)
+}
+
 /// Compute `exp(x_ext)` and round to the format. Used by the public
 /// `exp` wrapper and by `pow`'s general `exp(y · ln(x))` path.
 ///

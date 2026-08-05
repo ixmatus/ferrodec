@@ -84,6 +84,18 @@
 //!   subtracting 1 cannot pull a value at that scale back into range.
 //! * A subnormal result raises UNDERFLOW alongside INEXACT, which a
 //!   tiny argument reaches because the result hugs the argument.
+//!
+//! # Special cases for `exp2_m1` (§9.2.1 `exp2m1`)
+//!
+//! * `exp2_m1(NaN)` propagates; a signaling NaN raises INVALID.
+//! * `exp2_m1(±0) = ±0`, sign preserved, no exception.
+//! * `exp2_m1(−∞) = −1` exactly, no exception.
+//! * `exp2_m1(+∞) = +∞`.
+//! * A large positive argument overflows per §7.4 (`+∞` at the
+//!   nearest modes and toward `+∞`, the largest finite magnitude
+//!   toward zero and `−∞`) with OVERFLOW + INEXACT.
+//! * A tiny `x` can land the result in the subnormal range, raising
+//!   UNDERFLOW + INEXACT.
 
 use crate::bid::{classify_bits, Class};
 use crate::decimal::Decimal32;
@@ -175,6 +187,10 @@ impl Decimal32 {
     #[doc(alias = "expm1")]
     pub fn exp_m1(self, rm: RoundingMode) -> (Self, Status) {
         ferrodec_transcend::exp::expm1_kernel::<Decimal32>(self, rm)
+    }
+
+    pub fn exp2_m1(self, rm: RoundingMode) -> (Self, Status) {
+        ferrodec_transcend::exp::exp2m1_kernel::<Decimal32>(self, rm)
     }
 
     pub fn log2_1p(self, rm: RoundingMode) -> (Self, Status) {

@@ -352,6 +352,14 @@ fn exp2_budget_dyn(p: u32) -> u128 {
 fn expm1_budget_dyn(p: u32) -> u128 {
     10 * (32_800 + 5 * u128::from(p))
 }
+
+/// [`EXP2M1`] / [`EXP10M1`] at `p`: the two const-item blocks
+/// (argument multiply ≈ 33,000 + [`EXPM1`]'s reduction block
+/// ≈ 32,800) + series `3(p + 10)` through the closing amplification
+/// (≈ 5p), ×10.
+fn expbasem1_budget_dyn(p: u32) -> u128 {
+    10 * (65_800 + 5 * u128::from(p))
+}
 /// [`LN`] (and [`LOG10`] / [`LOG2`]) at `p`: decade path ~160 + log1p
 /// series `3 · 5p` + closing ops, ×10. Reproduces the catalog's 950
 /// at 50 and 1,850 at 110 before the pad.
@@ -478,6 +486,18 @@ pub(crate) const EXPM1: Budget = Budget {
     rung1: 350_000,
     rung2: 350_000,
     dynamic: expm1_budget_dyn,
+};
+
+/// `exp2m1 = expm1(x · ln 2)` (IEEE 754-2019 §9.2 `exp2m1`; public
+/// `exp2_m1`): the argument const-multiply (≤ 22,200 units of the
+/// ≤ 14,151 argument magnitude, mapped 1:1 into result-relative
+/// units through `d(e^u − 1) = e^u du` and the ≤ 1.47 closing
+/// factor: ≤ ~33,000) on top of [`EXPM1`]'s items (≤ ~33,000).
+/// Sum ≈ 66,000; ×10 → 700,000, both rungs.
+pub(crate) const EXP2M1: Budget = Budget {
+    rung1: 700_000,
+    rung2: 700_000,
+    dynamic: expbasem1_budget_dyn,
 };
 
 /// `ln`. Itemization (rung 1):
@@ -858,10 +878,11 @@ mod tests {
     /// escalate everything).
     #[test]
     fn budgets_are_positive_and_sane() {
-        let all: [(&str, &Budget); 24] = [
+        let all: [(&str, &Budget); 25] = [
             ("exp", &EXP),
             ("exp2", &EXP2),
             ("expm1", &EXPM1),
+            ("exp2m1", &EXP2M1),
             ("ln", &LN),
             ("log10", &LOG10),
             ("log2", &LOG2),
@@ -987,10 +1008,11 @@ mod tests {
     /// catalog have diverged and one of them is wrong.
     #[test]
     fn dynamic_budgets_track_the_rung2_catalog() {
-        let all: [(&str, &Budget); 24] = [
+        let all: [(&str, &Budget); 25] = [
             ("exp", &EXP),
             ("exp2", &EXP2),
             ("expm1", &EXPM1),
+            ("exp2m1", &EXP2M1),
             ("ln", &LN),
             ("log10", &LOG10),
             ("log2", &LOG2),

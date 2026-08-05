@@ -12,10 +12,11 @@
 //! `exp`, `ln`, and the trig and hyperbolic families that is correct:
 //! their values at non-special representable inputs are irrational
 //! (Lindemann for the base-`e` family at rational arguments), and the
-//! special inputs short-circuit. Seven functions are the exceptions:
+//! special inputs short-circuit. Eight functions are the exceptions:
 //! `exp2(n)` with `2^n` in reach of the width gate, `log2(2^k)`,
-//! `log10(10^k)` (fd-aqs.8), `log2p1(2^k − 1)` and `log10p1(10^k − 1)`
-//! (ADR-0059 Track D), a perfect cube under `cbrt`, and an
+//! `log10(10^k)` (fd-aqs.8), `log2p1(2^k − 1)`, `log10p1(10^k − 1)`,
+//! and `exp2m1(n)`'s exact-and-tie family (ADR-0059 Track D), a
+//! perfect cube under `cbrt`, and an
 //! exact rational power under `pow` (the decimal Lauter–Lefèvre
 //! criterion). Every one is decided from the *input alone* and
 //! short-circuits before the kernel, which both delivers the exact
@@ -625,6 +626,113 @@ pub(crate) fn log2p1_exact<F: DecimalFormat>(x: F, rm: RoundingMode) -> Option<(
         k < 0,
         rm,
     ))
+}
+
+/// The exact or tie value of `exp2m1(x) = 2^x − 1` when `x` is an
+/// integer `n` whose value is expressible in at most
+/// `F::PRECISION + 1` significant digits; `None` routes to the
+/// kernel. The caller (`crate::exp::exp2m1_kernel_body`) has already
+/// run `expm1_special_cases`, so every `x` arriving here is finite
+/// and nonzero.
+///
+/// ## Rational values force integer inputs (ADR-0059 Track D)
+///
+/// Suppose `2^x − 1 = r` with `r` rational and `x` representable.
+/// Then `2^x = 1 + r` is rational too, and [`exp2_exact_or_tie`]'s
+/// argument applies verbatim: a representable `x` is rational,
+/// `x = a/b` in lowest terms, `2^a = (1 + r)^b`, and unique
+/// factorization forces every prime factor of `1 + r` to be 2, hence
+/// `1 + r = 2^k` with `a = kb` and so `b = 1` (Niven, *Irrational
+/// Numbers* — docs/references/niven-irrational-numbers.md). Every
+/// exact result and every nearest mode tie of `exp2m1` therefore
+/// sits at an integer `x = n`, with value `2^n − 1`.
+///
+/// ## The exact set
+///
+/// * `n ≥ 1`: `2^n − 1` is odd, so that IS its stripped coefficient,
+///   at exponent 0. Representable iff it carries at most
+///   `F::PRECISION` digits: `n ≤ 112` at `Decimal128`, `n ≤ 53` at
+///   `Decimal64`, `n ≤ 23` at `Decimal32`.
+/// * `n = 0`: `x = ±0`, delivered `±0` sign preserved by
+///   `expm1_special_cases` before this classifier runs, so the
+///   classifier never sees it.
+/// * `n = −m ≤ −1`: `2^−m − 1 = −(10^m − 5^m)·10^−m`. The
+///   coefficient `10^m − 5^m = 5^m(2^m − 1)` is odd, so that is its
+///   stripped form, and it carries exactly `m` digits (`5^m ≤ 10^m/2`
+///   puts it in `[5·10^(m−1), 10^m)`). Representable iff
+///   `m ≤ F::PRECISION`.
+///
+/// ## The ties, one per side per format
+///
+/// A nearest mode midpoint's stripped coefficient carries exactly
+/// `PRECISION + 1` digits and ends in 5. Both sides reach that shape,
+/// which is what separates `exp2m1` from the tie free `log2p1`:
+///
+/// * Positive side: `2^n mod 10` cycles `2, 4, 8, 6` over
+///   `n ≡ 1, 2, 3, 0 (mod 4)`, so `2^n − 1` ends in 5 exactly when
+///   `4 | n`. The `n` whose `2^n − 1` carries exactly
+///   `PRECISION + 1` digits span a window three to four wide, holding
+///   exactly one multiple of four: `n = 116` at `Decimal128`,
+///   `n = 56` at `Decimal64`, `n = 24` at `Decimal32`.
+/// * Negative side: `10^m` ends in 0 and `5^m` in 5, so `10^m − 5^m`
+///   always ends in 5 and `m = PRECISION + 1` is a tie at every
+///   format: `n = −35` at `Decimal128`, `n = −17` at `Decimal64`,
+///   `n = −8` at `Decimal32`.
+///
+/// [`pack_value`] hands each midpoint's exact coefficient to the
+/// format rounder, whose own tie rule then resolves it. No
+/// approximation kernel can do that: the true value IS the rounding
+/// boundary, so the kernel's error picks an arbitrary side (ADR-0059,
+/// tripod leg 1). The six tie inputs are deliberately absent from the
+/// sampled corpus — a certified ball around an exact midpoint never
+/// becomes decisive — so `tests/transcend_exact_exp2m1.rs` and its
+/// siblings carry the literal deliveries as their only witnesses.
+///
+/// ## Bail site completeness
+///
+/// Every `None` below is provably neither exact nor a tie; the proofs
+/// sit at their sites. The recurring fact: both closed forms are odd,
+/// so neither carries a trailing zero, and a stripped coefficient
+/// wider than `PRECISION + 1` digits is neither representable nor a
+/// midpoint.
+pub(crate) fn exp2m1_exact_or_tie<F: DecimalFormat>(x: F, rm: RoundingMode) -> Option<(F, Status)> {
+    // A non integer `x` is ruled out by the derivation above, and a
+    // magnitude past 130 cannot be exact or a tie either: `2^131 − 1`
+    // carries 40 digits and `10^131 − 5^131` carries 131, both odd,
+    // both far past every format's `PRECISION + 1 ≤ 35`, and both
+    // grow with `|n|`.
+    let (n, neg) = as_small_int(x, 130)?;
+    let n32 = n as u32;
+    if neg {
+        let m = n32;
+        // `10^m − 5^m` carries exactly `m` digits and is odd, so an
+        // `m` past `PRECISION + 1` is neither representable nor a
+        // midpoint. The bail doubles as the `u128` guard: `m ≤ 35`
+        // keeps `10^m` well inside the envelope.
+        if m > F::PRECISION + 1 {
+            return None;
+        }
+        let pow10 = 10u128.checked_pow(m)?;
+        let pow5 = 5u128.checked_pow(m)?;
+        Some(pack_value(
+            U256::from_u128(pow10 - pow5),
+            -(m as i32),
+            true,
+            rm,
+        ))
+    } else {
+        // `2^n` fits `u128` for `n ≤ 127`; `2^128 − 1` carries 39
+        // digits, past every format's `PRECISION + 1`, and the value
+        // only grows with `n`, so the overflow bail loses nothing.
+        let p = 2u128.checked_pow(n32)?;
+        let coef = U256::from_u128(p - 1);
+        // Odd, hence stripped: more than `PRECISION + 1` digits is
+        // neither representable nor a midpoint.
+        if coef.decimal_digit_count() > F::PRECISION + 1 {
+            return None;
+        }
+        Some(pack_value(coef, 0, false, rm))
+    }
 }
 
 /// `true` when the `u128` `n ≥ 1` is a power of ten. Decided from the
