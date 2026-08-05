@@ -346,6 +346,12 @@ fn exp_budget_dyn(p: u32) -> u128 {
 fn exp2_budget_dyn(p: u32) -> u128 {
     10 * (44_500 + 3 * u128::from(p))
 }
+/// [`EXPM1`] at `p`: the reduction band's 32,700 constant items +
+/// series `3(p + 10)` through the ≤ 1.47 closing amplification
+/// (≈ 5p), ×10.
+fn expm1_budget_dyn(p: u32) -> u128 {
+    10 * (32_800 + 5 * u128::from(p))
+}
 /// [`LN`] (and [`LOG10`] / [`LOG2`]) at `p`: decade path ~160 + log1p
 /// series `3 · 5p` + closing ops, ×10. Reproduces the catalog's 950
 /// at 50 and 1,850 at 110 before the pad.
@@ -448,6 +454,30 @@ pub(crate) const EXP2: Budget = Budget {
     rung1: 500_000,
     rung2: 500_000,
     dynamic: exp2_budget_dyn,
+};
+
+/// `expm1 = e^x − 1` (IEEE 754-2019 §9.2 `expm1`; public `exp_m1`).
+/// Itemization (rung 1), two disjoint branches, budget = the max:
+///
+/// * Direct band (`|x| ≤ 1.1513`, the reduction's own k = 0 window):
+///   the all-positive series for positive `x`; for negative `x` the
+///   alternating terms cancel by at most `e^{|x|} ≤ 3.17` at the band
+///   edge, so the series charge is `3 × cap × 3.17 ≈ 600` units,
+///   relative to the result by the series' construction.
+/// * Reduction band (`|x| > 1.1513`): [`EXP`]'s items (reduction
+///   ≤ 22,201, series ≤ 180) amplified through the closing
+///   subtraction by `e^x/(e^x − 1) ≤ 1.47` at the band edge (and ≤ 1
+///   on the negative side, where the subtraction adds magnitudes),
+///   plus 1 unit for the subtraction itself: ≤ ~33,000.
+///
+/// Sum ≈ 33,000; ×10 → 350,000. Rung 2: identical structure, cap 120
+/// series → ≈ 33,400; ×10 → 350,000. Dynamic: the same itemization at
+/// `p` (series `3(p + 10)` with the ×3.17 band factor folded into the
+/// constant term), ×10 inside the formula.
+pub(crate) const EXPM1: Budget = Budget {
+    rung1: 350_000,
+    rung2: 350_000,
+    dynamic: expm1_budget_dyn,
 };
 
 /// `ln`. Itemization (rung 1):
@@ -828,9 +858,10 @@ mod tests {
     /// escalate everything).
     #[test]
     fn budgets_are_positive_and_sane() {
-        let all: [(&str, &Budget); 23] = [
+        let all: [(&str, &Budget); 24] = [
             ("exp", &EXP),
             ("exp2", &EXP2),
+            ("expm1", &EXPM1),
             ("ln", &LN),
             ("log10", &LOG10),
             ("log2", &LOG2),
@@ -956,9 +987,10 @@ mod tests {
     /// catalog have diverged and one of them is wrong.
     #[test]
     fn dynamic_budgets_track_the_rung2_catalog() {
-        let all: [(&str, &Budget); 23] = [
+        let all: [(&str, &Budget); 24] = [
             ("exp", &EXP),
             ("exp2", &EXP2),
+            ("expm1", &EXPM1),
             ("ln", &LN),
             ("log10", &LOG10),
             ("log2", &LOG2),

@@ -2,10 +2,11 @@
 //!
 //! `exp` and `ln` route their finite-non-zero path through the shared
 //! faithful `ferrodec-transcend` Extended-precision kernel. The base
-//! variants `exp2` / `log2` / `log10` and the shifted logarithm
-//! `ln_1p` (IEEE 754-2019 §9.2 `logp1`) are pure delegations onto the
-//! same faithful kernel (it resolves every special case internally),
-//! at exact parity with the `ferrodec` (Decimal128) parent and the
+//! variants `exp2` / `log2` / `log10`, the shifted logarithm `ln_1p`
+//! (IEEE 754-2019 §9.2 `logp1`), and the shifted exponential `exp_m1`
+//! (§9.2 `expm1`) are pure delegations onto the same faithful kernel
+//! (it resolves every special case internally), at exact parity with
+//! the `ferrodec` (Decimal128) parent and the
 //! `ferrodec-decimal64` sibling.
 //!
 //! The shared kernel runs at 50-digit
@@ -71,6 +72,18 @@
 //! * `log2_1p(+∞) = +∞`.
 //! * A tiny `x` can land the result in the subnormal range, raising
 //!   UNDERFLOW + INEXACT.
+//!
+//! # Special cases for `exp_m1` (§9.2 `expm1`, §9.2.1)
+//!
+//! * `expm1(NaN)` propagates (sNaN raises INVALID).
+//! * `expm1(±0) = ±0`, sign preserved, no exception.
+//! * `expm1(−∞) = −1` exactly, with no exception.
+//! * `expm1(+∞) = +∞`.
+//! * An argument past the overflow threshold above delivers the §7.4
+//!   disposition for the rounding direction with OVERFLOW + INEXACT;
+//!   subtracting 1 cannot pull a value at that scale back into range.
+//! * A subnormal result raises UNDERFLOW alongside INEXACT, which a
+//!   tiny argument reaches because the result hugs the argument.
 
 use crate::bid::{classify_bits, Class};
 use crate::decimal::Decimal32;
@@ -148,6 +161,20 @@ impl Decimal32 {
     #[doc(alias = "logp1")]
     pub fn ln_1p(self, rm: RoundingMode) -> (Self, Status) {
         ferrodec_transcend::ln::logp1_kernel::<Decimal32>(self, rm)
+    }
+
+    /// IEEE 754-2019 §9.2 `expm1(self)`: `e^self − 1`, evaluated so an
+    /// argument near zero keeps its full relative accuracy. Pure
+    /// delegation onto the shared kernel, which resolves every §9.2.1
+    /// special value internally (this module's header lists them) and
+    /// runs the ADR-0059 escalation ladder from this operation's first
+    /// release; the derivation of its exactness classification, its
+    /// two ADR-0051 anchor seams, and its error budget live on
+    /// `ferrodec_transcend::exp::expm1_kernel` and `ladder::EXPM1`.
+    #[must_use]
+    #[doc(alias = "expm1")]
+    pub fn exp_m1(self, rm: RoundingMode) -> (Self, Status) {
+        ferrodec_transcend::exp::expm1_kernel::<Decimal32>(self, rm)
     }
 
     pub fn log2_1p(self, rm: RoundingMode) -> (Self, Status) {

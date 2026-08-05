@@ -1,7 +1,7 @@
 //! Re-export + delegating shim: the exp kernel moved to
 //! ferrodec-transcend (P0a.2 c6). The public `Decimal128::exp` /
-//! `exp2` wrappers and their behaviour tests stay here as the
-//! byte-identical regression gate.
+//! `exp2` / `exp_m1` wrappers and their behaviour tests stay here as
+//! the byte-identical regression gate.
 
 use crate::decimal::Decimal128;
 use ferrodec_ieee::{RoundingMode, Status};
@@ -29,6 +29,68 @@ impl Decimal128 {
     #[must_use]
     pub fn exp2(self, rm: RoundingMode) -> (Self, Status) {
         ferrodec_transcend::exp::exp2_kernel::<Decimal128>(self, rm)
+    }
+
+    /// IEEE 754-2019 §9.2 `expm1(self)`: `e^self − 1`, evaluated so an
+    /// argument near zero keeps its full relative accuracy instead of
+    /// losing it to the cancellation `exp(self) ⊖ 1` would suffer.
+    ///
+    /// ## Exactness and ties (ADR-0059 classification leg)
+    ///
+    /// Suppose `e^x − 1 = r` with `r` rational and `x` representable.
+    /// Then `e^x = 1 + r` is rational, which for rational `x ≠ 0` is
+    /// impossible: `e^x` is transcendental there (Lindemann;
+    /// docs/references/shidlovskii-transcendence.md,
+    /// docs/references/niven-irrational-numbers.md). So `x = ±0` is
+    /// the whole exact set, delivered sign preserved and exception
+    /// free. A nearest mode tie value is rational, so the same
+    /// argument rules every tie out: past the special values the
+    /// unconditional `INEXACT` is correct in every rounding direction.
+    ///
+    /// ## Accuracy
+    ///
+    /// Correctly rounded. Like the rest of the ADR-0059 Track D
+    /// surface, and unlike the older §9.2 operations that inherited
+    /// the ADR-0032 fixed 50 digit posture, `expm1` runs on the
+    /// ADR-0059 escalation ladder from its first release: rung 1
+    /// evaluates at 50 digits and delivers only when the operation's
+    /// error budget clears every rounding boundary of the format,
+    /// otherwise the identical body re-runs at rung 2's 110 digits,
+    /// and under the `unbounded-ladder` feature at a dynamic rung that
+    /// widens until the rounding is decided. The budget is itemized in
+    /// `ferrodec-transcend`'s `ladder.rs` (`EXPM1`), and the two
+    /// premises it rests on are the ADR-0059 Tier 1 conditions: the
+    /// budget is sound and the exactness classification above is
+    /// complete.
+    ///
+    /// Two bands are decided by ADR-0051 anchor seams rather than by a
+    /// wider rung, each on a strict side theorem. Arguments below
+    /// roughly `10^-47` in magnitude collapse the series onto the
+    /// argument's own grid point, and `e^x − 1 > x` places the true
+    /// value above it: away from zero for positive `x`, toward zero
+    /// for negative `x`. Arguments below about `−107` collapse the
+    /// subtraction onto `−1`, and `e^x − 1 > −1` places the true value
+    /// toward zero from there.
+    ///
+    /// ## Special values (IEEE 754-2019 §9.2.1)
+    ///
+    /// * `expm1(±0) = ±0`, sign preserved, no exception raised.
+    /// * `expm1(−∞) = −1` exactly, with no exception.
+    /// * `expm1(+∞) = +∞`.
+    /// * NaN propagates; a signaling NaN raises `INVALID` and returns
+    ///   the quieted payload.
+    /// * An argument past the format's exponential overflow threshold
+    ///   delivers the §7.4 disposition for the rounding direction
+    ///   (`+∞`, or the largest finite magnitude toward zero) with
+    ///   `OVERFLOW` and `INEXACT`.
+    /// * `UNDERFLOW` accompanies `INEXACT` whenever the delivered
+    ///   result is subnormal, which a tiny argument reaches: the
+    ///   result hugs the argument, so a subnormal argument yields a
+    ///   subnormal result (Table 9.1 lists underflow for this family).
+    #[must_use]
+    #[doc(alias = "expm1")]
+    pub fn exp_m1(self, rm: RoundingMode) -> (Self, Status) {
+        ferrodec_transcend::exp::expm1_kernel::<Decimal128>(self, rm)
     }
 }
 
