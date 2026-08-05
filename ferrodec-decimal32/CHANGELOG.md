@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `Decimal32::exp_m1`, `exp2_m1`, `exp10`, and `exp10_m1` (IEEE
+  754-2019 §9.2; ADR-0059 Track D D2): pure delegations onto the
+  shared kernels, correctly rounded on the escalation ladder from
+  first release, gated on `exp-log`. New enumerable ties
+  `exp2_m1(24)` and `exp2_m1(−8)`; `exp10` exact on `[−101, 96]`'s
+  integers; `exp10_m1` exact on the ±7-digit nines.
+
+### Added
+
 - `Decimal32::ln_1p`, `log2_1p`, and `log10_1p` (IEEE 754-2019 §9.2
   `logp1` / `log2p1` / `log10p1`; ADR-0059 Track D D1): pure
   delegations onto the shared `ferrodec-transcend` kernels, correctly

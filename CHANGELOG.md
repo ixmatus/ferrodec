@@ -9,6 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `Decimal128::exp_m1`, `exp2_m1`, `exp10`, and `exp10_m1` (IEEE
+  754-2019 §9.2 `expm1` / `exp2m1` / `exp10` / `exp10m1`; ADR-0059
+  Track D group D2, completing the exponential side of the surface
+  rider's first half). Correctly rounded on the escalation ladder
+  from first release. Exactness per operation: `exp_m1` only at
+  `±0`; `exp2_m1` on `2^n − 1` up to 34 digits and the matching
+  negative fractions, with SIX new enumerable nearest-mode ties
+  (`exp2_m1(116)` and `exp2_m1(−35)` at this format, scaled pairs at
+  the siblings), the first since `exp2`'s; `exp10` at every integer
+  in the exponent range (and correct §7.4 dispositions beyond it,
+  including the overflow-gate gap integer 6145); `exp10_m1` at the
+  ±nines integers with an all-nines proxy deciding every larger
+  integer (closing a constructible directed-misround family the
+  checkpoint derivation predicted). `exp_m1(−∞) = −1` exactly with
+  no exception per §9.2.1. Gated on `exp-log`; 2,685 new
+  Arb-certified corpus rows with exact per-bucket pins, MPFR
+  cross-validated with zero disagreements.
+
+### Added
+
 - `Decimal128::ln_1p`, `log2_1p`, and `log10_1p` (IEEE 754-2019 §9.2
   `logp1` / `log2p1` / `log10p1`; ADR-0059 Track D group D1, the first
   of the four §9.2 surface-completion groups). Correctly rounded on

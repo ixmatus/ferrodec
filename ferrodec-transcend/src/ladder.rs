@@ -77,6 +77,14 @@
 //!   representable, so the predicate reads distance zero and no rung
 //!   improves on it; `exact::exp10_integer` hands the rounder the true
 //!   value and the §7.4 disposition decides every mode.
+//! * the `expm1` family's shared gates (`expm1` / `exp2m1` /
+//!   `exp10m1`) — the overflow saturation proxy (the true value is
+//!   provably past the last boundary with measured margin) and the
+//!   `−1` band delivery for arguments past `−120`, where
+//!   `e^u < 10^-52` sits inside the ADR-0051 residual channel's
+//!   snap band; the post-series `−1` collapse seam behind the gate
+//!   is the same channel (side theorem `e^u − 1 > −1`), and
+//!   `expm1` itself adds the x anchor on `e^x − 1 > x`.
 //!
 //! ## The budget discipline (the ADR-0050 lesson)
 //!

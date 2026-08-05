@@ -21,6 +21,7 @@ consumers:
   - ferrodec-transcend/src/inverse_trig.rs
   - ferrodec-transcend/src/hyperbolic.rs
   - ferrodec-transcend/src/ln.rs (logp1 family exactness citations, ADR-0059 Track D)
+  - ferrodec-transcend/src/exp.rs (expm1 family exactness citations, ADR-0059 Track D D2)
 verification:
   - ferrodec-test-support/tests/references_integrity.rs
 notes: "The Siegel-Shidlovskii theory of E-functions: transcendence and transcendence measures for values of exp, sin, cos, sinh, cosh at algebraic points. Grounds two distinct things in the lane. First, the tripod's no ties fact for the exponential family (nonzero rational arguments give transcendental values, so no representable input lands on a rounding boundary). Second, the S5 spike's question of whether the E-function transcendence measures are explicit enough to yield computable ladder caps; the anticipated honest finding is effective but not explicit, in which case matveev-2000's log forms route supplies the explicit caps instead and this entry records the negative result."
