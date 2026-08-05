@@ -4,8 +4,8 @@ category: algorithm
 citation: "Matveev, E. M. An explicit lower bound for a homogeneous rational linear form in the logarithms of algebraic numbers. II. Izvestiya: Mathematics 64(6), 2000, pp. 1217-1269."
 canonical: "https://www.mathnet.ru/eng/im314"
 doi: "10.1070/IM2000v064n06ABEH000314"
-archived: "none (no Wayback snapshot exists for the mathnet.ru record or the ADS mirror as of 2026-07-27, and the save endpoint was unreachable from the citing environment; the DOI was verified resolving to the canonical URL the same day. A manual web.archive.org/save of the canonical URL is the outstanding hedge.)"
-archive-date: "n/a"
+archived: "https://web.archive.org/web/20260607020946/https://www.mathnet.ru/eng/im314"
+archive-date: "2026-06-07"
 retrieved: "2026-07-27"
 sha256: n/a
 license: "Izvestiya RAN / IOP English translation is paywalled; the mathnet.ru record is the journal's own registry. Pointer only."
