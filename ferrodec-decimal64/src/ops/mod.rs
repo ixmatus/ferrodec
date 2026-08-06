@@ -24,6 +24,8 @@ pub(crate) mod pow;
 pub(crate) mod quantum;
 pub(crate) mod reduce;
 pub(crate) mod rem;
+#[cfg(feature = "exp-log")]
+pub(crate) mod rootn;
 pub(crate) mod rotate;
 pub(crate) mod round;
 #[cfg(feature = "exp-log")]

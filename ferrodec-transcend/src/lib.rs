@@ -87,8 +87,9 @@ mod ladder;
 #[cfg(test)]
 mod mock_format;
 
-// Exact-result detection for cbrt / pow (§7.5 INEXACT contract). Gated on
-// `exp-log` (cbrt); `pow` implies `exp-log`, so both consumers see it.
+// Exact-result detection for cbrt / rootn / pow (§7.5 INEXACT
+// contract). Gated on `exp-log` (cbrt, rootn); `pow` implies
+// `exp-log`, so every consumer sees it.
 #[cfg(feature = "exp-log")]
 mod exact;
 
@@ -106,6 +107,8 @@ pub mod inverse_trig;
 pub mod ln;
 #[cfg(feature = "pow")]
 pub mod pow;
+#[cfg(feature = "exp-log")]
+pub mod rootn;
 #[cfg(feature = "exp-log")]
 pub mod rsqrt;
 #[cfg(feature = "trig")]

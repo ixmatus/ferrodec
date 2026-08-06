@@ -4,7 +4,8 @@
 //!
 //! * `trig` — `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`.
 //!   Pulls the Payne-Hanek 6 300-digit `2/π` table in [`argred`].
-//! * `exp-log` — `exp`, `exp2`, `ln`, `log2`, `log10`, `cbrt`.
+//! * `exp-log` — `exp`, `exp2`, `ln`, `log2`, `log10`, `cbrt`,
+//!   `rootn`.
 //! * `hyperbolic` — `sinh`, `cosh`, `tanh`, `asinh`, `acosh`,
 //!   `atanh`. Implies `exp-log` (kernels delegate to `exp` / `ln`).
 //! * `pow` — `pow`. Implies `exp-log` (`pow(x, y) = exp(y · ln x)`).
@@ -53,6 +54,8 @@ mod cbrt;
 mod exp;
 #[cfg(feature = "exp-log")]
 mod ln;
+#[cfg(feature = "exp-log")]
+mod rootn;
 #[cfg(feature = "exp-log")]
 mod rsqrt;
 

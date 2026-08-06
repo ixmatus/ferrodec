@@ -135,6 +135,15 @@ pub trait DecimalFormat: Copy + Sized {
     fn recip_seed(self, rm: RoundingMode) -> (Self, Status);
     /// **Boundary 3b — Newton seed.** `sqrt(self)` rounded at the
     /// format's own precision. Used to seed `Extended::sqrt`.
+    ///
+    /// The contract is the first sentence, not the name: this must be
+    /// the format's IEEE 754-2019 §5.4.1 `squareRoot`, correctly
+    /// rounded under `rm` with §5.4.1's preferred exponent and its
+    /// own flags — every production impl forwards straight to the
+    /// format's `sqrt`. `rootn(x, 2)` delegates its whole arm here
+    /// (§9.2.2's preferred exponent for `n = 2` is §5.4.1's), so an
+    /// impl that weakened this to an approximate seed would silently
+    /// weaken `rootn` too.
     fn sqrt_seed(self, rm: RoundingMode) -> (Self, Status);
     /// `self / other` rounded at the format's precision. Distinct
     /// from the Newton seed: this is a real result-domain divide

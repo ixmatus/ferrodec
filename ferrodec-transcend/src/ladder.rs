@@ -90,6 +90,14 @@
 //!   representable, so the predicate reads distance zero and no rung
 //!   improves on it; `exact::exp10_integer` hands the rounder the true
 //!   value and the §7.4 disposition decides every mode.
+//! * `rootn`'s hug-at-1 arm — for `|ln|x|| / |n|` below a per format
+//!   threshold the true value sits strictly between 1 and the first
+//!   rounding boundary beside it, at a relative distance that falls
+//!   as `1/|n|` and reaches `~10^-43` at `Decimal128`, so the
+//!   ADR-0051 residual channel decides it input side on the side
+//!   theorem `rootn(x, n) > 1 iff (x > 1) XOR (n < 0)` (the
+//!   derivation and the threshold's margin live on
+//!   `crate::rootn::rootn_hug_one`);
 //! * the `expm1` family's shared gates (`expm1` / `exp2m1` /
 //!   `exp10m1`) — the overflow saturation proxy (the true value is
 //!   provably past the last boundary with measured margin) and the
@@ -838,6 +846,30 @@ pub(crate) const CBRT: Budget = Budget {
     dynamic: cbrt_budget_dyn,
 };
 
+/// `rootn = exp(ln|x| / |n|)` (IEEE 754-2019 §9.2 `rootn`), the
+/// general path for `|n| ≥ 3` (`|n| ≤ 2` delegates: identity,
+/// division, the format's square root, and the `rsqrt` kernel).
+/// Itemization (rung 1), [`CBRT`]'s with the fixed 3 replaced by
+/// `|n|`: `ln`'s relative error (≤ 950 units, ≈ 9.5e-48) becomes
+/// absolute through `|ln x| ≤ 14151` and is then divided by `|n|`,
+/// so the amplification `|ln x| / |n| ≤ 14151/3 = 4717` at `|n| ≥ 3`
+/// gives ≤ `4.5e-44` absolute in the exp argument after the
+/// `div_u32` (+1 unit), i.e. ≤ 4.5e6 result-relative units, plus the
+/// [`EXP`] Taylor ≤ 180. Sum ≈ 4.6e6; ×10 → 5e7. Rung 2: `ln`
+/// ≤ 1,850 → ≤ 8.8e6; ×10 → 1e8. Both constants are [`CBRT`]'s,
+/// which is the point: `rootn(x, 3)` and `cbrt(x)` are the same
+/// computation. (`n = −2` never reaches this budget: it delegates to
+/// the `rsqrt` kernel and [`RSQRT`], whose Newton composition is what
+/// lets that operand carry ADR-0060's unconditional claim.)
+pub(crate) const ROOTN: Budget = Budget {
+    rung1: 50_000_000,
+    rung2: 100_000_000,
+    // Identical shape to `cbrt`'s: same items, same `|ln x| ≤ 14151`
+    // amplification through a divisor of at least 2, same exp series.
+    // Shared rather than copied so the two cannot drift apart.
+    dynamic: cbrt_budget_dyn,
+};
+
 /// `pow = exp(y·ln|x|)`: `ln`'s relative error (≤ 950 units) plus the
 /// product rounding (1 unit) become absolute through
 /// `|y·ln x| ≤ 14151` (the overflow gate) → ≤ `1.35e-43` absolute →
@@ -1047,7 +1079,7 @@ mod tests {
     /// escalate everything).
     #[test]
     fn budgets_are_positive_and_sane() {
-        let all: [(&str, &Budget); 30] = [
+        let all: [(&str, &Budget); 31] = [
             ("exp", &EXP),
             ("exp2", &EXP2),
             ("expm1", &EXPM1),
@@ -1074,6 +1106,7 @@ mod tests {
             ("acosh", &ACOSH),
             ("atanh", &ATANH),
             ("cbrt", &CBRT),
+            ("rootn", &ROOTN),
             ("pow", &POW),
             ("rsqrt", &RSQRT),
             ("powi_int", &POWI_INT),
@@ -1182,7 +1215,7 @@ mod tests {
     /// catalog have diverged and one of them is wrong.
     #[test]
     fn dynamic_budgets_track_the_rung2_catalog() {
-        let all: [(&str, &Budget); 30] = [
+        let all: [(&str, &Budget); 31] = [
             ("exp", &EXP),
             ("exp2", &EXP2),
             ("expm1", &EXPM1),
@@ -1209,6 +1242,7 @@ mod tests {
             ("acosh", &ACOSH),
             ("atanh", &ATANH),
             ("cbrt", &CBRT),
+            ("rootn", &ROOTN),
             ("pow", &POW),
             ("rsqrt", &RSQRT),
             ("powi_int", &POWI_INT),

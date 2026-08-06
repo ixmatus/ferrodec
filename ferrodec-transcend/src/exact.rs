@@ -1,5 +1,6 @@
-//! Exact-result detection for `cbrt`, `pow`, `powi`, `exp2`, `log2`,
-//! `log10`, `log2p1`, and `log10p1` (IEEE 754-2019 §7.5).
+//! Exact-result detection for `cbrt`, `pow`, `powi`, `rootn`,
+//! `compound`, `rsqrt`, `hypot`, `exp2`, `log2`, `log10`, `log2p1`,
+//! and `log10p1` (IEEE 754-2019 §7.5).
 //!
 //! ## Why
 //!
@@ -12,7 +13,7 @@
 //! `exp`, `ln`, and the trig and hyperbolic families that is correct:
 //! their values at non-special representable inputs are irrational
 //! (Lindemann for the base-`e` family at rational arguments), and the
-//! special inputs short-circuit. Eleven functions are the exceptions:
+//! special inputs short-circuit. Fifteen functions are the exceptions:
 //! `exp2(n)` with `2^n` in reach of the width gate, `log2(2^k)`,
 //! `log10(10^k)` (fd-aqs.8), `log2p1(2^k − 1)`, `log10p1(10^k − 1)`,
 //! `exp2m1(n)`'s exact-and-tie family, `exp10(n)`'s whole-range
@@ -20,10 +21,13 @@
 //! Track D), a
 //! perfect cube under `cbrt`, an
 //! exact rational power under `pow` (the decimal Lauter–Lefèvre
-//! criterion), and — the widest family of the eleven, since an
-//! integer exponent makes *every* result rational — a narrow enough
-//! `x^n` under `powi` (ADR-0059 Track D group D3). Every one is
-//! decided from the *input alone* and
+//! criterion), that criterion at `y = 1/n` under `rootn` and — the
+//! widest family of the fifteen, since an integer exponent makes
+//! *every* result rational — collapsed at `b = 1` under `powi`, the
+//! terminating reciprocal square roots under `rsqrt`, the scaled
+//! Pythagorean family under `hypot`, and the exact rational
+//! `(1 + x)^n` under `compound` (ADR-0059 Track D group D3). Every
+//! one is decided from the *input alone* and
 //! short-circuits before the kernel, which both delivers the exact
 //! value at every rounding direction and keeps the flags honest —
 //! §7.5 forbids `INEXACT` on exact results.
@@ -1819,6 +1823,206 @@ fn powi_exact_parts<F: DecimalFormat>(abs_x: F, n: i32) -> Option<(U256, i32)> {
     Some((coef, w as i32))
 }
 
+// ----------------------------------------------------------------------------
+// Input-side exact and tie classification for `rootn` (IEEE 754-2019
+// §9.2 `rootn`, ADR-0059 Track D D3). Self-contained rather than a
+// call into [`pow_exact_input`]: the exponent `1/n` is not a format
+// datum, and the `a = 1` numerator collapses most of `pow`'s exponent
+// arithmetic, so the shared shape is a derivation, not a call.
+
+/// The exact or tie value of `rootn(x, n) = x^(1/n)` decided from the
+/// input alone, for a positive finite nonzero `abs_x` and an `n` with
+/// `|n| ≥ 2`; `None` routes to the kernel. The caller works on `|x|`
+/// under the negation-reflected rounding mode and re-applies the sign
+/// for a negative base with odd `n` (the fd-aqs.5 rule), exactly as
+/// `pow` and `cbrt` do.
+///
+/// ## The criterion (`pow`'s, at `y = 1/n`)
+///
+/// Factor `|x| = 2^α · 5^β · t` with `gcd(t, 10) = 1` (from the
+/// stripped `c · 10^e`: `α = v₂(c) + e`, `β = v₅(c) + e`, both
+/// possibly negative) and write `b = |n|`. Then `|x|^(1/b)` is
+/// rational iff `|x|` is a `b`-th power in `ℚ`, i.e. iff
+///
+/// > `b | α`, `b | β`, and `t = s^b` for an integer `s`,
+///
+/// and then `|x|^(1/b) = s · 2^(α/b) · 5^(β/b)` exactly. The
+/// criterion is necessary as well as sufficient: if `y` is rational
+/// with `y^b = |x|`, then `b · v_p(y) = v_p(|x|)` for every prime `p`
+/// under unique factorization, so `b` divides every prime exponent of
+/// `|x|` and `s = ∏ p^(v_p(t)/b)` is the integer root of `t`. Failing
+/// any of the three, `x^(1/n)` is irrational — neither exact nor a
+/// nearest mode tie, since a tie value terminates and hence is
+/// rational — and the kernel's unconditional `INEXACT` is correct in
+/// every mode. All three conditions are decided in bounded integer
+/// arithmetic with no factoring: `v₂` / `v₅` by trial division,
+/// `t = s^b` by [`nth_root_u128`].
+///
+/// For `n < 0` the value is `s^(−1) · 2^(−α/b) · 5^(−β/b)`; the
+/// negative powers of 2 and 5 fold into the decimal exponent, but
+/// `1/s` with `s ≥ 2` coprime to 10 is a non-terminating rational —
+/// not representable and not a midpoint — so exactness additionally
+/// requires `s = 1`. This is `pow`'s bail proof at `a = 1`, and it
+/// transfers because the argument never used `a > 1`: it is unique
+/// factorization of the denominator, not the size of the numerator.
+///
+/// The rational value is assembled as `coef · 10^w`: with
+/// `u = ±α/b`, `v = ±β/b` (signs following `n`), `w = min(u, v)`, the
+/// coefficient `s · 2^(u−w) · 5^(v−w)` is already stripped (at most
+/// one of the 2- and 5-exponents is nonzero, and `s` is coprime to
+/// 10), so the `PRECISION + 1` digit gate and [`pack_value`] finish
+/// the job: an exact representable value packs `OK`, a
+/// `PRECISION + 1`-digit value rounds with the correct tie rule,
+/// directed sides, and flags, and an out-of-range exponent
+/// over/underflows through the rounder with exactly the §7.4
+/// disposition.
+///
+/// ## `|x| = 1` is inside the criterion, not beside it
+///
+/// A stripped `c = 1, e = 0` gives `α = β = 0` and `t = 1`, so every
+/// `b` divides both and `s = 1`: the classifier returns exactly `1`,
+/// status `OK`, for every `n` and every rounding direction, including
+/// `n < 0`. Unlike [`pow_exact_input`] this needs no pre-check,
+/// because `b = |n|` is bounded by `i32` construction rather than by
+/// a rational reduction that could overflow. The kernel's hug-at-1
+/// anchor arm leans on this: past the classifier `|x| ≠ 1`, so
+/// `ln|x| ≠ 0` and the arm's strict side theorem holds.
+///
+/// ## Ties exist, and only at negative orders
+///
+/// A midpoint's stripped coefficient has exactly `PRECISION + 1`
+/// digits and ends in 5. Which side of `rootn` reaches that shape is
+/// decidable, and the answer is asymmetric:
+///
+/// * **`n > 0`: no ties.** Write the result's stripped coefficient as
+///   `C = s · 2^du · 5^dv` at exponent `w = min(α, β)/b`. Then the
+///   input's stripped coefficient is
+///   `s^b · 2^(α − bw) · 5^(β − bw) = C^b`: the input carries the
+///   `b`-th power of the result's coefficient. A `PRECISION + 1`
+///   digit `C` would need an input of at least `2·PRECISION + 1`
+///   digits, which no format can hold. Positive orders are therefore
+///   tie free, exactly as `cbrt` is.
+/// * **`n < 0`: ties, one family per format.** Here `s = 1` and the
+///   reciprocal swaps the roles: with `α > β` the coefficient is
+///   `5^dv` with `dv = (α − β)/b`, which ends in 5 for every
+///   `dv ≥ 1`, while the input carries `2^(α − β) = 2^(b·dv)` —
+///   *shorter* than `5^dv` for `b = 2`, since `2^2` has fewer digits
+///   than `5`. So `b = 2` (and only `b = 2`, as `2^(3·dv)` already
+///   outgrows every format) reaches the midpoint: `rootn(2^2k, −2)`
+///   has value `5^k · 10^−k`, and the `k` whose `5^k` is exactly
+///   `PRECISION + 1` digits wide is a nearest mode tie —
+///   `rootn(2^100, −2) = 2^−50` at `Decimal128`,
+///   `rootn(2^48, −2) = 2^−24` at `Decimal64`,
+///   `rootn(2^22, −2) = 2^−11` at `Decimal32`.
+///
+/// The width gate therefore admits `PRECISION + 1` digits and
+/// [`pack_value`] hands the exact coefficient to the format rounder,
+/// whose own tie rule resolves a value the approximation kernel
+/// cannot: the true value IS the boundary.
+///
+/// ## Bail-site completeness proofs
+///
+/// Every `None` below is provably neither exact nor a tie. The
+/// recurring facts: an exact-or-tie value has a stripped coefficient
+/// of at most `PRECISION + 1 ≤ 35` digits, and `|α|, |β| ≤ v₂/₅(c) +
+/// |e| < 7000` for every format, so `|u|, |v| ≤ 3500` and every
+/// product below stays inside `i64` with orders to spare.
+///
+/// * `cx.hi != 0`: a format coefficient fits `u128` (≤ 34 digits), so
+///   such an `abs_x` is outside every format's input set.
+/// * `|n| < 2`: not this classifier's domain. The kernel answers
+///   `n = ±1` by delegation (identity and a §5 division, both exact
+///   or correctly rounded on their own) and `n = 0` in its special
+///   cases, so no exact case is lost here.
+/// * `α % b ≠ 0` or `β % b ≠ 0` or `t ≠ s^b`: the criterion above,
+///   whose failure makes the value irrational.
+/// * [`nth_root_u128`]'s own `b ≥ 128` bail: `t ≥ 2` and `s ≥ 2`
+///   would give `s^b ≥ 2^128`, past every `u128` `t`, so no root
+///   exists there either.
+/// * `n < 0` with `s ≠ 1`: the non-terminating reciprocal above.
+/// * Width bails (`du`/`dv` gates, `int_pow_u256`, the final digit
+///   gate): `2^128` has 39 digits and `5^56` has 40, both past every
+///   format's `PRECISION + 1 ≤ 35`; the coefficient is stripped, so
+///   more than `PRECISION + 1` digits is neither representable nor a
+///   midpoint.
+/// * `w` outside `i32`: unreachable given `|w| ≤ 3500`, kept as the
+///   defensive conversion `pow` carries for the same reason.
+pub(crate) fn rootn_exact_input<F: DecimalFormat>(
+    abs_x: F,
+    n: i32,
+    rm: RoundingMode,
+) -> Option<(F, Status)> {
+    let (coef_x, exp_x, _) = abs_x.to_extended_parts()?;
+    if coef_x.is_zero() {
+        return None; // zero short-circuits at the kernel
+    }
+    let (cx, ex) = strip_trailing_zeros(coef_x, exp_x);
+    if cx.hi != 0 {
+        return None;
+    }
+    let (coef, exp) = rootn_exact_parts(cx.lo, ex, n)?;
+    if coef.decimal_digit_count() > F::PRECISION + 1 {
+        return None;
+    }
+    Some(pack_value(coef, exp, false, rm))
+}
+
+/// The number-theoretic half of [`rootn_exact_input`]: the criterion
+/// and the assembled `(coefficient, exponent)` of the exact value, on
+/// the stripped parts of `|x| = cx · 10^ex` and the root order `n`.
+/// `None` is a bail of the criterion or of a format-independent width
+/// gate; the caller adds the `PRECISION + 1` gate and the delivery.
+/// Split out so the criterion is testable without a format rounder.
+fn rootn_exact_parts(cx: u128, ex: i32, n: i32) -> Option<(U256, i32)> {
+    // `b = |n|`, always exact in `u32` (`i32::MIN.unsigned_abs()` is
+    // `2^31`); the kernel routes `|n| ≤ 1` elsewhere.
+    let b32 = n.unsigned_abs();
+    if b32 < 2 {
+        return None;
+    }
+    let b64 = i64::from(b32);
+    let n_neg = n < 0;
+    // Factor |x| = 2^α · 5^β · t on the stripped parts.
+    let v2 = factor_count(cx, 2);
+    let v5 = factor_count(cx, 5);
+    let t = cx / 2u128.pow(v2) / 5u128.pow(v5);
+    let alpha = i64::from(v2) + i64::from(ex);
+    let beta = i64::from(v5) + i64::from(ex);
+    // The b-th power criterion; failing it, x^(1/n) is irrational.
+    if alpha % b64 != 0 || beta % b64 != 0 {
+        return None;
+    }
+    let s = if t == 1 {
+        1u128
+    } else {
+        nth_root_u128(t, b32)?
+    };
+    if n_neg && s != 1 {
+        // 1 / s is a non-terminating rational: not representable,
+        // not a tie.
+        return None;
+    }
+    // Exponents of 2 and 5 in the result. |α/b| < 3500, so the
+    // negation and the difference below stay far inside i64.
+    let mut u = alpha / b64;
+    let mut v = beta / b64;
+    if n_neg {
+        u = -u;
+        v = -v;
+    }
+    let w = u.min(v);
+    let (du, dv) = (u - w, v - w); // at least one is zero
+                                   // 2^128 has 39 digits and 5^56 has 40, both past every format's
+                                   // PRECISION + 1 (≤ 35): wider is neither exact nor a tie.
+    if du > 127 || dv > 55 {
+        return None;
+    }
+    let pow2 = int_pow_u256(U256::from_u128(2), du as u32)?;
+    let pow5 = int_pow_u256(U256::from_u128(5), dv as u32)?;
+    let coef = checked_mul_u256(checked_mul_u256(U256::from_u128(s), pow2)?, pow5)?;
+    Some((coef, i32::try_from(w).ok()?))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2321,6 +2525,139 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// The `rootn` criterion's own decisions, cross-checked against
+    /// the retired post-hoc `pow` witness read in the inverse
+    /// direction: the classifier says `rootn(x, n) = r`, and the
+    /// witness independently confirms `x = r^n` (for `n < 0`,
+    /// `x · r^|n| = 1`, which is the same statement). Two independent
+    /// proofs of the same boundary fact.
+    #[test]
+    fn rootn_input_decision_matches_posthoc_witness() {
+        // (x coef, x exp, n) -> (root coef, root exp).
+        let exact: [(u128, i32, i32, u128, i32); 9] = [
+            // rootn(8, 3) = 2 — cbrt's own family.
+            (8, 0, 3, 2, 0),
+            // rootn(1E+30, 5) = 1E+6.
+            (1, 30, 5, 1, 6),
+            // rootn(0.001, 3) = 0.1.
+            (1, -3, 3, 1, -1),
+            // rootn(32, 5) = 2, and its negative order 1/2.
+            (32, 0, 5, 2, 0),
+            (32, 0, -5, 5, -1),
+            // rootn(1024, 10) = 2 (t = 1, α = 10).
+            (1024, 0, 10, 2, 0),
+            // rootn(2.25, 2) = 1.5 — the `s > 1` path (t = 9 = 3²).
+            (225, -2, 2, 15, -1),
+            // rootn(1, n) = 1, both signs of a large order.
+            (1, 0, 1000, 1, 0),
+            (1, 0, -1000, 1, 0),
+        ];
+        for (cx, ex, n, cr, er) in exact {
+            let (coef, exp) = rootn_exact_parts(cx, ex, n)
+                .unwrap_or_else(|| panic!("rootn({cx}e{ex}, {n}) must classify"));
+            assert_eq!(
+                (coef, exp),
+                (u(cr), er),
+                "rootn({cx}e{ex}, {n}): assembled parts"
+            );
+            // The witness: x == r^n, with the sign of `n` selecting
+            // `power_is_exact`'s reciprocal branch.
+            let n_datum = ValueFmt128 {
+                coef: u128::from(n.unsigned_abs()),
+                exp: 0,
+                sign: n < 0,
+            };
+            assert!(
+                power_is_exact(v128(cx, ex), v128(cr, er), n_datum),
+                "rootn({cx}e{ex}, {n}): witness confirms x = r^n"
+            );
+        }
+    }
+    /// The criterion's refusals, one per bail. Each `None` is a value
+    /// whose root is provably irrational (or a non-terminating
+    /// reciprocal), so the kernel's unconditional `INEXACT` past the
+    /// classifier is correct.
+    #[test]
+    fn rootn_criterion_refuses_the_irrationals() {
+        // b ∤ α: 2 is not a cube (α = 1).
+        assert_eq!(rootn_exact_parts(2, 0, 3), None);
+        // b ∤ β: 5 is not a square (β = 1).
+        assert_eq!(rootn_exact_parts(5, 0, 2), None);
+        // b ∤ exponent: 8e1 = 80 = 2^4 · 5 is not a cube.
+        assert_eq!(rootn_exact_parts(8, 1, 3), None);
+        // t not a perfect b-th power: 9 = 3² is not a cube.
+        assert_eq!(rootn_exact_parts(9, 0, 3), None);
+        // n < 0 with s > 1: 1/3 does not terminate, though 9 IS a
+        // perfect square — the bail that only the negative order needs.
+        assert_eq!(rootn_exact_parts(9, 0, -2), None);
+        // ... while the same value at positive order classifies.
+        assert_eq!(rootn_exact_parts(9, 0, 2), Some((u(3), 0)));
+        // |n| ≤ 1 is not this classifier's domain.
+        for n in [-1, 0, 1] {
+            assert_eq!(rootn_exact_parts(8, 0, n), None);
+        }
+        // A huge order over a value that is not 1: no root.
+        assert_eq!(rootn_exact_parts(2, 0, i32::MAX), None);
+        assert_eq!(rootn_exact_parts(2, 0, i32::MIN), None);
+    }
+    /// The tie asymmetry, pinned as arithmetic. Negative orders reach
+    /// `PRECISION + 1` midpoints (`rootn(2^2k, −2) = 5^k · 10^−k`,
+    /// whose coefficient ends in 5), positive orders provably cannot
+    /// (the input carries the `b`-th power of the result's
+    /// coefficient, so a `PRECISION + 1` digit result needs a
+    /// `2·PRECISION + 1` digit input).
+    #[test]
+    fn rootn_ties_live_at_negative_orders_only() {
+        // The three per-format tie inputs, and their exact values.
+        // (input 2^2k, k, digits of 5^k = PRECISION + 1 of a format)
+        for (k, want_digits) in [(50u32, 35u32), (24, 17), (11, 8)] {
+            let x = 1u128 << (2 * k);
+            let (coef, exp) = rootn_exact_parts(x, 0, -2)
+                .unwrap_or_else(|| panic!("2^{} is a perfect square", 2 * k));
+            assert_eq!((coef, exp), (u(5u128.pow(k)), -(k as i32)));
+            assert_eq!(
+                coef.decimal_digit_count(),
+                want_digits,
+                "5^{k} is the PRECISION + 1 width of its format"
+            );
+            // A midpoint's coefficient ends in 5.
+            assert_eq!(coef.div_rem10().1, 5);
+            // The witness: x · r^2 = 1, i.e. r = x^(−1/2).
+            let n_datum = ValueFmt128 {
+                coef: 2,
+                exp: 0,
+                sign: true,
+            };
+            assert!(power_is_exact(
+                v128(x, 0),
+                v128(5u128.pow(k), -(k as i32)),
+                n_datum
+            ));
+        }
+        // The positive-order side of the same family: `rootn(x, 2)`
+        // delivers the square root's coefficient, whose square is the
+        // input's — so the input, not the output, is the wide one.
+        let (coef, exp) = rootn_exact_parts(1u128 << 100, 0, 2).expect("2^100 is a perfect square");
+        assert_eq!((coef, exp), (u(1u128 << 50), 0));
+        assert_eq!(coef.decimal_digit_count(), 16);
+    }
+    /// `|x| = 1` is answered exactly for every order, including the
+    /// extremes of `i32` on both signs — the fact the kernel's
+    /// hug-at-1 arm leans on for its strict side theorem.
+    #[test]
+    fn rootn_classifies_one_at_every_order() {
+        for n in [2, 3, 7, 1_000_000, i32::MAX, -2, -3, -7, i32::MIN] {
+            assert_eq!(
+                rootn_exact_parts(1, 0, n),
+                Some((u(1), 0)),
+                "rootn(1, {n}) must classify as exactly 1"
+            );
+        }
+        // A cohort of 1 strips to the same parts, so it lands here too.
+        let (c, e) = strip_trailing_zeros(u(1_000_000), -6);
+        assert_eq!((c.lo, e), (1, 0));
     }
 
     #[test]
