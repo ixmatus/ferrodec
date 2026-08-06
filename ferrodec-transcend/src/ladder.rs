@@ -70,6 +70,19 @@
 //!   nines patterns exactly and the rest through an all nines proxy
 //!   whose soundness is total digit knowledge rather than a margin
 //!   (the proof lives at that classifier)..
+//! * `powi`'s exactly-expressible family (`x^n` with at most
+//!   `PRECISION + 1` stripped digits), the results *outside* the
+//!   format's exponent range included. Such a value is a grid point
+//!   or a midpoint at its own exponent whether or not that exponent
+//!   is representable, so the predicate reads distance zero and no
+//!   rung improves on it; `exact::powi_exact_input` hands the rounder
+//!   the true coefficient and the §7.4 disposition decides every
+//!   mode. The one family that classifier declines while still
+//!   sitting on the grid — an exact value whose decimal exponent
+//!   overflows `i32` — is astronomically past the `exp` gates, so the
+//!   saturation proxy answers it unguarded (the proof lives on the
+//!   classifier); together the two cases are what keeps `ladder_audit`
+//!   non-panicking over `powi`.
 //! * `exp10`'s integer family (`x = n`), the integers *outside* the
 //!   format's exponent range included, where the delivery is an
 //!   overflow or underflow rather than an exact value. `10^n` is a
@@ -463,6 +476,15 @@ fn pow_budget_dyn(p: u32) -> u128 {
 /// flat 60 already prices).
 fn rsqrt_budget_dyn(_p: u32) -> u128 {
     1_250
+}
+/// [`POWI_INT`] at `p`: precision-independent by construction — the
+/// powering arm's item count depends on `|n| ≤ 6`, not on the working
+/// width. Newton-seeded `recip` charges the module's flat 60, the ≤ 5
+/// working-precision multiplies charge 1 each through the ≤ 6×
+/// exponent amplification, and glue rounds the sum up: `(60 + 5·2 + 5)`
+/// ≈ 75, ×10 → 750.
+fn powi_int_budget_dyn(_p: u32) -> u128 {
+    750
 }
 
 /// `exp`. Itemization (rung 1):
@@ -862,10 +884,70 @@ pub(crate) const RSQRT: Budget = Budget {
     dynamic: rsqrt_budget_dyn,
 };
 
+/// `powi(x, n) = x^n` on the binary-powering arm (`|n| ≤ 6`, IEEE
+/// 754-2019 §9.2 `pown`). Itemization (rung 1), all at *working*
+/// precision — the format-precision `int_pow` of `pow`'s fast path is
+/// a different routine with a different (H1-documented) error story:
+///
+/// * `from_format` of the base is exact (0 units); square-and-multiply
+///   for `|n| ≤ 6` executes at most 2 squarings and at most 2 rounding
+///   multiplies (the itemization budgets ≤ 3 and ≤ 2). A squaring
+///   doubles the accumulated relative error and adds its own rounding:
+///   the worst chain (`x → x² → x⁴`, then `x²·x⁴`) carries
+///   `1 → 3 → 5` units.
+/// * `n < 0` closes with a Newton-seeded `recip`: 15 units, plus the
+///   ≤ 5 units it inherits, ≈ 20. The operand is scaled into
+///   `[1, 10)` before the inversion and shifted back after (`pow`'s
+///   `working_reciprocal`, which keeps the Newton seed's format round
+///   trip in range); both steps are exact exponent arithmetic and
+///   charge nothing.
+///
+/// Sum ≈ 20; ×10 pad → 200, both rungs (the item count depends on
+/// `|n|`, never on the working width). Two consequences worth stating
+/// where the constant lives. First, this arm is what makes ADR-0060's
+/// unconditional tier claim reachable: the Liouville floor for
+/// `pown` at small `|n|` (`10^−(34|n|+2)` positive, `10^−(34|n|+36)`
+/// negative) is compared against `10^−109 · B₂`, and a budget of 200
+/// leaves `109 − log₁₀ 200 ≈ 106.7` digits of resolution — which
+/// clears the floor exactly on the operand ranges ADR-0060 tabulates
+/// (`n ∈ {−2, 2, 3}` bare, `−5 ≤ n ≤ 6` once the exact integer
+/// adjudicator lands). The `exp(n·ln|x|)` route's `~10^8` budget
+/// could not: routing small `|n|` through it would cost six decimal
+/// orders of resolution and put every one of those ranges out of
+/// reach. Second, the arm carries no over/underflow gate of its own —
+/// it does not need one, because `|n| ≤ 6` bounds the working result's
+/// decimal exponent by `6 · 6176` plus the working width (≈ 37,100,
+/// inside the envelope `exp10_integer` already exercises) and the
+/// format rounder's §7.4 disposition is correct at any exponent in
+/// it, while every value that sits exactly ON the grid out there is
+/// disposed of input side by `exact::powi_exact_input`.
+pub(crate) const POWI_INT: Budget = Budget {
+    rung1: 200,
+    rung2: 200,
+    dynamic: powi_int_budget_dyn,
+};
+
+/// `powi(x, n) = exp(n·ln|x|)` on the large-exponent arm (`|n| ≥ 7`).
+/// Itemization: [`POW`]'s verbatim — `ln`'s relative error plus the
+/// product rounding become absolute through the *same* `|n·ln x| ≤
+/// 14,151` overflow gate that bounds `|y·ln x|` there (the gate is a
+/// property of `exp`'s convergence window, not of how the argument
+/// was formed), and the [`EXP`] Taylor closes it. The only structural
+/// difference from `pow` is that the multiplier is an exact integer
+/// rather than a format value, which removes an error source rather
+/// than adding one. Same constants, same dynamic formula.
+pub(crate) const POWI: Budget = Budget {
+    rung1: 150_000_000,
+    rung2: 300_000_000,
+    dynamic: pow_budget_dyn,
+};
+
 // Escalation-rate summary (Decimal128, the widest exposure; rate ≈
 // 2 × rung1 × 10^-16 for a random input): trig ≈ 3%, tan ≈ 6%,
-// pow ≈ 3e-8, cbrt ≈ 1e-8, exp family ≈ 1e-10, everything else
-// ≤ 3e-12. Decimal64 rates are 10^18× smaller, Decimal32 smaller
+// pow and powi's large-|n| arm ≈ 3e-8, cbrt ≈ 1e-8, exp family
+// ≈ 1e-10, powi's powering arm ≈ 4e-14 (the narrowest budget in the
+// catalog), everything else ≤ 3e-12.
+// Decimal64 rates are 10^18× smaller, Decimal32 smaller
 // still. The trig rate is the cost of carrying argred's analytic
 // (not empirical) truncation bound; tightening it means moving the
 // reduction bound, not shaving the pad.
@@ -965,7 +1047,7 @@ mod tests {
     /// escalate everything).
     #[test]
     fn budgets_are_positive_and_sane() {
-        let all: [(&str, &Budget); 28] = [
+        let all: [(&str, &Budget); 30] = [
             ("exp", &EXP),
             ("exp2", &EXP2),
             ("expm1", &EXPM1),
@@ -994,6 +1076,8 @@ mod tests {
             ("cbrt", &CBRT),
             ("pow", &POW),
             ("rsqrt", &RSQRT),
+            ("powi_int", &POWI_INT),
+            ("powi", &POWI),
         ];
         for (name, b) in all {
             assert!(b.rung1 > 0 && b.rung2 > 0, "{name}: zero budget");
@@ -1098,7 +1182,7 @@ mod tests {
     /// catalog have diverged and one of them is wrong.
     #[test]
     fn dynamic_budgets_track_the_rung2_catalog() {
-        let all: [(&str, &Budget); 28] = [
+        let all: [(&str, &Budget); 30] = [
             ("exp", &EXP),
             ("exp2", &EXP2),
             ("expm1", &EXPM1),
@@ -1127,6 +1211,8 @@ mod tests {
             ("cbrt", &CBRT),
             ("pow", &POW),
             ("rsqrt", &RSQRT),
+            ("powi_int", &POWI_INT),
+            ("powi", &POWI),
         ];
         for (name, b) in all {
             let at_110 = (b.dynamic)(110);

@@ -1,4 +1,4 @@
-//! Exact-result detection for `cbrt`, `pow`, `exp2`, `log2`,
+//! Exact-result detection for `cbrt`, `pow`, `powi`, `exp2`, `log2`,
 //! `log10`, `log2p1`, and `log10p1` (IEEE 754-2019 §7.5).
 //!
 //! ## Why
@@ -12,15 +12,18 @@
 //! `exp`, `ln`, and the trig and hyperbolic families that is correct:
 //! their values at non-special representable inputs are irrational
 //! (Lindemann for the base-`e` family at rational arguments), and the
-//! special inputs short-circuit. Ten functions are the exceptions:
+//! special inputs short-circuit. Eleven functions are the exceptions:
 //! `exp2(n)` with `2^n` in reach of the width gate, `log2(2^k)`,
 //! `log10(10^k)` (fd-aqs.8), `log2p1(2^k − 1)`, `log10p1(10^k − 1)`,
 //! `exp2m1(n)`'s exact-and-tie family, `exp10(n)`'s whole-range
 //! integer family, and `exp10m1(n)`'s all-nines family (ADR-0059
 //! Track D), a
-//! perfect cube under `cbrt`, and an
+//! perfect cube under `cbrt`, an
 //! exact rational power under `pow` (the decimal Lauter–Lefèvre
-//! criterion). Every one is decided from the *input alone* and
+//! criterion), and — the widest family of the eleven, since an
+//! integer exponent makes *every* result rational — a narrow enough
+//! `x^n` under `powi` (ADR-0059 Track D group D3). Every one is
+//! decided from the *input alone* and
 //! short-circuits before the kernel, which both delivers the exact
 //! value at every rounding direction and keeps the flags honest —
 //! §7.5 forbids `INEXACT` on exact results.
@@ -346,7 +349,10 @@ fn power_is_exact<F: DecimalFormat>(result: F, x: F, y: F) -> bool {
 // width gate, `log10(x)` iff `x = 10^k`, `log2(x)` iff `x = 2^k`,
 // `cbrt(x)` iff `x` is a perfect cube, `pow(x, y)` iff `x^y` is an
 // exact rational of bounded width (the decimal Lauter–Lefèvre
-// criterion below). Delivery through [`pack_value`] then yields the
+// criterion below), `powi(x, n)` iff the always-rational `x^n` is
+// narrow enough (that criterion at `b = 1`, where it stops being a
+// rationality test and becomes a width test).
+// Delivery through [`pack_value`] then yields the
 // exact value and clean `OK` for representable results, and the
 // correctly resolved rounding — tie rule included — for
 // `PRECISION + 1`-digit results, in one move.
@@ -1614,6 +1620,190 @@ fn rsqrt_is_exact<F: DecimalFormat>(result: F, x: F) -> bool {
     value_is_one(u256_mul_u256(sq, cx), total)
 }
 
+// ----------------------------------------------------------------------------
+// Input-side exact and tie classification for `powi` (IEEE 754-2019
+// §9.2 `pown`; ADR-0059 Track D group D3, the ADR-0060 premise).
+
+/// The widest decimal exponent [`powi_exact_input`] hands the format
+/// rounder, matching [`exp10_integer`]'s decode window so the two
+/// whole-range classifiers exercise the same envelope.
+///
+/// The window is a *soundness* bound, not a convenience one:
+/// `round_and_pack_finite` computes `qmin − unbiased_exp` in `i32`,
+/// which wraps once the exponent approaches `i32::MAX` (in a debug
+/// build it panics; in a release build it would ship a wrong
+/// disposition). Every classifier that can produce an exponent from
+/// an operand-scaled product — this one, and `pow`'s, whose
+/// `w = α·a` reaches `i32::MAX` at `pow(10, 2147483647)` — owes the
+/// rounder an exponent inside its tested envelope. See the bail proof
+/// on [`powi_exact_input`] for why declining past the window loses no
+/// boundary case.
+const POWI_EXPONENT_WINDOW: u64 = 99_999;
+
+/// The exact or tie value of `powi(x, n) = x^n` decided from the input
+/// alone, for a positive finite nonzero `abs_x` and any `n`; `None`
+/// routes to the kernel. The caller works on `|x|` under the
+/// negation-reflected rounding mode and re-applies the odd-`n` sign
+/// (the fd-aqs.5 rule), exactly as [`pow_exact_input`]'s caller does.
+///
+/// ## The criterion, with the denominator gone
+///
+/// This is [`pow_exact_input`]'s decimal Lauter–Lefèvre criterion at
+/// `|y| = a/b` with `(a, b) = (|n|, 1)`, which is not a special case
+/// so much as a collapse: `b = 1` divides every integer, so the
+/// `b | α` and `b | β` tests are vacuous, and `t = s^b` holds with
+/// `s = t` for every `t`, so the `nth_root_u128` search is gone too.
+/// **Every** representable `|x|` is a first power of itself, so
+/// `x^n` is rational for every `n` and the classification question is
+/// no longer "is it rational" but only "is the rational narrow
+/// enough to be a format value or a midpoint". That is the whole
+/// difference between this classifier and `pow`'s, and it is why the
+/// derivation is re-done here rather than shared: sharing the body
+/// would carry three tests whose answers are constants.
+///
+/// Factor the stripped `|x| = c · 10^e` as `2^α · 5^β · s` with
+/// `α = v₂(c) + e`, `β = v₅(c) + e` (both possibly negative) and `s`
+/// coprime to 10. Then
+///
+/// > `x^n = s^n · 2^(αn) · 5^(βn)`,
+///
+/// assembled as `coef · 10^w` with `u = αn`, `v = βn`,
+/// `w = min(u, v)` and `coef = s^|n| · 2^(u−w) · 5^(v−w)` for `n > 0`
+/// (`coef = 2^(u−w) · 5^(v−w)` for `n < 0`, where exactness needs
+/// `s = 1`). At most one of `u−w`, `v−w` is nonzero and `s` is
+/// coprime to 10, so `coef` is already stripped and its digit count
+/// is the value's: the `PRECISION + 1` gate then admits exactly the
+/// representable values and the nearest-mode midpoints, and
+/// [`pack_value`] resolves the mode, the tie rule, and the flags by
+/// construction.
+///
+/// ## The whole-range power-of-ten family (the D2 lesson, inverted)
+///
+/// `exp10_integer` had to classify `10^n` at *every* integer `n`,
+/// representable exponent or not, because such a value sits exactly
+/// ON a grid point at its own exponent and no rung of the ladder can
+/// move it off. The same hazard arrives here through the input rather
+/// than the output: for `x = 10^j` exactly (stripped coefficient 1),
+/// `x^n = 10^(j·n)` is on the grid at any magnitude. The general path
+/// above already covers it — `s = 1`, `α = β = j`, `coef = 1`,
+/// `w = j·n` — provided the product is formed in `i64`, which it is;
+/// an `i32` product would wrap and ship a wrong exponent, the one
+/// arithmetic mistake in this routine that would not announce itself.
+/// Inside `i32` the value is delivered through [`pack_value`], whose
+/// §7.4 disposition is correct by construction at any exponent,
+/// over/underflow and the directed-mode largest-finite cases
+/// included.
+///
+/// ## Bail-site completeness proofs
+///
+/// Every `None` below is provably neither exact nor a nearest-mode
+/// tie. The recurring facts: an exact-or-tie value has a *stripped*
+/// coefficient of at most `PRECISION + 1 ≤ 35` digits (in the
+/// subnormal range a midpoint is `(2k+1)·10^(etiny−1)` with
+/// `k < 10^PRECISION`, so the bound holds there too), and
+/// `|α|, |β| ≤ v₂/₅(c) + |e| < 6300` for every format.
+///
+/// * `n < 0` with `s ≠ 1`: `x^n = s^−|n| · 2^(−α|n|) · 5^(−β|n|)`.
+///   The powers of 2 and 5 fold into a decimal exponent, but `s ≥ 2`
+///   coprime to 10 makes `s^−|n|` a fraction whose lowest-terms
+///   denominator is `s^|n| ∤ 10^k` for every `k`: a non-terminating
+///   decimal, hence neither representable nor a midpoint (both
+///   terminate).
+/// * `du > 127` / `dv > 55`: `2^128` has 39 digits and `5^56` has 40,
+///   both past every format's `PRECISION + 1`, and `coef` is a
+///   multiple of that power. Wider than the gate means wider than a
+///   midpoint.
+/// * [`int_pow_u256`] / [`checked_mul_u256`] overflow: `coef` exceeds
+///   `U256`'s ~78 digit envelope, twice the widest gate.
+/// * The closing digit gate: the same fact stated directly.
+/// * `|w| > POWI_EXPONENT_WINDOW` (99,999): this bail is reached only
+///   *after* the digit gate, so the declined value is exactly
+///   `coef · 10^w` with `1 ≤ coef < 10^35`. Its logarithm is
+///   therefore `|n·ln|x|| = |ln(x^n)| ≥ 99,999·ln 10 − 81 > 230,000`,
+///   past both `exp` gates (the overflow limits 14,150 / 887 / 224
+///   and the underflow limits 14,221 / 918 / 235) of all three
+///   formats, so the kernel's saturation proxy answers it unguarded
+///   and correct by its own margin argument — the same 230,000 the
+///   [`exp10_integer`] beyond-the-decode-limit proof turns on, since
+///   both windows are the same size. The `|n| ≤ 6` powering arm,
+///   which has no gate to fall back on, never reaches this bail: its
+///   results carry `|w| ≤ 6·6211 = 37,266`, comfortably inside the
+///   window, so every on-grid value it could otherwise be handed is
+///   disposed of here instead.
+pub(crate) fn powi_exact_input<F: DecimalFormat>(
+    abs_x: F,
+    n: i32,
+    rm: RoundingMode,
+) -> Option<(F, Status)> {
+    let (coef, exp) = powi_exact_parts::<F>(abs_x, n)?;
+    Some(pack_value(coef, exp, false, rm))
+}
+
+/// The exact `(coefficient, decimal exponent)` of `|x|^n` when it is
+/// expressible in at most `F::PRECISION + 1` stripped digits at an
+/// `i32` exponent; `None` otherwise. Split out of
+/// [`powi_exact_input`] so the number theory is testable without a
+/// value-carrying format rounder (the mock format's
+/// `round_and_pack_finite` is `unreachable!`).
+fn powi_exact_parts<F: DecimalFormat>(abs_x: F, n: i32) -> Option<(U256, i32)> {
+    let (coef_x, exp_x, _) = abs_x.to_extended_parts()?;
+    if coef_x.is_zero() {
+        return None; // zeros are disposed of by the special cases
+    }
+    let (cx, ex) = strip_trailing_zeros(coef_x, exp_x);
+    // A format coefficient fits u128 (≤ 34 digits); bail defensively.
+    // Such a `c` is outside every format's input set, so no exact or
+    // tie case is lost.
+    if cx.hi != 0 {
+        return None;
+    }
+    let neg = n < 0;
+    // `i32::MIN.unsigned_abs()` is `2^31`, which `u32` holds exactly:
+    // no negation overflow anywhere below.
+    let a = n.unsigned_abs();
+    // |x| = 2^α · 5^β · s on the stripped parts. A stripped `c` shares
+    // no factor of ten, so at most one of v₂, v₅ is nonzero.
+    let v2 = factor_count(cx.lo, 2);
+    let v5 = factor_count(cx.lo, 5);
+    let s = cx.lo / 2u128.pow(v2) / 5u128.pow(v5);
+    let alpha = i64::from(v2) + i64::from(ex);
+    let beta = i64::from(v5) + i64::from(ex);
+    if neg && s != 1 {
+        return None; // 1/s^|n| is a non-terminating rational
+    }
+    // Exponents of 2 and 5 in the result. |α|, |β| < 6300 and
+    // `a ≤ 2^31` keep the products inside i64 with ten orders to
+    // spare; an i32 product would wrap on the power-of-ten family.
+    let mut u = alpha * i64::from(a);
+    let mut v = beta * i64::from(a);
+    if neg {
+        u = -u;
+        v = -v;
+    }
+    let w = u.min(v);
+    let (du, dv) = (u - w, v - w); // at least one is zero
+                                   // 2^128 has 39 digits and 5^56 has 40, both past every format's
+                                   // PRECISION + 1 (≤ 35): wider is neither exact nor a tie.
+    if du > 127 || dv > 55 {
+        return None;
+    }
+    let s_pow_n = if neg {
+        U256::from_u128(1)
+    } else {
+        int_pow_u256(U256::from_u128(s), a)?
+    };
+    let pow2 = int_pow_u256(U256::from_u128(2), du as u32)?;
+    let pow5 = int_pow_u256(U256::from_u128(5), dv as u32)?;
+    let coef = checked_mul_u256(checked_mul_u256(s_pow_n, pow2)?, pow5)?;
+    if coef.decimal_digit_count() > F::PRECISION + 1 {
+        return None;
+    }
+    if w.unsigned_abs() > POWI_EXPONENT_WINDOW {
+        return None;
+    }
+    Some((coef, w as i32))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2006,6 +2196,116 @@ mod tests {
         // One step narrower is inside the envelope and classified.
         let input = 1u128 << 110;
         assert_eq!(rsqrt_exact_parts(input, 0), Some((5u128.pow(55), -55)));
+    }
+
+    /// The `powi` classifier's number theory, at the `Decimal128`
+    /// shape: every result narrow enough to be a format value or a
+    /// nearest-mode midpoint comes back as its exact `(coefficient,
+    /// exponent)`, stripped.
+    #[test]
+    fn powi_exact_parts_finds_the_narrow_powers() {
+        // (x coef, x exp, n) -> (result coef, result exp).
+        let cases: [(u128, i32, i32, u128, i32); 12] = [
+            (15, -1, 3, 3375, -3),           // 1.5^3 = 3.375
+            (2, -1, 2, 4, -2),               // 0.2^2 = 0.04
+            (2, 0, 3, 8, 0),                 // 2^3
+            (2, 0, -3, 125, -3),             // 2^-3 = 0.125
+            (2, 0, 112, 1 << 112, 0),        // the widest exact power of two
+            (2, 0, 113, (1u128 << 113), 0),  // PRECISION + 1 digits
+            (5, 0, 49, 5u128.pow(49), 0),    // the tie
+            (2, 0, -49, 5u128.pow(49), -49), // its negative mirror
+            (10, 0, 300, 1, 300),            // the power-of-ten family
+            (1, 1, -300, 1, -300),           // ... at a stripped input
+            (1, 0, i32::MAX, 1, 0),          // |x| = 1 at any exponent
+            (1, 0, i32::MIN, 1, 0),          // ... including i32::MIN
+        ];
+        for (cx, ex, n, want_c, want_e) in cases {
+            let got = powi_exact_parts::<ValueFmt128>(v128(cx, ex), n);
+            assert_eq!(got, Some((u(want_c), want_e)), "powi({cx}e{ex}, {n}) parts");
+        }
+    }
+
+    /// Every bail the classifier owes a completeness proof for, one
+    /// case each: a non-terminating reciprocal, a coefficient past the
+    /// `PRECISION + 1` gate, a `U256` overflow, and the 2- and 5-power
+    /// width gates.
+    #[test]
+    fn powi_exact_parts_declines_what_it_cannot_express() {
+        // 1/3^1 is a non-terminating rational: neither exact nor a tie.
+        assert_eq!(powi_exact_parts::<ValueFmt128>(v128(3, 0), -1), None);
+        assert_eq!(powi_exact_parts::<ValueFmt128>(v128(15, -1), -2), None);
+        // 2^117 has 36 digits, one past the PRECISION + 1 gate.
+        assert_eq!(powi_exact_parts::<ValueFmt128>(v128(2, 0), 117), None);
+        // 3^100 has 48 digits; 3^500 overflows U256 inside int_pow_u256.
+        assert_eq!(powi_exact_parts::<ValueFmt128>(v128(3, 0), 100), None);
+        assert_eq!(powi_exact_parts::<ValueFmt128>(v128(3, 0), 500), None);
+        // 2^-200 carries 5^200: past the du/dv width gates.
+        assert_eq!(powi_exact_parts::<ValueFmt128>(v128(2, 0), -200), None);
+    }
+
+    /// The exponent window, and the reason it is a *soundness* bound:
+    /// `round_and_pack_finite` computes `qmin − exp` in `i32`, so an
+    /// exponent near `i32::MAX` wraps there. Inside the window the
+    /// classifier delivers; outside it declines, and the kernel's
+    /// `exp` gate owns the disposition (the true value's logarithm
+    /// exceeds 230,000 past the window, well past every format's
+    /// gate).
+    #[test]
+    fn powi_exact_parts_respects_the_exponent_window() {
+        let window = i32::try_from(POWI_EXPONENT_WINDOW).unwrap();
+        // x = 10, so w = n exactly: the window edge and one past it.
+        assert_eq!(
+            powi_exact_parts::<ValueFmt128>(v128(10, 0), window),
+            Some((u(1), window))
+        );
+        assert_eq!(
+            powi_exact_parts::<ValueFmt128>(v128(10, 0), -window),
+            Some((u(1), -window))
+        );
+        assert_eq!(
+            powi_exact_parts::<ValueFmt128>(v128(10, 0), window + 1),
+            None
+        );
+        assert_eq!(
+            powi_exact_parts::<ValueFmt128>(v128(10, 0), -window - 1),
+            None
+        );
+        assert_eq!(powi_exact_parts::<ValueFmt128>(v128(10, 0), i32::MAX), None);
+        assert_eq!(powi_exact_parts::<ValueFmt128>(v128(10, 0), i32::MIN), None);
+    }
+
+    /// The exponent product is `i64` arithmetic, and this is the case
+    /// that proves it: `x = 10^4096` with `n = 1048576` has
+    /// `j·n = 2^32`, which an `i32` multiply wraps to exactly **zero**
+    /// — the classifier would then deliver `1 × 10^0 = 1` for a value
+    /// astronomically past `MAX`, with clean flags. A wrong answer
+    /// that looks entirely plausible is the one this routine cannot
+    /// afford, so the guard is a test rather than a comment.
+    #[test]
+    fn powi_exact_parts_forms_the_exponent_product_in_i64() {
+        let n = 1_048_576i32;
+        let j = 4096i32;
+        assert_eq!(i64::from(j) * i64::from(n), 1i64 << 32);
+        assert_eq!(j.wrapping_mul(n), 0, "the i32 product wraps to zero");
+        assert_eq!(powi_exact_parts::<ValueFmt128>(v128(1, j), n), None);
+        assert_eq!(powi_exact_parts::<ValueFmt128>(v128(1, -j), n), None);
+        assert_eq!(powi_exact_parts::<ValueFmt128>(v128(1, j), -n), None);
+    }
+
+    /// Cohort insensitivity: the classifier reads the stripped form,
+    /// so every cohort of a base produces the identical parts.
+    #[test]
+    fn powi_exact_parts_is_cohort_insensitive() {
+        for n in [-3i32, -1, 1, 2, 6, 7] {
+            let a = powi_exact_parts::<ValueFmt128>(v128(2, 0), n);
+            for (c, e) in [(20u128, -1i32), (200, -2), (2_000_000, -6)] {
+                assert_eq!(
+                    powi_exact_parts::<ValueFmt128>(v128(c, e), n),
+                    a,
+                    "powi({c}e{e}, {n}) must match powi(2, {n})"
+                );
+            }
+        }
     }
 
     #[test]
