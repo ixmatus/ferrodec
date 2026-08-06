@@ -117,6 +117,12 @@ pub mod pow;
 pub mod rootn;
 #[cfg(feature = "exp-log")]
 pub mod rsqrt;
+// IEEE 754-2019 §9.2 `powr`: `pow`'s rule-8 pipeline under the §9.2.1
+// `powr` special-value table (ADR-0059 Track D D3). Shares the `pow`
+// feature: the two operations differ only before the first
+// approximation runs.
+#[cfg(feature = "pow")]
+pub mod powr;
 #[cfg(feature = "trig")]
 pub mod sincos;
 

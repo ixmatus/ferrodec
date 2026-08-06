@@ -23,6 +23,8 @@ pub(crate) mod logical;
 pub(crate) mod mul;
 #[cfg(feature = "pow")]
 pub(crate) mod pow;
+#[cfg(feature = "pow")]
+pub(crate) mod powr;
 pub(crate) mod quantum;
 pub(crate) mod reduce;
 pub(crate) mod rem;

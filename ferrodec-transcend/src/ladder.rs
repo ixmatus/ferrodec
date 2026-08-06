@@ -1017,6 +1017,27 @@ pub(crate) const COMPOUND: Budget = Budget {
     dynamic: pow_budget_dyn,
 };
 
+/// `powr = exp(y·ln x)` (IEEE 754-2019 §9.2 `powr`): the §9.2.1 `powr`
+/// special-value table over [`POW`]'s rule-8 pipeline. Itemization by
+/// reference to [`POW`], because the priced pipeline is the identical
+/// one — the same `ln` relative error, the same product rounding, the
+/// same `|y·ln x| ≤ 14151` overflow gate carrying both into absolute
+/// error, the same [`EXP`] Taylor — and `powr`'s narrower domain
+/// (`x > 0` strictly, no negative-base sign reflection) removes inputs
+/// rather than adding error terms. Hence identical constants on both
+/// rungs and the shared [`pow_budget_dyn`] formula.
+///
+/// The constant is duplicated rather than aliased to [`POW`] for
+/// per-function containment: a budget is the auditable premise of its
+/// own function's Tier 1 claim (ADR-0059), so a future revision that
+/// turns out unsound reopens the correctness exposure on `powr` alone
+/// instead of silently moving `pow` with it.
+pub(crate) const POWR: Budget = Budget {
+    rung1: 150_000_000,
+    rung2: 300_000_000,
+    dynamic: pow_budget_dyn,
+};
+
 // Escalation-rate summary (Decimal128, the widest exposure; rate ≈
 // 2 × rung1 × 10^-16 for a random input): trig ≈ 3%, tan ≈ 6%,
 // pow and powi's large-|n| arm ≈ 3e-8, cbrt ≈ 1e-8, exp family
@@ -1122,7 +1143,7 @@ mod tests {
     /// escalate everything).
     #[test]
     fn budgets_are_positive_and_sane() {
-        let all: [(&str, &Budget); 32] = [
+        let all: [(&str, &Budget); 33] = [
             ("exp", &EXP),
             ("exp2", &EXP2),
             ("expm1", &EXPM1),
@@ -1155,6 +1176,7 @@ mod tests {
             ("powi_int", &POWI_INT),
             ("powi", &POWI),
             ("compound", &COMPOUND),
+            ("powr", &POWR),
         ];
         for (name, b) in all {
             assert!(b.rung1 > 0 && b.rung2 > 0, "{name}: zero budget");
@@ -1259,7 +1281,7 @@ mod tests {
     /// catalog have diverged and one of them is wrong.
     #[test]
     fn dynamic_budgets_track_the_rung2_catalog() {
-        let all: [(&str, &Budget); 32] = [
+        let all: [(&str, &Budget); 33] = [
             ("exp", &EXP),
             ("exp2", &EXP2),
             ("expm1", &EXPM1),
@@ -1292,6 +1314,7 @@ mod tests {
             ("powi_int", &POWI_INT),
             ("powi", &POWI),
             ("compound", &COMPOUND),
+            ("powr", &POWR),
         ];
         for (name, b) in all {
             let at_110 = (b.dynamic)(110);

@@ -73,5 +73,9 @@ mod hyperbolic;
 
 #[cfg(feature = "pow")]
 mod pow;
+// IEEE 754-2019 §9.2 `powr` (ADR-0059 Track D D3): the same kernel as
+// `pow` under the §9.2.1 `powr` special-value table.
+#[cfg(feature = "pow")]
+mod powr;
 
 pub use consts::{e, ln10, ln2, pi};
