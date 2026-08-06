@@ -9,6 +9,8 @@
 //! [`Decimal64`]: crate::Decimal64
 
 pub(crate) mod addsub;
+#[cfg(feature = "exp-log")]
+pub(crate) mod compound;
 pub(crate) mod div;
 pub(crate) mod divide_integer;
 #[cfg(feature = "exp-log")]

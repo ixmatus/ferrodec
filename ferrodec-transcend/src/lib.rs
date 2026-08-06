@@ -97,6 +97,12 @@ mod exact;
 pub mod argred;
 #[cfg(feature = "exp-log")]
 pub mod cbrt;
+// `compound(x, n) = (1 + x)^n` (ADR-0059 Track D D3). Gated on
+// `exp-log` rather than `pow`: the kernel is `exp ∘ logp1`, so it needs
+// the same modules `exp2` and the `logp1` family already pull in, and
+// none of `pow`'s Newton-seeded surface.
+#[cfg(feature = "exp-log")]
+pub mod compound;
 #[cfg(feature = "exp-log")]
 pub mod exp;
 #[cfg(feature = "hyperbolic")]

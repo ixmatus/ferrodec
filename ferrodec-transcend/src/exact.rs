@@ -2023,6 +2023,500 @@ fn rootn_exact_parts(cx: u128, ex: i32, n: i32) -> Option<(U256, i32)> {
     Some((coef, i32::try_from(w).ok()?))
 }
 
+// ----------------------------------------------------------------------------
+// Input-side exact and tie classification for `compound` (ADR-0059
+// Track D D3, fd-4zo.25; ADR-0060 Engine A).
+//
+// This section is self-contained: it shares only `strip_trailing_zeros`,
+// `int_pow_u256`, and `checked_mul_u256` with the classifiers above.
+//
+// What separates `compound` from every other classifier in this module:
+// its value is ALWAYS rational. `1 + x` is an exact rational for every
+// in-domain representable `x` (the D1 `logp1` exact-sum analysis), and an
+// integer power of a rational is rational. The transcendental classifiers
+// answer "is this one of the rare algebraic inputs?"; this one answers
+// "is this rational representable, a nearest-mode midpoint, or neither?".
+// The completeness obligation is unchanged and just as binding: a `None`
+// must be provably neither, because the kernel raises `INEXACT`
+// unconditionally past this point.
+
+/// Strip the prime factor `p` (2 or 5) out of `n`, returning its
+/// multiplicity and the reduced value. Caller guarantees `n ≥ 1` (a zero
+/// `n` would loop forever, since `0 % p == 0`). The [`U256`] analog of
+/// [`factor_count`], needed because `compound`'s numerator `N` can reach
+/// ~70 digits while a format coefficient stays inside 34.
+///
+/// Bounded by `log2(N) ≤ 236` iterations over this section's gated `N`.
+fn factor_count_u256(mut n: U256, p: u128) -> (u32, U256) {
+    let mut c = 0;
+    loop {
+        let (q, r) = n.div_rem_u128(p);
+        if r != 0 {
+            break;
+        }
+        n = q;
+        c += 1;
+    }
+    (c, n)
+}
+
+/// `Some(k)` iff `1 + x = 10^k` exactly, for the stripped decomposition
+/// `|x| = a · 10^u` with sign `sign`; `None` otherwise. Caller guarantees
+/// `x` is finite, nonzero, and strictly above `−1`.
+///
+/// ## The family, derived
+///
+/// `1 + x = 10^k` forces `x = 10^k − 1`, and the stripped forms are
+/// unique, so the family is exactly the nines patterns (the same set
+/// [`log10p1_exact`] classifies, arrived at here from the `compound`
+/// side rather than reused, since the two classifiers answer different
+/// questions about it):
+///
+/// * `k ≥ 1`: `x = 10^k − 1`, the `k`-nines integer (`9`, `99`, `999`,
+///   …). It ends in 9, so its stripped exponent is `0` and its stripped
+///   coefficient carries exactly `k` digits.
+/// * `k = 0`: `x = 0`, disposed of by the caller's special cases.
+/// * `k = −m ≤ −1`: `x = 10^−m − 1 = −(10^m − 1) · 10^−m`, the `m`-nines
+///   fraction (`−0.9`, `−0.99`, …), stripped coefficient `10^m − 1` at
+///   stripped exponent `−m`.
+///
+/// A format coefficient carries at most `F::PRECISION ≤ 34` digits, so
+/// `|k| ≤ 34` and the `10^k` below stays far inside `u128`.
+///
+/// ## Every other shape is provably not a power of ten
+///
+/// * `x > 0` with stripped `u ≥ 1`: `N = a·10^u + 1 ≡ 1 (mod 10)`, while
+///   `10^k ≡ 0 (mod 10)` for every `k ≥ 1` and `10^k ≤ 1` for `k ≤ 0`.
+/// * `x > 0` with stripped `u < 0`: `1 + x = (10^d + a)/10^d` with
+///   `d = −u ≥ 1`; a stripped `a` shares no factor of ten, so the
+///   numerator is not divisible by 10 and exceeds `10^d ≥ 10`, hence is
+///   no power of ten and the quotient is no power of ten either.
+/// * `x < 0` (necessarily `u < 0`, since `|x| < 1`): the numerator
+///   `10^d − a` is again not divisible by 10, so it is a power of ten
+///   only when it equals 1, i.e. `a = 10^d − 1` — the case caught below.
+fn one_plus_is_power_of_ten(a: u128, u: i32, sign: bool) -> Option<i32> {
+    let digits = U256::from_u128(a).decimal_digit_count();
+    // The `k`-nines coefficient is `10^digits − 1`; `digits ≤ 34` for
+    // every format coefficient, so the exponentiation cannot overflow.
+    let nines = 10u128.checked_pow(digits)?.checked_sub(1)?;
+    if a != nines {
+        return None;
+    }
+    if sign {
+        // `x = −(10^m − 1)·10^−m` needs the nines run and the stripped
+        // exponent to match: `m` nines at exponent `−m`.
+        if u == -(digits as i32) {
+            return Some(u);
+        }
+        None
+    } else if u == 0 {
+        // `x = 10^k − 1` at stripped exponent 0, so `k` is the run length.
+        Some(digits as i32)
+    } else {
+        None
+    }
+}
+
+/// The largest `|k·n|` [`compound_exact_parts`] hands to the format
+/// rounder for the power-of-ten family. Two obligations meet here.
+///
+/// **Upward** it must cover every `k·n` whose disposition the shared
+/// `exp` gates cannot supply. Those gates fire at `|n · ln(1+x)| >`
+/// the format's limit (at most 14,221 across the three formats), i.e.
+/// at `|k·n| · ln 10 > 14,221`, i.e. from `|k·n| ≥ 6,177`. This limit
+/// clears that by two orders of magnitude, so everything it declines
+/// has `|k·n| · ln 10 > 2.3·10^6`, past every gate with enormous
+/// margin, and the kernel's saturation proxy answers it unguarded on
+/// its own margin argument — the same beyond-the-gates shape
+/// [`exp10_integer`] uses. Every representable exponent (`|k·n|` at
+/// most 6,176) and both gate-gap integers sit far inside.
+///
+/// **Downward** it keeps the delivered exponent inside the range the
+/// format rounder's own `i32` arithmetic is defined on: that routine
+/// forms `qmin − unbiased_exp` and `unbiased_exp + excess`, which
+/// overflow near `i32::MIN`/`i32::MAX` (`k·n` reaches `±6.9·10^10`
+/// before this gate, since `|k| ≤ 34` and `|n| ≤ 2^31`). A million is
+/// six orders inside `i32` and cannot.
+const POWER_OF_TEN_EXPONENT_LIMIT: u64 = 1_000_000;
+
+/// The IEEE 754-2019 §9.2.2 preferred quantum exponent of
+/// `compound(x, n)`: `floor(n × min(0, Q(x)))`, where `Q(x)` is `x`'s
+/// *stored* quantum exponent (cohort-sensitive by design, exactly as
+/// §9.2.2 states it — the delivered quantum of `compound(0.05, 3)`
+/// follows the `5E−2` representation, not the numeric value).
+///
+/// Both factors are integers, so the floor is the identity; the product
+/// is formed in `i64` (`|n| ≤ 2^31`, `|Q(x)| ≤ 6176`, so it cannot
+/// overflow) and saturated into the `i32` the rounder takes. Saturation
+/// is behaviour-preserving: §6.3 targets `MAX(q_preferred, q_emin)` and
+/// shifts only as far as the coefficient allows, so every `q_preferred`
+/// past the format's quantum range is equivalent to the range endpoint.
+fn preferred_quantum(q_x: i32, n: i32) -> i32 {
+    let q = i64::from(n) * i64::from(q_x.min(0));
+    q.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32
+}
+
+/// The exact or tie value of `compound(x, n) = (1 + x)^n` decided from
+/// the inputs alone; `None` routes to the kernel. The caller
+/// (`crate::compound::compound_kernel_body`) has already run
+/// `compound_special_cases`, so every `x` reaching here is finite,
+/// nonzero, and strictly above `−1`, and `n ≠ 0`.
+///
+/// ## The base is an exact rational, always
+///
+/// Write `|x| = a · 10^u` in stripped form (`a` free of trailing zeros;
+/// stripped forms are unique). Then `1 + x = N / 10^d` with
+///
+/// * `u ≥ 0` (so `x > 0`: a negative `x` with `|x| ≥ 1` is `≤ −1` and
+///   was disposed of by the caller): `d = 0`, `N = a·10^u + 1`;
+/// * `u < 0`: `d = −u`, `N = 10^d + a` for `x > 0` and `N = 10^d − a`
+///   for `x < 0`, positive because `x > −1` forces `a < 10^d`.
+///
+/// Factoring `N = 2^i · 5^j · t` with `gcd(t, 10) = 1` gives
+/// `1 + x = 2^α · 5^β · t` with `α = i − d`, `β = j − d`, and hence
+///
+/// > `compound(x, n) = t^n · 2^(nα) · 5^(nβ)`.
+///
+/// With `A = nα`, `B = nβ`, `w = min(A, B)`, the coefficient
+/// `t^n · 2^(A−w) · 5^(B−w)` is already stripped (at most one of the 2-
+/// and 5-exponents survives, and `t` is coprime to 10), so the
+/// `PRECISION + 1` digit gate decides representability and tie-ness
+/// together and the rounder finishes the job. This is `pown` on the
+/// exact rational `1 + x`, the reduction ADR-0060 records for this
+/// operation; the assembly is the shape [`pow_exact_input`] uses for its
+/// own `2^α 5^β t` decomposition, re-derived here for the base `1 + x`.
+///
+/// ## The whole-range power-of-ten family (checked FIRST, load bearing)
+///
+/// When `1 + x = 10^k` the value is `10^(k·n)` with coefficient 1 at
+/// **any** magnitude, in range or not. That family must be decided input
+/// side for the same reason `exact::exp10_integer`'s is (the D2 lesson):
+/// `10^(kn)` sits exactly ON a format grid point at its own exponent, a
+/// distance no rung of the ADR-0059 ladder can grow, so a guarded
+/// delivery would escalate forever — panicking the `ladder_audit` lane
+/// and, under `unbounded-ladder`, widening without terminating. Handing
+/// the rounder the exact coefficient-1 form instead makes every §7.4
+/// disposition correct by construction: exact with status `OK` inside
+/// `[etiny, emax]`, the overflow disposition per direction above it, the
+/// underflow disposition below it.
+///
+/// The width gates of the general branch would bail on most of this
+/// family (`N = 10^k` raised to a large `n` outruns any envelope), which
+/// is exactly why it is tested first rather than left to fall through.
+///
+/// ## Bail-site completeness proofs
+///
+/// Every `None` below is provably neither exact nor a nearest-mode tie.
+/// The recurring facts: an exact-or-tie value has a *stripped*
+/// coefficient of at most `PRECISION + 1 ≤ 35` digits (a normal-range
+/// midpoint's stripped coefficient has exactly `PRECISION + 1` digits
+/// and ends in 5; a subnormal-range midpoint `(2c+1)·5·10^(etiny−1)` has
+/// at most that many too), and a value whose stripped coefficient is
+/// wider is neither representable nor a midpoint at any exponent.
+///
+/// * **`|k·n|` past [`POWER_OF_TEN_EXPONENT_LIMIT`]** (power-of-ten
+///   family): then `|n · ln(1+x)| = |k·n| · ln 10 > 2.3·10^6`, past
+///   every format's `exp` gates (14,150 / 887 / 224 on the overflow
+///   side, 14,221 / 918 / 235 on the underflow side) by two orders of
+///   magnitude, and `10^(kn)` is past `MAX` (or below half the
+///   smallest subnormal) by hundreds of thousands of decades. The
+///   kernel's saturation proxy answers it unguarded on its own margin
+///   argument. This mirrors `exp10_integer`'s beyond-the-decode-limit
+///   proof; that constant's rustdoc carries the two-sided derivation.
+/// * **`u ≥ 1` with `digits(a) + u > PRECISION + 1`**: here
+///   `N = a·10^u + 1 ≡ 1 (mod 10)`, so `gcd(N, 10) = 1`, `t = N`, and
+///   `α = β = 0`. For `n < 0` the reciprocal `1/N^|n|` is
+///   non-terminating (`N ≥ 11`), hence neither representable nor a tie.
+///   For `n > 0` the coefficient is `N^n ≥ N ≥ 10^(PRECISION+1)`, and it
+///   is stripped (coprime to 10), so it is too wide for either.
+/// * **`d > 2·PRECISION + 2`**: with `a ≤ 10^PRECISION − 1` and
+///   `d > 2·PRECISION + 2`, `N` lies within `10^PRECISION` of `10^d`, so
+///   `N > 10^(d−1) ≥ 10^(2·PRECISION+2)`. For `n > 0` an exact-or-tie
+///   coefficient forces `t < 10^(P+1)` and (since `d ≥ 1` makes `N`
+///   indivisible by 10, so `min(i, j) = 0`) either `2^(n·i) < 10^(P+1)`
+///   or `5^(n·j) < 10^(P+1)`, bounding `N = 2^i 5^j t < 10^(2P+2)` — a
+///   contradiction. For `n < 0` exactness forces `t = 1`, i.e. `N = 2^i`
+///   (then `5^(|n|·i) < 10^(P+1)` bounds `N ≤ 2^50 < 10^16` at
+///   `Decimal128`, contradiction) or `N = 5^j` (then
+///   `2^(|n|·j) < 10^(P+1)` bounds `j ≤ 116`). The residual `N = 5^j`
+///   sliver is closed by exhaustive enumeration: no power of two and no
+///   power of five in the reachable exponent range sits within
+///   `10^PRECISION` of a power of ten at any `d > PRECISION`, at any of
+///   the three format precisions. That enumeration is the unit test
+///   `compound_negative_n_terminating_bases_stay_narrow`, the
+///   machine-checked leg of this bail (the ADR-0060 posture: derivation
+///   plus exhaustive small-range probe).
+/// * **`n < 0` with `t ≠ 1`**: `1/t^|n|` in lowest terms keeps a
+///   denominator with a prime factor other than 2 and 5, so the value is
+///   a non-terminating decimal: not representable, and not a midpoint
+///   (midpoints terminate).
+/// * **The `du` / `dv` width gates and the closing digit gate**: `2^128`
+///   carries 39 digits and `5^56` carries 40, both past every format's
+///   `PRECISION + 1 ≤ 35`; the assembled coefficient is stripped, so
+///   more than `PRECISION + 1` digits is neither representable nor a
+///   midpoint.
+/// * **`w` past [`POWER_OF_TEN_EXPONENT_LIMIT`]** (defensive on this
+///   branch: the gates above already bound `|n| ≤ 127`, so `|w| ≤
+///   127 · 310 < 40,000`): the value sits astronomically past every
+///   format's exponent range, over/underflow territory with no boundary
+///   structure (a tie lives inside the representable range plus one
+///   quantum).
+///
+/// ## The ties are real, and reachable from both signs of `n`
+///
+/// A midpoint's stripped coefficient ends in 5, so it needs the 5-leg
+/// and not the 2-leg: `A = w < B` with `t` odd (automatic — `t` is
+/// coprime to 10). The smallest witnesses at `Decimal128`:
+/// `compound(4, 49) = 5^49` and `compound(4, 50) = 5^50`, whose 35-digit
+/// coefficients are exact nearest-mode midpoints, and their negative-`n`
+/// mirror `compound(1, −49) = 2^−49 = 5^49 · 10^−49`. The siblings scale
+/// the same way (`compound(4, 23)` / `compound(4, 24)` at `Decimal64`,
+/// `compound(4, 11)` at `Decimal32`). The classifier hands each
+/// midpoint's exact coefficient to the format rounder, whose own tie
+/// rule resolves a value no approximation kernel can: the true value IS
+/// the rounding boundary.
+pub(crate) fn compound_exact_input<F: DecimalFormat>(
+    x: F,
+    n: i32,
+    rm: RoundingMode,
+) -> Option<(F, Status)> {
+    let (coef, exp, q_preferred) = compound_exact_parts::<F>(x, n)?;
+    // The exact coefficient, delivered under the §9.2.2 preferred
+    // quantum instead of [`pack_value`]'s §6.3 default of 0 — the one
+    // place in this module where the operation names its own preferred
+    // exponent. The rounding machinery itself is untouched: the
+    // `q_preferred` argument has been part of its contract since fd-42l.
+    // `compound`'s value is positive for every in-domain input
+    // (`1 + x > 0`, and integer powers preserve that), so the sign is
+    // `false` by construction, and the coefficient is the value's
+    // complete truth, so `pre_sticky` is `false`.
+    Some(F::round_and_pack_finite(
+        coef,
+        exp,
+        q_preferred,
+        false,
+        false,
+        rm,
+        Status::OK,
+    ))
+}
+
+/// [`compound_exact_input`]'s integer core: `Some((coefficient,
+/// exponent, preferred quantum))` for an exact or tie value, `None`
+/// under the bail proofs listed on that function.
+///
+/// Split out so the classification is testable independently of a
+/// format's rounder — the verification the ADR-0060 floors lean on is
+/// exactly the completeness of this decision, so it gets its own
+/// witnesses rather than only end-to-end ones.
+fn compound_exact_parts<F: DecimalFormat>(x: F, n: i32) -> Option<(U256, i32, i32)> {
+    let (coef, exp, sign) = x.to_extended_parts()?;
+    if coef.is_zero() {
+        return None; // ±0 short-circuits at the caller's special cases
+    }
+    // A format coefficient fits u128 (≤ 34 digits); bail defensively.
+    // Such a coefficient names no format input, so no case is lost.
+    if coef.hi != 0 {
+        return None;
+    }
+    // §9.2.2 reads the *stored* quantum, so this is computed before
+    // stripping canonicalises the cohort away.
+    let q_pref = preferred_quantum(exp, n);
+    let (c, u) = strip_trailing_zeros(coef, exp);
+    let a = c.lo;
+
+    // The whole-range power-of-ten family, first (see the section above).
+    if let Some(k) = one_plus_is_power_of_ten(a, u, sign) {
+        let kn = i64::from(k) * i64::from(n);
+        if kn.unsigned_abs() > POWER_OF_TEN_EXPONENT_LIMIT {
+            return None; // proof at the bail-site list above
+        }
+        return Some((U256::from_u128(1), kn as i32, q_pref));
+    }
+
+    if sign && u >= 0 {
+        // Unreachable in domain: a stripped `a ≥ 1` at `u ≥ 0` gives
+        // `|x| ≥ 1`, and a negative `x` with `|x| ≥ 1` is `≤ −1`, which
+        // the caller's special cases already disposed of. Bailing here
+        // loses no exact or tie case.
+        return None;
+    }
+
+    // `1 + x = N / 10^d`, with `e` the integer scale on the `u ≥ 0` side.
+    // At most one of `d` and `e` is nonzero.
+    let d = if u < 0 { u.unsigned_abs() } else { 0 };
+    let e = if u > 0 { u.unsigned_abs() } else { 0 };
+    if e > 0 && c.decimal_digit_count() + e > F::PRECISION + 1 {
+        return None; // proof at the bail-site list above
+    }
+    if d > 2 * F::PRECISION + 2 {
+        return None; // proof at the bail-site list above
+    }
+    // Both gates keep the shift inside `U256::mul_pow10`'s documented
+    // `k ≤ 76` precondition (`2·34 + 2 = 70` at the widest format) and
+    // the product inside the ~78-digit envelope.
+    let pow10_d = U256::from_u128(1).mul_pow10(d);
+    let n_big = if sign {
+        pow10_d.sub(c)
+    } else {
+        pow10_d.add(c.mul_pow10(e))
+    };
+
+    let (coefficient, out_exp) = integer_power_parts::<F>(n_big, -(d as i32), n)?;
+    Some((coefficient, out_exp, q_pref))
+}
+
+/// The exact `(coefficient, exponent)` of `(base · 10^scale)^n` for a
+/// positive `base` and a nonzero `n`, or `None` when the value is
+/// non-terminating, too wide to be representable or a nearest-mode
+/// midpoint, or too far out of range for the format rounder's own
+/// arithmetic.
+///
+/// The `pown`-on-a-rational core both `compound` classifiers share:
+/// [`compound_exact_parts`] applies it to the exact base `1 + x`, and
+/// [`compound_huge_x_anchor`] to `x` itself, which is exactly ADR-0060's
+/// "compound reduces to `pown` on the exact rational `1 + x`" and its
+/// companion "huge `x`, where `compound` hugs the classified `pown`
+/// value".
+///
+/// Factor `base = 2^i · 5^j · t` with `gcd(t, 10) = 1`, so
+/// `base · 10^scale = 2^α · 5^β · t` with `α = i + scale`,
+/// `β = j + scale`, and the `n`-th power is `t^n · 2^(nα) · 5^(nβ)`.
+/// With `A = nα`, `B = nβ` and `w = min(A, B)`, the returned
+/// coefficient `t^n · 2^(A−w) · 5^(B−w)` is already stripped (at most
+/// one of the 2- and 5-legs survives and `t` is coprime to 10), which
+/// is what makes the closing `PRECISION + 1` digit gate a decisive
+/// exact-or-midpoint test.
+///
+/// Bail sites, each provably losing no exact or midpoint value:
+///
+/// * `n < 0` with `t ≠ 1`: `1/t^|n|` keeps a prime other than 2 and 5
+///   in its denominator, so the value is a non-terminating decimal —
+///   neither representable nor a midpoint (midpoints terminate).
+/// * the `du` / `dv` gates: `2^128` carries 39 digits and `5^56` carries
+///   40, both past every format's `PRECISION + 1 ≤ 35`.
+/// * `int_pow_u256` / `checked_mul_u256` envelope bails and the closing
+///   digit gate: a stripped coefficient wider than `PRECISION + 1` is
+///   neither representable nor a midpoint at any exponent.
+/// * `|w|` past [`POWER_OF_TEN_EXPONENT_LIMIT`]: the value is hundreds
+///   of thousands of decades outside every format's range, where the
+///   §7.4 disposition no longer depends on where exactly it sits, and
+///   the caller's `exp` gates answer it (that constant's rustdoc
+///   carries the two-sided derivation, including why the format
+///   rounder's `i32` arithmetic needs the bound).
+fn integer_power_parts<F: DecimalFormat>(base: U256, scale: i32, n: i32) -> Option<(U256, i32)> {
+    let (v2, rest) = factor_count_u256(base, 2);
+    let (v5, t) = factor_count_u256(rest, 5);
+    let t_is_one = t == U256::from_u128(1);
+    if n < 0 && !t_is_one {
+        return None; // non-terminating reciprocal
+    }
+    // `|α|, |β| ≤ log2(base) + |scale| < 6,300` and `|n| ≤ 2^31`, so the
+    // products stay four orders inside `i64`.
+    let alpha = i64::from(v2) + i64::from(scale);
+    let beta = i64::from(v5) + i64::from(scale);
+    let n64 = i64::from(n);
+    let a_exp = n64 * alpha;
+    let b_exp = n64 * beta;
+    let w = a_exp.min(b_exp);
+    let (du, dv) = (a_exp - w, b_exp - w); // at least one is zero
+    if du > 127 || dv > 55 {
+        return None;
+    }
+    let t_pow = if t_is_one {
+        U256::from_u128(1)
+    } else {
+        int_pow_u256(t, n.unsigned_abs())?
+    };
+    let pow2 = int_pow_u256(U256::from_u128(2), du as u32)?;
+    let pow5 = int_pow_u256(U256::from_u128(5), dv as u32)?;
+    let coefficient = checked_mul_u256(checked_mul_u256(t_pow, pow2)?, pow5)?;
+    if coefficient.decimal_digit_count() > F::PRECISION + 1 {
+        return None;
+    }
+    if w.unsigned_abs() > POWER_OF_TEN_EXPONENT_LIMIT {
+        return None;
+    }
+    Some((coefficient, w as i32))
+}
+
+/// The ADR-0051 anchor for `compound`'s huge-`x` family: `Some` is the
+/// exact `(coefficient, exponent)` of `x^n`, the grid point the true
+/// value `(1 + x)^n` hugs; `None` routes on. Caller
+/// (`crate::compound::compound_kernel_body`) has run
+/// `compound_special_cases` and `compound_exact_input` first, so every
+/// `x` reaching here is finite, nonzero, above `−1`, and its
+/// `compound` value is provably neither representable nor a midpoint.
+///
+/// ## The family, and why no rung can decide it
+///
+/// ADR-0060 names this the second of `compound`'s two whole-range
+/// on-grid families (the first being `1 + x = 10^k`). Once `x` outgrows
+/// the working width, `logp1`'s wide band forms `t = 1 ⊕ x` and the `1`
+/// is absorbed entirely: the kernel is then evaluating `x^n`, not
+/// `(1 + x)^n`. That is harmless for *accuracy* — the absorbed 1 is a
+/// relative `1/x`, astronomically inside any budget — and fatal for
+/// *decidability* whenever `x^n` is itself a format grid point, because
+/// the true value then sits a relative `≈ n/x` above (or below) a
+/// rounding boundary, a distance no fixed rung can grow. A default
+/// build would decide the directed modes by the sign of its own noise,
+/// and an `unbounded-ladder` build would widen until the rung passed
+/// `x`'s own digit count.
+///
+/// Witnessed, before this classifier existed, by
+/// `compound(1E+200, 1)`: the true value `10^200 + 1` is strictly above
+/// the grid point `10^200`, so `TowardPositive` owes `next_up(10^200)`,
+/// and the kernel delivered `10^200`. `compound(1E+2000, 1)`,
+/// `compound(1E+200, 2)` and `compound(1E+2000, 3)` are the same shape.
+/// This is the D1 `log10p1` integer-anchor lesson and the D2 `exp10`
+/// integer-family lesson arriving a third time, in the place ADR-0060
+/// predicted.
+///
+/// ## The gate, mirroring the tiny-`x` arm
+///
+/// With `adj` the adjusted exponent of `x` and `dn` the digit count of
+/// `|n|`, the arm fires when `adj ≥ F::PRECISION + dn + 4` — the exact
+/// reflection of `compound::compound_anchor`'s
+/// `adj ≤ −(F::PRECISION + dn + 4)`. Soundness: `x ≥ 10^adj` and
+/// `|n| < 10^dn` give `|n|/x < 10^(dn − adj) ≤ 10^(−P−4)`, and
+/// `|(1 + 1/x)^n − 1| ≤ 1.01 · |n|/x` on that range, so the true value
+/// sits within `≈ 10^(−P−4)` relative of the anchor. The nearest
+/// rounding boundary beside a grid point (or beside a midpoint, on the
+/// far side) is at least `5·10^(−P−1)` relative away, so the margin is
+/// a factor of `5·10^3` where the discipline asks for ten. Anchor and
+/// true value therefore lie strictly between the same two boundaries
+/// and round identically in every direction; the residual channel
+/// supplies the side, which is the only thing left to decide.
+///
+/// ## The side theorem
+///
+/// `x > 0` here (an `x` with `|x| ≥ 1` and `x > −1` is positive), so
+/// `1 + x > x > 0` and `(1 + x)^n > x^n` exactly when `n > 0`. Strict
+/// for every `n ≠ 0`, so `magnitude_grows = n > 0` at the call site.
+///
+/// ## Completeness of the `None`s
+///
+/// Declining here is always safe: it routes to the working-precision
+/// path, which is the right decider for every `x^n` that is not a
+/// boundary. The bails are [`integer_power_parts`]'s, and each one
+/// proves `x^n` is neither representable nor a midpoint — precisely the
+/// case where the anchor would not be a boundary and the ladder's
+/// predicate has a real distance to measure.
+pub(crate) fn compound_huge_x_anchor<F: DecimalFormat>(x: F, n: i32) -> Option<(U256, i32)> {
+    let (coef, exp, sign) = x.to_extended_parts()?;
+    if sign || coef.is_zero() || coef.hi != 0 {
+        return None;
+    }
+    let adj = exp + coef.decimal_digit_count() as i32 - 1;
+    // `n ≠ 0` by the caller's special cases, so `ilog10` is defined.
+    let n_digits = n.unsigned_abs().ilog10() as i32 + 1;
+    if adj < F::PRECISION as i32 + n_digits + 4 {
+        return None;
+    }
+    let (a, u) = strip_trailing_zeros(coef, exp);
+    integer_power_parts::<F>(a, u, n)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2658,6 +3152,231 @@ mod tests {
         // A cohort of 1 strips to the same parts, so it lands here too.
         let (c, e) = strip_trailing_zeros(u(1_000_000), -6);
         assert_eq!((c.lo, e), (1, 0));
+    }
+
+    #[test]
+    fn factor_count_u256_splits_twos_and_fives() {
+        assert_eq!(factor_count_u256(u(1), 2), (0, u(1)));
+        assert_eq!(factor_count_u256(u(8), 2), (3, u(1)));
+        assert_eq!(factor_count_u256(u(125), 5), (3, u(1)));
+        assert_eq!(factor_count_u256(u(20), 2), (2, u(5)));
+        assert_eq!(factor_count_u256(u(21), 2), (0, u(21)));
+        // Past the u128 envelope: 2^130 splits completely.
+        let big = int_pow_u256(u(2), 130).expect("2^130 fits U256");
+        assert_eq!(factor_count_u256(big, 2), (130, u(1)));
+    }
+    #[test]
+    fn one_plus_is_power_of_ten_finds_the_nines_patterns() {
+        // x = 9, 99, 999 → 1 + x = 10^1, 10^2, 10^3.
+        assert_eq!(one_plus_is_power_of_ten(9, 0, false), Some(1));
+        assert_eq!(one_plus_is_power_of_ten(99, 0, false), Some(2));
+        assert_eq!(one_plus_is_power_of_ten(999, 0, false), Some(3));
+        // x = −0.9, −0.99 → 1 + x = 10^−1, 10^−2.
+        assert_eq!(one_plus_is_power_of_ten(9, -1, true), Some(-1));
+        assert_eq!(one_plus_is_power_of_ten(99, -2, true), Some(-2));
+        // Nines run present but the exponent does not match the run.
+        assert_eq!(one_plus_is_power_of_ten(99, -1, true), None);
+        assert_eq!(one_plus_is_power_of_ten(9, -2, true), None);
+        // Not a nines run at all.
+        assert_eq!(one_plus_is_power_of_ten(19, 0, false), None);
+        assert_eq!(one_plus_is_power_of_ten(1, 0, false), None);
+        // Positive x with a nonzero stripped exponent: `N ≡ 1 (mod 10)`.
+        assert_eq!(one_plus_is_power_of_ten(9, 1, false), None);
+        assert_eq!(one_plus_is_power_of_ten(9, -1, false), None);
+    }
+    #[test]
+    fn preferred_quantum_follows_the_stored_exponent() {
+        // §9.2.2: floor(n × min(0, Q(x))).
+        assert_eq!(preferred_quantum(-2, 3), -6); // compound(0.05, 3)
+        assert_eq!(preferred_quantum(0, 2), 0); // compound(5, 2) = 36
+        assert_eq!(preferred_quantum(3, 2), 0); // Q(x) > 0 clamps to 0
+        assert_eq!(preferred_quantum(-2, -1), 2); // compound(0.25, −1)
+                                                  // Saturating rather than overflowing at the corners.
+        assert_eq!(preferred_quantum(-6176, i32::MAX), i32::MIN);
+        assert_eq!(preferred_quantum(-6176, i32::MIN), i32::MAX);
+    }
+    /// The machine-checked leg of [`compound_exact_input`]'s
+    /// `d > 2·PRECISION + 2` bail (ADR-0060's derivation-plus-probe
+    /// posture, at this classifier's scale).
+    ///
+    /// For `n < 0` an exact or tie result forces `t = 1`, i.e. the
+    /// numerator `N` of `1 + x = N/10^d` is a bare power of two or a
+    /// bare power of five. The analytic argument bounds those by
+    /// `2^((P+1)/log10 5)` and `5^((P+1)/log10 2)` respectively; the
+    /// first is far below `10^(2P+2)` outright, and this test closes the
+    /// second by enumerating it. Claim verified here: across the whole
+    /// reachable exponent range, no power of two and no power of five
+    /// sits within `10^PRECISION` of a power of ten at any `d > PRECISION`
+    /// — so `N = 10^d ± a` with `a` a format coefficient is never such a
+    /// power once `d` passes `PRECISION`, let alone `2·PRECISION + 2`.
+    ///
+    /// A failure here means the gate can drop an exact or tie case and
+    /// the bail's proof is void: widen the gate, do not weaken the test.
+    #[test]
+    fn compound_negative_n_terminating_bases_stay_narrow() {
+        use std::vec::Vec;
+
+        // `N` as little-endian decimal digits, so the enumeration runs
+        // past `U256`'s 78-digit envelope (`5^127` carries 89) without
+        // borrowing a wider carrier for a test-only walk.
+        fn times(digits: &mut Vec<u8>, base: u8) {
+            let mut carry = 0u8;
+            for d in digits.iter_mut() {
+                let v = *d * base + carry;
+                *d = v % 10;
+                carry = v / 10;
+            }
+            while carry > 0 {
+                digits.push(carry % 10);
+                carry /= 10;
+            }
+        }
+
+        for precision in [34usize, 16, 7] {
+            // The negative-`n` coefficient gates, at the loosest `|n| = 1`
+            // (a larger `|n|` only shrinks them); `127` and `55` are the
+            // classifier's own `du` / `dv` constants, used here so the
+            // enumeration covers everything the code can reach.
+            //   N = 2^i needs 5^i < 10^(P+1)  → the `dv > 55` gate
+            //   N = 5^j needs 2^j < 10^(P+1)  → the `du > 127` gate
+            for (base, cap) in [(2u8, 55usize), (5u8, 127)] {
+                let mut n_digits: Vec<u8> = Vec::new();
+                n_digits.push(1);
+                for e in 1..=cap {
+                    times(&mut n_digits, base);
+                    let len = n_digits.len();
+                    // Only two `d` can put `N` within `10^P` of `10^d`,
+                    // since `10^(len−1) ≤ N < 10^len`; any other `d` is
+                    // a whole decade away, far past `10^P`.
+                    //
+                    // `d = len` is the `x < 0` shape `N = 10^d − a`:
+                    // within `10^P` iff every digit above position `P`
+                    // is a 9.
+                    if len > precision {
+                        assert!(
+                            !n_digits[precision..len].iter().all(|&d| d == 9),
+                            "P={precision}: {base}^{e} sits within a format \
+                             coefficient below 10^{len} (d > P) — the \
+                             `d > 2·PRECISION + 2` bail in \
+                             `compound_exact_parts` can drop an exact or \
+                             tie case; widen the gate, do not weaken this \
+                             test"
+                        );
+                    }
+                    // `d = len − 1` is the `x > 0` shape `N = 10^d + a`:
+                    // within `10^P` iff the leading digit is 1 and
+                    // everything above position `P` below it is 0.
+                    if len > precision + 1 {
+                        let leading_one_then_zeros = n_digits[len - 1] == 1
+                            && n_digits[precision..len - 1].iter().all(|&d| d == 0);
+                        assert!(
+                            !leading_one_then_zeros,
+                            "P={precision}: {base}^{e} sits within a format \
+                             coefficient above 10^{} (d > P) — the \
+                             `d > 2·PRECISION + 2` bail in \
+                             `compound_exact_parts` can drop an exact or \
+                             tie case; widen the gate, do not weaken this \
+                             test",
+                            len - 1
+                        );
+                    }
+                }
+            }
+        }
+    }
+    /// The classifier core's decisions on the shapes the derivation
+    /// names, at `Decimal128`'s precision through the mock format.
+    /// Asserted on the integer triple, upstream of any format rounder.
+    #[test]
+    fn compound_exact_parts_decides_the_named_shapes() {
+        use crate::mock_format::ValueFmt128;
+        let val = |coef: u128, exp: i32, sign: bool| ValueFmt128 { coef, exp, sign };
+        let parts = |c: u128, e: i32, s: bool, n: i32| compound_exact_parts(val(c, e, s), n);
+
+        // (1.05)^3 = 1.157625, exact; §9.2.2 quantum 3 × min(0, −2) = −6.
+        assert_eq!(parts(5, -2, false, 3), Some((u(1_157_625), -6, -6)));
+        // (1 + 9)^2 = 100 through the power-of-ten family; quantum 0.
+        assert_eq!(parts(9, 0, false, 2), Some((u(1), 2, 0)));
+        // (1 − 0.99)^2 = 0.0001, the negative nines family; quantum −4.
+        assert_eq!(parts(99, -2, true, 2), Some((u(1), -4, -4)));
+        // (1 + 99)^5 = 10^10, coefficient 1 at exponent k·n = 2 × 5.
+        assert_eq!(parts(99, 0, false, 5), Some((u(1), 10, 0)));
+        // (1 + 0.25)^−1 = 0.8: the terminating reciprocal, t = 1.
+        assert_eq!(parts(25, -2, false, -1), Some((u(8), -1, 2)));
+        // (1 + 19)^2 = 400: N = 20 is divisible by 10, exercising the
+        // `min(v2, v5) > 0` shape the `d = 0` branch admits.
+        assert_eq!(parts(19, 0, false, 2), Some((u(4), 2, 0)));
+        // (1 + 5)^2 = 36 with `Q(x) = 0`: preferred exponent 0.
+        assert_eq!(parts(5, 0, false, 2), Some((u(36), 0, 0)));
+
+        // (1 + 0.5)^−1 = 2/3: t = 3 ≠ 1, non-terminating; declined.
+        assert_eq!(parts(5, -1, false, -1), None);
+        // The exponent gate on the power-of-ten family: a million is
+        // delivered, a million and one is not, and everything declined
+        // is past the shared `exp` gates by two orders of magnitude.
+        assert_eq!(parts(9, 0, false, 1_000_000), Some((u(1), 1_000_000, 0)));
+        assert_eq!(parts(9, 0, false, -1_000_000), Some((u(1), -1_000_000, 0)));
+        assert_eq!(parts(9, 0, false, 1_000_001), None);
+        assert_eq!(parts(99, 0, false, 500_001), None);
+        assert_eq!(parts(9, 0, false, i32::MAX), None);
+        assert_eq!(parts(9, 0, false, i32::MIN), None);
+        // Every representable exponent stays inside it, both gate-gap
+        // integers included.
+        assert_eq!(parts(9, 0, false, 6145), Some((u(1), 6145, 0)));
+        assert_eq!(parts(9, -1, true, 6176), Some((u(1), -6176, -6176)));
+        // Too wide to be exact or a tie: 1.05^40 needs 21^40.
+        assert_eq!(parts(5, -2, false, 40), None);
+        // The `u ≥ 1` width gate: N = 10^40 + 1 exceeds PRECISION + 1.
+        assert_eq!(parts(1, 40, false, 1), None);
+
+        // The ties, both signs of `n`: 5^49 and 5^50 carry exactly
+        // PRECISION + 1 = 35 digits, and 2^−49 mirrors the first.
+        let five49 = int_pow_u256(u(5), 49).expect("5^49 fits U256");
+        let five50 = int_pow_u256(u(5), 50).expect("5^50 fits U256");
+        assert_eq!(five49.decimal_digit_count(), 35);
+        assert_eq!(parts(4, 0, false, 49), Some((five49, 0, 0)));
+        assert_eq!(parts(4, 0, false, 50), Some((five50, 0, 0)));
+        assert_eq!(parts(1, 0, false, -49), Some((five49, -49, 0)));
+        // One past the tie window the coefficient is 36 digits: declined.
+        assert_eq!(parts(4, 0, false, 51), None);
+    }
+    /// The huge-`x` anchor: the exact `x^n` grid point the true value
+    /// hugs, and the gate that separates the family from the band the
+    /// ladder decides on its own.
+    #[test]
+    fn compound_huge_x_anchor_finds_the_pown_grid_point() {
+        use crate::mock_format::ValueFmt128;
+        let val = |coef: u128, exp: i32, sign: bool| ValueFmt128 { coef, exp, sign };
+        let anchor = |c: u128, e: i32, n: i32| compound_huge_x_anchor(val(c, e, false), n);
+
+        // x = 10^200: x^n = 10^(200n), coefficient 1.
+        assert_eq!(anchor(1, 200, 1), Some((u(1), 200)));
+        assert_eq!(anchor(1, 200, 2), Some((u(1), 400)));
+        assert_eq!(anchor(1, 2000, 3), Some((u(1), 6000)));
+        assert_eq!(anchor(1, 200, -1), Some((u(1), -200)));
+        // A base that is not a power of ten: 3 · 10^200, and its
+        // terminating reciprocal 1/3·10^-200 does NOT exist, so the
+        // negative direction declines there.
+        assert_eq!(anchor(3, 200, 1), Some((u(3), 200)));
+        assert_eq!(anchor(3, 200, -1), None);
+        // 2 · 10^200 does have a terminating reciprocal: 5 · 10^-201.
+        assert_eq!(anchor(2, 200, -1), Some((u(5), -201)));
+
+        // The gate: `adj ≥ PRECISION + digits(n) + 4` = 39 at a
+        // one-digit `n`, and 48 at a ten-digit one.
+        assert_eq!(anchor(1, 39, 1), Some((u(1), 39)));
+        assert_eq!(anchor(1, 38, 1), None);
+        assert_eq!(anchor(1, 48, i32::MAX), None); // 10^48^i32::MAX is past the limit
+        assert_eq!(anchor(1, 47, 1_000_000_000), None); // gate: adj < 34 + 10 + 4
+
+        // A negative `x` never reaches this family (`x > −1` bounds it),
+        // and neither does a zero.
+        assert_eq!(compound_huge_x_anchor(val(1, 200, true), 1), None);
+        assert_eq!(compound_huge_x_anchor(val(0, 0, false), 1), None);
+
+        // Past the exponent limit the classifier declines and the
+        // shared `exp` saturation gate answers instead.
+        assert_eq!(anchor(1, 6000, 1000), None);
     }
 
     #[test]

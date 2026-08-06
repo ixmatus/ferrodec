@@ -51,6 +51,8 @@ mod format_impl;
 #[cfg(feature = "exp-log")]
 mod cbrt;
 #[cfg(feature = "exp-log")]
+mod compound;
+#[cfg(feature = "exp-log")]
 mod exp;
 #[cfg(feature = "exp-log")]
 mod ln;

@@ -98,6 +98,16 @@
 //!   theorem `rootn(x, n) > 1 iff (x > 1) XOR (n < 0)` (the
 //!   derivation and the threshold's margin live on
 //!   `crate::rootn::rootn_hug_one`);
+//! * `compound`'s two on-grid families — the third sighting of the
+//!   same class. `1 + x = 10^k` (the nines patterns) makes
+//!   `(1 + x)^n = 10^(k·n)` a grid point at its own exponent for every
+//!   `n`, in the format's range or far outside it, so
+//!   `exact::compound_exact_input` owns the family whole and the §7.4
+//!   disposition decides every mode; and the tiny-`n·x` band, where the
+//!   value hugs 1 inside a proven fraction of the distance to the first
+//!   boundary beside it, is delivered through the ADR-0051 residual
+//!   channel on the side theorem `sign((1+x)^n − 1) = sign(n)·sign(x)`
+//!   (the derivation lives on `compound::compound_anchor`);
 //! * the `expm1` family's shared gates (`expm1` / `exp2m1` /
 //!   `exp10m1`) — the overflow saturation proxy (the true value is
 //!   provably past the last boundary with measured margin) and the
@@ -974,6 +984,39 @@ pub(crate) const POWI: Budget = Budget {
     dynamic: pow_budget_dyn,
 };
 
+/// `compound(x, n) = (1 + x)^n = exp(n · log1p(x))` (IEEE 754-2019 §9.2
+/// `compound`). Itemization (rung 1), the ADR-0060 derivation
+/// transcribed:
+///
+/// * `logp1`'s relative error (≤ 950 units, ≈ 9.5e-48 — [`LOGP1`]'s
+///   itemization inherited verbatim, both bands) plus 1 unit for the
+///   `n · log1p(x)` product rounding, made *absolute* through
+///   `|n · log1p(x)| ≤ 14,151` (the shared `exp` overflow gate, the same
+///   bound [`POW`] amplifies through) → ≤ `1.35e-43` absolute in the
+///   exp argument, i.e. ≤ 1.35e7 result-relative units.
+/// * [`EXP`]'s Taylor series ≤ 180 units.
+/// * The wide-band absorption item, `compound`'s one item [`POW`] does
+///   not have: past the rung width `logp1`'s `t = 1 ⊕ x` absorbs the 1,
+///   costing ≤ 1 unit of `t`, which `d(ln t)/dt = 1/t` maps into
+///   ≤ 1 unit *absolute* in `log1p(x)` and the multiply then scales by
+///   `|n|` → ≤ `|n|` result-relative units. The gate bounds that: the
+///   absorption only happens for `x ≳ 10^49`, which forces
+///   `log1p(x) ≥ 113`, and `|n · log1p(x)| ≤ 14,151` then caps
+///   `|n| ≤ 14,151 / 113 ≈ 125` → ≤ ~130 units. Three decades below the
+///   dominant item, and bounded rather than merely small.
+///
+/// Sum ≈ 1.4e7; ×10 → 1.5e8. Rung 2: `logp1` ≤ 1,850 → ≤ 2.6e7;
+/// ×10 → 3e8. The composition shape is identical to [`POW`]'s (one
+/// logarithm's relative error amplified through the same argument
+/// bound into the same exponential), so the two catalogs agree
+/// numerically and `compound` shares [`pow_budget_dyn`] rather than
+/// carrying a second formula for the same model.
+pub(crate) const COMPOUND: Budget = Budget {
+    rung1: 150_000_000,
+    rung2: 300_000_000,
+    dynamic: pow_budget_dyn,
+};
+
 // Escalation-rate summary (Decimal128, the widest exposure; rate ≈
 // 2 × rung1 × 10^-16 for a random input): trig ≈ 3%, tan ≈ 6%,
 // pow and powi's large-|n| arm ≈ 3e-8, cbrt ≈ 1e-8, exp family
@@ -1079,7 +1122,7 @@ mod tests {
     /// escalate everything).
     #[test]
     fn budgets_are_positive_and_sane() {
-        let all: [(&str, &Budget); 31] = [
+        let all: [(&str, &Budget); 32] = [
             ("exp", &EXP),
             ("exp2", &EXP2),
             ("expm1", &EXPM1),
@@ -1111,6 +1154,7 @@ mod tests {
             ("rsqrt", &RSQRT),
             ("powi_int", &POWI_INT),
             ("powi", &POWI),
+            ("compound", &COMPOUND),
         ];
         for (name, b) in all {
             assert!(b.rung1 > 0 && b.rung2 > 0, "{name}: zero budget");
@@ -1215,7 +1259,7 @@ mod tests {
     /// catalog have diverged and one of them is wrong.
     #[test]
     fn dynamic_budgets_track_the_rung2_catalog() {
-        let all: [(&str, &Budget); 31] = [
+        let all: [(&str, &Budget); 32] = [
             ("exp", &EXP),
             ("exp2", &EXP2),
             ("expm1", &EXPM1),
@@ -1247,6 +1291,7 @@ mod tests {
             ("rsqrt", &RSQRT),
             ("powi_int", &POWI_INT),
             ("powi", &POWI),
+            ("compound", &COMPOUND),
         ];
         for (name, b) in all {
             let at_110 = (b.dynamic)(110);
