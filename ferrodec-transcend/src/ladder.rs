@@ -456,6 +456,14 @@ fn cbrt_budget_dyn(p: u32) -> u128 {
 fn pow_budget_dyn(p: u32) -> u128 {
     10 * ((201 + 15 * u128::from(p)) * 14_151 + 3 * (u128::from(p) + 10))
 }
+/// [`RSQRT`] at `p`: two flat-60 Newton charges + the polish step and
+/// glue, ×10. Flat in `p` because the kernel runs no series, so no
+/// term scales with the working width (the dynamic rung's `sqrt` and
+/// `recip` derive their own step counts from `p`, which is what the
+/// flat 60 already prices).
+fn rsqrt_budget_dyn(_p: u32) -> u128 {
+    1_250
+}
 
 /// `exp`. Itemization (rung 1):
 ///
@@ -821,6 +829,39 @@ pub(crate) const POW: Budget = Budget {
     dynamic: pow_budget_dyn,
 };
 
+/// `rsqrt = 1/sqrt(x)` by Newton composition (IEEE 754-2019 §9.2
+/// `rSqrt`). ADR-0060 forces the architecture: the `exp(−½·ln x)`
+/// route carries the `|ln x| ≤ 14151` amplification, so its budget
+/// lands at the [`CBRT`]/[`POW`] `1e8` scale and its resulting
+/// threshold `~10^-101` cannot clear the operation's proven
+/// `4.9·10^-105` Liouville floor. The Newton kernel's can, and this
+/// constant is what the ADR's unconditional two rung verdict is stated
+/// against (`B₂ ≤ 10³`, target `≤ 500`).
+///
+/// Itemization (both rungs, identical because nothing here scales with
+/// the working width):
+///
+/// * `sqrt` Newton-seeded 15 + `recip` Newton-seeded 15. Both charges
+///   are the module doc's flat Newton price, and both are *erased*
+///   rather than accumulated by the item below: the composition's
+///   residual enters the polish step as `e` and leaves as `1.5·e²`.
+/// * One division-free Newton polish `y ← y·(3 − x·y²)/2`: 5 working
+///   roundings (square, multiply, subtract, multiply, halve), ≤ 5
+///   units. This is the item that makes the two above honest at the
+///   narrow formats — see [`crate::rsqrt`]'s "Why the composition is
+///   polished" for the seed-width derivation and the per-format table.
+/// * Closing glue ≤ 3.
+///
+/// Sum ≤ 38 charging the composition as if the polish did not square
+/// it away (≤ 8 if it is credited); ×10 → 400, both rungs. Dynamic:
+/// [`rsqrt_budget_dyn`], the same items with the Newton charges at the
+/// module doc's flat 60.
+pub(crate) const RSQRT: Budget = Budget {
+    rung1: 400,
+    rung2: 400,
+    dynamic: rsqrt_budget_dyn,
+};
+
 // Escalation-rate summary (Decimal128, the widest exposure; rate ≈
 // 2 × rung1 × 10^-16 for a random input): trig ≈ 3%, tan ≈ 6%,
 // pow ≈ 3e-8, cbrt ≈ 1e-8, exp family ≈ 1e-10, everything else
@@ -924,7 +965,7 @@ mod tests {
     /// escalate everything).
     #[test]
     fn budgets_are_positive_and_sane() {
-        let all: [(&str, &Budget); 27] = [
+        let all: [(&str, &Budget); 28] = [
             ("exp", &EXP),
             ("exp2", &EXP2),
             ("expm1", &EXPM1),
@@ -952,6 +993,7 @@ mod tests {
             ("atanh", &ATANH),
             ("cbrt", &CBRT),
             ("pow", &POW),
+            ("rsqrt", &RSQRT),
         ];
         for (name, b) in all {
             assert!(b.rung1 > 0 && b.rung2 > 0, "{name}: zero budget");
@@ -1056,7 +1098,7 @@ mod tests {
     /// catalog have diverged and one of them is wrong.
     #[test]
     fn dynamic_budgets_track_the_rung2_catalog() {
-        let all: [(&str, &Budget); 27] = [
+        let all: [(&str, &Budget); 28] = [
             ("exp", &EXP),
             ("exp2", &EXP2),
             ("expm1", &EXPM1),
@@ -1084,6 +1126,7 @@ mod tests {
             ("atanh", &ATANH),
             ("cbrt", &CBRT),
             ("pow", &POW),
+            ("rsqrt", &RSQRT),
         ];
         for (name, b) in all {
             let at_110 = (b.dynamic)(110);

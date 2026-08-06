@@ -106,6 +106,8 @@ pub mod inverse_trig;
 pub mod ln;
 #[cfg(feature = "pow")]
 pub mod pow;
+#[cfg(feature = "exp-log")]
+pub mod rsqrt;
 #[cfg(feature = "trig")]
 pub mod sincos;
 

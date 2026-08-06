@@ -1424,6 +1424,196 @@ pub(crate) fn pow_exact_input<F: DecimalFormat>(
     Some(pack_value(coef, exp, false, rm))
 }
 
+// ----------------------------------------------------------------------------
+// Input-side exact and tie classification for `rsqrt` (IEEE 754-2019
+// §9.2 `rSqrt`; ADR-0059 Track D group D3, under ADR-0060's phase
+// gate — the classification's completeness is a *stated premise* of
+// every Liouville floor that ADR names, so this is tripod leg 1 in its
+// load-bearing role rather than a §7.5 flag nicety).
+
+/// The exact or tie value of `rsqrt(x) = 1/√x` decided from the input
+/// alone; `None` routes to the kernel. The caller
+/// (`crate::rsqrt::rsqrt_kernel_body`) has already run
+/// `rsqrt::rsqrt_special_cases`, so every `x` reaching here is finite,
+/// nonzero, and positive.
+///
+/// ## The criterion (ADR-0060's rSqrt derivation, transcribed)
+///
+/// Write `x = a · 10^u` in stripped form (`a` free of trailing zeros,
+/// so `a` shares at most one of the factors 2 and 5) and factor
+/// `a = 2^v₂ · 5^v₅ · s` with `gcd(s, 10) = 1`.
+///
+/// * **`s ≠ 1` is neither exact nor a tie.** Write `x = 2^A · 5^B · s`
+///   with `A = v₂ + u`, `B = v₅ + u`. If `s` is not a perfect square,
+///   `√s` is irrational (unique factorization), hence so is `1/√x`:
+///   not exact, and not a tie (a tie value is rational). If `s = q²`
+///   for an integer `q > 1`, then `gcd(q, 10) = 1` and
+///   `1/√x = 2^(−A/2) · 5^(−B/2) / q` — rational when `A` and `B` are
+///   even (`rsqrt(9) = 1/3` is the smallest case) — but its lowest
+///   terms denominator carries the factor `q` coprime to ten, so its
+///   decimal expansion does not terminate. Exact values and nearest
+///   mode midpoints both terminate, so this case reaches no boundary
+///   either: bail.
+/// * **`s = 1`, and `A` or `B` odd, is irrational.** `x = 2^A · 5^B`
+///   gives `1/√x = 2^(−A/2) · 5^(−B/2)`; an odd `A` leaves a factor
+///   `1/√2`, an odd `B` a factor `1/√5`, and both odd a factor
+///   `1/√10`. Each is irrational (unique factorization again), so the
+///   product is, so no exact value and no tie.
+/// * **`s = 1`, `A = 2i`, `B = 2j`.** The value is exactly
+///   `2^−i · 5^−j`. Folding to a decimal: for `i ≥ j` it is
+///   `5^(i−j) · 10^−i`, for `i < j` it is `2^(j−i) · 10^−j`. A stripped
+///   coefficient shares at most one of the two factors, so `v₂` and
+///   `v₅` are never both positive and exactly one branch carries a
+///   coefficient above 1 — `i ≥ j` iff `v₅ = 0`, with `i − j = v₂/2`,
+///   and `i < j` with `j − i = v₅/2`.
+///
+/// ## The width gate is honest
+///
+/// The delivered coefficient is a pure power of five or a pure power of
+/// two, hence coprime to the other factor of ten, hence *already
+/// stripped*. A stripped coefficient wider than `F::PRECISION + 1`
+/// digits is neither representable nor a nearest mode midpoint, so
+/// bailing there loses nothing and the kernel's unconditional `INEXACT`
+/// stays correct.
+///
+/// ## The ties are real
+///
+/// Powers of five always end in 5, so a `5^d` of exactly
+/// `PRECISION + 1` digits IS a nearest mode midpoint, and each format
+/// admits one: `rsqrt(2^98) = 5^49 · 10^−49` at `Decimal128`
+/// (`5^49` is 35 digits), `rsqrt(2^48) = 5^24 · 10^−24` at `Decimal64`
+/// (17 digits), `rsqrt(2^22) = 5^11 · 10^−11` at `Decimal32`
+/// (8 digits). Each input is representable — `2^98` is 30 digits,
+/// `2^48` is 15, `2^22` is 7 — so the family is reachable, not
+/// hypothetical. [`pack_value`] hands the exact coefficient to the
+/// format rounder, whose own tie rule resolves it; no approximation
+/// kernel can, because the true value IS the boundary (ADR-0059,
+/// tripod leg 1). Powers of two end in 2, 4, 6, or 8, so the
+/// `i < j` branch contributes no ties; its `PRECISION + 1`-digit
+/// deliveries are still exact knowledge and round correctly through the
+/// same call.
+///
+/// ## Bail site completeness
+///
+/// Every `None` below is provably neither exact nor a tie; the proofs
+/// sit at their sites. Zero and the non-finite classes never arrive
+/// (the caller's special cases run first), and the negative domain is a
+/// NaN there rather than a classification question.
+pub(crate) fn rsqrt_exact_input<F: DecimalFormat>(x: F, rm: RoundingMode) -> Option<(F, Status)> {
+    let (coef, exp, sign) = x.to_extended_parts()?;
+    if sign || coef.is_zero() {
+        // Outside this classifier's domain: the caller's §9.2.1
+        // dispositions answered both classes before it ran.
+        return None;
+    }
+    let (c, e) = strip_trailing_zeros(coef, exp);
+    // A format coefficient fits u128 (≤ 34 digits); such a `c` is
+    // outside every format's input set, so bailing loses nothing.
+    if c.hi != 0 {
+        return None;
+    }
+    let (coef_out, exp_out) = rsqrt_exact_parts(c.lo, e)?;
+    let coef_out = U256::from_u128(coef_out);
+    // The coefficient is a pure power of two or of five, hence already
+    // stripped: wider than `PRECISION + 1` digits is neither
+    // representable nor a midpoint.
+    if coef_out.decimal_digit_count() > F::PRECISION + 1 {
+        return None;
+    }
+    Some(pack_value(coef_out, exp_out, false, rm))
+}
+
+/// The exact `(coefficient, exponent)` of `1/√(c · 10^e)` for a
+/// stripped positive `(c, e)`, or `None` when the value is irrational.
+/// Format independent: the caller owns the `PRECISION + 1` width gate
+/// and the delivery. Split out from [`rsqrt_exact_input`] so the number
+/// theory can be exercised directly, on a mock format whose rounder is
+/// `unreachable!`.
+fn rsqrt_exact_parts(c: u128, e: i32) -> Option<(u128, i32)> {
+    // `c < 10^34 < 2^113` bounds `v₂ ≤ 112`, and `5^49 > 10^34` bounds
+    // `v₅ ≤ 48`, so both powers stay well inside `u128`.
+    let v2 = factor_count(c, 2);
+    let v5 = factor_count(c, 5);
+    if c / 2u128.pow(v2) / 5u128.pow(v5) != 1 {
+        // `s ≠ 1`: neither exact nor a tie — irrational when `s` is
+        // not a perfect square, else rational with a non-terminating
+        // `1/q` factor (derivation above). Ties terminate, so neither
+        // shape reaches a boundary.
+        return None;
+    }
+    // `|e| < 7000` at every format and `v₂ ≤ 112`, so both sums stay
+    // far inside `i64`.
+    let a = i64::from(v2) + i64::from(e);
+    let b = i64::from(v5) + i64::from(e);
+    if a % 2 != 0 || b % 2 != 0 {
+        // An odd exponent of 2 or of 5 leaves a `√2`, `√5`, or `√10`
+        // factor in the value: irrational, so neither exact nor a tie.
+        return None;
+    }
+    // Even, so the truncating division is exact on both signs.
+    let (i, j) = (a / 2, b / 2);
+    let (coef_out, exp_out) = if i >= j {
+        // `v₅ = 0` (a stripped coefficient carries at most one of the
+        // two factors), so `i − j = v₂/2 ≤ 56`.
+        let d = u32::try_from(i - j).ok()?;
+        // `5^56` carries 40 digits, past every format's
+        // `PRECISION + 1 ≤ 35`, and `5^d` grows with `d`: the bail
+        // loses no exact or tie case, and it doubles as the `u128`
+        // guard (`5^55` is the last power of five inside the envelope).
+        if d > 55 {
+            return None;
+        }
+        (5u128.pow(d), -i)
+    } else {
+        // `v₂ = 0`, so `j − i = v₅/2 ≤ 24`; the guard is defensive
+        // (`2^128` overflows `u128`, and 39 digits is past every
+        // format's `PRECISION + 1` besides).
+        let d = u32::try_from(j - i).ok()?;
+        if d > 127 {
+            return None;
+        }
+        (2u128.pow(d), -j)
+    };
+    // `|i|, |j| ≤ (112 + 7000)/2 < 3600`, so the exponent fits `i32`
+    // with orders to spare; the conversion is defensive.
+    Some((coef_out, i32::try_from(exp_out).ok()?))
+}
+
+/// `true` when `result` is the exact reciprocal square root of `x`:
+/// squaring it and multiplying by `x` reproduces exactly 1, checked in
+/// fixed-width integer arithmetic on the canonical coefficients.
+///
+/// The independent witness [`rsqrt_exact_input`]'s number theory is
+/// cross-checked against, in the shape of [`cube_is_exact`] and
+/// [`power_is_exact`] — and test-only for the same reason those are:
+/// a post-hoc check can only recognise a value the kernel already
+/// delivered exactly, which is circular as a production predicate and
+/// fine as a second proof of the same boundary fact.
+#[cfg(test)]
+fn rsqrt_is_exact<F: DecimalFormat>(result: F, x: F) -> bool {
+    let (Some((cr, er, _)), Some((cx, ex, _))) =
+        (result.to_extended_parts(), x.to_extended_parts())
+    else {
+        return false; // NaN / Inf: not an exact finite result.
+    };
+    if cr.is_zero() || cx.is_zero() {
+        return false;
+    }
+    let (cr, er) = strip_trailing_zeros(cr, er);
+    let (cx, ex) = strip_trailing_zeros(cx, ex);
+    let Some(sq) = checked_mul_u256(cr, cr) else {
+        return false;
+    };
+    // Keep the closing product inside U384.
+    if sq.decimal_digit_count() + cx.decimal_digit_count() > 115 {
+        return false;
+    }
+    let Some(total) = er.checked_mul(2).and_then(|d| d.checked_add(ex)) else {
+        return false;
+    };
+    value_is_one(u256_mul_u256(sq, cx), total)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1692,6 +1882,130 @@ mod tests {
         // A 34-digit base squared twice already exceeds U256.
         let wide = U256::from_u128(1).mul_pow10(33); // 34 digits
         assert_eq!(int_pow_u256(wide, 4), None);
+    }
+
+    /// Cross-check the input-side `rsqrt` decision against the
+    /// independent post-hoc witness: wherever the number theory says
+    /// "exact value `t · 10^w`", squaring that value and multiplying by
+    /// the input must reproduce exactly 1 (`rsqrt_is_exact`), and
+    /// wherever it says "no", the witness must refuse the candidate the
+    /// kernel would deliver. Two independent proofs of the same
+    /// boundary fact.
+    #[test]
+    fn rsqrt_input_decision_matches_posthoc_witness() {
+        // (x coef, x exp) -> (result coef, result exp).
+        let exact: [(u128, i32, u128, i32); 10] = [
+            (4, 0, 5, -1),       // rsqrt(4) = 0.5
+            (4, -2, 5, 0),       // rsqrt(0.04) = 5
+            (625, -2, 4, -1),    // rsqrt(6.25) = 0.4
+            (25, -2, 2, 0),      // rsqrt(0.25) = 2
+            (1, 0, 1, 0),        // rsqrt(1) = 1
+            (1, -6, 1, 3),       // rsqrt(1E-6) = 1000
+            (1, 72, 1, -36),     // rsqrt(1E+72) = 1E-36
+            (16, 0, 25, -2),     // rsqrt(16) = 0.25
+            (625, -4, 4, 0),     // rsqrt(0.0625) = 4
+            (1024, 0, 3125, -5), // rsqrt(1024) = 0.03125
+        ];
+        for (cx, ex, cr, er) in exact {
+            let (c, e) = strip_trailing_zeros(U256::from_u128(cx), ex);
+            assert_eq!(
+                rsqrt_exact_parts(c.lo, e),
+                Some((cr, er)),
+                "rsqrt({cx}e{ex}): classified parts"
+            );
+            assert!(
+                rsqrt_is_exact(v128(cr, er), v128(cx, ex)),
+                "rsqrt({cx}e{ex}): witness confirms x·y² = 1"
+            );
+        }
+        // Refusals, one per bail site. `s ≠ 1` (a factor coprime to
+        // ten survives), an odd power of two, an odd power of five, and
+        // an odd power of ten; the witness agrees the candidate value
+        // the kernel would deliver does not square back.
+        for (cx, ex) in [(3u128, 0i32), (2, 0), (5, -1), (1, -1), (18, 0)] {
+            let (c, e) = strip_trailing_zeros(U256::from_u128(cx), ex);
+            assert_eq!(
+                rsqrt_exact_parts(c.lo, e),
+                None,
+                "rsqrt({cx}e{ex}) is irrational"
+            );
+        }
+        // 1/√2 truncated to 34 digits is not exact, and the witness
+        // says so: the post-hoc check cannot be fooled by the value the
+        // kernel actually delivers there.
+        assert!(!rsqrt_is_exact(
+            v128(7_071_067_811_865_475_244_008_443_621_048_490, -34),
+            v128(2, 0)
+        ));
+    }
+
+    /// The tie family, at all three real format widths: `5^d` of
+    /// exactly `PRECISION + 1` digits ends in 5, so it is a genuine
+    /// nearest mode midpoint, and its input `2^(2d)` is representable.
+    /// Pinned here because the rounding of those midpoints is witnessed
+    /// only in the per-format integration tests, and this is the proof
+    /// that the inputs exist at all.
+    #[test]
+    fn rsqrt_tie_family_exists_at_every_format_width() {
+        // (PRECISION, d, input exponent of two).
+        for (precision, d) in [(34u32, 49u32), (16, 24), (7, 11)] {
+            let pow5 = 5u128.pow(d);
+            assert_eq!(
+                U256::from_u128(pow5).decimal_digit_count(),
+                precision + 1,
+                "5^{d} is the PRECISION + 1 width at precision {precision}"
+            );
+            assert_eq!(pow5 % 10, 5, "a power of five ends in 5");
+            // The input `2^(2d)` is representable at that precision.
+            let input = 1u128 << (2 * d);
+            assert!(
+                U256::from_u128(input).decimal_digit_count() <= precision,
+                "2^{} fits {precision} digits",
+                2 * d
+            );
+            assert_eq!(
+                rsqrt_exact_parts(input, 0),
+                Some((pow5, -(d as i32))),
+                "rsqrt(2^{}) = 5^{d}·10^-{d}",
+                2 * d
+            );
+            assert!(rsqrt_is_exact(v128(pow5, -(d as i32)), v128(input, 0)));
+        }
+    }
+
+    /// Cohorts of one value classify identically: the decision is made
+    /// on the stripped form, and trailing zeros move the stored
+    /// exponent by exactly the amount `strip_trailing_zeros` gives
+    /// back. `4`, `4.0`, and `400E-2` are one value and one answer.
+    #[test]
+    fn rsqrt_classification_is_cohort_invariant() {
+        for (cx, ex) in [(4u128, 0i32), (40, -1), (400, -2), (4_000_000, -6)] {
+            let (c, e) = strip_trailing_zeros(U256::from_u128(cx), ex);
+            assert_eq!(
+                rsqrt_exact_parts(c.lo, e),
+                Some((5, -1)),
+                "rsqrt({cx}e{ex}) = 0.5 in every cohort"
+            );
+        }
+    }
+
+    /// The width bail on the `5^d` branch is reachable and correct:
+    /// `2^112` is a representable 34-digit `Decimal128` coefficient
+    /// whose exact `1/√x` is `5^56 · 10^-56`, a 40-digit coefficient
+    /// past the `u128` envelope and past every format's
+    /// `PRECISION + 1`. The parts helper must decline rather than wrap.
+    #[test]
+    fn rsqrt_wide_power_of_five_bails() {
+        let input = 1u128 << 112;
+        assert_eq!(
+            U256::from_u128(input).decimal_digit_count(),
+            34,
+            "2^112 is a 34-digit coefficient"
+        );
+        assert_eq!(rsqrt_exact_parts(input, 0), None);
+        // One step narrower is inside the envelope and classified.
+        let input = 1u128 << 110;
+        assert_eq!(rsqrt_exact_parts(input, 0), Some((5u128.pow(55), -55)));
     }
 
     #[test]

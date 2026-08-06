@@ -53,6 +53,8 @@ mod cbrt;
 mod exp;
 #[cfg(feature = "exp-log")]
 mod ln;
+#[cfg(feature = "exp-log")]
+mod rsqrt;
 
 #[cfg(feature = "trig")]
 mod argred;

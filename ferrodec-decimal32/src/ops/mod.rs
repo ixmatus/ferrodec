@@ -26,6 +26,8 @@ pub(crate) mod reduce;
 pub(crate) mod rem;
 pub(crate) mod rotate;
 pub(crate) mod round;
+#[cfg(feature = "exp-log")]
+pub(crate) mod rsqrt;
 pub(crate) mod shift;
 pub(crate) mod sqrt;
 #[cfg(feature = "trig")]
