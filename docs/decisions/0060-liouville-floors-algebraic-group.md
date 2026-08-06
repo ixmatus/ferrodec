@@ -128,7 +128,10 @@ enumeration, and a dedicated unit test in the mechanism slice.
 
 Notes anchored to the table:
 
-- **hypot's split.** For magnitude ratio `ρ ≤ 10^−18` the true value
+- **hypot's split.** (Implemented as a strict adjusted exponent gap
+  `adj(w) − adj(z) > ⌈(P+2)/2⌉`, which PROVES `ρ < 10^−δ₀`; the gate
+  is one sided conservative, and the seam is pinned by a
+  both-bands-agree test.) For magnitude ratio `ρ ≤ 10^−18` the true value
   hugs `|x₁|` from above at `≤ ρ²/2 ≤ 5·10^−37` relative, below every
   boundary above `|x₁|` (`≥ 5·10^−35`) with a ×10 margin: the
   ADR-0051 residual channel decides every mode input side (side
@@ -147,7 +150,11 @@ Notes anchored to the table:
   obligations recorded here.
 - **Dynamic rung termination, now with widths.** Every operation
   above terminates at a proven width `p ≈ D + log₁₀ B + 2`: first
-  attempt (220) for `rSqrt`, `hypot`, `rootn q ≤ 5`, `pown |n| ≤ 6`.
+  attempt (220) for `rSqrt`, `hypot`, `rootn q ≤ 5`, and `pown` over
+  `−5 ≤ n ≤ 6` (`n = −6` has `D ≤ 240`, so its proven width sits at
+  the first doubling, 440 — one rung out, recorded rather than
+  rounded off; the powi lane's review caught the original sentence
+  claiming it at 220).
   For large operands (`rootn q ≳ 2800`, `pown`/`compound` with
   `n·w ≳ 10^5`) the proven width exceeds the rung 3 constant
   generators' 100,000 digit depth cap: a genuinely pathological input

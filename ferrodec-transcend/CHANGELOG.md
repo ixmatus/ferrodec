@@ -9,6 +9,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The §9.2 algebraic group (ADR-0059 Track D D3, under ADR-0060's
+  phase gate): `powi_kernel` (pown), `powr_kernel`, `rootn_kernel`,
+  `compound_kernel`, `rsqrt_kernel`, and `hypot_kernel` on the
+  generic `ExtNum` bodies. Kernel architecture follows the ADR's
+  Liouville floors: `rsqrt` is a direct Newton composition with one
+  division-free polish step (the `exp(−½·ln x)` route's budget cannot
+  clear the proven `4.9e-105` floor), `powi` carries a working
+  precision binary powering arm for `|n| ≤ 6`, `rootn` delegates
+  `n ∈ {1, −1, 2, −2}` to the identity, division, the format's
+  square root, and the `rsqrt` kernel, and `compound` builds its base
+  through `logp1_extended_core` so `1 ⊕ x` never loses digits at the
+  destination width. Input-side classifiers: `powi_exact_input` (the
+  Lauter–Lefèvre criterion collapsed at `b = 1`, whole-range
+  power-of-ten family included), `rootn_exact_input` (the criterion
+  at `y = 1/n`; positive orders provably tie-free),
+  `rsqrt_exact_parts` (terminating reciprocal criterion; the `5^d`
+  midpoint families), `compound_exact_input` (exact rational
+  `(1 + x)^n`, the nines whole-range family, §9.2.2 preferred
+  quantum on exact deliveries), `hypot_exact_or_tie` (aligned
+  `S = A² + B²` perfect-square test inside `U256::isqrt`'s envelope
+  after stripping), and `compound_huge_x_anchor` (the second
+  whole-range on-grid family, a live directed-mode misround repaired
+  before first release). Anchor arms: `rootn`'s and `compound`'s
+  hug-at-1 residual deliveries and `hypot`'s anchor band at
+  `δ₀ = ⌈(P+2)/2⌉`. Budgets `POWI_INT`, `POWI`, `POWR`, `ROOTN`,
+  `COMPOUND`, `RSQRT`, `HYPOT`; catalog arrays at 34. `powr` carries
+  the ADR-0060 negative-result tier honesty paragraph (its claim
+  cannot be upgraded by minimal-polynomial bounds).
+
+### Fixed
+
+- `pow_exact_input` handed the format rounder exponents up to
+  `i32::MAX`, wrapping the rounder's own `i32` arithmetic
+  (`pow(10, 2147483647)`: a debug panic, a wrong §7.4 disposition in
+  release). The classifier now declines past `EXACT_EXPONENT_WINDOW`
+  (99,999), where the value is provably past every format's `exp`
+  gates and the saturation proxy answers it (fd-clc, found by the D3
+  powi lane).
+
+### Added
+
 - The §9.2 `expm1` family and `exp10` (ADR-0059 Track D D2):
   `expm1_kernel`, `exp2m1_kernel`, `exp10_kernel`, `exp10m1_kernel`
   on the generic bodies, sharing `expm1_special_cases`
