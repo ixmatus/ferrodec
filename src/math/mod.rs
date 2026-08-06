@@ -5,10 +5,11 @@
 //! * `trig` — `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`.
 //!   Pulls the Payne-Hanek 6 300-digit `2/π` table in [`argred`].
 //! * `exp-log` — `exp`, `exp2`, `ln`, `log2`, `log10`, `cbrt`,
-//!   `rootn`.
+//!   `rootn`, `rsqrt`, `compound`, `hypot`.
 //! * `hyperbolic` — `sinh`, `cosh`, `tanh`, `asinh`, `acosh`,
 //!   `atanh`. Implies `exp-log` (kernels delegate to `exp` / `ln`).
-//! * `pow` — `pow`. Implies `exp-log` (`pow(x, y) = exp(y · ln x)`).
+//! * `pow` — `pow`, `powi`, `powr`. Implies `exp-log`
+//!   (`pow(x, y) = exp(y · ln x)`).
 //! * `transcendentals` — meta-feature for "all of the above"; what
 //!   pre-1.2 dependents asked for.
 //!
@@ -54,6 +55,8 @@ mod cbrt;
 mod compound;
 #[cfg(feature = "exp-log")]
 mod exp;
+#[cfg(feature = "exp-log")]
+mod hypot;
 #[cfg(feature = "exp-log")]
 mod ln;
 #[cfg(feature = "exp-log")]

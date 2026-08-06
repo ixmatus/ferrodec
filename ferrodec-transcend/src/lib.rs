@@ -107,6 +107,12 @@ pub mod compound;
 pub mod exp;
 #[cfg(feature = "hyperbolic")]
 pub mod hyperbolic;
+// The algebraic §9.2 group's first member (ADR-0060 Track D D3). It
+// needs no series machinery, only `sqrt` and the exact classifier, and
+// it rides `exp-log` for the same reason `cbrt` does: that is where
+// this crate's input-side classification module lives.
+#[cfg(feature = "exp-log")]
+pub mod hypot;
 #[cfg(feature = "trig")]
 pub mod inverse_trig;
 #[cfg(feature = "exp-log")]

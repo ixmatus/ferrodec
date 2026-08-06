@@ -68,15 +68,13 @@
 
 use crate::extended::u256_mul_u256;
 use crate::format::DecimalFormat;
+use core::cmp::Ordering;
 use ferrodec_ieee::{RoundingMode, Status};
-use ferrodec_multiword::U256;
+use ferrodec_multiword::u768::u384_mul_u384_to_u768;
+use ferrodec_multiword::{U256, U384, U768};
 
 #[cfg(test)]
 use crate::extended::Extended;
-#[cfg(test)]
-use core::cmp::Ordering;
-#[cfg(test)]
-use ferrodec_multiword::U384;
 
 /// Remove trailing decimal zeros from `(coef, exp)`, raising `exp` by one
 /// for each zero stripped. Canonicalises a cohort so two values that are
@@ -2515,6 +2513,210 @@ pub(crate) fn compound_huge_x_anchor<F: DecimalFormat>(x: F, n: i32) -> Option<(
     }
     let (a, u) = strip_trailing_zeros(coef, exp);
     integer_power_parts::<F>(a, u, n)
+}
+
+// ----------------------------------------------------------------------------
+// Input-side exact and tie classification for `hypot` (ADR-0060 Track D
+// D3). The only two-operand member of this module, and the only one
+// whose criterion is a perfect-square test rather than a power test.
+
+/// Quadratic residues of a square modulo 16: `n²  mod 16` ranges over
+/// `{0, 1, 4, 9}` as `n` ranges over a complete residue system, so an
+/// `S` outside that set is not a square. Rejects 12 of 16 residue
+/// classes, i.e. ~75% of non-squares at uniform residues.
+const QR16: [bool; 16] = {
+    let mut t = [false; 16];
+    let mut n = 0usize;
+    while n < 16 {
+        t[(n * n) % 16] = true;
+        n += 1;
+    }
+    t
+};
+
+/// Quadratic residues of a square modulo 25 (11 of the 25 classes).
+/// Rejects ~56% of the non-squares that survive [`QR16`]; the two
+/// filters together leave ~11% of uniform residues for the integer
+/// square root.
+const QR25: [bool; 25] = {
+    let mut t = [false; 25];
+    let mut n = 0usize;
+    while n < 25 {
+        t[(n * n) % 25] = true;
+        n += 1;
+    }
+    t
+};
+
+/// `s mod m` for a small modulus, folding the limbs with Horner over
+/// the limb radix `2^128`. `m ≤ 25` keeps every intermediate inside a
+/// `u128` with room to spare (`r < m` and `r · (2^128 mod m) + limb
+/// mod m < m²  + m ≤ 650`).
+///
+/// The low limb alone does *not* decide the residue for either
+/// modulus used here: `2^128 ≡ 0 (mod 16)` makes it sufficient for 16,
+/// but `2^128 ≡ 6 (mod 25)`, so the 25 filter must fold. Folding both
+/// through one routine keeps the two filters visibly the same
+/// argument.
+fn u768_mod_small(s: U768, m: u128) -> u128 {
+    let radix = (1u128 << 127) % m * 2 % m; // 2^128 mod m
+    let mut r = 0u128;
+    for limb in s.limbs.iter().rev() {
+        r = (r * radix + limb % m) % m;
+    }
+    r
+}
+
+/// Strip trailing decimal zeros from a [`U768`], returning the
+/// stripped value and the count removed. Bounded by the type's
+/// ~231-digit envelope.
+fn strip_trailing_zeros_u768(mut s: U768) -> (U768, u32) {
+    if s.is_zero() {
+        return (s, 0);
+    }
+    let mut k = 0u32;
+    loop {
+        let (q, r) = s.div_rem10();
+        if r != 0 {
+            return (s, k);
+        }
+        s = q;
+        k += 1;
+    }
+}
+
+/// The exact or tie value of `hypot(x, y)` decided from the operands
+/// alone, for the ADR-0060 *kernel band* (magnitude ratio above the
+/// anchor gate). `cw`/`qw` are the larger operand's magnitude
+/// coefficient and quantum, `cz`/`qz` the smaller one's; both are
+/// finite and nonzero and the caller has already dispatched every
+/// special value. `None` routes to the approximation kernel.
+///
+/// ## The criterion
+///
+/// Align the two operands on the common quantum `q = min(qw, qz)`:
+/// with `A = cw · 10^(qw − q)` and `B = cz · 10^(qz − q)` (integers,
+/// exactly one of the two shifts nonzero),
+///
+/// > `hypot(x, y) = sqrt(A² + B²) · 10^q = sqrt(S) · 10^q`.
+///
+/// `S` is an exact integer. If `hypot(x, y)` is representable, or sits
+/// exactly on a nearest-mode midpoint, its value is a terminating
+/// decimal and hence rational, so `sqrt(S)` is rational; the square
+/// root of a positive integer is either an integer or irrational
+/// (Niven, *Irrational Numbers* —
+/// docs/references/niven-irrational-numbers.md), so `S = W²` for an
+/// integer `W` and the value is exactly `W · 10^q`.
+///
+/// ## Completeness (why every `None` is provably neither exact nor a tie)
+///
+/// Three bails, each closing under the same argument:
+///
+/// * **`S` is not a perfect square.** Then `sqrt(S)` is irrational by
+///   Niven, so the value is irrational: neither representable nor a
+///   midpoint (both are terminating decimals).
+/// * **The trailing-zero count `k` of `S` is odd.** Write `W = W' ·
+///   10^t` with `10 ∤ W'`. Then `S = W'² · 10^(2t)` and `10 ∤ W'²`
+///   (`10 | W'²` would force `2 | W'` and `5 | W'`), so `S`'s
+///   trailing-zero count is exactly `2t`, even. An odd `k` therefore
+///   witnesses that `S` is not a square at all.
+/// * **The stripped `S' = S / 10^k` is `≥ 10^(2P + 2)`.** A
+///   representable value has at most `P` significant digits and a
+///   nearest-mode midpoint exactly `P + 1` (its stripped coefficient
+///   ends in 5); in the subnormal region the midpoint's stripped
+///   coefficient is narrower still. Either way the value's stripped
+///   coefficient `W'` is below `10^(P + 1)`, so `S' = W'²` is below
+///   `10^(2P + 2)`. A wider `S'` cannot come from an exact or tie
+///   value.
+///
+/// The band premise is what bounds the integers: the caller's ratio
+/// gate leaves `adj(z) ≥ adj(w) − δ₀` with `δ₀ = ⌈(P + 2)/2⌉`, so the
+/// alignment shift is at most `δ₀ + P − 1` on the wide side and
+/// `P − 1` on the narrow side (derivation on
+/// `crate::hypot::hypot_kernel`), keeping `A` inside `10^(δ₀ + 2P − 1)`
+/// and `S` inside `U768`'s envelope. The two shift bails below restate
+/// that bound defensively; they are unreachable from the gated caller.
+///
+/// ## Delivery
+///
+/// The value `W' · 10^(q + k/2)` goes to the format rounder with the
+/// §9.2.2 preferred quantum `min(Q(x), Q(y)) = q`. On a representable
+/// result that yields the exact value with `Status::OK` (§7.5 forbids
+/// `INEXACT` on an exact result); on a midpoint the rounder's own tie
+/// rule and directed-mode sides resolve it correctly, which the
+/// approximation kernel cannot do for a value that *is* a rounding
+/// boundary; and on a value past the format's range the §7.4
+/// disposition answers every mode, exactly as `exp10_integer` relies
+/// on for its above-range powers of ten.
+pub(crate) fn hypot_exact_or_tie<F: DecimalFormat>(
+    cw: U256,
+    qw: i32,
+    cz: U256,
+    qz: i32,
+    rm: RoundingMode,
+) -> Option<(F, Status)> {
+    let q = qw.min(qz);
+    // In-band shift bounds (`δ₀ + P − 1` wide side, `P − 1` narrow
+    // side). Unreachable bails from the gated caller; kept so the
+    // routine is total and never feeds `mul_pow10` past its envelope.
+    let delta0 = (F::PRECISION + 2).div_ceil(2);
+    let shift_w = u32::try_from(qw - q).ok()?;
+    let shift_z = u32::try_from(qz - q).ok()?;
+    if shift_w > delta0 + F::PRECISION - 1 || shift_z > F::PRECISION - 1 {
+        return None;
+    }
+    // `A < 10^(δ₀ + 2P − 1)` (85 digits at Decimal128) and `B <
+    // 10^(2P − 1)` (67), both inside `U384`'s ~115-digit envelope;
+    // `S < 2 · 10^(2δ₀ + 4P − 2)` (171 digits) is inside `U768`'s ~231.
+    let a = U384::from_u256(cw).mul_pow10(shift_w);
+    let b = U384::from_u256(cz).mul_pow10(shift_z);
+    let s = u384_mul_u384_to_u768(a, a).add(u384_mul_u384_to_u768(b, b));
+
+    // Residue prefilters: a square is a quadratic residue modulo every
+    // modulus, so a failure is a proof that `S` is not a square (and
+    // hence, by Niven, that the value is irrational). Sound in one
+    // direction only, which is the direction a bail needs.
+    if !QR16[u768_mod_small(s, 16) as usize] || !QR25[u768_mod_small(s, 25) as usize] {
+        return None;
+    }
+
+    let (s1, k) = strip_trailing_zeros_u768(s);
+    if k % 2 != 0 {
+        return None;
+    }
+    // Width gate, in two steps: the top three limbs decide `S' ≥
+    // 2^384 > 10^(2P + 2)` without a digit walk, and the survivors
+    // compare against the threshold in `U256`.
+    if s1.limbs[2] != 0 || s1.limbs[3] != 0 || s1.limbs[4] != 0 || s1.limbs[5] != 0 {
+        return None;
+    }
+    let s1_256 = U256 {
+        lo: s1.limbs[0],
+        hi: s1.limbs[1],
+    };
+    let width_gate = U256::from_u128(1).mul_pow10(2 * F::PRECISION + 2);
+    if s1_256.cmp(width_gate) != Ordering::Less {
+        return None;
+    }
+    // `S' < 10^(2P + 2) ≤ 10^70 < 2^234` satisfies `isqrt`'s documented
+    // caller invariant (root inside `u128`).
+    let (root, rem) = s1_256.isqrt();
+    if !rem.is_zero() {
+        return None;
+    }
+    // `S'` carries no trailing zero, so neither does `root` (`10 |
+    // root` forces `10 | root²`): its width is its stripped width, and
+    // the gate above put it below `10^(P + 1)`.
+    let exp = q.checked_add(i32::try_from(k / 2).ok()?)?;
+    Some(F::round_and_pack_finite(
+        U256::from_u128(root),
+        exp,
+        q,
+        false,
+        false,
+        rm,
+        Status::OK,
+    ))
 }
 
 #[cfg(test)]

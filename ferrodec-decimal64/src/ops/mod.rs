@@ -18,6 +18,8 @@ pub(crate) mod exp;
 pub(crate) mod fma;
 #[cfg(feature = "hyperbolic")]
 pub(crate) mod hyper;
+#[cfg(feature = "exp-log")]
+pub(crate) mod hypot;
 pub(crate) mod integral;
 pub(crate) mod logical;
 pub(crate) mod mul;

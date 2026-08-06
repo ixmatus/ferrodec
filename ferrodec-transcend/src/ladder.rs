@@ -116,6 +116,15 @@
 //!   snap band; the post-series `−1` collapse seam behind the gate
 //!   is the same channel (side theorem `e^u − 1 > −1`), and
 //!   `expm1` itself adds the x anchor on `e^x − 1 > x`.
+//! * `hypot`'s anchor band (magnitude ratio `≤ 10^−⌈(P+2)/2⌉`) — the
+//!   true value hugs the larger operand's own grid point `|w|` from
+//!   above by at most `ρ²/2`, which the gate holds two decades inside
+//!   the first boundary above `|w|`, so the ADR-0051 residual channel
+//!   decides every mode input side on the side theorem
+//!   `hypot(w, z) > |w|` for `z ≠ 0`. Here the gate is a *ratio*
+//!   test on exponents and digit counts, not a post-hoc `sticks_to`
+//!   observation: the band is proven before any arithmetic runs (the
+//!   derivation lives on `crate::hypot`, and ADR-0060 is its source).
 //!
 //! ## The budget discipline (the ADR-0050 lesson)
 //!
@@ -474,6 +483,13 @@ fn acosh_budget_dyn(p: u32) -> u128 {
 /// [`ATANH`] at `p`: the ratio band's ops + the ln core, ×10.
 fn atanh_budget_dyn(p: u32) -> u128 {
     10 * (15 * u128::from(p) + 400)
+}
+/// [`HYPOT`] at `p`: precision independent. Two squares + one add
+/// enter the square root, which halves their relative error, and the
+/// Newton-seeded `sqrt` charges the flat 60 the module doc fixes for
+/// every supported `p`; the scaling shifts are exact. `(60 + 25) × 10`.
+fn hypot_budget_dyn(_p: u32) -> u128 {
+    850
 }
 /// [`CBRT`] at `p`: the ln sum amplified through `|ln x|/3 ≤ 4,717`,
 /// plus the exp series, ×10. Reproduces the catalog's 4.6e6 at 50
@@ -844,6 +860,34 @@ pub(crate) const ATANH: Budget = Budget {
     dynamic: atanh_budget_dyn,
 };
 
+/// `hypot = sqrt(x² + y²)` (IEEE 754-2019 §9.2 `hypot`), on the
+/// scaled operands `w̃ = |w| · 10^(−adj w)` and `z̃ = |z| · 10^(−adj w)`
+/// (the scaling is a pure exponent shift, so it contributes nothing).
+/// Itemization, identical on both fixed rungs because every item is
+/// precision independent:
+///
+/// * two squares, 1 unit each, and the add, 1 unit — the summands are
+///   both positive, so the add cancels nothing and its relative error
+///   is the max of the two inputs' plus its own rounding: ≤ 3 units of
+///   relative error in `S̃`.
+/// * the square root halves that: `d(√S)/√S = ½ · dS/S`, so the three
+///   units above enter the result as ≤ 1.5.
+/// * the Newton-seeded `sqrt` itself charges 15 (module doc), and the
+///   closing scale-back and delivery glue ≤ 3.
+///
+/// Sum ≈ 20; ×10 → 250, both rungs. Dynamic: the same itemization with
+/// `sqrt`'s flat 60, ×10 → 850 at every `p`
+/// ([`hypot_budget_dyn`]).
+///
+/// The anchor band's residual delivery and the input-side exact and
+/// tie classification both bypass this budget entirely: they run
+/// before the guard and are correct by construction, not by margin.
+pub(crate) const HYPOT: Budget = Budget {
+    rung1: 250,
+    rung2: 250,
+    dynamic: hypot_budget_dyn,
+};
+
 /// `cbrt = exp(ln|x|/3)`: `ln`'s relative error (≤ 950 units,
 /// ≈ 9.5e-48) becomes absolute through `|ln x| ≤ 14151` →
 /// ≤ `1.35e-43` absolute in the exp argument after the exact-ish
@@ -1143,7 +1187,7 @@ mod tests {
     /// escalate everything).
     #[test]
     fn budgets_are_positive_and_sane() {
-        let all: [(&str, &Budget); 33] = [
+        let all: [(&str, &Budget); 34] = [
             ("exp", &EXP),
             ("exp2", &EXP2),
             ("expm1", &EXPM1),
@@ -1177,6 +1221,7 @@ mod tests {
             ("powi", &POWI),
             ("compound", &COMPOUND),
             ("powr", &POWR),
+            ("hypot", &HYPOT),
         ];
         for (name, b) in all {
             assert!(b.rung1 > 0 && b.rung2 > 0, "{name}: zero budget");
@@ -1281,7 +1326,7 @@ mod tests {
     /// catalog have diverged and one of them is wrong.
     #[test]
     fn dynamic_budgets_track_the_rung2_catalog() {
-        let all: [(&str, &Budget); 33] = [
+        let all: [(&str, &Budget); 34] = [
             ("exp", &EXP),
             ("exp2", &EXP2),
             ("expm1", &EXPM1),
@@ -1315,6 +1360,7 @@ mod tests {
             ("powi", &POWI),
             ("compound", &COMPOUND),
             ("powr", &POWR),
+            ("hypot", &HYPOT),
         ];
         for (name, b) in all {
             let at_110 = (b.dynamic)(110);
