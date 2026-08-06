@@ -1347,10 +1347,20 @@ fn nth_root_u128(t: u128, b: u32) -> Option<u128> {
 /// * Width bails (`du`/`dv` gates, `int_pow_u256`, the final digit
 ///   gate): the coefficient is stripped, so more than
 ///   `PRECISION + 1` digits is neither representable nor a midpoint.
-/// * `w` outside `i32`: `|w| > 2^31` puts the value astronomically
-///   past every format's range — over/underflow territory with no
-///   boundary structure (ties live within the representable range
-///   plus one quantum).
+/// * `|w| > EXACT_EXPONENT_WINDOW` (99,999): the value
+///   `coef · 10^w` has already passed the digit gate
+///   (`1 ≤ coef < 10^35`), so `|y·ln|x|| = |ln(x^y)| ≥
+///   99,999·ln 10 − 81 > 230,000`, past both `exp` gates (overflow
+///   limits 14,150 / 887 / 224; underflow limits 14,221 / 918 / 235)
+///   of all three formats: the kernel's saturation proxy answers it
+///   unguarded, correct by its own margin argument. The window is a
+///   *soundness* bound on what the format rounder may be handed —
+///   `round_and_pack_finite`'s `qmin − unbiased_exp` is `i32`
+///   arithmetic, and an exponent near `i32::MAX` wraps it: before
+///   this gate, `pow(10, 2147483647)` panicked in debug builds and
+///   would have shipped a wrong §7.4 disposition in release (fd-clc,
+///   found by the D3 powi lane; [`EXACT_EXPONENT_WINDOW`] carries the
+///   shared derivation).
 pub(crate) fn pow_exact_input<F: DecimalFormat>(
     abs_x: F,
     y: F,
@@ -1426,6 +1436,10 @@ pub(crate) fn pow_exact_input<F: DecimalFormat>(
     if coef.decimal_digit_count() > F::PRECISION + 1 {
         return None;
     }
+    if w.unsigned_abs() > EXACT_EXPONENT_WINDOW {
+        return None;
+    }
+    // Inside the window `w` fits `i32` with four orders to spare.
     let exp = i32::try_from(w).ok()?;
     Some(pack_value(coef, exp, false, rm))
 }
@@ -1633,12 +1647,13 @@ fn rsqrt_is_exact<F: DecimalFormat>(result: F, x: F) -> bool {
 /// which wraps once the exponent approaches `i32::MAX` (in a debug
 /// build it panics; in a release build it would ship a wrong
 /// disposition). Every classifier that can produce an exponent from
-/// an operand-scaled product — this one, and `pow`'s, whose
-/// `w = α·a` reaches `i32::MAX` at `pow(10, 2147483647)` — owes the
-/// rounder an exponent inside its tested envelope. See the bail proof
-/// on [`powi_exact_input`] for why declining past the window loses no
-/// boundary case.
-const POWI_EXPONENT_WINDOW: u64 = 99_999;
+/// an operand-scaled product — this one and [`pow_exact_input`],
+/// whose unwindowed `w = α·a` reached `i32::MAX` at
+/// `pow(10, 2147483647)` and wrapped the rounder (fd-clc) — owes the
+/// rounder an exponent inside its tested envelope. The bail proofs on
+/// both classifiers show declining past the window loses no boundary
+/// case.
+const EXACT_EXPONENT_WINDOW: u64 = 99_999;
 
 /// The exact or tie value of `powi(x, n) = x^n` decided from the input
 /// alone, for a positive finite nonzero `abs_x` and any `n`; `None`
@@ -1716,7 +1731,7 @@ const POWI_EXPONENT_WINDOW: u64 = 99_999;
 /// * [`int_pow_u256`] / [`checked_mul_u256`] overflow: `coef` exceeds
 ///   `U256`'s ~78 digit envelope, twice the widest gate.
 /// * The closing digit gate: the same fact stated directly.
-/// * `|w| > POWI_EXPONENT_WINDOW` (99,999): this bail is reached only
+/// * `|w| > EXACT_EXPONENT_WINDOW` (99,999): this bail is reached only
 ///   *after* the digit gate, so the declined value is exactly
 ///   `coef · 10^w` with `1 ≤ coef < 10^35`. Its logarithm is
 ///   therefore `|n·ln|x|| = |ln(x^n)| ≥ 99,999·ln 10 − 81 > 230,000`,
@@ -1798,7 +1813,7 @@ fn powi_exact_parts<F: DecimalFormat>(abs_x: F, n: i32) -> Option<(U256, i32)> {
     if coef.decimal_digit_count() > F::PRECISION + 1 {
         return None;
     }
-    if w.unsigned_abs() > POWI_EXPONENT_WINDOW {
+    if w.unsigned_abs() > EXACT_EXPONENT_WINDOW {
         return None;
     }
     Some((coef, w as i32))
@@ -2252,7 +2267,7 @@ mod tests {
     /// gate).
     #[test]
     fn powi_exact_parts_respects_the_exponent_window() {
-        let window = i32::try_from(POWI_EXPONENT_WINDOW).unwrap();
+        let window = i32::try_from(EXACT_EXPONENT_WINDOW).unwrap();
         // x = 10, so w = n exactly: the window edge and one past it.
         assert_eq!(
             powi_exact_parts::<ValueFmt128>(v128(10, 0), window),
