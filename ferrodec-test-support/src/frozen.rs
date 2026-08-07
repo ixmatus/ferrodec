@@ -170,6 +170,12 @@ pub const EXPECTED_BUCKETS_P34: &[(&str, &str, usize)] = &[
     ("sinh", "NearestEven", 43),
     ("tan", "NearestEven", 74),
     ("tanh", "NearestEven", 52),
+    // ADR-0059 Track D D3 (ADR-0060): the algebraic group.
+    ("rsqrt", "NearestAway", 71),
+    ("rsqrt", "NearestEven", 99),
+    ("rsqrt", "TowardNegative", 66),
+    ("rsqrt", "TowardPositive", 66),
+    ("rsqrt", "TowardZero", 66),
 ];
 
 /// Decimal64 (p16) per-`(func, mode)` counts; see [`EXPECTED_BUCKETS_P34`].
@@ -265,6 +271,12 @@ pub const EXPECTED_BUCKETS_P16: &[(&str, &str, usize)] = &[
     ("sinh", "NearestEven", 14),
     ("tan", "NearestEven", 69),
     ("tanh", "NearestEven", 52),
+    // ADR-0059 Track D D3 (ADR-0060): the algebraic group.
+    ("rsqrt", "NearestAway", 61),
+    ("rsqrt", "NearestEven", 89),
+    ("rsqrt", "TowardNegative", 56),
+    ("rsqrt", "TowardPositive", 56),
+    ("rsqrt", "TowardZero", 56),
 ];
 
 /// Decimal32 (p7) per-`(func, mode)` counts; see [`EXPECTED_BUCKETS_P34`].
@@ -360,6 +372,12 @@ pub const EXPECTED_BUCKETS_P7: &[(&str, &str, usize)] = &[
     ("sinh", "NearestEven", 18),
     ("tan", "NearestEven", 65),
     ("tanh", "NearestEven", 52),
+    // ADR-0059 Track D D3 (ADR-0060): the algebraic group.
+    ("rsqrt", "NearestAway", 53),
+    ("rsqrt", "NearestEven", 81),
+    ("rsqrt", "TowardNegative", 48),
+    ("rsqrt", "TowardPositive", 48),
+    ("rsqrt", "TowardZero", 48),
 ];
 
 /// Assert the loaded corpus has exactly the expected per-`(func,
