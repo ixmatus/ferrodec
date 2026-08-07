@@ -18,7 +18,13 @@ use std::path::{Path, PathBuf};
 
 /// Corpus file stems that carry binary `func(input, input2)` vectors
 /// (fd-97a); every other stem is unary.
-pub const BINARY_FUNCS: &[&str] = &["pow", "atan2"];
+pub const BINARY_FUNCS: &[&str] = &["pow", "atan2", "hypot"];
+
+/// The ADR-0059 Track D D3 integer-operand surface: five-field lines
+/// like the binary ones, with `input2` carrying a plain `i32` rather
+/// than a decimal datum. Kept apart from [`BINARY_FUNCS`] so replay
+/// harnesses can parse the operand with the right type.
+pub const INT_OPERAND_FUNCS: &[&str] = &["powi", "rootn", "compound"];
 
 /// One frozen vector: `func(input[, input2])` correctly rounds to
 /// `output` at the filtered format precision under `mode`.
@@ -438,7 +444,8 @@ fn load_from(dir: &Path, prec: u32) -> Vec<FrozenVec> {
             .and_then(|s| s.to_str())
             .expect("corpus file stem")
             .to_string();
-        let binary = BINARY_FUNCS.contains(&func.as_str());
+        let binary =
+            BINARY_FUNCS.contains(&func.as_str()) || INT_OPERAND_FUNCS.contains(&func.as_str());
         let text = fs::read_to_string(&path).expect("read corpus file");
         for line in text.lines() {
             if line.starts_with('#') || line.is_empty() {
