@@ -176,6 +176,11 @@ pub const EXPECTED_BUCKETS_P34: &[(&str, &str, usize)] = &[
     ("rsqrt", "TowardNegative", 66),
     ("rsqrt", "TowardPositive", 66),
     ("rsqrt", "TowardZero", 66),
+    ("powi", "NearestAway", 33),
+    ("powi", "NearestEven", 33),
+    ("powi", "TowardNegative", 19),
+    ("powi", "TowardPositive", 19),
+    ("powi", "TowardZero", 19),
 ];
 
 /// Decimal64 (p16) per-`(func, mode)` counts; see [`EXPECTED_BUCKETS_P34`].
@@ -277,6 +282,11 @@ pub const EXPECTED_BUCKETS_P16: &[(&str, &str, usize)] = &[
     ("rsqrt", "TowardNegative", 56),
     ("rsqrt", "TowardPositive", 56),
     ("rsqrt", "TowardZero", 56),
+    ("powi", "NearestAway", 32),
+    ("powi", "NearestEven", 32),
+    ("powi", "TowardNegative", 21),
+    ("powi", "TowardPositive", 21),
+    ("powi", "TowardZero", 21),
 ];
 
 /// Decimal32 (p7) per-`(func, mode)` counts; see [`EXPECTED_BUCKETS_P34`].
@@ -378,6 +388,11 @@ pub const EXPECTED_BUCKETS_P7: &[(&str, &str, usize)] = &[
     ("rsqrt", "TowardNegative", 48),
     ("rsqrt", "TowardPositive", 48),
     ("rsqrt", "TowardZero", 48),
+    ("powi", "NearestAway", 32),
+    ("powi", "NearestEven", 32),
+    ("powi", "TowardNegative", 22),
+    ("powi", "TowardPositive", 22),
+    ("powi", "TowardZero", 22),
 ];
 
 /// Assert the loaded corpus has exactly the expected per-`(func,
