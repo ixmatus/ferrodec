@@ -63,20 +63,41 @@ fn kernel(v: &frozen::FrozenVec, rm: RoundingMode) -> Decimal32 {
         // `atan2(y, x)` (ferrodec's `atan2` is `self = y`).
         "pow" => x.pow(parse(v.input2.as_deref().expect("pow input2")), rm).0,
         "rsqrt" => x.rsqrt(rm).0,
-        "hypot" => x.hypot(parse(v.input2.as_deref().expect("hypot input2")), rm).0,
+        "hypot" => {
+            x.hypot(parse(v.input2.as_deref().expect("hypot input2")), rm)
+                .0
+        }
         "powi" => {
-            let n: i32 = v.input2.as_deref().expect("powi n").parse().expect("powi i32");
+            let n: i32 = v
+                .input2
+                .as_deref()
+                .expect("powi n")
+                .parse()
+                .expect("powi i32");
             x.powi(n, rm).0
         }
         "rootn" => {
-            let n: i32 = v.input2.as_deref().expect("rootn n").parse().expect("rootn i32");
+            let n: i32 = v
+                .input2
+                .as_deref()
+                .expect("rootn n")
+                .parse()
+                .expect("rootn i32");
             x.rootn(n, rm).0
         }
         "compound" => {
-            let n: i32 = v.input2.as_deref().expect("compound n").parse().expect("compound i32");
+            let n: i32 = v
+                .input2
+                .as_deref()
+                .expect("compound n")
+                .parse()
+                .expect("compound i32");
             x.compound(n, rm).0
         }
-        "powr" => x.powr(parse(v.input2.as_deref().expect("powr input2")), rm).0,
+        "powr" => {
+            x.powr(parse(v.input2.as_deref().expect("powr input2")), rm)
+                .0
+        }
         "atan2" => {
             parse(v.input2.as_deref().expect("atan2 input2"))
                 .atan2(x, rm)
