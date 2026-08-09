@@ -2569,8 +2569,9 @@ fn u768_mod_small(s: U768, m: u128) -> u128 {
 
 /// Strip trailing decimal zeros from a [`U768`], returning the
 /// stripped value and the count removed. Bounded by the type's
-/// ~231-digit envelope.
-fn strip_trailing_zeros_u768(mut s: U768) -> (U768, u32) {
+/// ~231-digit envelope. Shared with `crate::adjudicate`'s compound
+/// exact-sum canonicalisation.
+pub(crate) fn strip_trailing_zeros_u768(mut s: U768) -> (U768, u32) {
     if s.is_zero() {
         return (s, 0);
     }
@@ -2583,6 +2584,49 @@ fn strip_trailing_zeros_u768(mut s: U768) -> (U768, u32) {
         s = q;
         k += 1;
     }
+}
+
+/// The kernel band's aligned integer sum `(S, q)`: with the operands
+/// aligned on the common quantum `q = min(qw, qz)`,
+/// `A = cw · 10^(qw − q)` and `B = cz · 10^(qz − q)`,
+///
+/// > `S = A² + B²` and `hypot = sqrt(S) · 10^q`, exactly.
+///
+/// Split out of [`hypot_exact_or_tie`] because the ADR-0060
+/// adjudicator (`crate::adjudicate::hypot_side`) compares against the
+/// same integer: one construction, so the classifier's squareness
+/// test and the adjudicator's side comparison cannot drift.
+///
+/// The band premise bounds the integers: the caller's ratio gate
+/// leaves `adj(z) ≥ adj(w) − δ₀` with `δ₀ = ⌈(P + 2)/2⌉`, so the
+/// alignment shift is at most `δ₀ + P − 1` on the wide side and
+/// `P − 1` on the narrow side (derivation on
+/// `crate::hypot::hypot_kernel`), keeping `A` inside
+/// `10^(δ₀ + 2P − 1)` and `S` inside `U768`'s envelope. The two shift
+/// bails restate that bound defensively; they are unreachable from
+/// the gated callers.
+pub(crate) fn hypot_aligned_sum<F: DecimalFormat>(
+    cw: U256,
+    qw: i32,
+    cz: U256,
+    qz: i32,
+) -> Option<(U768, i32)> {
+    let q = qw.min(qz);
+    let delta0 = (F::PRECISION + 2).div_ceil(2);
+    let shift_w = u32::try_from(qw - q).ok()?;
+    let shift_z = u32::try_from(qz - q).ok()?;
+    if shift_w > delta0 + F::PRECISION - 1 || shift_z > F::PRECISION - 1 {
+        return None;
+    }
+    // `A < 10^(δ₀ + 2P − 1)` (85 digits at Decimal128) and `B <
+    // 10^(2P − 1)` (67), both inside `U384`'s ~115-digit envelope;
+    // `S < 2 · 10^(2δ₀ + 4P − 2)` (171 digits) is inside `U768`'s ~231.
+    let a = U384::from_u256(cw).mul_pow10(shift_w);
+    let b = U384::from_u256(cz).mul_pow10(shift_z);
+    Some((
+        u384_mul_u384_to_u768(a, a).add(u384_mul_u384_to_u768(b, b)),
+        q,
+    ))
 }
 
 /// The exact or tie value of `hypot(x, y)` decided from the operands
@@ -2629,13 +2673,9 @@ fn strip_trailing_zeros_u768(mut s: U768) -> (U768, u32) {
 ///   `10^(2P + 2)`. A wider `S'` cannot come from an exact or tie
 ///   value.
 ///
-/// The band premise is what bounds the integers: the caller's ratio
-/// gate leaves `adj(z) ≥ adj(w) − δ₀` with `δ₀ = ⌈(P + 2)/2⌉`, so the
-/// alignment shift is at most `δ₀ + P − 1` on the wide side and
-/// `P − 1` on the narrow side (derivation on
-/// `crate::hypot::hypot_kernel`), keeping `A` inside `10^(δ₀ + 2P − 1)`
-/// and `S` inside `U768`'s envelope. The two shift bails below restate
-/// that bound defensively; they are unreachable from the gated caller.
+/// The integer widths and the defensive shift bails live on the shared
+/// construction [`hypot_aligned_sum`], which the ADR-0060 adjudicator
+/// reads through as well.
 ///
 /// ## Delivery
 ///
@@ -2655,22 +2695,7 @@ pub(crate) fn hypot_exact_or_tie<F: DecimalFormat>(
     qz: i32,
     rm: RoundingMode,
 ) -> Option<(F, Status)> {
-    let q = qw.min(qz);
-    // In-band shift bounds (`δ₀ + P − 1` wide side, `P − 1` narrow
-    // side). Unreachable bails from the gated caller; kept so the
-    // routine is total and never feeds `mul_pow10` past its envelope.
-    let delta0 = (F::PRECISION + 2).div_ceil(2);
-    let shift_w = u32::try_from(qw - q).ok()?;
-    let shift_z = u32::try_from(qz - q).ok()?;
-    if shift_w > delta0 + F::PRECISION - 1 || shift_z > F::PRECISION - 1 {
-        return None;
-    }
-    // `A < 10^(δ₀ + 2P − 1)` (85 digits at Decimal128) and `B <
-    // 10^(2P − 1)` (67), both inside `U384`'s ~115-digit envelope;
-    // `S < 2 · 10^(2δ₀ + 4P − 2)` (171 digits) is inside `U768`'s ~231.
-    let a = U384::from_u256(cw).mul_pow10(shift_w);
-    let b = U384::from_u256(cz).mul_pow10(shift_z);
-    let s = u384_mul_u384_to_u768(a, a).add(u384_mul_u384_to_u768(b, b));
+    let (s, q) = hypot_aligned_sum::<F>(cw, qw, cz, qz)?;
 
     // Residue prefilters: a square is a quadratic residue modulo every
     // modulus, so a failure is a proof that `S` is not a square (and

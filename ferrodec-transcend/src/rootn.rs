@@ -51,6 +51,16 @@
 //! on `ladder::ROOTN`; `n = −2` carries `ladder::RSQRT` through its
 //! delegation instead.
 //!
+//! With ADR-0060's exact integer adjudicator landed
+//! (`adjudicate::rootn_side` on the rung 2 delivery; the `|n| = 6`
+//! comparisons are what `U1024` exists for), the claim is
+//! *unconditional* over `2 ≤ |n| ≤ 6` in every build: `|n| ≤ 2` by
+//! its delegations (identity, division, the format's own square
+//! root, and the `rsqrt` kernel), `3 ≤ |n| ≤ 6` by classification
+//! plus the Liouville floors plus the adjudicator on the residual
+//! path. Outside that range the operation carries the standing
+//! Tier 1 / Tier 2 statement.
+//!
 //! ## Special values (IEEE 754-2019 §9.2.1)
 //!
 //! Reproduced verbatim from the standard's table, in
@@ -74,7 +84,6 @@
 //! zero). Two spellings of "the square root of minus zero", two
 //! different answers, both mandated.
 
-use crate::exp::exp_from_extended_body;
 use crate::extended::ExtNum;
 use crate::format::DecimalFormat;
 use crate::ladder;
@@ -286,7 +295,13 @@ pub(crate) fn rootn_kernel_body<F: DecimalFormat, E: ExtNum>(
         // the argument is exact, so the reciprocal costs nothing.
         arg = arg.neg();
     }
-    let (mut result, status) = exp_from_extended_body::<F, E>(arg, eff_rm, &ladder::ROOTN)?;
+    // On a rung 2 ambiguity the decider settles the side by the exact
+    // q-th power comparison (ADR-0060); `3 ≤ |n| ≤ 6` is this
+    // kernel's adjudicable range (`|n| ≤ 2` delegated above).
+    let (mut result, status) =
+        crate::exp::exp_from_extended_body_adjudicated::<F, E>(arg, eff_rm, &ladder::ROOTN, |b| {
+            crate::adjudicate::rootn_side(abs_x, n, b)
+        })?;
     if sign_neg {
         result = result.neg();
     }

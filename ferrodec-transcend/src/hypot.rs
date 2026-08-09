@@ -112,12 +112,15 @@
 //! ## Accuracy
 //!
 //! Correctly rounded at every rounding direction, on the ADR-0059
-//! ladder with the `ladder::HYPOT` budget. ADR-0060 makes the claim
-//! unconditional across the band for this operation: the anchor band
-//! is decided by a side theorem, the kernel band's exact and tie set
-//! is classified input side, and what remains carries the Engine B
-//! Liouville floor `≥ 1/(8.1 · S)` against a budget many orders
-//! below it.
+//! ladder with the `ladder::HYPOT` budget, and *unconditionally* so
+//! across the whole band in every build now that ADR-0060's exact
+//! integer adjudicator is landed: the anchor band is decided by a
+//! side theorem, the kernel band's exact and tie set is classified
+//! input side, what remains carries the Engine B Liouville floor
+//! `≥ 1/(8.1 · S)`, and a rung 2 ambiguity (possible only where `S`
+//! outgrows the floor's margin, `S ≳ 10^105`) is decided exactly by
+//! `adjudicate::hypot_side` on the same aligned integer `S` the
+//! classifier tested for squareness.
 
 use crate::extended::ExtNum;
 use crate::format::DecimalFormat;
@@ -265,7 +268,13 @@ pub(crate) fn hypot_kernel_body<F: DecimalFormat, E: ExtNum>(
     let z_s = ex.from_format(z.abs()).mul_pow10_exp(-adj_w);
     let sum = w_s.square().add(z_s.square());
     let result_ext = sum.sqrt::<F>().mul_pow10_exp(adj_w);
-    ladder::round_guarded::<F, E>(result_ext, rm, &ladder::HYPOT)
+    // On a rung 2 ambiguity the decider compares `S · 10^2q` against
+    // the boundary's square exactly (ADR-0060), over the same aligned
+    // sum the classifier tested for squareness; the whole kernel band
+    // is in range.
+    ladder::round_adjudicated::<F, E>(result_ext, rm, &ladder::HYPOT, |b| {
+        crate::adjudicate::hypot_side::<F>(cw, qw, cz, qz, b)
+    })
 }
 
 /// Deliver an exact positive value `coef · 10^exp` at the §9.2.2

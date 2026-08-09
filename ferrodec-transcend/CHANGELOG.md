@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The ADR-0060 exact integer adjudicator (fd-jxk): the rung 2
+  escalation predicate returns the candidate boundary's identity
+  (`candidate_boundary`, the bool predicate its adapter), and the
+  five algebraic kernels (`rsqrt`, `hypot`, `powi`'s powering arm,
+  `rootn`, `compound`) deliver through `ladder::round_adjudicated`,
+  which on a rung 2 ambiguity decides the true value's side of the
+  one candidate boundary in exact integer arithmetic
+  (`adjudicate::<op>_side`, widths up to `U1024`) and delivers
+  through the ADR-0051 residual channel anchored at the boundary.
+  Adjudication is rung 2 semantics in every build; `ladder_audit`
+  for these operations panics only when the adjudicator declined.
+  The `force_adjudicate` battery lane (with `force_escalate`) routes
+  the whole corpus through the adjudicator with the pins as the byte
+  identity reference.
+
+### Added
+
 - The §9.2 algebraic group (ADR-0059 Track D D3, under ADR-0060's
   phase gate): `powi_kernel` (pown), `powr_kernel`, `rootn_kernel`,
   `compound_kernel`, `rsqrt_kernel`, and `hypot_kernel` on the

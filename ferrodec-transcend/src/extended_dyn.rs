@@ -942,10 +942,44 @@ impl ExtendedDyn<'_> {
     /// Mode-independent escalation predicate at the runtime width; the
     /// contract mirrors [`Extended::near_rounding_boundary`] with the
     /// budget unit now one ULP of the value widened to `prec` digits.
+    ///
+    /// The bool view of [`Self::candidate_boundary`]; one computation,
+    /// the rung 1 mirror's drift argument verbatim.
     #[must_use]
     pub(crate) fn near_rounding_boundary<F: DecimalFormat>(self, budget: u128) -> bool {
+        self.candidate_boundary::<F>(budget).is_near()
+    }
+
+    /// The escalation predicate with the boundary identity kept,
+    /// mirroring [`Extended::candidate_boundary`] at the runtime
+    /// width. Implemented under the three-rung mirror discipline; the
+    /// adjudication seam only ever consumes rung 2's identity, so this
+    /// rung's `Near` payload is exercised by tests alone.
+    #[must_use]
+    pub(crate) fn candidate_boundary<F: DecimalFormat>(
+        self,
+        budget: u128,
+    ) -> crate::ladder::BoundaryVerdict {
+        self.boundary_verdict::<F>(Some(budget))
+    }
+
+    /// The `force_adjudicate` lane's unbudgeted locate (contract on
+    /// [`Extended::nearest_boundary`]); mirror-discipline only, the
+    /// lane consumes rung 2's.
+    #[must_use]
+    pub(crate) fn nearest_boundary<F: DecimalFormat>(self) -> crate::ladder::BoundaryVerdict {
+        self.boundary_verdict::<F>(None)
+    }
+
+    /// The one computation behind the two views above (the rung 1
+    /// mirror's contract).
+    fn boundary_verdict<F: DecimalFormat>(
+        self,
+        budget: Option<u128>,
+    ) -> crate::ladder::BoundaryVerdict {
+        use crate::ladder::{Boundary, BoundaryVerdict};
         if self.is_zero() {
-            return true;
+            return BoundaryVerdict::NearIndeterminate;
         }
         let prec = self.arena.prec;
         // Normalize to the rung width first: values delivered straight
@@ -972,24 +1006,65 @@ impl ExtendedDyn<'_> {
         let excess = precision_excess.max(subnormal_excess);
 
         if excess == 0 {
-            return true;
+            return BoundaryVerdict::NearIndeterminate;
         }
         if excess > digits {
-            return false;
+            // Strict full drop: Clear by the budget type, no nameable
+            // identity unbudgeted (the rung 1 mirror's derivation).
+            return match budget {
+                Some(_) => BoundaryVerdict::Clear,
+                None => BoundaryVerdict::NearIndeterminate,
+            };
         }
 
-        let (_, tail) = coef_w.div_rem_pow10(excess);
+        let (kept, tail) = coef_w.div_rem_pow10(excess);
         let field = DecBig::pow10(excess);
         let half = DecBig::from_u32(5).mul_pow10(excess - 1);
 
-        let bound = DecBig::from_u128(budget);
-        let within = |d: &DecBig| d.cmp_ref(&bound) != Ordering::Greater;
+        let dist_lower = tail.clone();
+        let dist_upper = field.sub(&tail);
         let dist_mid = if tail.cmp_ref(&half) == Ordering::Less {
             half.sub(&tail)
         } else {
             tail.sub(&half)
         };
-        within(&tail) || within(&field.sub(&tail)) || within(&dist_mid)
+
+        // Nearest boundary wins; strict comparisons implement the
+        // documented tie order (grid before midpoint, lower before
+        // upper), the rung 1 mirror's argument verbatim.
+        let mut best_dist = &dist_lower;
+        let mut best = 0u8;
+        if dist_upper.cmp_ref(best_dist) == Ordering::Less {
+            best_dist = &dist_upper;
+            best = 1;
+        }
+        if dist_mid.cmp_ref(best_dist) == Ordering::Less {
+            best_dist = &dist_mid;
+            best = 2;
+        }
+        if let Some(bound) = budget {
+            if best_dist.cmp_ref(&DecBig::from_u128(bound)) == Ordering::Greater {
+                return BoundaryVerdict::Clear;
+            }
+        }
+        if best == 0 && kept.is_zero() {
+            // Full-drop edge, zero grid point nearest: no nameable
+            // identity (unbudgeted only; the rung 1 mirror derives
+            // why a budget cannot select it).
+            return BoundaryVerdict::NearIndeterminate;
+        }
+
+        // At most `F::PRECISION ≤ 34` kept digits: fits u128
+        // (`ladder::Boundary`'s type doc carries the derivation).
+        let kept_c = kept
+            .to_u128()
+            .expect("kept coefficient carries at most the format precision");
+        let exp_grid = exp_w + excess as i32;
+        BoundaryVerdict::Near(match best {
+            0 => Boundary::lower_grid(kept_c, exp_grid),
+            1 => Boundary::upper_grid(kept_c, exp_grid),
+            _ => Boundary::midpoint(kept_c, exp_grid),
+        })
     }
 }
 
@@ -1291,6 +1366,12 @@ impl ExtNum for ExtendedDyn<'_> {
     fn near_rounding_boundary<F: DecimalFormat>(self, budget: u128) -> bool {
         ExtendedDyn::near_rounding_boundary::<F>(self, budget)
     }
+    fn candidate_boundary<F: DecimalFormat>(self, budget: u128) -> crate::ladder::BoundaryVerdict {
+        ExtendedDyn::candidate_boundary::<F>(self, budget)
+    }
+    fn nearest_boundary<F: DecimalFormat>(self) -> crate::ladder::BoundaryVerdict {
+        ExtendedDyn::nearest_boundary::<F>(self)
+    }
 
     // The unbounded rung always has a wider rung available (the Ziv
     // driver simply widens the arena), so a near-boundary verdict here
@@ -1565,6 +1646,76 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// The candidate boundary's identity at the dynamic width: the
+    /// 186-digit d128 drop pins the same three families as the fixed
+    /// rungs, with the same borrow and carry convergence (the mirror
+    /// discipline's drift guard for this rung's payload).
+    #[test]
+    fn candidate_boundary_identities_d128_drop() {
+        use crate::ladder::{Boundary, BoundaryKind, BoundaryVerdict};
+        type Shape = MockFmt<34, 6176>;
+
+        let a = arena(WIDE);
+        let ex = a.exemplar();
+        let prefix: u128 = 1_234_567_890_123_456_789_012_345_678_901_234;
+        let half = DecBig::from_u32(5).mul_pow10(185);
+        let field = DecBig::pow10(186);
+        let exp = -50;
+        let exp_grid = exp + 186;
+
+        let near = |base: &DecBig, off: i128| {
+            let stem = DecBig::from_u128(prefix).mul_pow10(186).add(base);
+            let coef = if off >= 0 {
+                stem.add(&DecBig::from_u128(off.unsigned_abs()))
+            } else {
+                stem.sub(&DecBig::from_u128(off.unsigned_abs()))
+            };
+            match ex.make(coef, exp, false).candidate_boundary::<Shape>(3) {
+                BoundaryVerdict::Near(b) => b,
+                v => panic!("expected Near, got {v:?}"),
+            }
+        };
+
+        let lower = Boundary {
+            coef: prefix,
+            exp: exp_grid,
+            kind: BoundaryKind::Grid,
+        };
+        for off in [0i128, 1, -1] {
+            assert_eq!(near(&DecBig::zero(), off), lower, "off={off}");
+        }
+        let mid = Boundary {
+            coef: 10 * prefix + 5,
+            exp: exp_grid - 1,
+            kind: BoundaryKind::Midpoint,
+        };
+        for off in [-3i128, 0, 3] {
+            assert_eq!(near(&half, off), mid, "off={off}");
+        }
+        let upper = Boundary {
+            coef: prefix + 1,
+            exp: exp_grid,
+            kind: BoundaryKind::Grid,
+        };
+        for off in [-1i128, 0, 1] {
+            assert_eq!(near(&field, off), upper, "off={off}");
+        }
+
+        let far = ex.make(
+            DecBig::from_u128(prefix)
+                .mul_pow10(186)
+                .add(&DecBig::from_u128(4)),
+            exp,
+            false,
+        );
+        assert_eq!(far.candidate_boundary::<Shape>(3), BoundaryVerdict::Clear);
+        assert_eq!(
+            ex.candidate_boundary::<Shape>(u128::MAX),
+            BoundaryVerdict::NearIndeterminate,
+            "the exemplar is the canonical zero"
+        );
     }
 
     #[test]

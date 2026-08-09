@@ -305,3 +305,64 @@ budgets land wider than targeted.
   lauter-lefevre-pow-boundary, matveev-2000, ieee-754-2019.
 - Instrument: `tools/liouville_probe.py` (the falsification probe;
   rerun instructions in its header).
+
+## Landing note (fd-jxk, 2026-08-09)
+
+The exact integer adjudicator specified above is implemented, wired,
+and exercised; this note records where each piece landed and the two
+deltas against the text above.
+
+- **Mechanism.** The rung 2 escalation predicate now returns the
+  candidate boundary's identity (`candidate_boundary` on each rung,
+  the bool predicate its adapter, so the two cannot drift;
+  `ladder::Boundary` carries `(coef, exp, Grid | Midpoint)`). The five
+  kernels deliver through `ladder::round_adjudicated`: a rung 2
+  ambiguity inside the adjudicable range is decided by the per
+  operation `adjudicate::<op>_side` functions and delivered through
+  the ADR-0051 residual channel anchored at the boundary; outside the
+  range each build keeps its pre adjudicator behavior. Every decision
+  path carries its completeness proof at the site, and an `Equal`
+  comparison (the true value ON a boundary, which classification
+  completeness excludes) panics loudly.
+- **Semantics, as decided at the fd-jxk design checkpoint.**
+  Adjudication is rung 2 semantics in every build: in
+  `unbounded-ladder` builds an in-range ambiguity adjudicates instead
+  of entering Ziv, so delivered bytes are build invariant on that path
+  by construction; the Ziv rung stays wired for uniformity and the out
+  of range remainder, and the `force_rung3` lane still exercises the
+  220 digit first attempt termination. `ladder_audit` for the five
+  operations panics only when the adjudicator *declined* — "the
+  adjudicator ran and decided" replaces "no ambiguity observed", the
+  vacuous panics removed by construction.
+- **Delta 1: `U1024` (design checkpoint fork 3).** The width table's
+  `q = 6` rows landed rather than being held back: `ferrodec-multiword`
+  gained `U1024` (308 digits, compare oriented surface), so the
+  unconditional operand ranges are `pown −6 ≤ n ≤ 6` and `rootn
+  2 ≤ |n| ≤ 6` — one wider on the negative `pown` side and at
+  `|n| = 6` than the tier language block above, which was written
+  against the `U768`-only widths. The widest landed comparands:
+  `rootn n = −6` aligns `a·C⁶` at ~244 digits, `pown n = −6` aligns
+  `C·a⁶` at ~239.
+- **Delta 2: the `D(q)` closed form vs the table.** The rootn row's
+  formula `D(q) ≤ (q+1)·34 + q + 8` gives 112/147/182/217/252 while
+  the tabulated spec numbers read 105/142/177/211/247: the closed
+  form is uniformly loose by 5 to 7. The table binds; both agree on
+  every width verdict (`U768` through `q = 5`, `U1024` at `q = 6`),
+  so no decision moves.
+- **Anti rot (Consequences inversion #2).** The `force_adjudicate`
+  battery lane, run together with `force_escalate` in a default
+  build, replaces rung 2's budgeted verdict with an unbudgeted
+  nearest boundary locate: every corpus row of the five operations
+  then delivers *through* the adjudicator wherever its range gates
+  accept, and the full pinned corpus is the byte identity reference.
+  The planted near attaining families (`S = k² + 1`, `S = k² + k`)
+  are exercised both as kernel inputs (the hypot suites replay under
+  the lane) and directly against the deciders at their sharpest
+  (distinguishing `−0.2`, `+25·10^−34`, and `−1` in `y²` at
+  `k = 10^16`).
+- **Verification at landing.** Corpus replay byte identical on all
+  three formats with the adjudicator wired (it decided nothing the
+  normal path delivered); the force_adjudicate lane green on all
+  three formats; the transcend suite green in both feature
+  configurations; the per rung boundary identity pins and the
+  decider unit tests new.

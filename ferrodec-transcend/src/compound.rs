@@ -66,13 +66,15 @@
 //! ADR-0060 derives this operation's Liouville floor by its Engine A
 //! (rational true values): a non-classified input's value sits at
 //! relative distance at least `10^−D` from every boundary with
-//! `D ≤ n·w + 36`, `w` the digit width of the exact `1 + x`. Turning
-//! that floor into an *unconditional* two-rung claim over the stated
-//! operand range (`n · w ≤ 196`) needs the exact integer adjudicator
-//! ADR-0060 mandates for the whole algebraic group; that mechanism is a
-//! separate slice, and until it lands `compound` carries the standing
-//! ADR-0059 tier statement (Tier 1 by construction, Tier 2 model) like
-//! the rest of the surface, not the upgraded one.
+//! `D ≤ n·w + 36`, `w` the digit width of the exact `1 + x`. The
+//! exact integer adjudicator ADR-0060 mandates is landed and wired
+//! (`adjudicate::compound_side` on the rung 2 delivery), so the claim
+//! is *unconditional* over the stated operand range (`|n| · w ≤ 196`,
+//! covering every realistic call) in every build: a rung 2 ambiguity
+//! there is decided on the exact rational `(1 + x)^n` instead of
+//! delivered blind. Outside the range `compound` carries the standing
+//! ADR-0059 tier statement (Tier 1 by construction, Tier 2 model)
+//! like the rest of the surface.
 
 use crate::extended::ExtNum;
 use crate::format::DecimalFormat;
@@ -242,7 +244,12 @@ pub(crate) fn compound_kernel_body<F: DecimalFormat, E: ExtNum>(
     // only on-grid family that reaches past those gates.
     let log1p_x = crate::ln::logp1_extended_core::<F, E>(ex, x);
     let v = ex.from_i32(n).mul(log1p_x);
-    crate::exp::exp_from_extended_body::<F, E>(v, rm, &ladder::COMPOUND)
+    // On a rung 2 ambiguity the decider settles the side on the exact
+    // rational `(1 + x)^n` (ADR-0060); `|n| · w ≤ 196` over the
+    // stripped exact-sum width `w` is the adjudicable range.
+    crate::exp::exp_from_extended_body_adjudicated::<F, E>(v, rm, &ladder::COMPOUND, |b| {
+        crate::adjudicate::compound_side(x, n, b)
+    })
 }
 
 /// The ADR-0051 anchor arm: deliver `(1 + x)^n` from the grid point 1
