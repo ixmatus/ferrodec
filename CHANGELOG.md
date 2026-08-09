@@ -9,6 +9,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `Decimal128::powi`, `powr`, `rootn`, `compound`, `rsqrt`, and
+  `hypot` (IEEE 754-2019 §9.2 `pown` / `powr` / `rootn` /
+  `compound` / `rSqrt` / `hypot`; ADR-0059 Track D D3 under
+  ADR-0060's Liouville phase gate), correctly rounded on the
+  escalation ladder from first release, `powi`, `rootn`, and
+  `compound` with an `i32` integral operand. Exactness and ties per
+  operation are decided input side (the `powi(5, 49)` and
+  `rsqrt(2^98)` midpoint families resolve by the format rounder's
+  own tie rule; `hypot`'s scaled Pythagorean set is decided by an
+  integer perfect-square test; `compound`'s nines inputs deliver
+  `10^(k·n)` across and beyond the exponent range with the §7.4
+  dispositions). `rootn(−0, 2)` is `+0` where `sqrt(−0)` is `−0`,
+  both mandated, tested side by side. `powr` differs from `pow`
+  exactly where §9.2.1 says it must (`powr(±0, ±0)`, `powr(+∞, ±0)`,
+  `powr(+1, ±∞)`, and every negative base are INVALID). `compound`
+  and `hypot` deliver §9.2.2's preferred exponents on exact results;
+  the remaining operations record the shared rounder's quantum
+  divergence (fd-5g6).
+
+### Fixed
+
+- `pow(10, 2147483647)` panicked in debug builds (exponent
+  arithmetic in the rounder wrapped) and would have shipped a wrong
+  §7.4 overflow disposition in release; huge integer exponents now
+  saturate through the `exp` gates in every rounding mode (fd-clc).
+
+### Added
+
 - `Decimal128::exp_m1`, `exp2_m1`, `exp10`, and `exp10_m1` (IEEE
   754-2019 §9.2 `expm1` / `exp2m1` / `exp10` / `exp10m1`; ADR-0059
   Track D group D2, completing the exponential side of the surface

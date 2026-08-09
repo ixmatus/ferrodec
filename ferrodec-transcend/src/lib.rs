@@ -87,8 +87,9 @@ mod ladder;
 #[cfg(test)]
 mod mock_format;
 
-// Exact-result detection for cbrt / pow (§7.5 INEXACT contract). Gated on
-// `exp-log` (cbrt); `pow` implies `exp-log`, so both consumers see it.
+// Exact-result detection for cbrt / rootn / pow (§7.5 INEXACT
+// contract). Gated on `exp-log` (cbrt, rootn); `pow` implies
+// `exp-log`, so every consumer sees it.
 #[cfg(feature = "exp-log")]
 mod exact;
 
@@ -96,16 +97,38 @@ mod exact;
 pub mod argred;
 #[cfg(feature = "exp-log")]
 pub mod cbrt;
+// `compound(x, n) = (1 + x)^n` (ADR-0059 Track D D3). Gated on
+// `exp-log` rather than `pow`: the kernel is `exp ∘ logp1`, so it needs
+// the same modules `exp2` and the `logp1` family already pull in, and
+// none of `pow`'s Newton-seeded surface.
+#[cfg(feature = "exp-log")]
+pub mod compound;
 #[cfg(feature = "exp-log")]
 pub mod exp;
 #[cfg(feature = "hyperbolic")]
 pub mod hyperbolic;
+// The algebraic §9.2 group's first member (ADR-0060 Track D D3). It
+// needs no series machinery, only `sqrt` and the exact classifier, and
+// it rides `exp-log` for the same reason `cbrt` does: that is where
+// this crate's input-side classification module lives.
+#[cfg(feature = "exp-log")]
+pub mod hypot;
 #[cfg(feature = "trig")]
 pub mod inverse_trig;
 #[cfg(feature = "exp-log")]
 pub mod ln;
 #[cfg(feature = "pow")]
 pub mod pow;
+#[cfg(feature = "exp-log")]
+pub mod rootn;
+#[cfg(feature = "exp-log")]
+pub mod rsqrt;
+// IEEE 754-2019 §9.2 `powr`: `pow`'s rule-8 pipeline under the §9.2.1
+// `powr` special-value table (ADR-0059 Track D D3). Shares the `pow`
+// feature: the two operations differ only before the first
+// approximation runs.
+#[cfg(feature = "pow")]
+pub mod powr;
 #[cfg(feature = "trig")]
 pub mod sincos;
 

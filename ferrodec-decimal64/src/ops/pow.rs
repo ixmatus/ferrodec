@@ -83,6 +83,29 @@ impl Decimal64 {
         ferrodec_transcend::pow::pow_kernel::<Decimal64>(self, exponent, rm)
     }
 
+    /// IEEE 754-2019 §9.2 `pown(self, n)`: `self` raised to the
+    /// integer power `n`.
+    ///
+    /// A negative base is legal for every `n` (the exponent is an
+    /// integer by type, so `pow`'s negative-base `INVALID` has no
+    /// analog); the result is negative exactly when `self` is negative
+    /// and `n` is odd. Pure delegation onto the shared kernel, which
+    /// resolves every §9.2.1 special value internally and runs the
+    /// ADR-0059 escalation ladder from this operation's first release.
+    /// The special-value table, the two-arm kernel (working-precision
+    /// powering for `|n| ≤ 6`, `exp(n·ln|self|)` beyond), the
+    /// exactness and tie classification, and the ADR-0060 operand
+    /// ranges over which the correct-rounding claim is unconditional
+    /// all live on `ferrodec_transcend::pow::powi_kernel`.
+    ///
+    /// Preferred exponent (§9.2.2): `Q(pown(x, n))` is
+    /// `floor(n × Q(x))` where the result is exact.
+    #[must_use]
+    #[doc(alias = "pown")]
+    pub fn powi(self, n: i32, rm: RoundingMode) -> (Self, Status) {
+        ferrodec_transcend::pow::powi_kernel::<Decimal64>(self, n, rm)
+    }
+
     /// IEEE 754-2019 §9.2 `cbrt(self)` rounded by `rm`. Defined for
     /// all real x including negatives. `cbrt(±0) = ±0`,
     /// `cbrt(±∞) = ±∞`, NaN propagates.

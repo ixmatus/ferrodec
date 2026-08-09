@@ -9,6 +9,8 @@
 //! [`Decimal64`]: crate::Decimal64
 
 pub(crate) mod addsub;
+#[cfg(feature = "exp-log")]
+pub(crate) mod compound;
 pub(crate) mod div;
 pub(crate) mod divide_integer;
 #[cfg(feature = "exp-log")]
@@ -16,16 +18,24 @@ pub(crate) mod exp;
 pub(crate) mod fma;
 #[cfg(feature = "hyperbolic")]
 pub(crate) mod hyper;
+#[cfg(feature = "exp-log")]
+pub(crate) mod hypot;
 pub(crate) mod integral;
 pub(crate) mod logical;
 pub(crate) mod mul;
 #[cfg(feature = "pow")]
 pub(crate) mod pow;
+#[cfg(feature = "pow")]
+pub(crate) mod powr;
 pub(crate) mod quantum;
 pub(crate) mod reduce;
 pub(crate) mod rem;
+#[cfg(feature = "exp-log")]
+pub(crate) mod rootn;
 pub(crate) mod rotate;
 pub(crate) mod round;
+#[cfg(feature = "exp-log")]
+pub(crate) mod rsqrt;
 pub(crate) mod shift;
 pub(crate) mod sqrt;
 #[cfg(feature = "trig")]

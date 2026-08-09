@@ -6,6 +6,15 @@
 //!
 //! `pow(x, y)` — `x` raised to the power `y`.
 //!
+//! The module also carries [`powi_kernel`] (IEEE 754-2019 §9.2
+//! `pown`), `x` raised to an `i32` power, which shares this module's
+//! sign rule and its `exp(·ln|x|)` composition but neither its
+//! special-value table nor its exactness classifier: an integer
+//! exponent legalises every negative base, makes every result
+//! rational, and admits a working-precision powering arm for small
+//! `|n|` that ADR-0060's floors require. Its own derivation lives on
+//! [`powi_kernel`] and [`powi_special_cases`].
+//!
 //! ## Special cases (IEEE 754-2019 §9.2.1)
 //!
 //! Order matters for the NaN-and-zero tie-breakers:
@@ -334,6 +343,294 @@ fn int_pow<F: DecimalFormat>(x: F, n: i32, rm: RoundingMode) -> (F, Status) {
         status |= s;
     }
     (result, status)
+}
+
+// ----------------------------------------------------------------------------
+// `powi` — IEEE 754-2019 §9.2 `pown`, `x` raised to an `i32` power
+// (ADR-0059 Track D group D3, under ADR-0060's kernel architecture
+// constraints).
+
+/// The exponent magnitude at which [`powi_kernel`] switches from
+/// binary powering at working precision to `exp(n·ln|x|)`.
+///
+/// ADR-0060 fixes the boundary, not convenience: the Liouville floor
+/// for `pown` degrades as `10^−(34|n|+2)`, so the operand range over
+/// which the two-rung claim can be unconditional is exactly the range
+/// where the powering arm's ~200-unit budget applies. Six is the
+/// widest `|n|` ADR-0060's table claims at all (`n` positive `≤ 6`,
+/// negative `≥ −5`, once the exact integer adjudicator lands); past
+/// it the floor is out of reach at any fixed rung and the cheaper
+/// `exp`/`ln` composition is the honest choice. `n = −6` runs the arm
+/// too — it is the faster route and the boundary is one constant, not
+/// two — it simply does not carry the unconditional claim.
+const POWI_POWERING_MAX: u32 = 6;
+
+/// Apply IEEE 754-2019 §9.2.1's `pown` special-value table without
+/// touching the working-precision path. `None` routes to the general
+/// path (finite nonzero `x`, `n ≠ 0`).
+///
+/// The table is transcribed from the standard row by row; the order
+/// below is the order the rows must be tested in, since `n = 0`
+/// outranks NaN propagation and both outrank the zero and infinity
+/// rows:
+///
+/// 1. `pown(x, 0)` is 1 if `x` is not a signaling NaN — quiet NaN and
+///    the infinities included. A signaling NaN takes the general
+///    §7.2 rule instead: quieted payload plus `INVALID`.
+/// 2. `pown(±0, n)` is `±∞` and signals `divideByZero` for odd
+///    `n < 0`, `+∞` and signals `divideByZero` for even `n < 0`,
+///    `+0` for even `n > 0`, and `±0` for odd `n > 0`.
+/// 3. `pown(+∞, n)` is `+∞` for `n > 0` and `+0` for `n < 0`;
+///    `pown(−∞, n)` is `−∞` for odd `n > 0`, `+∞` for even `n > 0`,
+///    `−0` for odd `n < 0`, and `+0` for even `n < 0`.
+/// 4. A quiet NaN operand propagates; a signaling NaN raises
+///    `INVALID` and returns the quieted payload.
+///
+/// A negative finite base is legal for **every** `n` — `n` is an
+/// integer by type, so `pow`'s rule 7 (`NaN + INVALID` for a
+/// non-integer exponent over a negative base) has no analog here, and
+/// there is no `pown(x, ±∞)` row because there is no infinite `n`.
+///
+/// ## Divergence from [`pow_special_cases`], deliberate
+///
+/// `pow_special_cases` returns `(1, INVALID)` for `pow(sNaN, ±0)`: it
+/// delivers the standard's value *and* raises, a documented
+/// conservative choice made because implementations disagree there.
+/// `pown` reads "is 1 if `x` is not a signaling NaN", which names the
+/// signaling case and excludes it, so this routine returns the
+/// quieted NaN. The two operations therefore disagree on
+/// `x = sNaN, n = 0`, by construction and per the standard's own
+/// wording; neither is changed to match the other.
+pub fn powi_special_cases<F: DecimalFormat>(x: F, n: i32) -> Option<(F, Status)> {
+    // Row 1: pown(x, 0) is 1 unless x signals.
+    if n == 0 {
+        if x.is_signaling_nan() {
+            return Some((x.nan_from(), Status::INVALID));
+        }
+        return Some((F::ONE, Status::OK));
+    }
+    // `i32::MIN % 2` is 0 (only `i32::MIN / -1` overflows), so the
+    // parity test is total over `i32`.
+    let odd = n % 2 != 0;
+    match x.classify() {
+        Class::SignalingNaN { .. } => Some((x.nan_from(), Status::INVALID)),
+        Class::QuietNaN { .. } => Some((x, Status::OK)),
+        Class::Zero { sign, .. } => {
+            let result_neg = sign && odd;
+            Some(if n < 0 {
+                (
+                    if result_neg {
+                        F::NEG_INFINITY
+                    } else {
+                        F::INFINITY
+                    },
+                    Status::DIV_BY_ZERO,
+                )
+            } else {
+                (if result_neg { F::NEG_ZERO } else { F::ZERO }, Status::OK)
+            })
+        }
+        Class::Infinity { sign } => {
+            let result_neg = sign && odd;
+            Some(if n < 0 {
+                (if result_neg { F::NEG_ZERO } else { F::ZERO }, Status::OK)
+            } else {
+                (
+                    if result_neg {
+                        F::NEG_INFINITY
+                    } else {
+                        F::INFINITY
+                    },
+                    Status::OK,
+                )
+            })
+        }
+        Class::Finite { .. } => None,
+    }
+}
+
+/// `x` raised to the integer power `n`: IEEE 754-2019 §9.2 `pown`.
+///
+/// ## Two arms, and why the boundary is a correctness constant
+///
+/// * `|n| ≤ 6`: square-and-multiply at *working* precision. Not the
+///   format-precision `int_pow` of `pow`'s fast path — that routine
+///   accumulates format ULPs and is only trusted when it happens to
+///   round exactly (the H1 finding of the 2026-05-10 review) — but
+///   the same recurrence carried at 50 or 110 digits, where the whole
+///   chain costs ~20 units of the last working place. ADR-0060 makes
+///   this arm load bearing rather than merely faster: the Liouville
+///   floor for `pown` is `10^−(34|n|+2)` for positive `n` and
+///   `10^−(34|n|+36)` for negative, and only a budget of this size
+///   (`ladder::POWI_INT`, 200) clears it at rung 2's 110 digits over
+///   the operand ranges ADR-0060 claims unconditional. Routing small
+///   `|n|` through `exp(n·ln|x|)` instead would spend six decimal
+///   orders on the `|ln x| ≤ 14151` amplification and put the claim
+///   out of reach.
+/// * `|n| ≥ 7`: `exp(n · ln|x|)`, `pow`'s rule-8 path with an exact
+///   integer multiplier in place of the format-valued `y`. Same
+///   `exp` gates, same composed budget shape (`ladder::POWI`), and
+///   the same ADR-0050 near-1-base reliance on `ln`'s direct path.
+///
+/// ## Sign
+///
+/// The result is negative exactly when `x` is negative and `n` is
+/// odd. Both arms evaluate `|x|^|n|`-shaped magnitudes and re-apply
+/// the sign at the end, so the magnitude is rounded under the
+/// negation-reflected mode (`rm.for_negation()`) and the directed
+/// modes land on the correct neighbour after the flip — the `cbrt`
+/// `for_negation` rule, fd-aqs.5, shared verbatim with [`pow_kernel`]
+/// and with the classifier.
+///
+/// ## Exactness, ties, and the over/underflow gates
+///
+/// An integer exponent makes `x^n` rational for *every* representable
+/// `x`, so — unlike every other §9.2 operation in this crate — the
+/// classification question is width, not rationality.
+/// `exact::powi_exact_input` decides it from the inputs alone: every
+/// value expressible in `PRECISION + 1` stripped digits at an `i32`
+/// exponent is delivered through the format rounder, exact ones with
+/// no `INEXACT` (§7.5), midpoints with the mode's own tie rule (the
+/// `powi(5, 49)` family), and out-of-range exponents with the §7.4
+/// over/underflow disposition of the rounding direction. Past the
+/// classifier the true value needs at least `PRECISION + 2` digits,
+/// so it is neither a grid point nor a midpoint and the kernels'
+/// unconditional `INEXACT` is correct in every mode.
+///
+/// That coherence is what keeps the `ladder_audit` lane quiet. On the
+/// `|n| ≥ 7` arm a magnitude past the `exp` gates saturates unguarded,
+/// which is sound because the gate thresholds put the true value past
+/// the last boundary; the `|n| ≤ 6` arm has no gate and needs none,
+/// because the format rounder's disposition is correct at any
+/// exponent. Either way the only inputs whose true value sits exactly
+/// ON a rounding boundary out there are the classifier's, and it owns
+/// them at every magnitude — including the whole-range power-of-ten
+/// family `x = 10^j`, whose `10^(j·n)` is on the grid at any `j·n`
+/// (the ADR-0059 Track D `exp10_integer` lesson, arriving through the
+/// input instead of the output). The single family the classifier
+/// declines while on the grid is an exact value whose exponent
+/// overflows `i32`, which its own proof shows is astronomically past
+/// both gates.
+///
+/// ## Accuracy
+///
+/// Correctly rounded on the ADR-0059 escalation ladder from this
+/// operation's first release, with the ADR-0060 caveat that the claim
+/// is *unconditional* only over the operand ranges that ADR tabulates
+/// (`n ∈ {−2, 2, 3}` in the bare two-rung build; `−5 ≤ n ≤ 6` once
+/// the exact integer adjudicator lands) and carries the Tier 1 / Tier
+/// 2 statement outside them. Rung 1 evaluates at 50 digits and
+/// delivers only when the arm's budget clears every rounding boundary
+/// of the format, otherwise the identical body re-runs at rung 2's
+/// 110 digits, and under the `unbounded-ladder` feature at a dynamic
+/// rung that widens until the rounding is decided.
+///
+/// The dynamic rung's termination width follows ADR-0060's
+/// `p ≈ D + log₁₀ B + 2` from the same floors: for `−5 ≤ n ≤ 6` that
+/// is `p ≤ 211`, inside the Ziv loop's 220-digit first attempt, which
+/// is the ADR's claim. `n = −6` is the one operand the ADR's
+/// dynamic-rung sentence ("first attempt for `pown |n| ≤ 6`") reads
+/// one wider than its own floor table supports: `D ≤ 34·6 + 36 = 240`
+/// puts its proven width at `p ≈ 245`, so it terminates at the first
+/// doubling (440) instead. Nothing in the delivery changes; only the
+/// proven bound moves one rung out, and it is recorded here rather
+/// than rounded off.
+#[doc(alias = "pown")]
+pub fn powi_kernel<F: DecimalFormat>(x: F, n: i32, rm: RoundingMode) -> (F, Status) {
+    ladder::ladder_run!(|ex| powi_kernel_body::<F, _>(ex, x, n, rm))
+}
+
+/// Generic body of [`powi_kernel`] (M4, ADR-0059); `None` escalates
+/// (M8 ladder). `ex` is the working-precision exemplar (M8b): the
+/// receiver the constant and constructor surface reads its width from,
+/// never a value the result depends on.
+pub(crate) fn powi_kernel_body<F: DecimalFormat, E: ExtNum>(
+    ex: E,
+    x: F,
+    n: i32,
+    rm: RoundingMode,
+) -> Option<(F, Status)> {
+    if let Some(early) = powi_special_cases(x, n) {
+        return Some(early);
+    }
+    // Past the table: `x` is finite and nonzero, `n` is nonzero.
+    let sign_neg = x.is_sign_negative() && n % 2 != 0;
+    let eff_rm = if sign_neg { rm.for_negation() } else { rm };
+    let abs_x = x.abs();
+
+    // Input-side exact and tie classification (ADR-0059 M7 machinery,
+    // ADR-0060 tripod leg 1): every result narrow enough to be a
+    // format value or a nearest-mode midpoint, at any exponent.
+    if let Some((mag, status)) = crate::exact::powi_exact_input::<F>(abs_x, n, eff_rm) {
+        return Some((if sign_neg { mag.neg() } else { mag }, status));
+    }
+
+    let (mag, status) = if n.unsigned_abs() <= POWI_POWERING_MAX {
+        powi_powering_arm::<F, E>(ex, abs_x, n, eff_rm)?
+    } else {
+        let ln_x_ext = ln_extended_body::<F, E>(ex, abs_x);
+        let n_ext = ex.from_i32(n);
+        exp_from_extended_body::<F, E>(n_ext.mul(ln_x_ext), eff_rm, &ladder::POWI)?
+    };
+    Some((if sign_neg { mag.neg() } else { mag }, status))
+}
+
+/// `|x|^n` for `|n| ≤ 6` by square-and-multiply at working precision,
+/// closed by a Newton `recip` for `n < 0`. `None` escalates.
+///
+/// The accumulator starts at the working `1`, so the first multiply
+/// of an odd `|n|` is exact (a format-sourced base has at most 34
+/// digits and the working width is at least 50); the itemization on
+/// [`ladder::POWI_INT`] counts it anyway.
+fn powi_powering_arm<F: DecimalFormat, E: ExtNum>(
+    ex: E,
+    abs_x: F,
+    n: i32,
+    eff_rm: RoundingMode,
+) -> Option<(F, Status)> {
+    let mut base = ex.from_format(abs_x);
+    let mut acc = ex.one();
+    let mut e = n.unsigned_abs();
+    while e > 0 {
+        if e & 1 == 1 {
+            acc = acc.mul(base);
+        }
+        e >>= 1;
+        if e > 0 {
+            base = base.square();
+        }
+    }
+    let value = if n < 0 {
+        working_reciprocal::<F, E>(acc)
+    } else {
+        acc
+    };
+    ladder::round_guarded::<F, E>(value, eff_rm, &ladder::POWI_INT)
+}
+
+/// `1 / v` at working precision for a positive nonzero `v`, with the
+/// operand first scaled into `[1, 10)` and the scale re-applied to the
+/// result as a pure exponent shift.
+///
+/// The scaling is not an optimization. `ExtNum::recip` seeds Newton by
+/// round-tripping its operand through the *format*, and this is the
+/// crate's first caller that can hand it a magnitude outside the
+/// format's exponent range: `powi(1.7e2000, -6)` accumulates `≈
+/// 2.4e12000` before the reciprocal, whose `to_format` is `+∞` and
+/// whose `from_format` then panics on the non-finite datum. Every
+/// earlier caller (`div`, the trig and inverse-trig
+/// kernels) works on operands the surrounding algebra already keeps in
+/// range, so the seam only opens here. Scaling to `[1, 10)` closes it
+/// for every format at once, and it costs nothing measurable in the
+/// budget: `with_exponent` and `mul_pow10_exp` are exact exponent
+/// arithmetic, so the itemization on [`ladder::POWI_INT`] is unchanged.
+fn working_reciprocal<F: DecimalFormat, E: ExtNum>(v: E) -> E {
+    let digits = v.digit_count() as i32;
+    // `v = unit · 10^shift` with `unit ∈ [1, 10)`, so
+    // `1/v = (1/unit) · 10^-shift` and `1/unit ∈ (0.1, 1]`.
+    let shift = v.exponent() + digits - 1;
+    let unit = v.with_exponent(1 - digits);
+    unit.recip::<F>().mul_pow10_exp(-shift)
 }
 
 /// Classify the exponent `y` as an integer (and which kind) or not.

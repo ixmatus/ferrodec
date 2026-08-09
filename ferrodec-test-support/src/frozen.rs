@@ -18,7 +18,13 @@ use std::path::{Path, PathBuf};
 
 /// Corpus file stems that carry binary `func(input, input2)` vectors
 /// (fd-97a); every other stem is unary.
-pub const BINARY_FUNCS: &[&str] = &["pow", "atan2"];
+pub const BINARY_FUNCS: &[&str] = &["pow", "atan2", "hypot"];
+
+/// The ADR-0059 Track D D3 integer-operand surface: five-field lines
+/// like the binary ones, with `input2` carrying a plain `i32` rather
+/// than a decimal datum. Kept apart from [`BINARY_FUNCS`] so replay
+/// harnesses can parse the operand with the right type.
+pub const INT_OPERAND_FUNCS: &[&str] = &["powi", "rootn", "compound"];
 
 /// One frozen vector: `func(input[, input2])` correctly rounds to
 /// `output` at the filtered format precision under `mode`.
@@ -164,6 +170,32 @@ pub const EXPECTED_BUCKETS_P34: &[(&str, &str, usize)] = &[
     ("sinh", "NearestEven", 43),
     ("tan", "NearestEven", 74),
     ("tanh", "NearestEven", 52),
+    // ADR-0059 Track D D3 (ADR-0060): the algebraic group.
+    ("rsqrt", "NearestAway", 71),
+    ("rsqrt", "NearestEven", 99),
+    ("rsqrt", "TowardNegative", 66),
+    ("rsqrt", "TowardPositive", 66),
+    ("rsqrt", "TowardZero", 66),
+    ("powi", "NearestAway", 33),
+    ("powi", "NearestEven", 33),
+    ("powi", "TowardNegative", 19),
+    ("powi", "TowardPositive", 19),
+    ("powi", "TowardZero", 19),
+    ("rootn", "NearestAway", 30),
+    ("rootn", "NearestEven", 30),
+    ("rootn", "TowardNegative", 24),
+    ("rootn", "TowardPositive", 24),
+    ("rootn", "TowardZero", 24),
+    ("compound", "NearestAway", 29),
+    ("compound", "NearestEven", 29),
+    ("compound", "TowardNegative", 22),
+    ("compound", "TowardPositive", 22),
+    ("compound", "TowardZero", 22),
+    ("hypot", "NearestAway", 36),
+    ("hypot", "NearestEven", 36),
+    ("hypot", "TowardNegative", 30),
+    ("hypot", "TowardPositive", 30),
+    ("hypot", "TowardZero", 30),
 ];
 
 /// Decimal64 (p16) per-`(func, mode)` counts; see [`EXPECTED_BUCKETS_P34`].
@@ -259,6 +291,32 @@ pub const EXPECTED_BUCKETS_P16: &[(&str, &str, usize)] = &[
     ("sinh", "NearestEven", 14),
     ("tan", "NearestEven", 69),
     ("tanh", "NearestEven", 52),
+    // ADR-0059 Track D D3 (ADR-0060): the algebraic group.
+    ("rsqrt", "NearestAway", 61),
+    ("rsqrt", "NearestEven", 89),
+    ("rsqrt", "TowardNegative", 56),
+    ("rsqrt", "TowardPositive", 56),
+    ("rsqrt", "TowardZero", 56),
+    ("powi", "NearestAway", 32),
+    ("powi", "NearestEven", 32),
+    ("powi", "TowardNegative", 21),
+    ("powi", "TowardPositive", 21),
+    ("powi", "TowardZero", 21),
+    ("rootn", "NearestAway", 30),
+    ("rootn", "NearestEven", 30),
+    ("rootn", "TowardNegative", 24),
+    ("rootn", "TowardPositive", 24),
+    ("rootn", "TowardZero", 24),
+    ("compound", "NearestAway", 29),
+    ("compound", "NearestEven", 29),
+    ("compound", "TowardNegative", 24),
+    ("compound", "TowardPositive", 24),
+    ("compound", "TowardZero", 24),
+    ("hypot", "NearestAway", 36),
+    ("hypot", "NearestEven", 36),
+    ("hypot", "TowardNegative", 30),
+    ("hypot", "TowardPositive", 30),
+    ("hypot", "TowardZero", 30),
 ];
 
 /// Decimal32 (p7) per-`(func, mode)` counts; see [`EXPECTED_BUCKETS_P34`].
@@ -354,6 +412,32 @@ pub const EXPECTED_BUCKETS_P7: &[(&str, &str, usize)] = &[
     ("sinh", "NearestEven", 18),
     ("tan", "NearestEven", 65),
     ("tanh", "NearestEven", 52),
+    // ADR-0059 Track D D3 (ADR-0060): the algebraic group.
+    ("rsqrt", "NearestAway", 53),
+    ("rsqrt", "NearestEven", 81),
+    ("rsqrt", "TowardNegative", 48),
+    ("rsqrt", "TowardPositive", 48),
+    ("rsqrt", "TowardZero", 48),
+    ("powi", "NearestAway", 32),
+    ("powi", "NearestEven", 32),
+    ("powi", "TowardNegative", 22),
+    ("powi", "TowardPositive", 22),
+    ("powi", "TowardZero", 22),
+    ("rootn", "NearestAway", 30),
+    ("rootn", "NearestEven", 30),
+    ("rootn", "TowardNegative", 24),
+    ("rootn", "TowardPositive", 24),
+    ("rootn", "TowardZero", 24),
+    ("compound", "NearestAway", 28),
+    ("compound", "NearestEven", 28),
+    ("compound", "TowardNegative", 24),
+    ("compound", "TowardPositive", 24),
+    ("compound", "TowardZero", 24),
+    ("hypot", "NearestAway", 35),
+    ("hypot", "NearestEven", 35),
+    ("hypot", "TowardNegative", 29),
+    ("hypot", "TowardPositive", 29),
+    ("hypot", "TowardZero", 29),
 ];
 
 /// Assert the loaded corpus has exactly the expected per-`(func,
@@ -438,7 +522,8 @@ fn load_from(dir: &Path, prec: u32) -> Vec<FrozenVec> {
             .and_then(|s| s.to_str())
             .expect("corpus file stem")
             .to_string();
-        let binary = BINARY_FUNCS.contains(&func.as_str());
+        let binary =
+            BINARY_FUNCS.contains(&func.as_str()) || INT_OPERAND_FUNCS.contains(&func.as_str());
         let text = fs::read_to_string(&path).expect("read corpus file");
         for line in text.lines() {
             if line.starts_with('#') || line.is_empty() {

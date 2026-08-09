@@ -67,6 +67,19 @@ fn is_anchor_hugging(func: &str) -> bool {
     matches!(func, "logp1" | "expm1" | "exp2m1" | "exp10m1" | "exp10")
 }
 
+/// The ADR-0060 D3 operations whose corpus rows include grid-hugging
+/// shapes with a data-dependent agreement run (hypot's anchor band
+/// hugs `|w|` at depth ~2·(the operand magnitude gap); rootn and
+/// compound hug 1 at depth up to ~44 digits at the i32 extremes;
+/// powi's near-1 bases mirror pow's hard band). Rather than model
+/// each depth, every D3 row gets a conservative flat floor that
+/// covers the corpus's deepest constructible shape with margin —
+/// the width-collapse checklist's "reach past the agreement run"
+/// applied by bound instead of by estimate.
+fn is_d3(func: &str) -> bool {
+    matches!(func, "rsqrt" | "hypot" | "powi" | "rootn" | "compound")
+}
+
 fn work_bits(prec: usize, mag: i64, trig: bool, p1_anchor: bool) -> u32 {
     let base = 64 + 4 * (prec as i64 + 30);
     let extra = if trig {
@@ -90,6 +103,13 @@ fn work_bits(prec: usize, mag: i64, trig: bool, p1_anchor: bool) -> u32 {
     (base + extra).min(1 << 20) as u32
 }
 
+/// The D3 flat precision floor: 160 decimal digits (~533 bits)
+/// covers the deepest agreement run the D3 corpus can construct
+/// (hypot's in-band ratio ladder reaches ~75 digits of hugging;
+/// rootn/compound near-1 rows reach ~44) plus the 34-digit verdict
+/// and guard, with a two-fold margin.
+const D3_FLOOR_BITS: u32 = 533;
+
 fn eval(fv: &frozen::FrozenVec, p: u32) -> (Float, Ordering) {
     let x = Float::with_val(
         p,
@@ -107,6 +127,53 @@ fn eval(fv: &frozen::FrozenVec, p: u32) -> (Float, Ordering) {
             );
             let mut v = x;
             let ord = v.pow_assign_round(&y, Round::Nearest);
+            return (v, ord);
+        }
+        "hypot" => {
+            let y = Float::with_val(
+                p,
+                Float::parse(fv.input2.as_deref().expect("hypot input2"))
+                    .expect("frozen input2 parses in MPFR"),
+            );
+            let mut v = x;
+            let ord = v.hypot_round(&y, Round::Nearest);
+            return (v, ord);
+        }
+        // ADR-0060 D3 integer-operand surface: input2 is a plain i32;
+        // mpfr_pow_si / mpfr_rootn_si / mpfr_compound_si are native in
+        // the vendored MPFR 4.2 (rug wraps them), so nothing composes
+        // and no exactness is lost.
+        "powi" => {
+            let n: i32 = fv
+                .input2
+                .as_deref()
+                .expect("powi n")
+                .parse()
+                .expect("powi i32");
+            let mut v = x;
+            let ord = v.pow_assign_round(n, Round::Nearest);
+            return (v, ord);
+        }
+        "rootn" => {
+            let n: i32 = fv
+                .input2
+                .as_deref()
+                .expect("rootn n")
+                .parse()
+                .expect("rootn i32");
+            let mut v = x;
+            let ord = v.root_i_round(n, Round::Nearest);
+            return (v, ord);
+        }
+        "compound" => {
+            let n: i32 = fv
+                .input2
+                .as_deref()
+                .expect("compound n")
+                .parse()
+                .expect("compound i32");
+            let mut v = x;
+            let ord = v.compound_i_round(n, Round::Nearest);
             return (v, ord);
         }
         "atan2" => {
@@ -168,6 +235,7 @@ fn eval(fv: &frozen::FrozenVec, p: u32) -> (Float, Ordering) {
             let one = Float::with_val(p, 1u32);
             v.sub_assign_round(&one, Round::Nearest)
         }
+        "rsqrt" => v.recip_sqrt_round(Round::Nearest),
         "log2p1" => {
             v.ln_1p_round(Round::Nearest);
             let ln2 = Float::with_val(p, rug::float::Constant::Log2);
@@ -203,7 +271,8 @@ fn mpfr_cross_validates_arb_corpus() {
                 mag,
                 TRIG.contains(&v.func.as_str()),
                 is_anchor_hugging(&v.func),
-            );
+            )
+            .max(if is_d3(&v.func) { D3_FLOOR_BITS } else { 0 });
 
             // MPFR at Round::Nearest with generous precision is the
             // exact reference; the directed decimal rounding for the
@@ -234,6 +303,14 @@ fn mpfr_cross_validates_arb_corpus() {
                         0
                     };
                     tiny.max(approach)
+                } else if is_d3(&v.func) {
+                    // The D3 grid-hugging shapes (hypot's band, the
+                    // near-1 roots and compounds) reach ~75 digits of
+                    // agreement; 90 covers them with margin while
+                    // staying ~20 digits inside D3_FLOOR_BITS'
+                    // 160-digit accuracy, so the tail digits the
+                    // rounding reads are meaningful, not float noise.
+                    90
                 } else {
                     0
                 };

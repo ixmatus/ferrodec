@@ -115,13 +115,23 @@ DIRECTED_FUNCS = (
     "exp", "ln", "sin", "cos", "atan", "cbrt", "log10",
     "logp1", "log2p1", "log10p1",
     "expm1", "exp2m1", "exp10", "exp10m1",
+    # ADR-0060 Track D group D3: appended after every legacy name so
+    # the shared sequential rng leaves the legacy directed draws (and
+    # corpus bytes) untouched. rsqrt's directed risk profile is the
+    # classifier-adjacent neighborhoods, same as the D1/D2 families.
+    "rsqrt",
 )
-BINARY = ("atan2", "pow")
+BINARY = ("atan2", "pow", "hypot")
+# ADR-0060 D3: the integer-operand surface (format x i32). A fourth
+# pass with its own rng stream; vector lines carry the i32 as the
+# second input token.
+INT_BINARY = ("powi", "rootn", "compound")
 # Independent rng streams so the NearestEven corpus content is
 # byte-stable (the directed/binary passes do not perturb its sequence);
 # all three are seeded deterministically off the one SEED.
 SEED_DIRECTED = SEED ^ 0xD1EC7ED
 SEED_BINARY = SEED ^ 0xB17A12
+SEED_INTOP = SEED ^ 0x14700D3
 
 # ADR-0033 corpus-integrity gate. A `solve` / `solve_binary` call that
 # does not become decisive within `CAP_BITS` Arb working precision is
@@ -192,6 +202,9 @@ def _is_directed_exact_output_unary(name, coef, exp, neg, fmt):
             m = -exp
             return m <= fmt["prec"] and coef == 10 ** m - 1
         return False
+    if name == "rsqrt":
+        k = _rsqrt_exact_kind(coef, exp, neg, fmt)
+        return k == "exact"
     if name in M1EXP:
         n = _as_int(coef, exp)
         if n is None:
@@ -224,6 +237,8 @@ def _is_directed_exact_output_binary(name, xt, yt, fmt):
     function's docstring for the rationale. The candidates filtered
     are the exact-output pairs from `binary_representative('pow')`
     that produce a representable result in the target format."""
+    if name == "hypot":
+        return _hypot_exact_kind(xt, yt, fmt) == "exact"
     if name != "pow":
         return False
     (xc, xe, xn) = xt
@@ -266,6 +281,8 @@ def _is_undecidable_tie(name, coef, exp, neg, fmt):
     classifier owns these (delivered through the format rounder's tie
     rule) and explicit test vectors pin them; the scan must skip them
     or trip the cap-hit integrity assert."""
+    if name == "rsqrt":
+        return _rsqrt_exact_kind(coef, exp, neg, fmt) == "tie"
     if name != "exp2m1":
         return False
     n = _as_int(coef, exp)
@@ -280,6 +297,184 @@ def _is_undecidable_tie(name, coef, exp, neg, fmt):
         and len(str(2 ** n - 1)) == prec + 1
         and (2 ** n - 1) % 10 == 5
     )
+
+
+def _count_factor(a, f):
+    c = 0
+    while a % f == 0:
+        a //= f
+        c += 1
+    return c, a
+
+
+def _strip10(c):
+    """Strip trailing decimal zeros; returns (stripped, count)."""
+    z = 0
+    while c % 10 == 0 and c != 0:
+        c //= 10
+        z += 1
+    return c, z
+
+
+def _coeff_exact_kind(c, p):
+    """'exact' / 'tie' / None for a positive stripped coefficient at
+    format precision p (ADR-0060 D3: the generator-side mirror of the
+    classifiers' P+1 width gate; ties end in 5)."""
+    w = len(str(c))
+    if w <= p:
+        return "exact"
+    if w == p + 1 and c % 10 == 5:
+        return "tie"
+    return None
+
+
+def _kind_with_range(c, e10, fmt):
+    """Width-gate a stripped coefficient, then range-check by kind:
+    an exact value must itself be representable; a TIE is a midpoint
+    (P+1 digits by definition, never representable), so its range
+    check is on the adjusted exponent of the straddled neighborhood.
+    Without this split the tie families would leak into the scan and
+    spin to the cap (the pow(5, 49) shape caught it in the probe)."""
+    kind = _coeff_exact_kind(c, fmt["prec"])
+    if kind is None:
+        return None
+    if kind == "exact":
+        return "exact" if representable(c, e10, fmt) else None
+    adj = decimal_magnitude(c, e10)
+    return "tie" if fmt["emin"] <= adj <= fmt["emax"] else None
+
+
+def _rsqrt_exact_kind(coef, exp, neg, fmt):
+    """ADR-0060 D3 rsqrt classifier mirror: 1/sqrt(a*10^u) is rational
+    iff the stripped coefficient is 2^v2*5^v5 (no other prime) and both
+    halved exponents v2+u, v5+u are even; the value's stripped
+    coefficient is then a pure power of 2 or 5 (the 5-power side is the
+    tie family). Exact integer arithmetic; complete by construction."""
+    if neg:
+        return None
+    a, z = _strip10(coef)
+    u = exp + z
+    v2, r = _count_factor(a, 2)
+    v5, r = _count_factor(r, 5)
+    if r != 1:
+        return None
+    A, B = v2 + u, v5 + u
+    if A % 2 or B % 2:
+        return None
+    i, j = A // 2, B // 2
+    if i >= j:
+        c = 5 ** (i - j)
+        e10 = -i
+    else:
+        c = 2 ** (j - i)
+        e10 = -j
+    return _kind_with_range(c, e10, fmt)
+
+
+def _int_nth_root(t, b):
+    """Largest r with r^b <= t, by binary search (exact). The
+    bit-length guard mirrors exact.rs's nth_root_u128: a root >= 2
+    needs 2^b <= t, so past t.bit_length() the answer is 1 without
+    forming any power — without it the search computes `2 ** b` for
+    b up to 2^31, a hundreds-of-millions-digit integer (the pure
+    Python stall the third full run died of)."""
+    if t < 2:
+        return t
+    if b >= t.bit_length():
+        return 1
+    lo, hi = 1, 1 << (t.bit_length() // b + 2)
+    while lo < hi:
+        mid = (lo + hi + 1) // 2
+        if mid ** b <= t:
+            lo = mid
+        else:
+            hi = mid - 1
+    return lo
+
+
+def _frac_exact_kind(f, fmt):
+    """'exact' / 'tie' / None for an exact Fraction result (ADR-0060
+    D3 powi/compound filter). Terminating decimals only; the stripped
+    coefficient decides through the shared width gate, and the value
+    must be representable (range included)."""
+    num = abs(f.numerator)
+    if num == 0:
+        return None
+    a2, d = _count_factor(f.denominator, 2)
+    a5, d = _count_factor(d, 5)
+    if d != 1:
+        return None
+    m = max(a2, a5)
+    c = num * 2 ** (m - a2) * 5 ** (m - a5)
+    c, z = _strip10(c)
+    return _kind_with_range(c, z - m, fmt)
+
+
+def _int_exact_kind(name, xt, n, fmt):
+    """'exact' / 'tie' / None for the integer-operand D3 ops. Exact
+    integer/Fraction arithmetic throughout; the |n|*log10(2) width
+    lower bound bails before any huge power is formed (a stripped
+    base coefficient >= 2 makes the result wider than P+1 once
+    |n| > (P+1)/log10(2), so nothing exact or tie is lost)."""
+    (coef, exp, neg) = xt
+    p = fmt["prec"]
+    wide_n = abs(n) > int((p + 1) / 0.301) + 1
+    if name == "powi":
+        a, z = _strip10(coef)
+        if a == 1:
+            w = (exp + z) * n
+            if representable(1, w, fmt):
+                return "exact"
+            return None
+        if wide_n:
+            return None
+        return _frac_exact_kind(frac10(coef, exp) ** n, fmt)
+    if name == "compound":
+        base = 1 + (-1 if neg else 1) * frac10(coef, exp)
+        if base <= 0:
+            return None
+        bn = abs(base.numerator)
+        b_stripped, bz = _strip10(bn)
+        if b_stripped == 1 and base.denominator == 1:
+            # 1 + x = 10^k: the whole-range power-of-ten family.
+            w = bz * n
+            if representable(1, w, fmt):
+                return "exact"
+            return None
+        if wide_n:
+            return None
+        return _frac_exact_kind(base ** n, fmt)
+    if name == "rootn":
+        b = abs(n)
+        if b < 2:
+            return None
+        a, z = _strip10(coef)
+        u = exp + z
+        v2, r = _count_factor(a, 2)
+        v5, r = _count_factor(r, 5)
+        alpha, beta = v2 + u, v5 + u
+        if alpha % b or beta % b:
+            return None
+        if r == 1:
+            t_root = 1
+        elif b >= r.bit_length():
+            # s >= 2 would need s^b >= 2^b > r: no integer root, and
+            # forming the power to prove it is the stall class.
+            return None
+        else:
+            t_root = _int_nth_root(r, b)
+            if t_root ** b != r:
+                return None
+        if n < 0 and t_root != 1:
+            return None
+        i, j = alpha // b, beta // b
+        if n < 0:
+            i, j = -i, -j
+        k = min(i, j)
+        c = t_root * 2 ** (i - k) * 5 ** (j - k)
+        c, z2 = _strip10(c)
+        return _kind_with_range(c, k + z2, fmt)
+    return None
 
 
 def frac10(coef, exp):
@@ -488,12 +683,16 @@ FUNCS = {
     "exp2m1": lambda a: arb(2) ** a - arb(1),
     "exp10": lambda a: arb(10) ** a,
     "exp10m1": lambda a: arb(10) ** a - arb(1),
+    # ADR-0060 Track D group D3 (§9.2 rSqrt), appended after D2 for
+    # the same stream-stability reason. arb.rsqrt is the certified
+    # native primitive.
+    "rsqrt": lambda a: a.rsqrt(),
 }
 
 # Per-function decimal-magnitude window for the random TMD scan, and
 # whether the argument is restricted (sign / unit interval / ≥1).
 TRIG = {"sin", "cos", "tan"}
-POSITIVE = {"ln", "log2", "log10"}          # x > 0
+POSITIVE = {"ln", "log2", "log10", "rsqrt"}  # x > 0 (rsqrt: ADR-0060 D3)
 UNIT = {"asin", "acos", "atanh"}            # |x| < 1
 GE_ONE = {"acosh"}                          # x ≥ 1
 NON_NEGATIVE = {"sqrt"}                      # x ≥ 0 (IEEE §5 sqrt)
@@ -568,6 +767,18 @@ def representative(name):
         # enforces representability.
         (1_234_567, -6, False), (2_718_281, -6, False),
     ]
+    if name == "rsqrt":
+        # The POSITIVE probes plus perfect-square and near-square
+        # neighborhoods (the classifier-adjacent directed band); the
+        # exact rows themselves are filtered from the directed scan
+        # and delivered by the input-side classifier.
+        return base + [
+            (4, 0, False), (25, -2, False), (625, -4, False),
+            (1_048_576, 0, False),   # 2^20: exact, coefficient 2^10-side
+            (1_000_001, -6, False), (999_999, -6, False),
+            (5, -1, False), (1, -3, False), (1, 3, False),
+            (4_000_001, -6, False),  # beside 4: rsqrt near 0.5
+        ]
     if name in POSITIVE:
         return base + [
             (1_000_001, -6, False),  # just above 1 (ln near 0)
@@ -805,7 +1016,40 @@ def solve(name, fn, coef, exp, neg, fmt, mode="NearestEven",
 BIN_FUNCS = {
     "pow": lambda ax, ay: ax ** ay,
     "atan2": lambda ax, ay: arb.atan2(ay, ax),  # atan2(s=y, t=x)
+    # ADR-0060 D3: hypot in certified ball composition (no native
+    # arb.hypot in python-flint 0.6): squares and sqrt of balls keep
+    # the enclosure honest; the solve loop widens until decisive.
+    "hypot": lambda ax, ay: (ax * ax + ay * ay).sqrt(),
 }
+
+
+def _hypot_exact_kind(xt, yt, fmt):
+    """ADR-0060 D3 hypot classifier mirror: with quanta aligned at
+    q = min(xe, ye), S = (xc*10^(xe-q))^2 + (yc*10^(ye-q))^2 is an
+    exact integer; hypot is exact-or-tie iff S is a perfect square
+    whose stripped root passes the shared width gate (sqrt of a
+    non-square integer is irrational, Niven). Complete by
+    construction; signs are irrelevant (hypot is even)."""
+    (xc, xe, _xn) = xt
+    (yc, ye, _yn) = yt
+    q = min(xe, ye)
+    sx = xc * 10 ** (xe - q)
+    sy = yc * 10 ** (ye - q)
+    S = sx * sx + sy * sy
+    w = math.isqrt(S)
+    if w * w != S:
+        return None
+    c, z = _strip10(w)
+    return _kind_with_range(c, q + z, fmt)
+
+
+def _is_undecidable_tie_binary(name, xt, yt, fmt):
+    """Binary-surface tie exclusion (the pass-3 mirror of
+    _is_undecidable_tie): a true value ON a nearest-mode midpoint
+    never becomes decisive at any Arb precision in any mode."""
+    if name != "hypot":
+        return False
+    return _hypot_exact_kind(xt, yt, fmt) == "tie"
 
 
 def bin_in_domain(name, xt, yt):
@@ -814,8 +1058,9 @@ def bin_in_domain(name, xt, yt):
         # Real pow needs a positive base (x > 0); the scan/representor
         # only ever offers x ≥ 0, this rejects a zero coefficient.
         return (not xn) and xc != 0
-    # atan2 is defined everywhere except (0, 0); coefficients are ≥ 1,
-    # so the pair is never the origin.
+    # atan2 is defined everywhere except (0, 0), and hypot is total on
+    # finite pairs; coefficients are ≥ 1, so the pair is never the
+    # origin.
     return True
 
 
@@ -898,11 +1143,252 @@ def binary_representative(name):
             (15, -1, False), (1, 0, True), (25, -1, False),
         ]
         return [(x, y) for x in xs for y in ys]
+    if name == "hypot":
+        pairs = [
+            # Pythagorean anchors (exact; filtered from the directed
+            # scan, kept for NE where they are decisive).
+            ((3, 0, False), (4, 0, False)),
+            ((5, 0, False), (12, 0, False)),
+            ((20, 0, False), (21, 0, False)),
+            ((119, 0, False), (120, 0, False)),
+            ((3, -1, False), (4, -1, False)),
+            ((3, 10, False), (4, 10, False)),
+            # Near-Pythagorean and generic neighborhoods.
+            ((3, 0, False), (5, 0, False)),
+            ((1, 0, False), (1, 0, False)),
+            ((2, 0, True), (3, 0, False)),
+            ((1_234_567, -6, False), (7_654_321, -7, False)),
+            # The S = k^2 + 1 and k^2 + k grid/midpoint-hugging
+            # families (ADR-0060's near-attaining shapes).
+            ((1_000_000, 0, False), (1, 0, False)),
+            ((1_000_000, 0, False), (1_000, 0, False)),
+            ((999_999, 0, False), (1, 0, False)),
+            # Magnitude-ratio ladder across every format's anchor-band
+            # edge (delta0 = 18 / 9 / 5): ratios 1e-3 .. 1e-25.
+            ((314_159, -5, False), (271_828, -8, False)),
+            ((314_159, -5, False), (271_828, -10, False)),
+            ((314_159, -5, False), (271_828, -13, False)),
+            ((314_159, -5, False), (271_828, -14, False)),
+            ((314_159, -5, False), (271_828, -22, False)),
+            ((314_159, -5, False), (271_828, -23, False)),
+            ((314_159, -5, False), (271_828, -24, False)),
+            ((314_159, -5, False), (271_828, -30, False)),
+            ((314_159, 100, False), (271_828, 70, False)),
+        ]
+        return pairs
     pts = [
         (1, 0, False), (1, 0, True), (2, 0, False),
         (5, -1, False), (15, -1, False), (1_234_567, -6, False),
     ]
     return [(a, b) for a in pts for b in pts]
+
+
+# --- integer-operand surface: powi(x, n), rootn(x, n), compound(x, n)
+# (ADR-0060 Track D D3). The second operand is an i32, exact by type;
+# vector lines carry it as a plain integer token. ---
+
+INT_FUNCS = {
+    # x arrives as an exact fmpq; arb(x) is one certified conversion.
+    # Integer powers and roots are certified arb primitives; compound's
+    # base 1 + x is formed EXACTLY in fmpq before the one conversion
+    # (the width-collapse discipline: no ball-arithmetic cancellation
+    # near 1, and no stringify-then-round instrument anywhere).
+    "powi": lambda x, n: arb(x) ** n,
+    "rootn": lambda x, n: _arb_rootn(x, n),
+    "compound": lambda x, n: arb(1 + x) ** n,
+}
+
+
+def _arb_rootn(x, n):
+    """x^(1/n) as a certified ball. arb's native `root` is used only
+    for small |n|: python-flint 0.6's `root(n)` degrades to minutes
+    per call once |n| reaches the 10^8 range (measured: 66 minutes at
+    n = 936,680,469 — the second stall class the first full run hid
+    behind the underflow spin). Past the threshold the composition
+    `exp(ln(x)/n)` is ball arithmetic end to end, so the enclosure
+    stays honest and the solve loop's widening handles the slightly
+    fatter ball; the threshold keeps the tight native path where the
+    corpus's small-order roots (the delegation and adjudication
+    ranges) live."""
+    b = abs(n)
+    if b <= 4096:
+        return arb(x).root(b) if n > 0 else 1 / arb(x).root(b)
+    v = arb(x).log() / n
+    return v.exp()
+
+
+def _compound_base(xt):
+    (xc, xe, xn) = xt
+    x = frac10(xc, xe)
+    if xn:
+        x = -x
+    return 1 + x
+
+
+def int_in_domain(name, xt, n, fmt):
+    """Domain and range pre-rejection for the integer-operand scan.
+    |n| < 2 is excluded everywhere: n = 0 and n = ±1 are the delegation
+    rows (identity / reciprocal / one), not TMD candidates. Overflow
+    and deep-underflow results are rejected before any Arb call (they
+    have a §7.4 special-value contract, not a rounding to prove; an
+    out-of-range power-of-ten would otherwise spin to the cap)."""
+    (xc, xe, xn) = xt
+    if xc == 0 or abs(n) < 2:
+        return False
+    if name == "powi":
+        # BOTH range walls, a safe margin inside: `_decisive` cannot
+        # freeze a result outside the format's normal range (it
+        # rejects the enclosure at every precision), so a result past
+        # either wall spins the Arb ladder to the cap. The first full
+        # run demonstrated it: powi d32 draws with negative `n` landed
+        # results ~10^-144, forty decades below emin = -95, and each
+        # burned the whole 65,536-bit ladder before cap-hitting. The
+        # estimates are within a decade; the two-decade margin absorbs
+        # them.
+        est = n * (math.log10(xc) + xe)
+        return fmt["emin"] + 2 <= est <= fmt["emax"] - 2
+    if name == "rootn":
+        # Even-n negative bases are the NaN contract; odd-n negatives
+        # exercise the sign-reflection path and stay.
+        return (not xn) or (n % 2 != 0)
+    if name == "compound":
+        base = _compound_base(xt)
+        if base <= 0:
+            return False
+        # Digit-length log10 estimate (within one decade; the slack
+        # absorbs it). fmpq exposes numerator/denominator as p/q.
+        # The digit-length estimate is only usable when it is large;
+        # for bases within a few decades of 1 it reads 0 while
+        # n·log10(base) can be thousands (the compound d32 cap-hit
+        # row: base 1.2407844, n = 14594, true est 1367). Use a float
+        # logarithm when the base fits a float, the digit-length form
+        # only in the astronomic regime where it is accurate.
+        # (math.log10 takes arbitrarily large ints natively; base > 0
+        # was established above, so p and q are positive.)
+        log10_base = math.log10(int(base.p)) - math.log10(int(base.q))
+        est = n * log10_base
+        return fmt["emin"] + 2 <= est <= fmt["emax"] - 2
+    return False
+
+
+def solve_int(name, fni, xt, n, fmt, mode,
+              cap_bits=CAP_BITS, record_cap_hits=True):
+    """Smallest Arb precision at which f(x, n) is decisive under
+    `mode`. Mirrors solve_binary; the i32 operand is exact, so the
+    precision driver is the |n|-fold relative-error amplification of
+    the powering (log2|n| extra bits), plus the usual slack."""
+    (xc, xe, xn) = xt
+    if not int_in_domain(name, xt, n, fmt):
+        return None
+    if not representable(xc, xe, fmt):
+        return None
+    x = frac10(xc, xe)
+    extra = 32 + 2 * int(math.log2(abs(n)))
+    P = 64 + extra
+    while P <= cap_bits:
+        ctx.prec = P
+        try:
+            if name == "compound":
+                if xn:
+                    x_signed = -x
+                else:
+                    x_signed = x
+                b = fni(x_signed, n)
+            elif xn:
+                # powi/rootn odd-n negative base: compute the positive
+                # magnitude and re-apply the sign (both are odd there;
+                # even-n powi results are positive).
+                mag = fni(x, n)
+                b = -mag if n % 2 != 0 else mag
+            else:
+                b = fni(x, n)
+        except Exception:
+            return None
+        d = _decisive(b, fmt, mode)
+        if d is not None:
+            out_s, rad, margin = d
+            return (out_s, P, rad, margin)
+        if frac_of_point(b.lower()) is None or frac_of_point(b.upper()) is None:
+            return None
+        P *= 2
+    if record_cap_hits:
+        _record_cap_hit(
+            name, fmt, mode,
+            "x=(coef=%s%d exp=%d) n=%d" % ("-" if xn else "", xc, xe, n),
+        )
+    return None
+
+
+def int_representative(name):
+    """Hand-picked (x_triple, n) anchors: the classifier-adjacent
+    neighborhoods, the delegation seams (|n| = 6 vs 7), the odd-n
+    negative-base path, the i32 extremes on near-1 bases (the hug-at-1
+    anchor band), and the exact families (kept for the nearest modes,
+    filtered from the directed scan)."""
+    if name == "powi":
+        return [
+            ((2, 0, False), 2), ((2, 0, False), 3), ((2, 0, False), 5),
+            ((2, 0, False), 6), ((2, 0, False), 7), ((2, 0, False), 49),
+            ((2, 0, False), 112), ((2, 0, False), 113),
+            ((3, 0, True), 3), ((3, 0, True), 2),
+            ((15, -1, False), 3), ((2, -1, False), 2),
+            ((1_234_567, -6, False), 3), ((7, 0, False), -2),
+            ((2, 0, False), -3), ((1_000_001, -6, False), 1_048_576),
+            ((999_999, -6, False), -12_345),
+            ((2_718_281, -6, False), 1_000), ((5, 0, False), 48),
+        ]
+    if name == "rootn":
+        return [
+            ((8, 0, False), 3), ((27, 0, True), 3), ((2, 0, False), 2),
+            ((2, 0, False), 5), ((5, 0, False), 2), ((7, 0, False), 4),
+            ((1_234_567, -6, False), 7), ((2, 0, False), -2),
+            ((8, 0, False), -3), ((1_000_001, -6, False), 2_147_483_647),
+            ((999_999, -6, False), -2_147_483_647),
+            ((314_159, -5, False), 1_000), ((2, 0, False), 113),
+            ((32, 0, False), 5), ((1, 30, False), 5), ((625, -4, False), 4),
+        ]
+    return [
+        ((5, -2, False), 12), ((5, -2, False), 360),
+        ((1, -3, False), 365), ((9, 0, False), 2), ((99, 0, False), 5),
+        ((25, -2, True), 4), ((999_999, -6, True), 3),
+        ((1, -40, False), 3), ((1, -40, False), 2_147_483_647),
+        ((271_828, -6, False), 100), ((5, -1, True), 7),
+        ((1_234_567, -6, False), 30), ((3, -1, False), -12),
+        ((1, -1, True), 24), ((5, -2, False), -60),
+    ]
+
+
+def _draw_int_pair(rng, name, p):
+    """One scan draw for pass 4. n mixes the powering-arm range, the
+    moderate band, and the deep band up to the i32 edge; x favors the
+    near-1 neighborhoods for powi/compound (the pow hard band, and the
+    only region where a huge |n| survives the range check)."""
+    r = rng.random()
+    if r < 0.45:
+        n = rng.randrange(2, 10)
+    elif r < 0.75:
+        n = rng.randrange(10, 400)
+    elif r < 0.92:
+        n = rng.randrange(400, 30_000)
+    else:
+        n = rng.randrange(30_000, 2 ** 31)
+    if rng.random() < 0.5:
+        n = -n
+    if name == "powi":
+        if rng.random() < 0.3:
+            xt = (10_000_000 + rng.randrange(-99_999, 100_000), -7, False)
+        else:
+            xt = _scan_arg(rng, p, -3, 3, True)
+    elif name == "rootn":
+        xt = _scan_arg(rng, p, -6, 7, True)
+        if xt[2] and n % 2 == 0:
+            n += 1 if n > 0 else -1
+    else:
+        if rng.random() < 0.4:
+            xt = _scan_arg(rng, p, -45, -5, True)
+        else:
+            xt = _scan_arg(rng, p, -4, 3, True)
+    return xt, n
 
 
 def _scan_arg(rng, p, lo, hi, signed):
@@ -924,11 +1410,12 @@ def emit(only=None):
     unary_names = [n for n in FUNCS if only is None or n in only]
     directed_names = [n for n in DIRECTED_FUNCS if only is None or n in only]
     binary_names = [n for n in BINARY if only is None or n in only]
+    int_names = [n for n in INT_BINARY if only is None or n in only]
     # name -> list of entry tuples
     #   (fmt_idx, mode_idx, sortkey, prec, mode, in_s, in2_s, out, P,
     #    rad, margin)
     # in2_s is None for the unary functions.
-    acc = {name: [] for name in list(FUNCS) + list(BINARY)}
+    acc = {name: [] for name in list(FUNCS) + list(BINARY) + list(INT_BINARY)}
     fmt_order = {k: i for i, k in enumerate(FORMATS)}
     mode_idx = {m: i for i, m in enumerate(MODES_ALL)}
 
@@ -1079,17 +1566,34 @@ def emit(only=None):
                 cand = [
                     (xt, yt)
                     for (xt, yt) in binary_representative(name)
-                    if mode in ("NearestEven", "NearestAway")
-                    or not _is_directed_exact_output_binary(name, xt, yt, fmt)
+                    if not _is_undecidable_tie_binary(name, xt, yt, fmt)
+                    and (
+                        mode in ("NearestEven", "NearestAway")
+                        or not _is_directed_exact_output_binary(name, xt, yt, fmt)
+                    )
                 ]
                 scanned = []
                 for _ in range(TMD_SCAN_BINARY):
                     if name == "pow":
                         xt = _scan_arg(rng_b, p, -3, 4, False)
                         yt = _scan_arg(rng_b, p, -2, 3, True)
+                    elif name == "hypot":
+                        # Half the draws pull the second operand deep
+                        # below the first, crossing every format's
+                        # anchor-band edge (ADR-0060's two-band split).
+                        xt = _scan_arg(rng_b, p, -6, 7, True)
+                        if rng_b.random() < 0.5:
+                            yt = _scan_arg(rng_b, p, -30, 7, True)
+                        else:
+                            yt = _scan_arg(rng_b, p, -6, 7, True)
                     else:
                         xt = _scan_arg(rng_b, p, -6, 7, True)
                         yt = _scan_arg(rng_b, p, -6, 7, True)
+                    if _is_undecidable_tie_binary(name, xt, yt, fmt):
+                        continue
+                    if mode not in ("NearestEven", "NearestAway") and \
+                            _is_directed_exact_output_binary(name, xt, yt, fmt):
+                        continue
                     r = solve_binary(name, fn2, xt, yt, fmt, mode)
                     if r is not None:
                         scanned.append((r[3], xt, yt))
@@ -1102,6 +1606,11 @@ def emit(only=None):
                     if (xt, yt) in seen:
                         continue
                     seen.add((xt, yt))
+                    if _is_undecidable_tie_binary(name, xt, yt, fmt):
+                        continue
+                    if mode not in ("NearestEven", "NearestAway") and \
+                            _is_directed_exact_output_binary(name, xt, yt, fmt):
+                        continue
                     r = solve_binary(name, fn2, xt, yt, fmt, mode)
                     if r is None:
                         continue
@@ -1116,7 +1625,63 @@ def emit(only=None):
                         in2_s, out_s, P, rad, margin,
                     ))
 
-    for name in unary_names + binary_names:
+    # --- Pass 4: the integer-operand D3 surface (ADR-0060), NearestEven
+    # + directed, 2-D TMD over (x, n). Its own rng stream; the exact and
+    # tie families are filtered by the exact-integer mirrors of the
+    # input-side classifiers (complete by construction), so no
+    # undecidable candidate can reach the cap-hit assert. ---
+    rng_i = random.Random(SEED_INTOP)
+    for name in int_names:
+        fni = INT_FUNCS[name]
+        for mode in MODES_ALL:
+            for fkey, fmt in FORMATS.items():
+                p = fmt["prec"]
+                cand = []
+                for (xt, n) in int_representative(name):
+                    kind = _int_exact_kind(name, xt, n, fmt)
+                    if kind == "tie":
+                        continue
+                    if kind == "exact" and mode not in ("NearestEven", "NearestAway"):
+                        continue
+                    cand.append((xt, n))
+                scanned = []
+                for _ in range(TMD_SCAN_BINARY):
+                    xt, n = _draw_int_pair(rng_i, name, p)
+                    kind = _int_exact_kind(name, xt, n, fmt)
+                    if kind == "tie":
+                        continue
+                    if kind == "exact" and mode not in ("NearestEven", "NearestAway"):
+                        continue
+                    r = solve_int(name, fni, xt, n, fmt, mode)
+                    if r is not None:
+                        scanned.append((r[3], xt, n))
+                scanned.sort(key=lambda t: (t[0], t[1], t[2]))
+                for (_m, xt, n) in scanned[:TMD_KEEP_BINARY]:
+                    cand.append((xt, n))
+
+                seen = set()
+                for (xt, n) in cand:
+                    if (xt, n) in seen:
+                        continue
+                    seen.add((xt, n))
+                    kind = _int_exact_kind(name, xt, n, fmt)
+                    if kind == "tie":
+                        continue
+                    if kind == "exact" and mode not in ("NearestEven", "NearestAway"):
+                        continue
+                    r = solve_int(name, fni, xt, n, fmt, mode)
+                    if r is None:
+                        continue
+                    out_s, P, rad, margin = r
+                    (xc, xe, xn) = xt
+                    in_s = "%s%de%d" % ("-" if xn else "", xc, xe)
+                    acc[name].append((
+                        fmt_order[fkey], mode_idx[mode],
+                        (xe, xc, xn, n), p, mode, in_s,
+                        str(n), out_s, P, rad, margin,
+                    ))
+
+    for name in unary_names + binary_names + int_names:
         entries = sorted(acc[name], key=lambda e: (e[0], e[1], e[2]))
         vec_lines = []
         prov_lines = []
@@ -1143,8 +1708,10 @@ def emit(only=None):
                 "(ADR-0026, fd-cb6; directed + binary fd-97a).\n"
                 "# Unary line: <prec> <mode> <input> "
                 "<correctly-rounded-output>.\n"
-                "# Binary line (pow, atan2): <prec> <mode> <input1> "
+                "# Binary line (pow, atan2, hypot): <prec> <mode> <input1> "
                 "<input2> <output>.\n"
+                "# Integer-operand line (powi, rootn, compound): <prec> "
+                "<mode> <input> <n:i32> <output>.\n"
                 "# Output is the proven correctly-rounded value under "
                 "<mode> at <prec>\n# significant digits; see %s.prov "
                 "for the enclosure provenance.\n"
@@ -1298,7 +1865,7 @@ if __name__ == "__main__":
         for i, a in enumerate(args):
             if a == "--funcs":
                 only = set(args[i + 1].split(","))
-                unknown = only - set(FUNCS) - set(BINARY)
+                unknown = only - set(FUNCS) - set(BINARY) - set(INT_BINARY)
                 if unknown:
                     sys.stderr.write(
                         "--funcs: unknown function(s): %s\n"

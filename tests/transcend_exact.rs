@@ -314,3 +314,44 @@ fn exp2_pow_flag_parity() {
     assert_eq!(st_e, Status::OK);
     assert_eq!(st_p, Status::OK);
 }
+
+#[test]
+fn pow_huge_integer_exponent_saturates_instead_of_wrapping() {
+    // fd-clc (found by the D3 powi lane): the unwindowed classifier
+    // handed `w = 2147483647` to the format rounder, whose i32
+    // `qmin − unbiased_exp` wrapped — a debug panic, and a wrong §7.4
+    // disposition in release. Past the EXACT_EXPONENT_WINDOW the
+    // classifier now declines and the kernel's exp overflow gate owns
+    // the disposition: +∞ in the upward modes, the largest finite
+    // toward zero and downward, OVERFLOW | INEXACT everywhere.
+    for rm in ALL {
+        let (v, st) = parse("10").pow(parse("2147483647"), rm);
+        assert!(
+            st.overflow() && st.inexact(),
+            "pow(10, 2^31-1) at {rm:?}: {st:?}"
+        );
+        match rm {
+            TZ | TN => assert!(
+                v.is_finite(),
+                "directed-down overflow is the largest finite, got {v:?}"
+            ),
+            _ => assert!(v.is_infinite(), "expected +∞, got {v:?}"),
+        }
+    }
+    // The mirrored underflow side: 10^-(2^31-1) is far below etiny.
+    for rm in ALL {
+        let (v, st) = parse("10").pow(parse("-2147483647"), rm);
+        assert!(
+            st.underflow() && st.inexact(),
+            "pow(10, -(2^31-1)) at {rm:?}: {st:?}"
+        );
+        assert!(
+            v.is_zero() || v.is_finite(),
+            "underflow delivers zero or the smallest subnormal, got {v:?}"
+        );
+    }
+    // The window edge itself still classifies exactly (in range it is
+    // an ordinary huge-but-representable-exponent overflow).
+    let (_, st) = parse("10").pow(parse("99999"), NE);
+    assert!(st.overflow() && st.inexact());
+}
