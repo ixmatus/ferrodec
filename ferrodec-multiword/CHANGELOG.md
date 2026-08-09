@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `U1024`, the 1024-bit fixed-width type (ADR-0060 exact integer
+  adjudicator): the comparison width for the adjudicator's widest
+  aligned relations (`rootn` at `|n| = 6`, `pown` at `n = −6`, both
+  past `U768`'s 231-digit envelope). Minimal compare-oriented surface
+  (`add`, `sub`, `cmp`, `mul_u128`, `mul10`, `mul_pow10`, `div_rem10`,
+  `decimal_digit_count`, `from_u128`, `from_u768`, the overflow-honest
+  `checked_mul` for the adjudicator's powering folds) plus the
+  widening product `u768_mul_u128_to_u1024`; no division, no
+  collapse, same array-limb representation as `U768`.
+
 ## [0.2.0] - 2026-08-02
 
 ### Added

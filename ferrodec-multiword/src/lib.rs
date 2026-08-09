@@ -18,8 +18,10 @@
 //! profiled against a real M0+ board, not a premature optimisation.
 //!
 //! `no_std`. The default build is `alloc`-free: the fixed-width
-//! `U256`/`U384`/`U512` types are pure stack integer math for the
-//! Cortex-M0+ floor. The optional `alloc` feature additionally compiles
+//! `U256`/`U384`/`U512`/`U768`/`U1024` types are pure stack integer
+//! math for the Cortex-M0+ floor (`U1024` exists for the ADR-0060
+//! exact integer adjudicator's widest comparisons; its module doc
+//! carries the width derivation). The optional `alloc` feature additionally compiles
 //! in [`DecBig`], a growable base-`10^9` decimal-limb unsigned integer
 //! used as the coefficient backend for arbitrary-precision decimal; it
 //! is the only part of the crate that touches the heap. `DecBig`
@@ -43,11 +45,13 @@
 #[cfg(feature = "alloc")]
 extern crate alloc;
 
+pub mod u1024;
 pub mod u256;
 pub mod u384;
 pub mod u512;
 pub mod u768;
 
+pub use u1024::U1024;
 pub use u256::U256;
 pub use u384::U384;
 pub use u512::U512;
