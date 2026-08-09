@@ -14,7 +14,7 @@
 #   tools/gate_battery.sh fmt tests  # run the named lanes only
 #
 # Lanes: fmt clippy rustdoc tests transcend force_escalate ladder_audit
-#        force_rung3 thumbv6m
+#        force_adjudicate force_rung3 thumbv6m
 #
 # The RUSTFLAGS lanes use per-lane CARGO_TARGET_DIR subdirectories so
 # repeated battery runs reuse each configuration's cache instead of
@@ -104,6 +104,24 @@ lane_ladder_audit() {
             cargo test -p ferrodec-decimal32 --features transcendentals
 }
 
+lane_force_adjudicate() {
+    # ADR-0060 anti-rot differential: with force_escalate routing every
+    # guarded delivery to rung 2 and force_adjudicate replacing rung 2's
+    # budgeted verdict with the unbudgeted nearest-boundary locate,
+    # every corpus row of the five algebraic operations (rsqrt, hypot,
+    # powi's powering arm, rootn, compound) delivers THROUGH the exact
+    # integer adjudicator wherever its range gates accept; the full
+    # pinned corpus is the byte-identity reference. Default build: the
+    # lane's meaning is rung-2-as-top.
+    local td="target/battery/force_adjudicate"
+    RUSTFLAGS="--cfg force_escalate --cfg force_adjudicate" CARGO_TARGET_DIR="$td" \
+        cargo test -p ferrodec --features transcendentals &&
+        RUSTFLAGS="--cfg force_escalate --cfg force_adjudicate" CARGO_TARGET_DIR="$td" \
+            cargo test -p ferrodec-decimal64 --features transcendentals &&
+        RUSTFLAGS="--cfg force_escalate --cfg force_adjudicate" CARGO_TARGET_DIR="$td" \
+            cargo test -p ferrodec-decimal32 --features transcendentals
+}
+
 lane_force_rung3() {
     # Release lane: both fixed rungs route to the dynamic rung; the
     # full corpus and the S1 replay are the byte-identity references.
@@ -128,7 +146,7 @@ lane_thumbv6m() {
             --features transcendentals,binary-float -p ferrodec-decimal32
 }
 
-ALL_LANES=(fmt clippy rustdoc tests transcend force_escalate ladder_audit force_rung3 thumbv6m)
+ALL_LANES=(fmt clippy rustdoc tests transcend force_escalate ladder_audit force_adjudicate force_rung3 thumbv6m)
 LANES=("$@")
 if [ ${#LANES[@]} -eq 0 ]; then
     LANES=("${ALL_LANES[@]}")
@@ -143,6 +161,7 @@ for l in "${LANES[@]}"; do
     transcend) lane transcend lane_transcend ;;
     force_escalate) lane force_escalate lane_force_escalate ;;
     ladder_audit) lane ladder_audit lane_ladder_audit ;;
+    force_adjudicate) lane force_adjudicate lane_force_adjudicate ;;
     force_rung3) lane force_rung3 lane_force_rung3 ;;
     thumbv6m) lane thumbv6m lane_thumbv6m ;;
     *)

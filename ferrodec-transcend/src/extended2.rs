@@ -397,6 +397,24 @@ impl Extended2 {
         self,
         budget: u128,
     ) -> crate::ladder::BoundaryVerdict {
+        self.boundary_verdict::<F>(Some(budget))
+    }
+
+    /// The `force_adjudicate` lane's unbudgeted locate (contract on
+    /// [`Extended::nearest_boundary`]): this rung's is the one the
+    /// lane actually consumes, since adjudication is rung 2
+    /// semantics.
+    #[must_use]
+    pub(crate) fn nearest_boundary<F: DecimalFormat>(self) -> crate::ladder::BoundaryVerdict {
+        self.boundary_verdict::<F>(None)
+    }
+
+    /// The one computation behind the two views above (the rung 1
+    /// mirror's contract).
+    fn boundary_verdict<F: DecimalFormat>(
+        self,
+        budget: Option<u128>,
+    ) -> crate::ladder::BoundaryVerdict {
         use crate::ladder::{Boundary, BoundaryVerdict};
         if self.is_zero() {
             return BoundaryVerdict::NearIndeterminate;
@@ -428,7 +446,12 @@ impl Extended2 {
             return BoundaryVerdict::NearIndeterminate;
         }
         if excess > digits {
-            return BoundaryVerdict::Clear;
+            // Strict full drop: Clear by the budget type, no nameable
+            // identity unbudgeted (the rung 1 mirror's derivation).
+            return match budget {
+                Some(_) => BoundaryVerdict::Clear,
+                None => BoundaryVerdict::NearIndeterminate,
+            };
         }
 
         let mut kept = coef_w;
@@ -463,8 +486,16 @@ impl Extended2 {
             best_dist = dist_mid;
             best = 2;
         }
-        if best_dist.cmp(U384::from_u128(budget)) == Ordering::Greater {
-            return BoundaryVerdict::Clear;
+        if let Some(bound) = budget {
+            if best_dist.cmp(U384::from_u128(bound)) == Ordering::Greater {
+                return BoundaryVerdict::Clear;
+            }
+        }
+        if best == 0 && kept.is_zero() {
+            // Full-drop edge, zero grid point nearest: no nameable
+            // identity (unbudgeted only; the rung 1 mirror derives
+            // why a budget cannot select it).
+            return BoundaryVerdict::NearIndeterminate;
         }
 
         // At most `F::PRECISION ≤ 34` kept digits: fits the low limb
@@ -998,6 +1029,9 @@ impl ExtNum for Extended2 {
     }
     fn candidate_boundary<F: DecimalFormat>(self, budget: u128) -> crate::ladder::BoundaryVerdict {
         Extended2::candidate_boundary::<F>(self, budget)
+    }
+    fn nearest_boundary<F: DecimalFormat>(self) -> crate::ladder::BoundaryVerdict {
+        Extended2::nearest_boundary::<F>(self)
     }
 
     // Top fixed rung. Without the `unbounded-ladder` feature its

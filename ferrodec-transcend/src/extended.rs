@@ -480,6 +480,30 @@ impl Extended {
         self,
         budget: u128,
     ) -> crate::ladder::BoundaryVerdict {
+        self.boundary_verdict::<F>(Some(budget))
+    }
+
+    /// The `force_adjudicate` lane's unbudgeted locate: the nearest
+    /// boundary regardless of distance, so the lane can route every
+    /// delivery through the adjudicator instead of only the
+    /// in-budget ones. `NearIndeterminate` replaces every arm that
+    /// cannot name a single boundary (zero, no-drop, the strict full
+    /// drop, and the full-drop edge whose nearest boundary is the
+    /// zero grid point); the lane falls back to the normal delivery
+    /// there.
+    #[must_use]
+    pub(crate) fn nearest_boundary<F: DecimalFormat>(self) -> crate::ladder::BoundaryVerdict {
+        self.boundary_verdict::<F>(None)
+    }
+
+    /// The one computation behind [`Self::candidate_boundary`] and
+    /// [`Self::nearest_boundary`]: `budget = Some(b)` answers `Clear`
+    /// beyond `b`; `None` always names the nearest boundary when one
+    /// is nameable.
+    fn boundary_verdict<F: DecimalFormat>(
+        self,
+        budget: Option<u128>,
+    ) -> crate::ladder::BoundaryVerdict {
         use crate::ladder::{Boundary, BoundaryVerdict};
         if self.is_zero() {
             return BoundaryVerdict::NearIndeterminate;
@@ -530,9 +554,14 @@ impl Extended {
             // coefficient away — at least 10^(EXT_PRECISION − 1) units.
             // `budget: u128` cannot express that distance (10^49 >
             // u128::MAX ≈ 3.4·10^38), so the answer is `Clear` by the
-            // budget's type alone. The `excess == digits` full drop
-            // (round digit at the MSD) stays on the general path below.
-            return BoundaryVerdict::Clear;
+            // budget's type alone; unbudgeted, the zero grid point is
+            // not a nameable identity. The `excess == digits` full
+            // drop (round digit at the MSD) stays on the general path
+            // below.
+            return match budget {
+                Some(_) => BoundaryVerdict::Clear,
+                None => BoundaryVerdict::NearIndeterminate,
+            };
         }
 
         // tail = coef_w mod 10^excess, extracted by the same div_rem10
@@ -569,8 +598,17 @@ impl Extended {
             best_dist = dist_mid;
             best = 2;
         }
-        if best_dist.cmp(U256::from_u128(budget)) == Ordering::Greater {
-            return BoundaryVerdict::Clear;
+        if let Some(bound) = budget {
+            if best_dist.cmp(U256::from_u128(bound)) == Ordering::Greater {
+                return BoundaryVerdict::Clear;
+            }
+        }
+        if best == 0 && kept.is_zero() {
+            // The `excess == digits` full-drop edge with the lower
+            // grid point nearest: that boundary is zero, not a
+            // nameable identity. Reachable only unbudgeted (the
+            // distance is ≥ 10^(digits − 1), past any u128 budget).
+            return BoundaryVerdict::NearIndeterminate;
         }
 
         // The kept coefficient carries at most `F::PRECISION ≤ 34`
@@ -1057,6 +1095,12 @@ pub(crate) trait ExtNum: Copy + core::fmt::Debug {
     /// is ever consumed.
     #[must_use]
     fn candidate_boundary<F: DecimalFormat>(self, budget: u128) -> crate::ladder::BoundaryVerdict;
+    /// The unbudgeted locate behind the `force_adjudicate` lane (see
+    /// [`Extended::nearest_boundary`]): the nearest boundary
+    /// regardless of distance, `NearIndeterminate` when no single
+    /// boundary is nameable.
+    #[must_use]
+    fn nearest_boundary<F: DecimalFormat>(self) -> crate::ladder::BoundaryVerdict;
 
     // ---- ladder position (ADR-0059 M8) ---------------------------------
 
@@ -1295,6 +1339,9 @@ impl ExtNum for Extended {
     }
     fn candidate_boundary<F: DecimalFormat>(self, budget: u128) -> crate::ladder::BoundaryVerdict {
         Extended::candidate_boundary::<F>(self, budget)
+    }
+    fn nearest_boundary<F: DecimalFormat>(self) -> crate::ladder::BoundaryVerdict {
+        Extended::nearest_boundary::<F>(self)
     }
 
     const ESCALATES: bool = true;

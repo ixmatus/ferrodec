@@ -408,7 +408,21 @@ pub(crate) fn round_adjudicated<F: DecimalFormat, E: ExtNum>(
         // cfg is meaningless here, as it is in `round_guarded`.)
         return None;
     }
-    match v.candidate_boundary::<F>(v.rung_budget(budget)) {
+    // The `force_adjudicate` test lane replaces the budgeted verdict
+    // with the unbudgeted nearest-boundary locate: EVERY rung 2
+    // delivery of the five operations then routes through the
+    // adjudicator (in range), and the pinned corpus is the byte
+    // identity reference — the anti-rot differential ADR-0060's
+    // inversion list demands, on the `force_escalate` lane's pattern.
+    // Sound at any distance: the nearest boundary and the true value
+    // share a bracket (no other boundary sits between a value and its
+    // nearest boundary), so the adjudicated delivery still rounds
+    // identically to the true value in every mode.
+    #[cfg(force_adjudicate)]
+    let verdict = v.nearest_boundary::<F>();
+    #[cfg(not(force_adjudicate))]
+    let verdict = v.candidate_boundary::<F>(v.rung_budget(budget));
+    match verdict {
         BoundaryVerdict::Clear => {}
         BoundaryVerdict::Near(b) => match decide(b) {
             Some(side) => return Some(deliver_at_boundary::<F, E>(v, b, side, rm)),

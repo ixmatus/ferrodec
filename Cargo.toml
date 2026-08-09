@@ -14,13 +14,19 @@ unsafe_code = "forbid"
 # rung 2 (the anti-rot byte-identity differential); `ladder_audit`
 # panics on top-rung residual ambiguity (ADR-0059 M8); `force_rung3`
 # routes every guarded delivery through the unbounded rung (M8b; a
-# no-op unless the `unbounded-ladder` feature is on). All are
-# test-lane cfgs, set via RUSTFLAGS="--cfg force_escalate" etc.
+# no-op unless the `unbounded-ladder` feature is on);
+# `force_adjudicate` routes every rung 2 delivery of the five
+# ADR-0060 algebraic operations through the exact integer adjudicator
+# at the nearest boundary (run together with `force_escalate` in a
+# default build, so the whole corpus reaches rung 2 and the pins are
+# the byte-identity reference). All are test-lane cfgs, set via
+# RUSTFLAGS="--cfg force_escalate" etc.
 unexpected_cfgs = { level = "warn", check-cfg = [
     "cfg(kani)",
     "cfg(force_escalate)",
     "cfg(ladder_audit)",
     "cfg(force_rung3)",
+    "cfg(force_adjudicate)",
 ] }
 
 [workspace.lints.clippy]
