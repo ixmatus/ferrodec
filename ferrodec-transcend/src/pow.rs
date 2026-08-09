@@ -605,7 +605,13 @@ fn powi_powering_arm<F: DecimalFormat, E: ExtNum>(
     } else {
         acc
     };
-    ladder::round_guarded::<F, E>(value, eff_rm, &ladder::POWI_INT)
+    // On a rung 2 ambiguity the decider settles the side by the exact
+    // power comparison (ADR-0060); `2 ≤ |n| ≤ 6` is the adjudicable
+    // range, and `|n| = 1` needs none (its Liouville floor clears the
+    // budget by thirty decimal orders on its own).
+    ladder::round_adjudicated::<F, E>(value, eff_rm, &ladder::POWI_INT, |b| {
+        crate::adjudicate::powi_side(abs_x, n, b)
+    })
 }
 
 /// `1 / v` at working precision for a positive nonzero `v`, with the

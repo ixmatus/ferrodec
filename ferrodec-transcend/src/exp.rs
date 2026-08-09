@@ -690,6 +690,46 @@ pub(crate) fn exp_from_extended_body<F: DecimalFormat, E: ExtNum>(
     rm: RoundingMode,
     budget: &ladder::Budget,
 ) -> Option<(F, Status)> {
+    match exp_prepared::<F, E>(x_ext, rm) {
+        ExpPrepared::Done(result) => Some(result),
+        ExpPrepared::Working(v) => ladder::round_guarded::<F, E>(v, rm, budget),
+    }
+}
+
+/// [`exp_from_extended_body`] with the ADR-0060 adjudicator on the
+/// rung 2 delivery: the variant `rootn` and `compound` finish
+/// through, passing their operand-capturing decider to
+/// [`ladder::round_adjudicated`]. The shared gates and the 1-anchor
+/// seam ([`exp_prepared`]) are byte-identical between the two tails,
+/// which is what keeps the seven unadjudicated callers' behavior
+/// untouched by this split.
+pub(crate) fn exp_from_extended_body_adjudicated<F: DecimalFormat, E: ExtNum>(
+    x_ext: E,
+    rm: RoundingMode,
+    budget: &ladder::Budget,
+    decide: impl Fn(crate::ladder::Boundary) -> Option<crate::adjudicate::Side>,
+) -> Option<(F, Status)> {
+    match exp_prepared::<F, E>(x_ext, rm) {
+        ExpPrepared::Done(result) => Some(result),
+        ExpPrepared::Working(v) => ladder::round_adjudicated::<F, E>(v, rm, budget, decide),
+    }
+}
+
+/// The two ways [`exp_prepared`] can resolve: an early delivery the
+/// gates or the 1-anchor seam decided (correct at every rounding
+/// direction by their own proofs), or the working-precision result
+/// awaiting a guarded format delivery.
+enum ExpPrepared<F, E> {
+    Done((F, Status)),
+    Working(E),
+}
+
+/// The shared front of the two delivery tails above: the
+/// over/underflow saturation gates and the ADR-0051 1-anchor seam,
+/// then the Taylor pipeline at working precision. Split from the
+/// delivery so the adjudicated and plain tails cannot diverge in
+/// anything but their final rounding call.
+fn exp_prepared<F: DecimalFormat, E: ExtNum>(x_ext: E, rm: RoundingMode) -> ExpPrepared<F, E> {
     // Magnitude gate: `exp` overflows past the format's
     // `exp_overflow_limit` and underflows past its
     // `exp_underflow_limit`. The two thresholds are asymmetric
@@ -727,7 +767,7 @@ pub(crate) fn exp_from_extended_body<F: DecimalFormat, E: ExtNum>(
         // Unguarded delivery: the gate thresholds prove the true
         // result past the last boundary with margin, so no rung can
         // change any mode's answer.
-        return Some((result, status | Status::INEXACT));
+        return ExpPrepared::Done((result, status | Status::INEXACT));
     }
 
     let result_ext = exp_extended_body(x_ext);
@@ -745,9 +785,9 @@ pub(crate) fn exp_from_extended_body<F: DecimalFormat, E: ExtNum>(
     // grid-hugging residual; the theorem-backed side does).
     if !x_ext.is_zero() && result_ext.sticks_to(x_ext.one()) {
         let (result, status) = x_ext.one().to_format_with_residual::<F>(!x_ext.sign(), rm);
-        return Some((result, status | Status::INEXACT));
+        return ExpPrepared::Done((result, status | Status::INEXACT));
     }
-    ladder::round_guarded::<F, E>(result_ext, rm, budget)
+    ExpPrepared::Working(result_ext)
 }
 
 /// Compute `exp(x_ext)` and return the result *at extended precision*.

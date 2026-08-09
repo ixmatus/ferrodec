@@ -67,11 +67,6 @@
 //! ADR-0060's width table, which is where the operand ranges of the
 //! unconditional tier come from.
 
-// Not yet wired: the kernels reach these deciders at the wiring
-// commit, when `ladder::round_adjudicated` lands. Until then this
-// keeps the build clean, exactly as `extended2.rs` did before M8.
-#![allow(dead_code)]
-
 use crate::format::DecimalFormat;
 use crate::ladder::Boundary;
 use core::cmp::Ordering;

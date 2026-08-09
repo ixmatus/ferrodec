@@ -242,7 +242,12 @@ pub(crate) fn compound_kernel_body<F: DecimalFormat, E: ExtNum>(
     // only on-grid family that reaches past those gates.
     let log1p_x = crate::ln::logp1_extended_core::<F, E>(ex, x);
     let v = ex.from_i32(n).mul(log1p_x);
-    crate::exp::exp_from_extended_body::<F, E>(v, rm, &ladder::COMPOUND)
+    // On a rung 2 ambiguity the decider settles the side on the exact
+    // rational `(1 + x)^n` (ADR-0060); `|n| · w ≤ 196` over the
+    // stripped exact-sum width `w` is the adjudicable range.
+    crate::exp::exp_from_extended_body_adjudicated::<F, E>(v, rm, &ladder::COMPOUND, |b| {
+        crate::adjudicate::compound_side(x, n, b)
+    })
 }
 
 /// The ADR-0051 anchor arm: deliver `(1 + x)^n` from the grid point 1

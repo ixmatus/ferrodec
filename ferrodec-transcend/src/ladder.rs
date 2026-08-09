@@ -355,6 +355,121 @@ pub(crate) fn round_guarded<F: DecimalFormat, E: ExtNum>(
     Some((result, status | Status::INEXACT))
 }
 
+/// [`round_guarded`] with the ADR-0060 exact integer adjudicator on
+/// the rung 2 ambiguous path — the delivery the five algebraic
+/// kernels (`rsqrt`, `hypot`, `powi`'s powering arm, `rootn`,
+/// `compound`) run instead of the plain guard.
+///
+/// Rungs 1 and 3 delegate to [`round_guarded`] verbatim, so
+/// `force_escalate` and `force_rung3` keep their meanings for these
+/// operations exactly as for every other kernel (the `force_rung3`
+/// arm below fires before the predicate, preserving the Ziv
+/// termination lane). Rung 2 — in EVERY build — runs the identity
+/// predicate on each delivery:
+///
+/// * `Clear`: deliver unconditionally, exactly as [`round_guarded`].
+/// * `Near(b)` with `decide(b) = Some(side)`: the operands are inside
+///   the operation's adjudicable range and the decider has computed,
+///   in exact integer arithmetic, which side of the boundary the true
+///   value sits on. Deliver through [`deliver_at_boundary`]. In an
+///   `unbounded-ladder` build this replaces the Ziv entry: the fixed
+///   rungs plus the adjudicator already decide everything in range,
+///   so rung 3 is unnecessary for these operations (ADR-0060), while
+///   the Ziv path stays wired for uniformity and for the out-of-range
+///   remainder.
+/// * `Near(b)` with `decide(b) = None` (operands outside the
+///   adjudicable range), or `NearIndeterminate`: the pre-adjudicator
+///   behavior per build — escalate to the Ziv rung under
+///   `unbounded-ladder`; deliver unconditionally in the default
+///   build. `ladder_audit`'s meaning for these operations sharpens to
+///   "the adjudicator ran and DECLINED": an ambiguity the adjudicator
+///   decides no longer panics, which is ADR-0060's "vacuous panics
+///   removed by construction".
+///
+/// Escalation and adjudication stay deterministic functions of the
+/// input alone: the predicate is mode-independent, the decider is
+/// exact integer arithmetic on the operands and the boundary, and
+/// the adjudicable-range gates read only the operands.
+#[cfg(feature = "exp-log")]
+pub(crate) fn round_adjudicated<F: DecimalFormat, E: ExtNum>(
+    v: E,
+    rm: RoundingMode,
+    budget: &Budget,
+    decide: impl Fn(Boundary) -> Option<crate::adjudicate::Side>,
+) -> Option<(F, Status)> {
+    if E::RUNG != 2 {
+        return round_guarded::<F, E>(v, rm, budget);
+    }
+    #[cfg(force_rung3)]
+    if E::ESCALATES {
+        // The Ziv termination lane keeps its meaning: with the
+        // unbounded feature both fixed rungs route past the
+        // adjudicator into the dynamic rung. (Without the feature the
+        // cfg is meaningless here, as it is in `round_guarded`.)
+        return None;
+    }
+    match v.candidate_boundary::<F>(v.rung_budget(budget)) {
+        BoundaryVerdict::Clear => {}
+        BoundaryVerdict::Near(b) => match decide(b) {
+            Some(side) => return Some(deliver_at_boundary::<F, E>(v, b, side, rm)),
+            None => {
+                if E::ESCALATES {
+                    return None;
+                }
+                #[cfg(ladder_audit)]
+                panic!(
+                    "ladder_audit: rung 2 ambiguity the adjudicator \
+                     declined (operands outside the adjudicable range)"
+                );
+            }
+        },
+        BoundaryVerdict::NearIndeterminate => {
+            if E::ESCALATES {
+                return None;
+            }
+            #[cfg(ladder_audit)]
+            panic!("ladder_audit: rung 2 indeterminate boundary verdict");
+        }
+    }
+    let (result, status) = v.to_format::<F>(0, rm);
+    Some((result, status | Status::INEXACT))
+}
+
+/// The adjudicated delivery: the ADR-0051 residual channel anchored
+/// AT the candidate boundary, on the exactly decided side.
+///
+/// Soundness, every mode at once. The predicate placed the working
+/// value within `budget` units of `b`, and the rung's Tier 1 error
+/// bound places the true value within another `budget` of the
+/// working value, so `|y − b| ≤ 2·budget` working ulps — dozens of
+/// decimal orders inside the gap to the adjacent boundary (half a
+/// format quantum, ≥ 10^75 units at rung 2 width). The decider
+/// proved `y` strictly on `side` of `b`. The channel's denoted open
+/// interval (one working ulp beside `b`, forced sticky) therefore
+/// lies strictly between the same two boundaries as `y`, on the same
+/// side, and rounds identically to `y` at every rounding direction;
+/// a midpoint anchor cannot re-tie because the sticky is forced. The
+/// `| INEXACT` is unconditionally correct: `y` is off-boundary by
+/// the classifier completeness the decider's `Equal` panic polices.
+///
+/// The five adjudicated kernels all deliver positive working
+/// magnitudes (sign reflection happens in the kernels, after
+/// delivery, under their `for_negation` rounding-mode rule), so the
+/// anchor is constructed positive.
+#[cfg(feature = "exp-log")]
+fn deliver_at_boundary<F: DecimalFormat, E: ExtNum>(
+    v: E,
+    b: Boundary,
+    side: crate::adjudicate::Side,
+    rm: RoundingMode,
+) -> (F, Status) {
+    debug_assert!(!v.sign(), "adjudicated kernels deliver positive magnitudes");
+    let anchor = v.from_parts_u128(b.coef, b.exp, false);
+    let grows = side == crate::adjudicate::Side::Above;
+    let (result, status) = anchor.to_format_with_residual::<F>(grows, rm);
+    (result, status | Status::INEXACT)
+}
+
 /// Run the two-rung ladder for a kernel body: rung 1, and on
 /// escalation the identical body at rung 2. The top rung's
 /// [`round_guarded`] delivery is unconditional, so the second run

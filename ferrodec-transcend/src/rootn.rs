@@ -74,7 +74,6 @@
 //! zero). Two spellings of "the square root of minus zero", two
 //! different answers, both mandated.
 
-use crate::exp::exp_from_extended_body;
 use crate::extended::ExtNum;
 use crate::format::DecimalFormat;
 use crate::ladder;
@@ -286,7 +285,13 @@ pub(crate) fn rootn_kernel_body<F: DecimalFormat, E: ExtNum>(
         // the argument is exact, so the reciprocal costs nothing.
         arg = arg.neg();
     }
-    let (mut result, status) = exp_from_extended_body::<F, E>(arg, eff_rm, &ladder::ROOTN)?;
+    // On a rung 2 ambiguity the decider settles the side by the exact
+    // q-th power comparison (ADR-0060); `3 ≤ |n| ≤ 6` is this
+    // kernel's adjudicable range (`|n| ≤ 2` delegated above).
+    let (mut result, status) =
+        crate::exp::exp_from_extended_body_adjudicated::<F, E>(arg, eff_rm, &ladder::ROOTN, |b| {
+            crate::adjudicate::rootn_side(abs_x, n, b)
+        })?;
     if sign_neg {
         result = result.neg();
     }

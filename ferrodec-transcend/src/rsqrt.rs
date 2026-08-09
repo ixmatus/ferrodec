@@ -206,11 +206,16 @@ pub(crate) fn rsqrt_kernel_body<F: DecimalFormat, E: ExtNum>(
     // the format's normal range (module doc, "The kernel").
     let y = rsqrt_polish(ex, x_ext, x_ext.sqrt::<F>().recip::<F>());
 
-    // `round_guarded` raises INEXACT unconditionally, and here that is
-    // correct: the exact and tie cases returned above, and past the
-    // classifier `1/√x` is irrational or a non-terminating rational
-    // (`exact::rsqrt_exact_input`), never on a boundary.
-    ladder::round_guarded::<F, E>(y, rm, &ladder::RSQRT)
+    // The adjudicated delivery raises INEXACT unconditionally, and
+    // here that is correct: the exact and tie cases returned above,
+    // and past the classifier `1/√x` is irrational or a
+    // non-terminating rational (`exact::rsqrt_exact_input`), never on
+    // a boundary. On a rung 2 ambiguity the decider settles the side
+    // of the one candidate boundary exactly (ADR-0060; the floor is
+    // uniform, so the whole domain is in range).
+    ladder::round_adjudicated::<F, E>(y, rm, &ladder::RSQRT, |b| {
+        crate::adjudicate::rsqrt_side(x, b)
+    })
 }
 
 /// One division-free Newton step of the reciprocal square root:

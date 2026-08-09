@@ -265,7 +265,13 @@ pub(crate) fn hypot_kernel_body<F: DecimalFormat, E: ExtNum>(
     let z_s = ex.from_format(z.abs()).mul_pow10_exp(-adj_w);
     let sum = w_s.square().add(z_s.square());
     let result_ext = sum.sqrt::<F>().mul_pow10_exp(adj_w);
-    ladder::round_guarded::<F, E>(result_ext, rm, &ladder::HYPOT)
+    // On a rung 2 ambiguity the decider compares `S · 10^2q` against
+    // the boundary's square exactly (ADR-0060), over the same aligned
+    // sum the classifier tested for squareness; the whole kernel band
+    // is in range.
+    ladder::round_adjudicated::<F, E>(result_ext, rm, &ladder::HYPOT, |b| {
+        crate::adjudicate::hypot_side::<F>(cw, qw, cz, qz, b)
+    })
 }
 
 /// Deliver an exact positive value `coef · 10^exp` at the §9.2.2
