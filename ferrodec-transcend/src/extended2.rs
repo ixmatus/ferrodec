@@ -376,10 +376,30 @@ impl Extended2 {
     /// The strict full drop is `false` by the budget type with even
     /// more room than rung 1: every boundary sits at least
     /// `10^(EXT2_PRECISION − 1) = 10^109` units away.
+    ///
+    /// The bool view of [`Self::candidate_boundary`]; one computation,
+    /// so the adjudicator decides the boundary this predicate flagged.
     #[must_use]
     pub(crate) fn near_rounding_boundary<F: DecimalFormat>(self, budget: u128) -> bool {
+        self.candidate_boundary::<F>(budget).is_near()
+    }
+
+    /// The escalation predicate with the boundary identity kept
+    /// (ADR-0060's adjudication seam), mirroring
+    /// [`Extended::candidate_boundary`] at rung 2 width. This rung is
+    /// the one whose identity the exact integer adjudicator consumes:
+    /// a `Near` here carries the single candidate boundary of
+    /// ADR-0060's semantics (every adjudicating budget sits sixty
+    /// decimal orders below a quarter of the drop field, so the hit is
+    /// unique).
+    #[must_use]
+    pub(crate) fn candidate_boundary<F: DecimalFormat>(
+        self,
+        budget: u128,
+    ) -> crate::ladder::BoundaryVerdict {
+        use crate::ladder::{Boundary, BoundaryVerdict};
         if self.is_zero() {
-            return true;
+            return BoundaryVerdict::NearIndeterminate;
         }
         // Normalize to the rung width first: values delivered straight
         // from a hand-curated constant carry up to
@@ -405,10 +425,10 @@ impl Extended2 {
         let excess = precision_excess.max(subnormal_excess);
 
         if excess == 0 {
-            return true;
+            return BoundaryVerdict::NearIndeterminate;
         }
         if excess > digits {
-            return false;
+            return BoundaryVerdict::Clear;
         }
 
         let mut kept = coef_w;
@@ -421,14 +441,45 @@ impl Extended2 {
         let field = U384::from_u128(1).mul_pow10(excess); // 10^excess ≤ 10^110: fits U384
         let half = U384::from_u128(5).mul_pow10(excess - 1);
 
-        let bound = U384::from_u128(budget);
-        let within = |d: U384| d.cmp(bound) != Ordering::Greater;
+        let dist_lower = tail;
+        let dist_upper = field.sub(tail);
         let dist_mid = if tail.cmp(half) == Ordering::Less {
             half.sub(tail)
         } else {
             tail.sub(half)
         };
-        within(tail) || within(field.sub(tail)) || within(dist_mid)
+
+        // Nearest boundary wins; strict comparisons implement the
+        // documented tie order (grid before midpoint, lower before
+        // upper), and the hit is unique for every adjudicating budget
+        // (rung 1's mirror carries the argument).
+        let mut best_dist = dist_lower;
+        let mut best = 0u8;
+        if dist_upper.cmp(best_dist) == Ordering::Less {
+            best_dist = dist_upper;
+            best = 1;
+        }
+        if dist_mid.cmp(best_dist) == Ordering::Less {
+            best_dist = dist_mid;
+            best = 2;
+        }
+        if best_dist.cmp(U384::from_u128(budget)) == Ordering::Greater {
+            return BoundaryVerdict::Clear;
+        }
+
+        // At most `F::PRECISION ≤ 34` kept digits: fits the low limb
+        // (`ladder::Boundary`'s type doc carries the derivation).
+        debug_assert!(
+            kept.mid == 0 && kept.hi == 0,
+            "kept coefficient exceeds u128"
+        );
+        let kept_c = kept.lo;
+        let exp_grid = exp_w + excess as i32;
+        BoundaryVerdict::Near(match best {
+            0 => Boundary::lower_grid(kept_c, exp_grid),
+            1 => Boundary::upper_grid(kept_c, exp_grid),
+            _ => Boundary::midpoint(kept_c, exp_grid),
+        })
     }
 
     /// Magnitude comparison (ignoring sign).
@@ -945,6 +996,9 @@ impl ExtNum for Extended2 {
     fn near_rounding_boundary<F: DecimalFormat>(self, budget: u128) -> bool {
         Extended2::near_rounding_boundary::<F>(self, budget)
     }
+    fn candidate_boundary<F: DecimalFormat>(self, budget: u128) -> crate::ladder::BoundaryVerdict {
+        Extended2::candidate_boundary::<F>(self, budget)
+    }
 
     // Top fixed rung. Without the `unbounded-ladder` feature its
     // delivery is unconditional (the Tier 2 model) and the rung-2
@@ -1096,6 +1150,82 @@ mod tests {
         assert_eq!(ex.log1p_series_terms(), 550);
         assert_eq!(ex.atan_series_terms(), 450);
         assert_eq!(ex.precision(), EXT2_PRECISION);
+    }
+
+    /// The candidate boundary's identity at the consuming rung (the
+    /// ADR-0060 adjudicator reads exactly this payload): each family
+    /// pinned at the 76-digit d128 drop, the borrow and carry
+    /// spellings converging on the same `Boundary` value.
+    #[test]
+    fn candidate_boundary_identities_d128_drop() {
+        use crate::ladder::{Boundary, BoundaryKind, BoundaryVerdict};
+        type Shape = MockFmt<34, 6176>;
+
+        const PREFIX: u128 = 1_234_567_890_123_456_789_012_345_678_901_234;
+        let half = U384::from_u128(5).mul_pow10(75);
+        let field = U384::from_u128(1).mul_pow10(76);
+        let exp = -50;
+        let exp_grid = exp + 76;
+
+        let near = |base: U384, off: i128| {
+            let stem = U384::from_u128(PREFIX).mul_pow10(76).add(base);
+            let coef = if off >= 0 {
+                stem.add(U384::from_u128(off as u128))
+            } else {
+                stem.sub(U384::from_u128(off.unsigned_abs()))
+            };
+            let v = Extended2 {
+                coef,
+                exp,
+                sign: false,
+            };
+            match v.candidate_boundary::<Shape>(3) {
+                BoundaryVerdict::Near(b) => b,
+                v => panic!("expected Near, got {v:?}"),
+            }
+        };
+
+        let lower = Boundary {
+            coef: PREFIX,
+            exp: exp_grid,
+            kind: BoundaryKind::Grid,
+        };
+        for off in [0i128, 1, 3, -1, -3] {
+            assert_eq!(near(U384::ZERO, off), lower, "off={off}");
+        }
+        let mid = Boundary {
+            coef: 10 * PREFIX + 5,
+            exp: exp_grid - 1,
+            kind: BoundaryKind::Midpoint,
+        };
+        for off in [-3i128, 0, 3] {
+            assert_eq!(near(half, off), mid, "off={off}");
+        }
+        let upper = Boundary {
+            coef: PREFIX + 1,
+            exp: exp_grid,
+            kind: BoundaryKind::Grid,
+        };
+        for off in [-3i128, -1, 0, 1] {
+            assert_eq!(near(field, off), upper, "off={off}");
+        }
+
+        // Far and degenerate arms.
+        let interior = Extended2 {
+            coef: U384::from_u128(PREFIX)
+                .mul_pow10(76)
+                .add(U384::from_u128(4)),
+            exp,
+            sign: false,
+        };
+        assert_eq!(
+            interior.candidate_boundary::<Shape>(3),
+            BoundaryVerdict::Clear
+        );
+        assert_eq!(
+            Extended2::ZERO.candidate_boundary::<Shape>(u128::MAX),
+            BoundaryVerdict::NearIndeterminate
+        );
     }
 
     #[test]

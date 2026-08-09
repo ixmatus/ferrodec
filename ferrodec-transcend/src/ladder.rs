@@ -160,6 +160,124 @@ use crate::extended::Extended;
 use crate::format::DecimalFormat;
 use ferrodec_ieee::{RoundingMode, Status};
 
+/// The identity of one rounding boundary of a destination format: the
+/// exact rational `coef · 10^exp`, tagged with the §7.4 decision
+/// family it belongs to. The escalation predicate locates it
+/// ([`ExtNum::candidate_boundary`]); the ADR-0060 exact integer
+/// adjudicator consumes it, deciding the true value's side of this
+/// exact rational in bounded integer arithmetic.
+///
+/// `coef` fits `u128` structurally. The kept coefficient at the drop
+/// position carries at most `F::PRECISION ≤ 34` digits (the drop is at
+/// least the precision excess, and a subnormal drop only widens it),
+/// so a grid coefficient has at most 34 digits, the all-nines carry
+/// lands on `10^34`, and a midpoint has at most 35 digits; every one
+/// sits below `u128::MAX ≈ 3.4·10^38`. `coef` is nonzero on every
+/// reachable path: the zero grid point could only be flagged on a full
+/// drop, where the distance to it is the whole widened coefficient
+/// (at least `10^49` units at the narrowest rung), beyond any `u128`
+/// budget — [`Boundary::lower_grid`] carries the `debug_assert`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Boundary {
+    /// Boundary coefficient: at most `10^P` for a grid point (the
+    /// carry case included), `P + 1` digits ending in 5 for a
+    /// midpoint. Not necessarily normalized — the carry case `10^P`
+    /// denotes the same value as coefficient 1 one decade up, and
+    /// consumers treat the pair `(coef, exp)` as the exact rational it
+    /// is.
+    pub coef: u128,
+    /// Decimal exponent: `coef · 10^exp` is the boundary, exactly.
+    pub exp: i32,
+    /// The decision family.
+    pub kind: BoundaryKind,
+}
+
+/// The two rounding decision families of the §7.4 disposition: format
+/// grid points (deciding the directed modes and `INEXACT`) and the
+/// midpoints between adjacent grid points (deciding the nearest
+/// modes).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum BoundaryKind {
+    /// A representable value of the destination format.
+    Grid,
+    /// The exact midpoint between two adjacent grid points.
+    Midpoint,
+}
+
+impl Boundary {
+    /// The grid point just below the working value: the kept
+    /// coefficient at the drop exponent. `kept` is nonzero on every
+    /// reachable path (see the type doc); the assert keeps the
+    /// invariant loud.
+    pub(crate) fn lower_grid(kept: u128, exp: i32) -> Self {
+        debug_assert!(kept != 0, "the zero grid point is beyond any u128 budget");
+        Boundary {
+            coef: kept,
+            exp,
+            kind: BoundaryKind::Grid,
+        }
+    }
+
+    /// The grid point just above the working value. The all-nines
+    /// carry produces `10^P`, the same boundary as coefficient 1 one
+    /// decade up; consumers read the exact rational, so the
+    /// non-normalized spelling is harmless and keeps this constructor
+    /// branch free.
+    pub(crate) fn upper_grid(kept: u128, exp: i32) -> Self {
+        Boundary {
+            coef: kept + 1,
+            exp,
+            kind: BoundaryKind::Grid,
+        }
+    }
+
+    /// The midpoint between the two grid points bracketing the
+    /// working value: `10·kept + 5` one exponent below the drop.
+    pub(crate) fn midpoint(kept: u128, exp: i32) -> Self {
+        Boundary {
+            coef: 10 * kept + 5,
+            exp: exp - 1,
+            kind: BoundaryKind::Midpoint,
+        }
+    }
+}
+
+/// One rung's escalation verdict with the boundary identity kept
+/// instead of collapsed to a bool. [`ExtNum::near_rounding_boundary`]
+/// is the bool view: `Clear` maps to `false`, both other variants to
+/// `true`, so the two stay one computation and cannot drift.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum BoundaryVerdict {
+    /// Every boundary lies beyond the budget: this rung's rounding is
+    /// decided and unconditional delivery is sound.
+    Clear,
+    /// The working value lies within the budget of this boundary; when
+    /// the budget sits below a quarter of the drop field the hit is
+    /// unique — ADR-0060's "single candidate boundary", which every
+    /// adjudicating budget satisfies by sixty decimal orders. On wider
+    /// budgets (rung 1's trig scale against a narrow drop) the
+    /// reported boundary is the nearest, ties broken grid before
+    /// midpoint and lower before upper.
+    Near(Boundary),
+    /// Near by fiat, with no single boundary identity: the zero
+    /// working value (no exponent to define the unit) and the
+    /// degenerate no-drop case (the value sits on its own
+    /// working-width grid point, distance zero to itself). Neither is
+    /// reachable from a real format's guarded delivery; the variant
+    /// keeps the predicate total for hypothetical wide formats, and
+    /// the adjudication seam treats it as undecidable, exactly as the
+    /// bool view treats it as near.
+    NearIndeterminate,
+}
+
+impl BoundaryVerdict {
+    /// The bool view the escalation ladder consumes: is the rounding
+    /// undecided at this budget?
+    pub(crate) fn is_near(self) -> bool {
+        !matches!(self, BoundaryVerdict::Clear)
+    }
+}
+
 /// One function's escalation budget, per rung, in that rung's
 /// predicate units (see the module doc for the unit and the ×10 pad
 /// discipline; every constant below carries its itemization).
