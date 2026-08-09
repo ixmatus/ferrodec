@@ -93,6 +93,12 @@ mod mock_format;
 #[cfg(feature = "exp-log")]
 mod exact;
 
+// The ADR-0060 exact integer adjudicator: the rung 2 ambiguous-path
+// side decision for the algebraic §9.2 group. Same gate as `exact`,
+// whose classifiers are its completeness premise.
+#[cfg(feature = "exp-log")]
+mod adjudicate;
+
 #[cfg(feature = "trig")]
 pub mod argred;
 #[cfg(feature = "exp-log")]
