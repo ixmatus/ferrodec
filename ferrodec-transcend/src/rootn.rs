@@ -192,16 +192,13 @@ pub fn rootn_special_cases<F: DecimalFormat>(x: F, n: i32) -> Option<(F, Status)
 ///
 /// ## Preferred exponent (IEEE 754-2019 §9.2.2)
 ///
-/// The standard asks for `Q(rootn(x, n)) = floor(Q(x)/n)`. The
-/// delegated arms deliver it exactly (identity, division, square
-/// root). The classified and computed arms deliver the §6.3 quantum
-/// the shared kernel rounder produces for every §9.2 operation in
-/// this crate (preferred quantum 0), so an exact result with trailing
-/// zeros lands in the cohort nearest quantum 0 rather than at
-/// `floor(Q(x)/n)`: `rootn(1E+30, 5)` delivers `1000000` where
-/// §9.2.2 asks for `1E+6`. Same value, different cohort; the
-/// divergence is the shared rounder's, not this kernel's, and is
-/// recorded here rather than patched locally.
+/// The standard asks for `Q(rootn(x, n)) = floor(Q(x)/n)`, and every
+/// arm delivers it (fd-5g6): the delegated arms exactly (identity,
+/// division, square root), and the classified arm through the shared
+/// exact pack path, which carries `floor(Q(x)/n)` on the stored
+/// quantum — `rootn(1E+30, 5)` delivers `1E+6`, the coefficient-1
+/// cohort at `floor(30/5)`. Inexact results take the §6.3 full
+/// precision quantum, as everywhere in this crate.
 pub fn rootn_kernel<F: DecimalFormat>(x: F, n: i32, rm: RoundingMode) -> (F, Status) {
     ladder::ladder_run!(|ex| rootn_kernel_body::<F, _>(ex, x, n, rm))
 }

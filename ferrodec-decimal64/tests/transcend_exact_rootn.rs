@@ -562,15 +562,15 @@ fn quantum_pins() {
         "rootn(1E−30, 5) lands at Q = −6 = floor(−30/5)"
     );
 
-    // The classified arm, positive preferred quantum: the recorded
-    // divergence.
+    // The classified arm, positive preferred quantum: delivered as
+    // §9.2.2 states it (fd-5g6) — floor(30/5) = 6 on the stored
+    // quantum of 1E+30.
     let (r, _) = parse("1E+30").rootn(5, NE);
     assert!(equal(r, parse("1E+6")), "the value is right");
     assert!(
-        r.same_quantum(parse("1000000")),
-        "delivered at Q = 0, where §9.2.2 asks for Q = 6"
+        r.same_quantum(parse("1E+6")),
+        "delivered at Q = 6 = floor(30/5), per §9.2.2"
     );
-    assert!(!r.same_quantum(parse("1E+6")), "the divergence, pinned");
 }
 
 // ---------------------------------------------------------------------------

@@ -749,40 +749,34 @@ fn the_powering_arm_composes() {
 }
 
 // ---------------------------------------------------------------------------
-// §9.2.2 preferred exponent, recorded rather than asserted-into-shape.
+// §9.2.2 preferred exponent, delivered as the standard states it.
 
-/// IEEE 754-2019 §9.2.2 states `Q(pown(x, n))` is `floor(n × Q(x))`.
-/// The classifier delivers the *stripped* coefficient through the
-/// format rounder with a preferred quantum of 0, so what actually
-/// ships is the §6.3 "as close to zero as the value allows" quantum:
-/// `powi(1.20, 2)` delivers `1.44` (quantum −2), not the `1.4400`
-/// (quantum −4) §9.2.2 asks for, and `powi(1.20, 1)` delivers `1.2`
-/// (quantum −1) rather than `1.20`. This test pins the *observed*
-/// behaviour so the delta is a recorded fact rather than a surprise;
-/// changing it means changing `exact::pack_value`'s preferred quantum
-/// for every classifier that shares it (`pow` included, which behaves
-/// identically), which is out of scope here.
+/// IEEE 754-2019 §9.2.2 states `Q(pown(x, n))` is `floor(n × Q(x))`
+/// on `x`'s STORED quantum, and the classifier delivers it (fd-5g6):
+/// `powi(1.20, 2)` is `1.4400` (quantum −4), `powi(1.20, 1)` is
+/// `1.20` (quantum −2), and the cohort of the base propagates into
+/// the cohort of the result exactly as the formula says. `2.00`
+/// (quantum −2) cubed asks for quantum −6: `8.000000` — same value
+/// as `powi(2, 3) = 8`, different cohort, both §9.2.2.
 #[test]
-fn preferred_exponent_deltas_are_pinned_as_observed() {
-    // (base, n, delivered string, the §9.2.2 quantum, the delivered one)
+fn preferred_exponents_follow_section_9_2_2() {
+    // (base, n, delivered string, floor(n × Q(x)))
     let cases = [
-        ("1.20", 2, "1.44", -4, -2),
-        ("1.20", 1, "1.2", -2, -1),
-        ("1.5", 3, "3.375", -3, -3),
-        ("0.2", 2, "0.04", -2, -2),
-        ("2", 3, "8", 0, 0),
-        ("2.00", 3, "8", 0, 0),
+        ("1.20", 2, "1.4400", -4),
+        ("1.20", 1, "1.20", -2),
+        ("1.5", 3, "3.375", -3),
+        ("0.2", 2, "0.04", -2),
+        ("2", 3, "8", 0),
+        ("2.00", 3, "8.000000", -6),
     ];
-    for (base, n, delivered, want_9_2_2, observed) in cases {
+    for (base, n, delivered, want_9_2_2) in cases {
         let (r, _) = parse(base).powi(n, NE);
         assert_eq!(
             r.to_string(),
             delivered,
-            "powi({base}, {n}): delivered form drifted"
+            "powi({base}, {n}): §9.2.2 cohort drifted"
         );
-        // The pin is the string above; these two numbers are the
-        // documentation of what the string means.
-        let _ = (want_9_2_2, observed);
+        let _ = want_9_2_2;
     }
 }
 

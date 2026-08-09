@@ -26,23 +26,17 @@
 //! exact midpoint string, which rounds it under the same mode through a
 //! path sharing no code with the kernel.
 //!
-//! ## The §9.2.2 quantum delta (recorded, not repaired)
+//! ## The §9.2.2 quantum (delivered as stated, fd-5g6)
 //!
-//! §9.2.2 states the preferred exponent as `Q(rSqrt(x)) = −⌊Q(x)/2⌋`.
-//! The delivered quantum is *not* that: every exact classifier in
-//! `ferrodec-transcend` packs through `exact::pack_value`, which asks
-//! the format rounder for the preferred quantum **0**, so the delivery
-//! is the cohort member whose quantum sits as close to zero as the
-//! format's precision allows. The two agree only when the §9.2.2
-//! exponent is already the closest-to-zero reachable one
-//! (`rsqrt(1) = 1`, `rsqrt(1E+72) = 1E-36`); elsewhere the delivered
-//! quantum is strictly below it, by 1 at `rsqrt(4)` and by 33 at
-//! `rsqrt(1E-100)`. Value and flags are unaffected — the cohort members
-//! are numerically equal — and the fix, if the lane wants one, is a
-//! cross-function decision about `pack_value`'s `q_preferred` argument
-//! rather than anything local to `rSqrt`.
-//! [`quantum_pins_record_the_section_9_2_2_delta`] pins both columns so
-//! neither can drift unobserved.
+//! §9.2.2 states the preferred exponent as `Q(rSqrt(x)) = −⌊Q(x)/2⌋`
+//! on the STORED quantum, and the classifier delivers it: the exact
+//! pack path (`exact::pack_value`) carries each operation's §9.2.2
+//! preferred quantum, and the format rounder moves the cohort toward
+//! it as far as the precision allows (§6.3), which also caps a
+//! positive preferred exponent at what the value's own digits reach
+//! (`rsqrt(4) = 0.5` cannot carry quantum 0; `−1` is the §6.3
+//! closest). [`quantum_pins_follow_section_9_2_2`] pins the formula
+//! column and the delivered column so neither can drift.
 
 #![cfg(feature = "exp-log")]
 
@@ -379,8 +373,13 @@ fn digits_of(literal: &str) -> String {
 /// delivery so it cannot drift, the preferred value so the recorded
 /// delta stays visible (see the module header).
 #[test]
-fn quantum_pins_record_the_section_9_2_2_delta() {
-    // (input, delivered quantum, §9.2.2 preferred quantum)
+fn quantum_pins_follow_section_9_2_2() {
+    // (input, delivered quantum, §9.2.2 preferred quantum). The two
+    // columns differ only where §6.3 caps the preference: a positive
+    // preferred exponent stops at the value's own nonzero last digit
+    // (`rsqrt(4) = 0.5` cannot reach quantum 0), while a preference
+    // the digits can express is delivered verbatim
+    // (`rsqrt(1E-100) = 1E+50` at quantum 50, fd-5g6's repair).
     let rows: [(&str, i32, i32); 11] = [
         ("1", 0, 0),
         ("1E+72", -36, -36),
@@ -392,7 +391,7 @@ fn quantum_pins_record_the_section_9_2_2_delta() {
         ("100", -1, 0),
         ("16", -2, 0),
         ("1024", -5, 0),
-        ("1E-100", 17, 50),
+        ("1E-100", 50, 50),
     ];
     for (label, delivered, preferred) in rows {
         let x = parse(label);
