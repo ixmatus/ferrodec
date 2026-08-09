@@ -357,12 +357,12 @@ fn int_pow<F: DecimalFormat>(x: F, n: i32, rm: RoundingMode) -> (F, Status) {
 /// for `pown` degrades as `10^−(34|n|+2)`, so the operand range over
 /// which the two-rung claim can be unconditional is exactly the range
 /// where the powering arm's ~200-unit budget applies. Six is the
-/// widest `|n|` ADR-0060's table claims at all (`n` positive `≤ 6`,
-/// negative `≥ −5`, once the exact integer adjudicator lands); past
-/// it the floor is out of reach at any fixed rung and the cheaper
-/// `exp`/`ln` composition is the honest choice. `n = −6` runs the arm
-/// too — it is the faster route and the boundary is one constant, not
-/// two — it simply does not carry the unconditional claim.
+/// widest `|n|` ADR-0060's table claims at all — and with the exact
+/// integer adjudicator landed (`adjudicate::powi_side`, whose
+/// `n = −6` comparison is what `U1024` exists for), the unconditional
+/// range is the full `−6 ≤ n ≤ 6`; past it the floor is out of reach
+/// at any fixed rung and the cheaper `exp`/`ln` composition is the
+/// honest choice.
 const POWI_POWERING_MAX: u32 = 6;
 
 /// Apply IEEE 754-2019 §9.2.1's `pown` special-value table without
@@ -515,15 +515,20 @@ pub fn powi_special_cases<F: DecimalFormat>(x: F, n: i32) -> Option<(F, Status)>
 /// ## Accuracy
 ///
 /// Correctly rounded on the ADR-0059 escalation ladder from this
-/// operation's first release, with the ADR-0060 caveat that the claim
-/// is *unconditional* only over the operand ranges that ADR tabulates
-/// (`n ∈ {−2, 2, 3}` in the bare two-rung build; `−5 ≤ n ≤ 6` once
-/// the exact integer adjudicator lands) and carries the Tier 1 / Tier
-/// 2 statement outside them. Rung 1 evaluates at 50 digits and
-/// delivers only when the arm's budget clears every rounding boundary
-/// of the format, otherwise the identical body re-runs at rung 2's
-/// 110 digits, and under the `unbounded-ladder` feature at a dynamic
-/// rung that widens until the rounding is decided.
+/// operation's first release, and with the exact integer adjudicator
+/// landed the claim is *unconditional* over `−6 ≤ n ≤ 6` in every
+/// build: input side classification, the ADR-0060 Liouville floors
+/// against the powering arm's audited budget, and
+/// `adjudicate::powi_side` on the rung 2 ambiguous path together
+/// leave no exception set on that range (`n = −6` is the operand
+/// whose comparison width `U1024` was added for). Outside it the
+/// operation carries the Tier 1 / Tier 2 statement. Rung 1 evaluates
+/// at 50 digits and delivers only when the arm's budget clears every
+/// rounding boundary of the format, otherwise the identical body
+/// re-runs at rung 2's 110 digits, and under the `unbounded-ladder`
+/// feature at a dynamic rung that widens until the rounding is
+/// decided (which the in-range operands now never enter: the
+/// adjudicator decides at rung 2 first).
 ///
 /// The dynamic rung's termination width follows ADR-0060's
 /// `p ≈ D + log₁₀ B + 2` from the same floors: for `−5 ≤ n ≤ 6` that
@@ -534,7 +539,9 @@ pub fn powi_special_cases<F: DecimalFormat>(x: F, n: i32) -> Option<(F, Status)>
 /// puts its proven width at `p ≈ 245`, so it terminates at the first
 /// doubling (440) instead. Nothing in the delivery changes; only the
 /// proven bound moves one rung out, and it is recorded here rather
-/// than rounded off.
+/// than rounded off. (These widths bind only the `force_rung3` lane
+/// and out-of-range operands, adjudication having removed the
+/// in-range Ziv entries.)
 #[doc(alias = "pown")]
 pub fn powi_kernel<F: DecimalFormat>(x: F, n: i32, rm: RoundingMode) -> (F, Status) {
     ladder::ladder_run!(|ex| powi_kernel_body::<F, _>(ex, x, n, rm))

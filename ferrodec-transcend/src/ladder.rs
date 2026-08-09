@@ -1243,8 +1243,9 @@ pub(crate) const RSQRT: Budget = Budget {
 /// negative) is compared against `10^−109 · B₂`, and a budget of 200
 /// leaves `109 − log₁₀ 200 ≈ 106.7` digits of resolution — which
 /// clears the floor exactly on the operand ranges ADR-0060 tabulates
-/// (`n ∈ {−2, 2, 3}` bare, `−5 ≤ n ≤ 6` once the exact integer
-/// adjudicator lands). The `exp(n·ln|x|)` route's `~10^8` budget
+/// (`n ∈ {−2, 2, 3}` bare; the landed exact integer adjudicator
+/// extends the unconditional claim to the full `−6 ≤ n ≤ 6` on this
+/// arm's delivery). The `exp(n·ln|x|)` route's `~10^8` budget
 /// could not: routing small `|n|` through it would cost six decimal
 /// orders of resolution and put every one of those ranges out of
 /// reach. Second, the arm carries no over/underflow gate of its own —

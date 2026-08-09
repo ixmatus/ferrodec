@@ -112,12 +112,15 @@
 //! ## Accuracy
 //!
 //! Correctly rounded at every rounding direction, on the ADR-0059
-//! ladder with the `ladder::HYPOT` budget. ADR-0060 makes the claim
-//! unconditional across the band for this operation: the anchor band
-//! is decided by a side theorem, the kernel band's exact and tie set
-//! is classified input side, and what remains carries the Engine B
-//! Liouville floor `≥ 1/(8.1 · S)` against a budget many orders
-//! below it.
+//! ladder with the `ladder::HYPOT` budget, and *unconditionally* so
+//! across the whole band in every build now that ADR-0060's exact
+//! integer adjudicator is landed: the anchor band is decided by a
+//! side theorem, the kernel band's exact and tie set is classified
+//! input side, what remains carries the Engine B Liouville floor
+//! `≥ 1/(8.1 · S)`, and a rung 2 ambiguity (possible only where `S`
+//! outgrows the floor's margin, `S ≳ 10^105`) is decided exactly by
+//! `adjudicate::hypot_side` on the same aligned integer `S` the
+//! classifier tested for squareness.
 
 use crate::extended::ExtNum;
 use crate::format::DecimalFormat;

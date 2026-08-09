@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The correctly rounded claim for `Decimal128::powi` (`−6 ≤ n ≤ 6`),
+  `rootn` (`2 ≤ |n| ≤ 6`), `compound` (`|n|` times the digit width
+  of the exact `1 + x` at most 196), `rsqrt`, and `hypot` (whole
+  domain) is now unconditional in every build: ADR-0060's exact
+  integer adjudicator landed (fd-jxk), so a rung 2 near-boundary
+  verdict on those operand ranges is decided by an exact integer
+  comparison instead of delivered on a margin. Outside the ranges the
+  operations keep their prior tier statements. No delivered result
+  changed (the full corpus replays byte identical; the adjudicator
+  only decides cases that previously delivered on the Tier 2 model).
+
 ### Added
 
 - `Decimal128::powi`, `powr`, `rootn`, `compound`, `rsqrt`, and

@@ -110,15 +110,17 @@
 //!
 //! ## Accuracy
 //!
-//! Correctly rounded, and *unconditionally* so in the default two rung
-//! build (ADR-0060's verdict for this operation): the input side
-//! classification is complete (`exact::rsqrt_exact_input`), the
-//! Liouville floor `4.9·10^-105` is proven, and rung 2's 400 unit
+//! Correctly rounded, and *unconditionally* so in every build
+//! (ADR-0060's verdict for this operation, now fully landed): the
+//! input side classification is complete (`exact::rsqrt_exact_input`),
+//! the Liouville floor `4.9·10^-105` is proven, and rung 2's 400 unit
 //! budget resolves to `4·10^-108`, clearing the floor by more than two
 //! orders. The exact integer adjudicator ADR-0060 specifies for this
-//! group — which removes the margin question entirely by deciding the
-//! one candidate boundary in `U384` integer arithmetic — is forthcoming
-//! and is not wired here.
+//! group is wired on the rung 2 delivery
+//! (`adjudicate::rsqrt_side` through `ladder::round_adjudicated`): a
+//! near-boundary verdict decides the one candidate boundary's side in
+//! exact integer arithmetic instead of leaning on the margin, so the
+//! claim carries no at-the-floor question at all.
 
 use crate::extended::ExtNum;
 use crate::format::DecimalFormat;
