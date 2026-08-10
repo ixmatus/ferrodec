@@ -32,7 +32,7 @@ One line per entry; the entry file is the single home for every fact
 - [lang-muller-2001](lang-muller-2001.md) — algorithm — binary exclusion zone bounds for algebraic functions, ADR-0060's independent cross check
 - [lauter-lefevre-pow-boundary](lauter-lefevre-pow-boundary.md) — algorithm — the pow rounding boundary classification, shape of the decimal exact-case rederivation
 - [lefevre-2000](lefevre-2000.md) — algorithm — hardest-to-round search thesis, the proof shape behind ADR-0032
-- [lefevre-stehle-zimmermann-d64-exp](lefevre-stehle-zimmermann-d64-exp.md) — conformance — the published decimal64 exp worst cases, the lane's external anchor
+- [lefevre-stehle-zimmermann-d64-exp](lefevre-stehle-zimmermann-d64-exp.md) — conformance — the published decimal64 exp worst cases, recertified through Arb and replayed as the d64 external anchor gate (fd-4zo.7)
 - [matveev-2000](matveev-2000.md) — algorithm — explicit linear forms in logarithms, the provable ladder cap route
 - [mpdecimal](mpdecimal.md) — oracle — libmpdec via CPython decimal, the differential oracle
 - [mpfr](mpfr.md) — oracle — MPFR via rug behind mpfr-gate, the independent corpus re-derivation

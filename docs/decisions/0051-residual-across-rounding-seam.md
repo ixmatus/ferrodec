@@ -106,12 +106,33 @@ faith, not verification.
 - The anchor equality test costs one Extended comparison per
   evaluation on the affected kernels — noise against the series
   work it follows.
-- The oracle-floor scope note above is the honest residual: a
+- ~~The oracle-floor scope note above is the honest residual: a
   directed-mode result whose correction is below ~10^-100 relative
   is delivered by the same proven mechanism but pinned only at the
   nearest modes. Certifying those few decades needs a
   higher-precision offline oracle pass (Arb at raised working
-  precision would do); it is bookkeeping, not a suspected defect.
+  precision would do); it is bookkeeping, not a suspected defect.~~
+  Closed by the S4 addendum below.
+
+## Addendum (fd-4zo.6, 2026-08-09): the oracle floor is certified
+
+The predicted bookkeeping pass ran and the note above closes.
+`tools/certify_anchor_floor.py` certifies every nearest-mode-only
+group in the anchor band corpus with FLINT/Arb ball arithmetic (an
+enclosure excluding zero is a proof of sign, not an estimate): for
+each of the 14 groups (the ±1000001e-95 pair at Decimal32 across
+`sin`, `tan`, `atan`, `sinh`, `asinh`, `tanh`, `atanh`), the side of
+the hugged grid point and the 10^-100-ULP bracket were both proven at
+1024 working bits (the tool escalates to a 65536 bit cap; nothing
+needed past the first attempt). The certified corrections sit near
+10^-268 absolute — the |x|³/6 and |x|³/3 leading terms of the odd
+series, signs matching the side theorems the kernel's seam uses —
+and the 42 emitted directed-mode lines replay against the kernel
+with zero disagreements: the residual seam's deliveries were correct
+all along, and are now pinned rather than trusted. The corpus's
+per (function, mode) pins moved from 4 to 6 on the seven affected
+Decimal32 directed buckets; no format's nearest-mode pin moved. The
+suspected-defect clause was not needed.
 
 ## References
 
