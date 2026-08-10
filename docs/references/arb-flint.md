@@ -14,6 +14,7 @@ rot-risk: community-run
 provenance: secondary
 consumers:
   - tools/gen_transcend_vectors.py
+  - tools/certify_anchor_floor.py
   - tools/d32_exhaustive_sweep.py
   - tools/d32_exhaustive_compute_outputs.py
   - docs/decisions/0026-independent-transcendental-oracles.md

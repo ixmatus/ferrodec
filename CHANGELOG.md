@@ -48,6 +48,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `tests/vectors/gda-transcend/` with their own `SHA256SUMS`
   integrity gate, byte-identical to the GDA crate's attested copies.
 
+- The anchor-band corpus's oracle floor is certified (fd-4zo.6,
+  closing ADR-0051's bookkeeping note): `tools/certify_anchor_floor.py`
+  proves, in Arb ball arithmetic, the side and the 1e-100-ULP bracket
+  for every grid-hugging input whose directed correction sat below the
+  sampling oracle's floor (14 groups, the `±1000001e-95` pair at
+  `Decimal32` across the seven odd small-argument functions), and the
+  42 certified directed-mode lines now replay against the kernel with
+  zero disagreements — the residual seam's deliveries there are pinned
+  rather than trusted. The affected Decimal32 directed buckets move
+  from 4 to 6 vectors each.
+
 ### Added
 
 - `Decimal128::powi`, `powr`, `rootn`, `compound`, `rsqrt`, and
