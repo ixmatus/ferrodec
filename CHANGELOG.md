@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `Decimal128::sin_pi`, `cos_pi`, `tan_pi`, `asin_pi`, `acos_pi`,
+  `atan_pi`, and `atan2_pi` (IEEE 754-2019 §9.2 `sinPi` / `cosPi` /
+  `tanPi` / `asinPi` / `acosPi` / `atanPi` / `atan2Pi`; ADR-0061,
+  Track D group D4), correctly rounded on the escalation ladder from
+  first release, under a new standalone `trig-pi` feature that does
+  not pull in `trig` or the radian argument reduction. The family's
+  argument reduction (`x mod 2`) is exact decimal arithmetic, so the
+  accuracy statement carries no large-magnitude caveat: the tier is
+  uniform over the whole domain. The exact sets follow the Niven
+  classification: integers and half integers deliver exactly with
+  clean flags for the forward three (`sin_pi(0.5)` is exactly `1`;
+  `sin_pi` of an integer is `±0` carrying the operand's sign,
+  `cos_pi` of a half integer is `+0`), `tan_pi` adds the
+  quarter-integer set (`±1` alternating by octant) and raises
+  DIV_BY_ZERO with the parity-signed `±∞` at its half-integer poles,
+  and the inverse four deliver their rational rows (`atan_pi(±1) =
+  ±1/4`, `atan2_pi`'s eight-way diagonal and axis table) exactly
+  where `atan2`'s equivalents are inexact. No other input can round
+  to a tie in any format (the ADR-0061 no-ties theorem), so
+  nearest-mode results never sit on a rounder ambiguity. 3,494 new
+  Arb-certified corpus rows (`arb`'s native `sin_pi` family) with
+  exact per-bucket pins, MPFR cross-validated against the vendored
+  4.2.2's native `sinu`/`asinu` family with zero disagreements.
+
 ### Changed
 
 - The correctly rounded claim for `Decimal128::powi` (`−6 ≤ n ≤ 6`),

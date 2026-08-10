@@ -9,6 +9,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The pi-scaled trigonometric machinery (ADR-0061, fd-4zo.26) under
+  a standalone `trig-pi` feature: `exact_pi.rs` (the Niven residue
+  classifier over decoded coefficient and exponent, the `PiExact`
+  disposition type, and `deliver_pi_exact`, all pure decision code
+  shared by every format), `sincospi.rs` (the forward kernel: exact
+  decimal `x mod 2` reduction with a provably exact quarter fold,
+  own Taylor loops at `|πδ| ≤ π/4`, the `cosPi` 1-anchor and `tanPi`
+  ±1-anchor residual arms, delivery through `round_guarded`), and
+  `inverse_trig_pi.rs` (the inverse four as extended cores times
+  `ExtNum::inv_pi`, with the `atanPi`/`acosPi`/`atan2Pi` anchor arms
+  from ADR-0061's closed list). `ladder.rs` gains the six budget
+  entries (`SINPI`, `TANPI`, `ASINPI`, `ACOSPI`, `ATANPI`,
+  `ATAN2PI`) and `consts.rs`/`bigconst.rs` gain `1/π` at all three
+  rungs. The pi family takes no adjudicator by design: ADR-0061
+  closes that route (no bounded-degree minimal polynomial exists at
+  format denominators) and records the no-ties theorem that makes
+  one unnecessary.
+
+### Changed
+
+- `inverse_trig.rs`'s four kernels are each split into an
+  extended-precision core returning the pre-delivery value plus the
+  existing delivery tail (the `exp_prepared` precedent), so the pi
+  variants can reuse the cores; delivered results are byte
+  identical (full corpus and trig suites as the proof). The module
+  gate widens from `trig` to any transcendental trig feature, with
+  the radian kernels still `trig`-gated inside.
+
+### Added
+
 - The ADR-0060 exact integer adjudicator (fd-jxk): the rung 2
   escalation predicate returns the candidate boundary's identity
   (`candidate_boundary`, the bool predicate its adapter), and the

@@ -36,6 +36,7 @@ One line per entry; the entry file is the single home for every fact
 - [matveev-2000](matveev-2000.md) — algorithm — explicit linear forms in logarithms, the provable ladder cap route
 - [mpdecimal](mpdecimal.md) — oracle — libmpdec via CPython decimal, the differential oracle
 - [mpfr](mpfr.md) — oracle — MPFR via rug behind mpfr-gate, the independent corpus re-derivation
+- [c23-draft](c23-draft.md) — standard — C23 Annex F pi-scaled special-value rows, the second §9.2.1 proxy for the D4 family
 - [mpmath](mpmath.md) — oracle — adaptive precision breadth oracle and anchor band corpus generator
 - [muller-elementary-functions](muller-elementary-functions.md) — algorithm — Elementary Functions, the per-function range reduction playbook
 - [muller-handbook-2018](muller-handbook-2018.md) — algorithm — Handbook of Floating-Point Arithmetic, the fixed precision envelope proofs

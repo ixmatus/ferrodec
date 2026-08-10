@@ -136,6 +136,60 @@ retires the D3 baseline hash failure mode by construction.
   relitigated: no minimal polynomial route exists at format
   denominators.
 
+## Landing addendum (2026-08-10)
+
+The family landed as designed; this section records where the
+implementation taught the design something, so the errata are not
+relitigated from the spec text.
+
+- **cosPi anchor gate erratum.** Spec A gated the 1-anchor arm at
+  `adj(δ) ≤ −⌈(P + 3)/2⌉`. The spec-A agent's margin table showed
+  that at P = 7 the P + 3 gate admits `(πδ)²/2` up to
+  `4.93·10^−8` against the boundary `5·10^−8`: 1.3 % of headroom,
+  failing the ×10 discipline. The shipped gate is
+  `⌈(P + 4)/2⌉`, whose worst case clears the boundary ×10 at every
+  format. The derivation stands at the arm site in `sincospi.rs`.
+- **tanPi ±1 anchor arm unreachable.** The reduced offset `δ` from
+  an exact reduction of a P-digit input carries the quantum floor
+  `|δ| ≥ 10^−P` near every odd quarter integer that is not itself
+  representable territory (the classifier owns representable quarter
+  integers). The spec's gate `adj(δ) ≤ −(P + 4)` therefore never
+  fires. The arm shipped anyway with the proof at the site: its
+  premise is checked, not assumed, so a future widening of the
+  reduction cannot silently reopen the neighborhood. The same
+  quantum floor is the honest reason `sinPi` has no anchor arm near
+  integers (the spec's slope argument only covers zero).
+- **atan2Pi hug side.** Spec B's two hug families are correct, but
+  the tiny-ratio family's anchor sign follows the ordinate while its
+  selection follows the abscissa (`x < 0` selects the ±1 anchor; the
+  delivered sign is `sign(y)`); the four-case table at the site in
+  `inverse_trig_pi.rs` replaces the spec's two-line sketch.
+- **Wrapper paths.** The sibling wrappers live at
+  `ferrodec-decimal{64,32}/src/ops/trig_pi.rs`: the sibling crates
+  keep their transcendental wrappers under `ops/`, not `math/`. The
+  spec's `math/` paths were the parent crate's convention applied by
+  analogy.
+- **fd-z26 (pre-existing, fixed in this landing).** Sibling
+  `--features trig` builds alone did not compile: the internal
+  `transcend_impl` module was gated on `exp-log`. Found by the
+  spec-B agent at its baseline; the gate now covers every
+  transcendental family feature. The narrow-feature blind spot (no
+  CI lane builds each feature alone) is the residue, tracked on the
+  bead.
+- **Size (thumbv6m, release rlib delta).** Featureless base
+  584,178 B; `trig-pi` alone 721,142 B (+137 KB, the shared
+  extended-precision engine dominating); `trig` alone 720,742 B;
+  `trig` + `trig-pi` 783,910 B, so the family's marginal cost on a
+  build that already carries a transcendental cluster is +62 KB.
+- **Verification at landing.** 3,494 new Arb-certified corpus rows
+  across the seven operations (cap-hits 0), replayed byte-exact at
+  all three formats with exact per-bucket pins; MPFR 4.2.2
+  cross-validation through the native `sinu`/`asinu` family arms,
+  zero disagreements; the full workspace matrix green including the
+  `force_escalate` and `ladder_audit` lanes. The no-ties obligation
+  and the closed anchor list held: no pin or audit failure surfaced
+  a missed family.
+
 ## Related
 
 - The design pass brief:

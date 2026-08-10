@@ -65,9 +65,10 @@ to ±0 with the encoded sign and biased exponent, per IEEE 754-2019
 | `binary-float` | `Decimal32::to_f64`, `Decimal32::from_f64`. Auto-enabled by every transcendental feature. |
 | `exp-log` | `exp`, `ln`, `exp2`, `log2`, `log10`. Correctly rounded via the shared `ferrodec-transcend` Extended-precision kernel (ADR-0032) (pure Rust, no FFI). |
 | `trig` | `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`. Same shared correctly rounded kernel, Payne-Hanek argument reduction. |
+| `trig-pi` | `sin_pi`, `cos_pi`, `tan_pi`, `asin_pi`, `acos_pi`, `atan_pi`, `atan2_pi` (IEEE 754-2019 `sinPi` … `atan2Pi`). Standalone: pulls neither `trig` nor the Payne-Hanek table; the `x mod 2` reduction is exact decimal arithmetic. |
 | `hyperbolic` | `sinh`, `cosh`, `tanh`, `asinh`, `acosh`, `atanh`. Same shared correctly rounded kernel. Auto-pulls `exp-log`. |
 | `pow` | `pow`, `cbrt`. Same shared correctly rounded kernel. Auto-pulls `exp-log`. |
-| `transcendentals` | Convenience meta-feature: enables all four clusters. No transcendental routes through `f64`; `libm` is not a dependency. |
+| `transcendentals` | Convenience meta-feature: enables all five clusters. No transcendental routes through `f64`; `libm` is not a dependency. |
 | `ops` | `core::ops` overloads (`Add`, `Sub`, `Mul`, `Div`, `Rem`, `Neg`, plus `*Assign`). Defaults to `RoundingMode::NearestEven`; drops `Status`. |
 | `serde` | `Serialize` / `Deserialize` via the canonical decimal string. The `serde_bid` helper module serialises the raw 32-bit BID pattern in binary formats. |
 | `num-traits` | `Zero`, `One`, `Bounded`, `Signed`, `Num`, `From\|To Primitive`. Auto-pulls `ops` + `binary-float` + `fmt`. |
