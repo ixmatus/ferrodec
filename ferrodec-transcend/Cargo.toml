@@ -22,7 +22,12 @@ trig = ["fmt"]
 exp-log = ["fmt"]
 hyperbolic = ["exp-log"]
 pow = ["exp-log"]
-transcendentals = ["trig", "exp-log", "hyperbolic", "pow"]
+# The pi-scaled family (ADR-0061). Deliberately standalone: exact
+# decimal argument reduction means it needs none of `trig`'s Payne-
+# Hanek machinery, so revolutions-based users (the family's dominant
+# real use) pay for no reduction tables.
+trig-pi = ["fmt"]
+transcendentals = ["trig", "exp-log", "hyperbolic", "pow", "trig-pi"]
 # The unbounded rung of the ADR-0059 escalation ladder (M8b): a working
 # type whose precision is chosen at run time, on the growable `DecBig`
 # substrate. Off by default and orthogonal to the kernel selection

@@ -105,6 +105,9 @@ fmt = []
 # argument-reduction kernel (gated there under the same name) is
 # compiled in when the core shim delegates to it.
 trig = ["fmt", "ferrodec-transcend/trig"]
+# The pi-scaled family sin_pi..atan2_pi (ADR-0061): standalone, does
+# NOT imply `trig` (exact reduction needs no Payne-Hanek tables).
+trig-pi = ["fmt", "ferrodec-transcend/trig-pi"]
 # Forwards to `ferrodec-transcend/exp-log` so the shared exp / ln /
 # cbrt kernel modules (gated there under the same name) are compiled
 # in when the core shim delegates to them.
@@ -114,7 +117,7 @@ pow = ["exp-log", "ferrodec-transcend/pow"]
 # Convenience meta-feature: enable every transcendental at once. The
 # pre-1.2 `transcendentals = ["fmt"]` shape carried the same effect,
 # so existing dependents that ask for `transcendentals` see no change.
-transcendentals = ["trig", "exp-log", "hyperbolic", "pow"]
+transcendentals = ["trig", "exp-log", "hyperbolic", "pow", "trig-pi"]
 # The unbounded rung of the ADR-0059 escalation ladder (M8b): opt-in
 # third transcendental rung with no exception set — a near-boundary
 # escalation widens its working precision at run time instead of

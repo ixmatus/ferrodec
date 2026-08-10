@@ -1330,6 +1330,109 @@ pub(crate) const POWR: Budget = Budget {
     dynamic: pow_budget_dyn,
 };
 
+/// `sinPi` / `cosPi` (IEEE 754-2019 §9.2; ADR-0061), one shared
+/// kernel: exact decimal reduction of `x` to a fractional part
+/// `δ ∈ [−1/4, 1/4]` revolutions with a branch choice (every step is
+/// decimal add/subtract of exact quarters on the operand's own
+/// digits: 0 units — the item trig's budget is DOMINATED by simply
+/// does not exist here), then `sin(πδ)` or `cos(πδ)` by Taylor.
+/// Itemization (rung 1):
+///
+/// * `πδ` const-multiply: ≤ 1.5 units of its own magnitude ≤ π/4,
+///   mapped into result-relative units by `|y·cot y| ≤ 1` (sin arm)
+///   or `|y·tan y| ≤ π²/16 < 1` (cos arm): ≤ 2.
+/// * Taylor at cap 120 → ≤ 360; branch recomposition (sign only,
+///   exact) ≤ 1.
+///
+/// Sum ≈ 365; ×10 → 4,000 (rounded up). Rung 2: cap 240 → ≈ 725;
+/// ×10 → 10,000. The escalation rate lands near `8×10^-13` per call
+/// where trig's is 3%: the payoff of the exact reduction, priced.
+// Consumed by the D4 kernels at this arc's wiring commit; until
+// then the catalog tests are the only reference (the adjudicate.rs
+// not-yet-wired precedent).
+#[allow(dead_code)]
+pub(crate) const SINPI: Budget = Budget {
+    rung1: 4_000,
+    rung2: 10_000,
+    dynamic: sinpi_budget_dyn,
+};
+
+/// [`SINPI`] at `p`: the same items with the series at `2p + 20`.
+#[allow(dead_code)]
+fn sinpi_budget_dyn(p: u32) -> u128 {
+    10 * (6 * u128::from(p) + 70)
+}
+
+/// `tanPi = sinPi/cosPi` on the shared reduction: both components'
+/// relative errors add through the quotient (≤ 2 × [`SINPI`]'s sum)
+/// plus a Newton division (15). ×10 → 8,000 / 25,000.
+// Consumed by the D4 kernels at this arc's wiring commit; until
+// then the catalog tests are the only reference (the adjudicate.rs
+// not-yet-wired precedent).
+#[allow(dead_code)]
+pub(crate) const TANPI: Budget = Budget {
+    rung1: 8_000,
+    rung2: 25_000,
+    dynamic: tanpi_budget_dyn,
+};
+
+/// [`TANPI`] at `p`: both series plus the flat Newton 60.
+#[allow(dead_code)]
+fn tanpi_budget_dyn(p: u32) -> u128 {
+    10 * (12 * u128::from(p) + 200)
+}
+
+/// `asinPi = asin(x)/π` (ADR-0061): [`ASIN`]'s items (sqrt 15 +
+/// div 15 + atan core ≈ 640 + doubling 1) plus the closing `1/π`
+/// const-multiply on the result (relative, ≤ 1.5). Sum ≈ 680;
+/// ×10 → 10,000 / rung 2 20,000 — [`ASIN`]'s constants, the pad
+/// absorbing the extra multiply, and the shared dynamic formula.
+// Consumed by the D4 kernels at this arc's wiring commit; until
+// then the catalog tests are the only reference (the adjudicate.rs
+// not-yet-wired precedent).
+#[allow(dead_code)]
+pub(crate) const ASINPI: Budget = Budget {
+    rung1: 10_000,
+    rung2: 20_000,
+    dynamic: asin_budget_dyn,
+};
+
+/// `acosPi = acos(x)/π`: as [`ASINPI`] over [`ACOS`]'s identical
+/// itemization.
+// Consumed by the D4 kernels at this arc's wiring commit; until
+// then the catalog tests are the only reference (the adjudicate.rs
+// not-yet-wired precedent).
+#[allow(dead_code)]
+pub(crate) const ACOSPI: Budget = Budget {
+    rung1: 10_000,
+    rung2: 20_000,
+    dynamic: asin_budget_dyn,
+};
+
+/// `atanPi = atan(x)/π`: [`ATAN`]'s ≈ 640 plus the `1/π`
+/// const-multiply, pad-absorbed. Same constants, same dynamic.
+// Consumed by the D4 kernels at this arc's wiring commit; until
+// then the catalog tests are the only reference (the adjudicate.rs
+// not-yet-wired precedent).
+#[allow(dead_code)]
+pub(crate) const ATANPI: Budget = Budget {
+    rung1: 10_000,
+    rung2: 20_000,
+    dynamic: atan_budget_dyn,
+};
+
+/// `atan2Pi = atan2(y, x)/π`: [`ATAN2`]'s ≈ 660 plus the `1/π`
+/// const-multiply, pad-absorbed. Same constants, same dynamic.
+// Consumed by the D4 kernels at this arc's wiring commit; until
+// then the catalog tests are the only reference (the adjudicate.rs
+// not-yet-wired precedent).
+#[allow(dead_code)]
+pub(crate) const ATAN2PI: Budget = Budget {
+    rung1: 10_000,
+    rung2: 20_000,
+    dynamic: atan2_budget_dyn,
+};
+
 // Escalation-rate summary (Decimal128, the widest exposure; rate ≈
 // 2 × rung1 × 10^-16 for a random input): trig ≈ 3%, tan ≈ 6%,
 // pow and powi's large-|n| arm ≈ 3e-8, cbrt ≈ 1e-8, exp family
@@ -1435,7 +1538,7 @@ mod tests {
     /// escalate everything).
     #[test]
     fn budgets_are_positive_and_sane() {
-        let all: [(&str, &Budget); 34] = [
+        let all: [(&str, &Budget); 40] = [
             ("exp", &EXP),
             ("exp2", &EXP2),
             ("expm1", &EXPM1),
@@ -1470,6 +1573,12 @@ mod tests {
             ("compound", &COMPOUND),
             ("powr", &POWR),
             ("hypot", &HYPOT),
+            ("sinpi", &SINPI),
+            ("tanpi", &TANPI),
+            ("asinpi", &ASINPI),
+            ("acospi", &ACOSPI),
+            ("atanpi", &ATANPI),
+            ("atan2pi", &ATAN2PI),
         ];
         for (name, b) in all {
             assert!(b.rung1 > 0 && b.rung2 > 0, "{name}: zero budget");
@@ -1574,7 +1683,7 @@ mod tests {
     /// catalog have diverged and one of them is wrong.
     #[test]
     fn dynamic_budgets_track_the_rung2_catalog() {
-        let all: [(&str, &Budget); 34] = [
+        let all: [(&str, &Budget); 40] = [
             ("exp", &EXP),
             ("exp2", &EXP2),
             ("expm1", &EXPM1),
@@ -1609,6 +1718,12 @@ mod tests {
             ("compound", &COMPOUND),
             ("powr", &POWR),
             ("hypot", &HYPOT),
+            ("sinpi", &SINPI),
+            ("tanpi", &TANPI),
+            ("asinpi", &ASINPI),
+            ("acospi", &ACOSPI),
+            ("atanpi", &ATANPI),
+            ("atan2pi", &ATAN2PI),
         ];
         for (name, b) in all {
             let at_110 = (b.dynamic)(110);

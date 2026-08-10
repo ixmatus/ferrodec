@@ -72,10 +72,12 @@ differential = ["transcendentals"]
 #               (ADR-0032). Implies `exp-log`.
 exp-log = ["binary-float", "dep:ferrodec-transcend", "dep:ferrodec-multiword", "ferrodec-transcend/exp-log"]
 trig = ["binary-float", "dep:ferrodec-transcend", "dep:ferrodec-multiword", "ferrodec-transcend/trig"]
+# The pi-scaled family (ADR-0061): standalone, no `trig` implied.
+trig-pi = ["binary-float", "dep:ferrodec-transcend", "dep:ferrodec-multiword", "ferrodec-transcend/trig-pi"]
 hyperbolic = ["exp-log", "dep:ferrodec-transcend", "dep:ferrodec-multiword", "ferrodec-transcend/hyperbolic"]
 pow = ["exp-log", "dep:ferrodec-transcend", "dep:ferrodec-multiword", "ferrodec-transcend/pow"]
 # Convenience meta-feature: enable every transcendental at once.
-transcendentals = ["trig", "exp-log", "hyperbolic", "pow"]
+transcendentals = ["trig", "exp-log", "hyperbolic", "pow", "trig-pi"]
 # The unbounded rung of the ADR-0059 escalation ladder (M8b): opt-in
 # third transcendental rung with no exception set — a near-boundary
 # escalation widens its working precision at run time instead of

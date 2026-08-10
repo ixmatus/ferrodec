@@ -90,7 +90,7 @@ mod mock_format;
 // Exact-result detection for cbrt / rootn / pow (§7.5 INEXACT
 // contract). Gated on `exp-log` (cbrt, rootn); `pow` implies
 // `exp-log`, so every consumer sees it.
-#[cfg(feature = "exp-log")]
+#[cfg(any(feature = "exp-log", feature = "trig-pi"))]
 mod exact;
 
 // The ADR-0060 exact integer adjudicator: the rung 2 ambiguous-path
@@ -98,6 +98,11 @@ mod exact;
 // whose classifiers are its completeness premise.
 #[cfg(feature = "exp-log")]
 mod adjudicate;
+
+// The pi-scaled family's exact classification (ADR-0061): the
+// residue classes and finite tables, Niven-complete, no ties.
+#[cfg(feature = "trig-pi")]
+mod exact_pi;
 
 #[cfg(feature = "trig")]
 pub mod argred;
