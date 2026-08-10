@@ -18,6 +18,7 @@ fn generated_corpus_integrity() {
         "tests/vectors/transcend",
         "tests/vectors/transcend/anchor_bands",
         "tests/vectors/transcend/exhaustive",
+        "tests/vectors/transcend/external",
         "tests/vectors/round_half_even",
     ] {
         ferrodec_test_support::vendored::verify_txt(dir);

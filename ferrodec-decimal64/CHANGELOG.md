@@ -20,6 +20,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   changed (the full corpus replays byte identical; the adjudicator
   only decides cases that previously delivered on the Tier 2 model).
 
+### Added
+
+- The Lefèvre–Stehlé–Zimmermann decimal64 `exp` worst cases replay as
+  an external anchor gate (fd-4zo.7): 34 published bad-case inputs
+  (each within 1e-15 ulp of a rounding breakpoint; CC BY 4.0 Dagstuhl
+  deposit, DOI 10.4230/DagSemProc.06021.11) recertified through Arb —
+  the generator reproduces the paper's own claimed digit expansions in
+  ball arithmetic before emitting a line — and frozen at
+  `tests/vectors/transcend/external/lsz_d64_exp.txt` (170 lines, all
+  five modes, exact per-mode pins). `Decimal64::exp` agrees on every
+  line: calibration from a fully independent lineage. Positive
+  arguments only, per the paper's search coverage.
+
+
 ### Fixed
 
 - The exact-delivery pack path now carries each operation's IEEE
