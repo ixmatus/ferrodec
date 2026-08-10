@@ -34,7 +34,10 @@ ADR-0051 residual seam decides the grid-hugging cases, so they get
 directed lines too. Only cases whose correction sits below the oracle
 floor (e.g. `atanh(1.000001e-95)` at Decimal32, ~1e-191 relative)
 keep nearest-mode-only lines: the same seam delivers their directed
-neighbours, but this tooling cannot independently certify them. The
+neighbours, but this tooling cannot independently certify them;
+`tools/certify_anchor_floor.py` (Arb ball arithmetic, fd-4zo.6)
+certifies exactly those groups afterwards and upgrades them to all
+five modes, so run it after any regeneration here. The
 small-argument trigonometric, hyperbolic, and exponential families
 (`sin`, `cos`, `tan`, `atan`, `sinh`, `cosh`, `tanh`, `exp`, `exp2`)
 are covered alongside the ADR-0050 anchor-band functions.
