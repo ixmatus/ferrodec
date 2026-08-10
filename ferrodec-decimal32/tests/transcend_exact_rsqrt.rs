@@ -13,10 +13,10 @@
 //! pattern `exp2`'s classifier records at `exp2(-11)`, which is also
 //! the ADR-0033 exhaustive sweep's tightest `Decimal32` row.
 //!
-//! §9.2.2's preferred exponent `−⌊Q(x)/2⌋` is *not* what the kernel
-//! delivers: every exact classifier packs through `pack_value`, which
-//! asks the rounder for quantum 0. The delta is recorded, not repaired
-//! (see the root file's header); both columns are pinned below.
+//! §9.2.2's preferred exponent `−⌊Q(x)/2⌋` is delivered since fd-5g6:
+//! the exact pack path carries it on the stored quantum, capped only
+//! by the §6.3 precision clamp (see the root file's header); both
+//! columns are pinned below.
 
 #![cfg(feature = "exp-log")]
 
@@ -290,7 +290,7 @@ fn tie_rows_literal() {
 /// §9.2.2's preferred exponent `−⌊Q(x)/2⌋`. The delta is recorded, not
 /// repaired.
 #[test]
-fn quantum_pins_record_the_section_9_2_2_delta() {
+fn quantum_pins_follow_section_9_2_2() {
     let rows: [(&str, i32, i32); 9] = [
         ("1", 0, 0),
         ("1E+72", -36, -36),
@@ -300,7 +300,7 @@ fn quantum_pins_record_the_section_9_2_2_delta() {
         ("100", -1, 0),
         ("16", -2, 0),
         ("1024", -5, 0),
-        ("1E-100", 44, 50),
+        ("1E-100", 50, 50),
     ];
     for (label, delivered, preferred) in rows {
         let x = parse(label);

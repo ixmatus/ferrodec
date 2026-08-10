@@ -24,6 +24,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the whole corpus through the adjudicator with the pins as the byte
   identity reference.
 
+### Fixed
+
+- `exact::pack_value` carries each operation's §9.2.2 preferred
+  exponent instead of a hardcoded 0 (fd-5g6): per-op helpers beside
+  `compound`'s precedent compute `floor(y × Q(x))` for `pow`/`powr`,
+  `floor(n × Q(x))` for `pown`, `−floor(Q(x)/2)` for `rSqrt`, and
+  `floor(Q(x)/n)` for `rootn` and `cbrt`, all on the stored quantum.
+  Cohort only; values and flags unchanged.
+
 ### Added
 
 - The §9.2 algebraic group (ADR-0059 Track D D3, under ADR-0060's

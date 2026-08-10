@@ -749,26 +749,25 @@ fn the_powering_arm_composes() {
 /// for every classifier that shares it (`pow` included, which behaves
 /// identically), which is out of scope here.
 #[test]
-fn preferred_exponent_deltas_are_pinned_as_observed() {
-    // (base, n, delivered string, the §9.2.2 quantum, the delivered one)
+fn preferred_exponents_follow_section_9_2_2() {
+    // (base, n, delivered string, floor(n × Q(x))). §9.2.2 on the
+    // stored quantum, delivered since fd-5g6.
     let cases = [
-        ("1.20", 2, "1.44", -4, -2),
-        ("1.20", 1, "1.2", -2, -1),
-        ("1.5", 3, "3.375", -3, -3),
-        ("0.2", 2, "0.04", -2, -2),
-        ("2", 3, "8", 0, 0),
-        ("2.00", 3, "8", 0, 0),
+        ("1.20", 2, "1.4400", -4),
+        ("1.20", 1, "1.20", -2),
+        ("1.5", 3, "3.375", -3),
+        ("0.2", 2, "0.04", -2),
+        ("2", 3, "8", 0),
+        ("2.00", 3, "8.000000", -6),
     ];
-    for (base, n, delivered, want_9_2_2, observed) in cases {
+    for (base, n, delivered, want_9_2_2) in cases {
         let (r, _) = parse(base).powi(n, NE);
         assert_eq!(
             r.to_string(),
             delivered,
-            "powi({base}, {n}): delivered form drifted"
+            "powi({base}, {n}): §9.2.2 cohort drifted"
         );
-        // The pin is the string above; these two numbers are the
-        // documentation of what the string means.
-        let _ = (want_9_2_2, observed);
+        let _ = want_9_2_2;
     }
 }
 

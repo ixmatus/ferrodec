@@ -367,18 +367,33 @@ fn power_is_exact<F: DecimalFormat>(result: F, x: F, y: F) -> bool {
 // Each bail site carries its proof.
 
 /// Deliver an exactly known value `coef · 10^exp` with `sign` through
-/// the format rounder. Caller guarantees `coef` is the value's exact,
-/// complete coefficient (no digits beyond it, so `pre_sticky = false`)
-/// of at most `F::PRECISION + 1` significant digits. The rounder then
-/// decides everything §7 asks for: a coefficient within the format
-/// precision packs exactly (`OK`, moved toward the §6.3 preferred
-/// quantum 0), while a `PRECISION + 1`-digit coefficient rounds with
-/// its final digit as the round digit and an empty sticky — resolving
-/// a nearest-mode tie (final digit 5, nothing behind it) by the mode's
-/// own tie rule, landing every directed mode on the correct side, and
-/// raising `INEXACT` exactly when a nonzero digit drops (ADR-0059 M7).
-fn pack_value<F: DecimalFormat>(coef: U256, exp: i32, sign: bool, rm: RoundingMode) -> (F, Status) {
-    F::round_and_pack_finite(coef, exp, 0, sign, false, rm, Status::OK)
+/// the format rounder, at the operation's §9.2.2 preferred quantum.
+/// Caller guarantees `coef` is the value's exact, complete coefficient
+/// (no digits beyond it, so `pre_sticky = false`) of at most
+/// `F::PRECISION + 1` significant digits. The rounder then decides
+/// everything §7 asks for: a coefficient within the format precision
+/// packs exactly (`OK`, moved toward `q_preferred` as far as the
+/// precision allows, per §6.3), while a `PRECISION + 1`-digit
+/// coefficient rounds with its final digit as the round digit and an
+/// empty sticky — resolving a nearest-mode tie (final digit 5,
+/// nothing behind it) by the mode's own tie rule, landing every
+/// directed mode on the correct side, and raising `INEXACT` exactly
+/// when a nonzero digit drops (ADR-0059 M7).
+///
+/// `q_preferred` is each caller's §9.2.2 value (fd-5g6): the
+/// exponential and logarithmic rows of the standard's table prefer 0,
+/// so those classifiers pass a literal 0; the algebraic rows derive
+/// theirs from the operands' *stored* quanta through the
+/// `*_preferred_quantum` helpers below, cohort-sensitive exactly as
+/// §9.2.2 states them.
+fn pack_value<F: DecimalFormat>(
+    coef: U256,
+    exp: i32,
+    q_preferred: i32,
+    sign: bool,
+    rm: RoundingMode,
+) -> (F, Status) {
+    F::round_and_pack_finite(coef, exp, q_preferred, sign, false, rm, Status::OK)
 }
 
 /// Decode `x` as a small signed integer, or `None` if it is not an
@@ -455,7 +470,7 @@ pub(crate) fn exp2_exact_or_tie<F: DecimalFormat>(x: F, rm: RoundingMode) -> Opt
         if U256::from_u128(p).decimal_digit_count() > F::PRECISION + 1 {
             return None;
         }
-        Some(pack_value(U256::from_u128(p), -(n as i32), false, rm))
+        Some(pack_value(U256::from_u128(p), -(n as i32), 0, false, rm))
     } else {
         // `2^n` for `n ≤ 127` fits `u128`; `2^128` has 39 digits,
         // past every format's `PRECISION + 1`, so the `as_small_int`
@@ -464,7 +479,7 @@ pub(crate) fn exp2_exact_or_tie<F: DecimalFormat>(x: F, rm: RoundingMode) -> Opt
         if U256::from_u128(p).decimal_digit_count() > F::PRECISION + 1 {
             return None;
         }
-        Some(pack_value(U256::from_u128(p), 0, false, rm))
+        Some(pack_value(U256::from_u128(p), 0, 0, false, rm))
     }
 }
 
@@ -481,6 +496,7 @@ pub(crate) fn log10_exact<F: DecimalFormat>(x: F, rm: RoundingMode) -> Option<(F
     }
     Some(pack_value(
         U256::from_u128(u128::from(e.unsigned_abs())),
+        0,
         0,
         e < 0,
         rm,
@@ -521,6 +537,7 @@ pub(crate) fn log2_exact<F: DecimalFormat>(x: F, rm: RoundingMode) -> Option<(F,
     };
     Some(pack_value(
         U256::from_u128(u128::from(k.unsigned_abs())),
+        0,
         0,
         k < 0,
         rm,
@@ -639,6 +656,7 @@ pub(crate) fn log2p1_exact<F: DecimalFormat>(x: F, rm: RoundingMode) -> Option<(
     Some(pack_value(
         U256::from_u128(u128::from(k.unsigned_abs())),
         0,
+        0,
         k < 0,
         rm,
     ))
@@ -733,6 +751,7 @@ pub(crate) fn exp2m1_exact_or_tie<F: DecimalFormat>(x: F, rm: RoundingMode) -> O
         Some(pack_value(
             U256::from_u128(pow10 - pow5),
             -(m as i32),
+            0,
             true,
             rm,
         ))
@@ -747,7 +766,7 @@ pub(crate) fn exp2m1_exact_or_tie<F: DecimalFormat>(x: F, rm: RoundingMode) -> O
         if coef.decimal_digit_count() > F::PRECISION + 1 {
             return None;
         }
-        Some(pack_value(coef, 0, false, rm))
+        Some(pack_value(coef, 0, 0, false, rm))
     }
 }
 
@@ -892,7 +911,7 @@ pub(crate) fn exp10m1_integer<F: DecimalFormat>(x: F, rm: RoundingMode) -> Optio
         // nines fraction below it. Status `OK` in every direction.
         let coef = 10u128.pow(n32) - 1;
         let exp = if neg { -(n32 as i32) } else { 0 };
-        return Some(pack_value(U256::from_u128(coef), exp, neg, rm));
+        return Some(pack_value(U256::from_u128(coef), exp, 0, neg, rm));
     }
     // `n ≥ PRECISION + 1`: the `PRECISION + 1` nines coefficient, at
     // the exponent that places its last digit where the true value's
@@ -992,7 +1011,7 @@ pub(crate) fn exp10_integer<F: DecimalFormat>(x: F, rm: RoundingMode) -> Option<
     // the input becomes the sign of the exponent (`10^−n`), never of
     // the value, which is positive for every finite `x`.
     let exp = if neg { -(n as i32) } else { n as i32 };
-    Some(pack_value(U256::from_u128(1), exp, false, rm))
+    Some(pack_value(U256::from_u128(1), exp, 0, false, rm))
 }
 
 /// `true` when the `u128` `n ≥ 1` is a power of ten. Decided from the
@@ -1125,6 +1144,7 @@ pub(crate) fn log10p1_exact<F: DecimalFormat>(x: F, rm: RoundingMode) -> Option<
     Some(pack_value(
         U256::from_u128(u128::from(k.unsigned_abs())),
         0,
+        0,
         k < 0,
         rm,
     ))
@@ -1249,7 +1269,15 @@ pub(crate) fn cbrt_exact_input<F: DecimalFormat>(
         return None;
     }
     let t = cbrt_u128(c.lo)?;
-    Some(pack_value(U256::from_u128(t), e / 3, false, rm))
+    // `rootn(x, 3)`'s §9.2.2 row on the stored quantum: one value,
+    // one cohort, whichever spelling the caller used (fd-5g6).
+    Some(pack_value(
+        U256::from_u128(t),
+        e / 3,
+        rootn_preferred_quantum(exp, 3),
+        false,
+        rm,
+    ))
 }
 
 // ----------------------------------------------------------------------------
@@ -1379,12 +1407,18 @@ pub(crate) fn pow_exact_input<F: DecimalFormat>(
     if cx.hi != 0 || cy.hi != 0 {
         return None;
     }
+    // §9.2.2 on `x`'s STORED quantum and `y`'s value (fd-5g6): the
+    // one preferred exponent both delivery sites below share, which
+    // is also what closes the fast-path cohort inconsistency
+    // (`pow(1E+2, 256)` via `int_pow` and `pow(1E+2, 257)` via this
+    // classifier now land in one cohort family).
+    let q_pref = pow_preferred_quantum(exp_x, cy.lo, ey, y_neg);
     // |x| = 1: x^y is exactly 1 for every finite y, including y too
     // wide for the rational reduction below (pow(-1, 1E+40) reaches
     // here; +1 is answered by the kernel's rule 2). This check is
     // load-bearing for the huge-a/huge-b bail proofs above.
     if cx.lo == 1 && ex == 0 {
-        return Some(pack_value(U256::from_u128(1), 0, false, rm));
+        return Some(pack_value(U256::from_u128(1), 0, q_pref, false, rm));
     }
     let (a, b) = reduce_rational(cy.lo, ey)?;
     let a32 = u32::try_from(a).ok()?;
@@ -1443,7 +1477,7 @@ pub(crate) fn pow_exact_input<F: DecimalFormat>(
     }
     // Inside the window `w` fits `i32` with four orders to spare.
     let exp = i32::try_from(w).ok()?;
-    Some(pack_value(coef, exp, false, rm))
+    Some(pack_value(coef, exp, q_pref, false, rm))
 }
 
 // ----------------------------------------------------------------------------
@@ -1542,7 +1576,14 @@ pub(crate) fn rsqrt_exact_input<F: DecimalFormat>(x: F, rm: RoundingMode) -> Opt
     if coef_out.decimal_digit_count() > F::PRECISION + 1 {
         return None;
     }
-    Some(pack_value(coef_out, exp_out, false, rm))
+    // §9.2.2 on the STORED quantum (fd-5g6).
+    Some(pack_value(
+        coef_out,
+        exp_out,
+        rsqrt_preferred_quantum(exp),
+        false,
+        rm,
+    ))
 }
 
 /// The exact `(coefficient, exponent)` of `1/√(c · 10^e)` for a
@@ -1753,7 +1794,16 @@ pub(crate) fn powi_exact_input<F: DecimalFormat>(
     rm: RoundingMode,
 ) -> Option<(F, Status)> {
     let (coef, exp) = powi_exact_parts::<F>(abs_x, n)?;
-    Some(pack_value(coef, exp, false, rm))
+    // §9.2.2 on the STORED quantum (fd-5g6); the parts helper strips,
+    // so the quantum is re-read from the operand itself.
+    let (_, q_x, _) = abs_x.to_extended_parts()?;
+    Some(pack_value(
+        coef,
+        exp,
+        pown_preferred_quantum(q_x, n),
+        false,
+        rm,
+    ))
 }
 
 /// The exact `(coefficient, decimal exponent)` of `|x|^n` when it is
@@ -1962,7 +2012,14 @@ pub(crate) fn rootn_exact_input<F: DecimalFormat>(
     if coef.decimal_digit_count() > F::PRECISION + 1 {
         return None;
     }
-    Some(pack_value(coef, exp, false, rm))
+    // §9.2.2 on the STORED quantum (fd-5g6).
+    Some(pack_value(
+        coef,
+        exp,
+        rootn_preferred_quantum(exp_x, n),
+        false,
+        rm,
+    ))
 }
 
 /// The number-theoretic half of [`rootn_exact_input`]: the criterion
@@ -2149,9 +2206,84 @@ const POWER_OF_TEN_EXPONENT_LIMIT: u64 = 1_000_000;
 /// is behaviour-preserving: §6.3 targets `MAX(q_preferred, q_emin)` and
 /// shifts only as far as the coefficient allows, so every `q_preferred`
 /// past the format's quantum range is equivalent to the range endpoint.
-fn preferred_quantum(q_x: i32, n: i32) -> i32 {
+fn compound_preferred_quantum(q_x: i32, n: i32) -> i32 {
     let q = i64::from(n) * i64::from(q_x.min(0));
     q.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32
+}
+
+/// Floor division toward negative infinity, for the §9.2.2 quantum
+/// formulas whose divisor can carry either sign (`Q(x)/n`); `b ≠ 0`.
+fn floor_div(a: i64, b: i64) -> i64 {
+    let q = a / b;
+    if a % b != 0 && ((a < 0) != (b < 0)) {
+        q - 1
+    } else {
+        q
+    }
+}
+
+/// §9.2.2 `Q(pown(x, n)) = floor(n × Q(x))` on the stored quantum
+/// (fd-5g6). Both factors integers, so the floor is the identity; the
+/// `i64` product cannot overflow and the clamp is
+/// behaviour-preserving ([`compound_preferred_quantum`]'s §6.3
+/// argument).
+fn pown_preferred_quantum(q_x: i32, n: i32) -> i32 {
+    (i64::from(n) * i64::from(q_x)).clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32
+}
+
+/// §9.2.2 `Q(rSqrt(x)) = −⌊Q(x)/2⌋` on the stored quantum (fd-5g6);
+/// `div_euclid` by the positive 2 IS the floor.
+fn rsqrt_preferred_quantum(q_x: i32) -> i32 {
+    -(q_x.div_euclid(2))
+}
+
+/// §9.2.2 `Q(rootn(x, n)) = ⌊Q(x)/n⌋` on the stored quantum
+/// (fd-5g6). `cbrt` shares it at `n = 3` — `cbrt(x)` and
+/// `rootn(x, 3)` are one value and must deliver one cohort. The
+/// magnitude never exceeds `|Q(x)|`, so the narrowing is exact.
+fn rootn_preferred_quantum(q_x: i32, n: i32) -> i32 {
+    floor_div(i64::from(q_x), i64::from(n)) as i32
+}
+
+/// §9.2.2 `Q(pow(x, y)) = ⌊y × Q(x)⌋` (`powr` shares the row): the
+/// one formula whose multiplier is a format value rather than an
+/// integer, computed exactly on `y`'s stripped parts `±cy · 10^ey`
+/// (stripping preserves the value, and §9.2.2 reads `y`'s value but
+/// `x`'s stored quantum). Two regimes (fd-5g6):
+///
+/// * `ey ≥ 0`: the product is the integer `±cy·10^ey · Q(x)`,
+///   saturated the moment it leaves `i128` — the clamp endpoint is
+///   the behaviour-preserving answer for any magnitude that large
+///   ([`compound_preferred_quantum`]'s §6.3 argument).
+/// * `ey < 0`: `⌊±cy·Q(x) / 10^−ey⌋` by euclidean division. The
+///   numerator fits `i128` (`cy < 10^34`, `|Q(x)| ≤ 6176`, product
+///   `< 6.2·10^37`), and a divisor of 39 or more decades exceeds any
+///   such numerator, so the floor there is 0 or −1 by sign alone.
+fn pow_preferred_quantum(q_x: i32, cy: u128, ey: i32, y_neg: bool) -> i32 {
+    if q_x == 0 {
+        return 0;
+    }
+    let clamp = |v: i128| v.clamp(i128::from(i32::MIN), i128::from(i32::MAX)) as i32;
+    let m = i128::try_from(cy).expect("a stripped format coefficient fits i128") * i128::from(q_x);
+    let num = if y_neg { -m } else { m };
+    if ey >= 0 {
+        let mut v = num;
+        let mut i = 0;
+        while i < ey {
+            match v.checked_mul(10) {
+                Some(w) => v = w,
+                None => return clamp(if num > 0 { i128::MAX } else { i128::MIN }),
+            }
+            i += 1;
+        }
+        clamp(v)
+    } else {
+        let d = ey.unsigned_abs();
+        if d >= 39 {
+            return if num > 0 { 0 } else { -1 };
+        }
+        clamp(num.div_euclid(10i128.pow(d)))
+    }
 }
 
 /// The exact or tie value of `compound(x, n) = (1 + x)^n` decided from
@@ -2319,7 +2451,7 @@ fn compound_exact_parts<F: DecimalFormat>(x: F, n: i32) -> Option<(U256, i32, i3
     }
     // §9.2.2 reads the *stored* quantum, so this is computed before
     // stripping canonicalises the cohort away.
-    let q_pref = preferred_quantum(exp, n);
+    let q_pref = compound_preferred_quantum(exp, n);
     let (c, u) = strip_trailing_zeros(coef, exp);
     let a = c.lo;
 
@@ -3414,13 +3546,55 @@ mod tests {
     #[test]
     fn preferred_quantum_follows_the_stored_exponent() {
         // §9.2.2: floor(n × min(0, Q(x))).
-        assert_eq!(preferred_quantum(-2, 3), -6); // compound(0.05, 3)
-        assert_eq!(preferred_quantum(0, 2), 0); // compound(5, 2) = 36
-        assert_eq!(preferred_quantum(3, 2), 0); // Q(x) > 0 clamps to 0
-        assert_eq!(preferred_quantum(-2, -1), 2); // compound(0.25, −1)
-                                                  // Saturating rather than overflowing at the corners.
-        assert_eq!(preferred_quantum(-6176, i32::MAX), i32::MIN);
-        assert_eq!(preferred_quantum(-6176, i32::MIN), i32::MAX);
+        assert_eq!(compound_preferred_quantum(-2, 3), -6); // compound(0.05, 3)
+        assert_eq!(compound_preferred_quantum(0, 2), 0); // compound(5, 2) = 36
+        assert_eq!(compound_preferred_quantum(3, 2), 0); // Q(x) > 0 clamps to 0
+        assert_eq!(compound_preferred_quantum(-2, -1), 2); // compound(0.25, −1)
+                                                           // Saturating rather than overflowing at the corners.
+        assert_eq!(compound_preferred_quantum(-6176, i32::MAX), i32::MIN);
+        assert_eq!(compound_preferred_quantum(-6176, i32::MIN), i32::MAX);
+    }
+
+    /// The fd-5g6 §9.2.2 quantum helpers, pinned per formula row
+    /// against hand-evaluated cases, the floor's negative-operand
+    /// semantics and the saturation corners included.
+    #[test]
+    fn algebraic_preferred_quanta_follow_section_9_2_2() {
+        // pown: floor(n × Q(x)).
+        assert_eq!(pown_preferred_quantum(-2, 2), -4); // powi(1.20, 2)
+        assert_eq!(pown_preferred_quantum(-2, 1), -2); // powi(1.20, 1)
+        assert_eq!(pown_preferred_quantum(0, 3), 0); // powi(2, 3)
+        assert_eq!(pown_preferred_quantum(-1, -3), 3); // powi(1.5, −3)
+        assert_eq!(pown_preferred_quantum(-6176, i32::MAX), i32::MIN);
+
+        // rSqrt: −⌊Q(x)/2⌋, the floor BEFORE the negation.
+        assert_eq!(rsqrt_preferred_quantum(0), 0); // rsqrt(4)
+        assert_eq!(rsqrt_preferred_quantum(-2), 1); // rsqrt(0.25)
+        assert_eq!(rsqrt_preferred_quantum(72), -36); // rsqrt(1E+72)
+        assert_eq!(rsqrt_preferred_quantum(-7), 4); // ⌊−3.5⌋ = −4
+        assert_eq!(rsqrt_preferred_quantum(7), -3); // ⌊3.5⌋ = 3
+
+        // rootn: ⌊Q(x)/n⌋, either sign of n.
+        assert_eq!(rootn_preferred_quantum(-6, 3), -2); // rootn(x·E−6, 3)
+        assert_eq!(rootn_preferred_quantum(-7, 3), -3); // ⌊−7/3⌋ = −3
+        assert_eq!(rootn_preferred_quantum(7, 3), 2); // ⌊7/3⌋ = 2
+        assert_eq!(rootn_preferred_quantum(-6, -3), 2); // ⌊−6/−3⌋ = 2
+        assert_eq!(rootn_preferred_quantum(-7, -3), 2); // ⌊7/3⌋ = 2
+        assert_eq!(rootn_preferred_quantum(7, -3), -3); // ⌊−7/3⌋ = −3
+
+        // pow: ⌊y × Q(x)⌋ on y's exact value.
+        assert_eq!(pow_preferred_quantum(0, 257, 0, false), 0); // pow(1E+2…
+        assert_eq!(pow_preferred_quantum(2, 257, 0, false), 514); // …stored 1E+2
+        assert_eq!(pow_preferred_quantum(-2, 3, 0, false), -6); // pow(1.25, 3)
+        assert_eq!(pow_preferred_quantum(-2, 5, -1, false), -1); // ⌊0.5·−2⌋
+        assert_eq!(pow_preferred_quantum(-2, 25, -2, false), -1); // ⌊0.25·−2⌋ = ⌊−0.5⌋
+        assert_eq!(pow_preferred_quantum(2, 25, -2, false), 0); // ⌊0.5⌋
+        assert_eq!(pow_preferred_quantum(-2, 5, -1, true), 1); // ⌊−0.5·−2⌋
+        assert_eq!(pow_preferred_quantum(2, 5, -1, true), -1); // ⌊−0.5·2⌋ = ⌊−1⌋
+        assert_eq!(pow_preferred_quantum(-2, 3, -6200, false), -1); // ⌊−tiny⌋
+        assert_eq!(pow_preferred_quantum(2, 3, -6200, false), 0); // ⌊+tiny⌋
+        assert_eq!(pow_preferred_quantum(-1, 1, 40, false), i32::MIN); // huge y
+        assert_eq!(pow_preferred_quantum(-1, 1, 40, true), i32::MAX);
     }
     /// The machine-checked leg of [`compound_exact_input`]'s
     /// `d > 2·PRECISION + 2` bail (ADR-0060's derivation-plus-probe

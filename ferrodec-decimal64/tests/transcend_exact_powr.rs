@@ -408,16 +408,13 @@ fn the_five_23_tie_resolves_per_mode() {
 /// exact deliveries; inexact results take the rounder's §6.3
 /// disposition. These pins record the cohort `powr` actually delivers.
 ///
-/// `powr` reaches the shared `exact::pow_exact_input` and never touches
-/// the pack machinery, so the delivered quantum is whatever that
-/// classifier asks for. It asks for `q_preferred = 0` unconditionally
-/// (`pack_value`), and the rounder then moves the value as close to
-/// quantum 0 as the 34-digit coefficient allows. Where the exact value
-/// cannot sit at quantum 0, the clamp happens to land on
-/// `floor(y × Q(x))` and the rule is satisfied; where `Q(x) ≠ 0` and the
-/// value *can* reach quantum 0, the two disagree. See
-/// [`the_ieee_9_2_2_preferred_exponent_deviation`] for that class,
-/// which is inherited from `pow` rather than introduced here.
+/// `powr` reaches the shared `exact::pow_exact_input`, whose pack path
+/// carries `floor(y × Q(x))` on `x`'s stored quantum (fd-5g6), and the
+/// rounder moves the cohort toward it as far as the precision allows
+/// (§6.3). Every case below is therefore either the §9.2.2 quantum
+/// verbatim or its §6.3 clamp; see
+/// [`the_ieee_9_2_2_preferred_exponent_conformance`] for the class
+/// that used to deviate before the repair.
 #[test]
 fn exact_deliveries_pin_their_quantum() {
     // (x, y, delivered canonical string). The comment gives
@@ -451,42 +448,31 @@ fn exact_deliveries_pin_their_quantum() {
     }
 }
 
-/// The §9.2.2 deviation, pinned as a **known** deviation so it cannot
-/// drift unnoticed and so the next reader finds it stated rather than
-/// buried.
-///
-/// `exact::pow_exact_input` hands the rounder `q_preferred = 0`
-/// unconditionally instead of `floor(y × Q(x))`. When `Q(x) ≠ 0` and
-/// the exact value can reach quantum 0, the delivered cohort is
-/// therefore wider than §9.2.2 asks for. This predates `powr`: `pow`
-/// misses the rule identically wherever its own integer fast path does
-/// not apply, and the `y = 256` / `y = 257` pair below is the witness —
-/// `pow` flips cohort across its `|y| ≤ 256` fast-path boundary on
-/// inputs that differ by one in the exponent, so `pow` is not even
-/// self-consistent here.
-///
-/// Fixing this means changing `pack_value`'s preferred quantum for
-/// every consumer of the shared classifier (`pow` and `cbrt` included).
-/// That is a deliberate non-goal of this slice: the D3 brief forbids
-/// adjusting the pack machinery, and the change is `pow`'s to make.
+/// The class that deviated from §9.2.2 before fd-5g6 (`Q(x) ≠ 0` with
+/// the exact value able to reach quantum 0), now delivered exactly as
+/// the standard states it — and `pow`'s self-consistency across its
+/// own `|y| ≤ 256` fast-path boundary restored with it: the fast path
+/// always carried the §9.2.2 quantum, the classifier now carries the
+/// same one, so the `y = 256` / `y = 257` pair below lands in one
+/// cohort family.
 #[test]
-fn the_ieee_9_2_2_preferred_exponent_deviation() {
-    // Q(x) ≠ 0 and the value reaches quantum 0: §9.2.2 wants
-    // floor(y × Q(x)), the classifier delivers quantum 0.
-    let deviating = [
-        // Q = 2, y = 2 → floor = 4; §9.2.2 wants "1E+4".
-        ("1E+2", "2", "10000"),
-        // Q = −1, y = −2 → floor = 2; §9.2.2 wants "1E+2".
-        ("0.1", "-2", "100"),
-        // Q = 2, y = 0.5 → floor = 1; §9.2.2 wants "1E+1".
-        ("1E+2", "0.5", "10"),
+fn the_ieee_9_2_2_preferred_exponent_conformance() {
+    // Q(x) ≠ 0 and the value reaches quantum 0: delivered at
+    // floor(y × Q(x)) since fd-5g6.
+    let conforming = [
+        // Q = 2, y = 2 → floor = 4.
+        ("1E+2", "2", "1E+4"),
+        // Q = −1, y = −2 → floor = 2.
+        ("0.1", "-2", "1E+2"),
+        // Q = 2, y = 0.5 → floor = 1.
+        ("1E+2", "0.5", "1E+1"),
     ];
-    for (x, y, delivered) in deviating {
+    for (x, y, delivered) in conforming {
         let (r, _) = parse(x).powr(parse(y), NE);
         assert_eq!(
             alloc_string(r),
             delivered,
-            "powr({x}, {y}): the known §9.2.2 deviation changed shape"
+            "powr({x}, {y}): the §9.2.2 cohort drifted"
         );
     }
 
@@ -503,8 +489,8 @@ fn the_ieee_9_2_2_preferred_exponent_deviation() {
     );
     assert_eq!(
         alloc_string(p257),
-        "1.000000000000000E+257",
-        "one past the fast path, pow falls to the classifier and widens"
+        "1E+257",
+        "one past the fast path, the classifier keeps the same family"
     );
     let (q257, _) = parse("1E+1").powr(parse("257"), NE);
     assert_eq!(
@@ -530,22 +516,16 @@ fn alloc_string(d: Decimal64) -> std::string::String {
 /// therefore agree on **value and on flags**, with no exception. That
 /// is the load-bearing claim, and it is asserted per comparison.
 ///
-/// Bit identity is a *stronger* claim and it does not hold, for one
-/// understood reason. `pow` opens with a square-and-multiply fast path
-/// for integer `|y| ≤ 256`, committed only when no intermediate
-/// multiply rounds; `powr` has no such arm (the D3 brief specifies the
-/// kernel as table → classifier → general path), so an input the fast
-/// path answers reaches `powr`'s classifier instead. The two agree on
-/// the value and disagree on the cohort exactly when the exact result
-/// is a power of ten and `Q(x) ≠ 0`: `int_pow` accumulates exponents
-/// and keeps the coefficient `1`, while the classifier asks the rounder
-/// for quantum 0 and widens the coefficient. Neither is wrong about the
-/// value; see [`the_ieee_9_2_2_preferred_exponent_deviation`] for which
-/// one §9.2.2 prefers (`pow`'s, on this family, by accident of the fast
-/// path).
+/// Bit identity holds too, since fd-5g6: `pow`'s integer fast path
+/// (square-and-multiply for `|y| ≤ 256`) always carried the §9.2.2
+/// quantum, and the shared classifier `powr` reaches instead now
+/// carries the same `floor(y × Q(x))`, so the cohort-split bucket the
+/// sweep used to whitelist (power-of-ten exact results with
+/// `Q(x) ≠ 0`) is pinned at zero.
 ///
-/// The three buckets are counted separately and pinned exactly, per the
-/// repo's regression-guard discipline: a floor on the total would let a
+/// The value and flag buckets are counted separately and pinned at
+/// zero, and the cohort bucket asserts per pair, per the repo's
+/// regression-guard discipline: a floor on the total would let a
 /// value regression hide behind a cohort improvement.
 #[test]
 fn differential_against_pow_over_the_shared_domain() {
@@ -577,27 +557,14 @@ fn differential_against_pow_over_the_shared_domain() {
     // Nine pairs here, not the parent's ten: `1E+50 ^ 49 = 1E+2450`
     // overflows `Decimal64`'s emax of 384, so both operations deliver
     // `+∞` and the pair leaves this bucket.
-    let cohort_only: [(&str, &str); 9] = [
-        ("0.1", "-1"),
-        ("0.1", "-2"),
-        ("0.1", "-3"),
-        ("1E+50", "2"),
-        ("1E+50", "3"),
-        ("1E+50", "7"),
-        ("1E-50", "-1"),
-        ("1E-50", "-2"),
-        ("1E-50", "-3"),
-    ];
 
     let mut compared = 0usize;
     let mut value_divergent = 0usize;
     let mut flag_divergent = 0usize;
-    let mut bit_divergent = 0usize;
     for x in xs {
         for y in ys {
             let bx = parse(x);
             let by = parse(y);
-            let expected_cohort_split = cohort_only.contains(&(x, y));
             for rm in ALL {
                 let (a, sa) = bx.powr(by, rm);
                 let (b, sb) = bx.pow(by, rm);
@@ -613,16 +580,14 @@ fn differential_against_pow_over_the_shared_domain() {
                 if sa != sb {
                     flag_divergent += 1;
                 }
-                if a.to_bits() != b.to_bits() {
-                    bit_divergent += 1;
-                    assert!(
-                        expected_cohort_split,
-                        "powr({x}, {y}) under {rm:?}: unlisted cohort split \
-                         ({} vs {}) — the fast-path family widened",
-                        alloc_string(a),
-                        alloc_string(b)
-                    );
-                }
+                assert_eq!(
+                    a.to_bits(),
+                    b.to_bits(),
+                    "powr({x}, {y}) under {rm:?}: cohort split \
+                     ({} vs {}) — fd-5g6 pinned this bucket at zero",
+                    alloc_string(a),
+                    alloc_string(b)
+                );
                 compared += 1;
             }
         }
@@ -634,11 +599,6 @@ fn differential_against_pow_over_the_shared_domain() {
         "powr and pow must never differ in value"
     );
     assert_eq!(flag_divergent, 0, "powr and pow must never differ in flags");
-    assert_eq!(
-        bit_divergent,
-        cohort_only.len() * ALL.len(),
-        "the cohort-split bucket drifted from its nine pinned pairs"
-    );
 }
 
 /// The differential's complement: on the inputs `powr` refuses, the two

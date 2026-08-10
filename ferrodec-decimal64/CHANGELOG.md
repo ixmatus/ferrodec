@@ -20,6 +20,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   changed (the full corpus replays byte identical; the adjudicator
   only decides cases that previously delivered on the Tier 2 model).
 
+### Fixed
+
+- The exact-delivery pack path now carries each operation's IEEE
+  754-2019 §9.2.2 preferred exponent (fd-5g6): `pow` and `powr` at
+  `floor(y × Q(x))`, `powi` at `floor(n × Q(x))`, `rsqrt` at
+  `−floor(Q(x)/2)`, `rootn` at `floor(Q(x)/n)` (`cbrt` sharing the
+  `n = 3` row so `cbrt(x)` and `rootn(x, 3)` deliver one cohort), all
+  on the operand's stored quantum, capped by the §6.3 precision
+  clamp. Values and flags were already correct; only the delivered
+  cohort moves (`powi(1.20, 2)` is now `1.4400`, `pow(1E+2, 257)` is
+  `1E+514`), and `pow` is again cohort-consistent across its own
+  integer fast-path boundary. `compound` and `hypot` conformed
+  already.
+
 ### Added
 
 - `Decimal64::powi`, `powr`, `rootn`, `compound`, `rsqrt`, and
@@ -37,9 +51,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   both mandated, tested side by side. `powr` differs from `pow`
   exactly where §9.2.1 says it must (`powr(±0, ±0)`, `powr(+∞, ±0)`,
   `powr(+1, ±∞)`, and every negative base are INVALID). `compound`
-  and `hypot` deliver §9.2.2's preferred exponents on exact results;
-  the remaining operations record the shared rounder's quantum
-  divergence (fd-5g6).
+  and `hypot` deliver §9.2.2's preferred exponents on exact results,
+  and since fd-5g6 (below) the rest of the group does too.
 
 ### Fixed
 
