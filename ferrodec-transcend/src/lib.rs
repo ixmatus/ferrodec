@@ -131,6 +131,11 @@ pub mod hypot;
 // the series rather than carrying a second.
 #[cfg(any(feature = "trig", feature = "trig-pi"))]
 pub mod inverse_trig;
+// The pi-scaled inverse family `asinPi` … `atan2Pi` (ADR-0061 Track D
+// D4): `inverse_trig`'s cores scaled by `1/π`, under their own §9.2.1
+// tables, exact classifiers, and ADR-0051 anchor arms.
+#[cfg(feature = "trig-pi")]
+pub mod inverse_trig_pi;
 #[cfg(feature = "exp-log")]
 pub mod ln;
 #[cfg(feature = "pow")]
