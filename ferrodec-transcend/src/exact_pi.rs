@@ -52,11 +52,6 @@
 //! no-ties theorem plus Niven), so the kernels' unconditional
 //! `INEXACT` past these classifiers is correct in every mode.
 
-// Not yet wired: the D4 kernels consume these at this arc's wiring
-// commit (the adjudicate.rs precedent); the decision-table tests are
-// the only reference until then.
-#![allow(dead_code)]
-
 use crate::format::DecimalFormat;
 use ferrodec_ieee::{RoundingMode, Status};
 use ferrodec_multiword::U256;

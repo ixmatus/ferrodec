@@ -71,8 +71,9 @@ mod inverse_trig;
 #[cfg(feature = "trig")]
 mod sincos;
 
-// The IEEE 754-2019 §9.2 forward pi-scaled trio (ADR-0061 Track D D4),
-// under its own standalone feature.
+// The IEEE 754-2019 §9.2 pi-scaled family (ADR-0061 Track D D4),
+// under its own standalone feature: the exact decimal reduction needs
+// none of `trig`'s Payne-Hanek machinery.
 #[cfg(feature = "trig-pi")]
 mod trig_pi;
 

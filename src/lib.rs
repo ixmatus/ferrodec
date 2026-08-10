@@ -87,7 +87,7 @@ pub use num_traits_impls::FromStrRadixError;
 #[cfg(feature = "serde")]
 pub use serde_impls::serde_bid;
 
-#[cfg(any(feature = "trig", feature = "exp-log"))]
+#[cfg(any(feature = "trig", feature = "exp-log", feature = "trig-pi"))]
 pub use math::{e, ln10, ln2, pi};
 
 pub use classify::IeeeClass;

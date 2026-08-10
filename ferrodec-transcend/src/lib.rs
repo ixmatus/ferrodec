@@ -124,8 +124,18 @@ pub mod hyperbolic;
 // this crate's input-side classification module lives.
 #[cfg(feature = "exp-log")]
 pub mod hypot;
-#[cfg(feature = "trig")]
+// Two features reach this module. `trig` compiles the public `atan` /
+// `asin` / `acos` / `atan2` kernels; `trig-pi` compiles only their
+// extended-precision cores, which `inverse_trig_pi` scales by `1/π`
+// (ADR-0061) so the pi-scaled family inherits one implementation of
+// the series rather than carrying a second.
+#[cfg(any(feature = "trig", feature = "trig-pi"))]
 pub mod inverse_trig;
+// The pi-scaled inverse family `asinPi` … `atan2Pi` (ADR-0061 Track D
+// D4): `inverse_trig`'s cores scaled by `1/π`, under their own §9.2.1
+// tables, exact classifiers, and ADR-0051 anchor arms.
+#[cfg(feature = "trig-pi")]
+pub mod inverse_trig_pi;
 #[cfg(feature = "exp-log")]
 pub mod ln;
 #[cfg(feature = "pow")]

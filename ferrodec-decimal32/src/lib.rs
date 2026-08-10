@@ -118,7 +118,11 @@ mod ops;
 mod ops_traits;
 #[cfg(feature = "serde")]
 mod serde_impls;
-#[cfg(any(feature = "exp-log", feature = "trig-pi"))]
+// `impl DecimalFormat for Decimal32`, the seam every shared kernel is
+// instantiated through. Every feature that delegates to
+// `ferrodec-transcend` needs it, not just `exp-log`: `trig` reaches it
+// through `ops::trig` and `trig-pi` through `ops::trig_pi`.
+#[cfg(any(feature = "exp-log", feature = "trig", feature = "trig-pi"))]
 mod transcend_impl;
 #[cfg(kani)]
 mod verify;

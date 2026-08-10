@@ -1347,10 +1347,6 @@ pub(crate) const POWR: Budget = Budget {
 /// Sum ≈ 365; ×10 → 4,000 (rounded up). Rung 2: cap 240 → ≈ 725;
 /// ×10 → 10,000. The escalation rate lands near `8×10^-13` per call
 /// where trig's is 3%: the payoff of the exact reduction, priced.
-// Consumed by the D4 kernels at this arc's wiring commit; until
-// then the catalog tests are the only reference (the adjudicate.rs
-// not-yet-wired precedent).
-#[allow(dead_code)]
 pub(crate) const SINPI: Budget = Budget {
     rung1: 4_000,
     rung2: 10_000,
@@ -1358,7 +1354,6 @@ pub(crate) const SINPI: Budget = Budget {
 };
 
 /// [`SINPI`] at `p`: the same items with the series at `2p + 20`.
-#[allow(dead_code)]
 fn sinpi_budget_dyn(p: u32) -> u128 {
     10 * (6 * u128::from(p) + 70)
 }
@@ -1366,10 +1361,6 @@ fn sinpi_budget_dyn(p: u32) -> u128 {
 /// `tanPi = sinPi/cosPi` on the shared reduction: both components'
 /// relative errors add through the quotient (≤ 2 × [`SINPI`]'s sum)
 /// plus a Newton division (15). ×10 → 8,000 / 25,000.
-// Consumed by the D4 kernels at this arc's wiring commit; until
-// then the catalog tests are the only reference (the adjudicate.rs
-// not-yet-wired precedent).
-#[allow(dead_code)]
 pub(crate) const TANPI: Budget = Budget {
     rung1: 8_000,
     rung2: 25_000,
@@ -1377,7 +1368,6 @@ pub(crate) const TANPI: Budget = Budget {
 };
 
 /// [`TANPI`] at `p`: both series plus the flat Newton 60.
-#[allow(dead_code)]
 fn tanpi_budget_dyn(p: u32) -> u128 {
     10 * (12 * u128::from(p) + 200)
 }
@@ -1387,10 +1377,6 @@ fn tanpi_budget_dyn(p: u32) -> u128 {
 /// const-multiply on the result (relative, ≤ 1.5). Sum ≈ 680;
 /// ×10 → 10,000 / rung 2 20,000 — [`ASIN`]'s constants, the pad
 /// absorbing the extra multiply, and the shared dynamic formula.
-// Consumed by the D4 kernels at this arc's wiring commit; until
-// then the catalog tests are the only reference (the adjudicate.rs
-// not-yet-wired precedent).
-#[allow(dead_code)]
 pub(crate) const ASINPI: Budget = Budget {
     rung1: 10_000,
     rung2: 20_000,
@@ -1399,10 +1385,6 @@ pub(crate) const ASINPI: Budget = Budget {
 
 /// `acosPi = acos(x)/π`: as [`ASINPI`] over [`ACOS`]'s identical
 /// itemization.
-// Consumed by the D4 kernels at this arc's wiring commit; until
-// then the catalog tests are the only reference (the adjudicate.rs
-// not-yet-wired precedent).
-#[allow(dead_code)]
 pub(crate) const ACOSPI: Budget = Budget {
     rung1: 10_000,
     rung2: 20_000,
@@ -1411,10 +1393,6 @@ pub(crate) const ACOSPI: Budget = Budget {
 
 /// `atanPi = atan(x)/π`: [`ATAN`]'s ≈ 640 plus the `1/π`
 /// const-multiply, pad-absorbed. Same constants, same dynamic.
-// Consumed by the D4 kernels at this arc's wiring commit; until
-// then the catalog tests are the only reference (the adjudicate.rs
-// not-yet-wired precedent).
-#[allow(dead_code)]
 pub(crate) const ATANPI: Budget = Budget {
     rung1: 10_000,
     rung2: 20_000,
@@ -1423,10 +1401,6 @@ pub(crate) const ATANPI: Budget = Budget {
 
 /// `atan2Pi = atan2(y, x)/π`: [`ATAN2`]'s ≈ 660 plus the `1/π`
 /// const-multiply, pad-absorbed. Same constants, same dynamic.
-// Consumed by the D4 kernels at this arc's wiring commit; until
-// then the catalog tests are the only reference (the adjudicate.rs
-// not-yet-wired precedent).
-#[allow(dead_code)]
 pub(crate) const ATAN2PI: Budget = Budget {
     rung1: 10_000,
     rung2: 20_000,
