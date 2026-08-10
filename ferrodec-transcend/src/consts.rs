@@ -22,6 +22,8 @@ const LN2_EXT_STR: &str = "0.693147180559945309417232121458176568075500134360255
 const LN10_EXT_STR: &str = "2.302585092994045684017991454684364207601101488628772976";
 const INV_LN10_EXT_STR: &str = "0.4342944819032518276511289189166050822943970058036665661";
 const INV_LN2_EXT_STR: &str = "1.442695040888963407359924681001892137426645954152985934";
+// 1/π for the pi-scaled family's inverse kernels (ADR-0061).
+const INV_PI_EXT_STR: &str = "0.3183098861837906715377675267450287240689192914809128974";
 // π/4, π/2, and tan(π/8) at extended precision. Used by atan's
 // argument reduction.
 const PI_OVER_TWO_EXT_STR: &str = "1.570796326794896619231321691639751442098584699687552910";
@@ -65,6 +67,13 @@ pub fn inv_ln2_ext() -> Extended {
     Extended::parse_str(INV_LN2_EXT_STR)
 }
 
+/// `1/π` at extended precision. Used by the pi-scaled inverse family
+/// (`asinPi = asin(x)/π` and siblings, ADR-0061).
+#[must_use]
+pub fn inv_pi_ext() -> Extended {
+    Extended::parse_str(INV_PI_EXT_STR)
+}
+
 /// `π/2` at extended precision. Used by atan / asin / acos /
 /// atan2 quadrant adjustments.
 #[must_use]
@@ -105,6 +114,7 @@ const LN2_EXT2_STR: &str = "0.69314718055994530941723212145817656807550013436025
 const LN10_EXT2_STR: &str = "2.302585092994045684017991454684364207601101488628772976033327900967572609677352480235997205089598298341967784042286";
 const INV_LN10_EXT2_STR: &str = "0.4342944819032518276511289189166050822943970058036665661144537831658646492088707747292249493384317483187061067447663";
 const INV_LN2_EXT2_STR: &str = "1.442695040888963407359924681001892137426645954152985934135449406931109219181185079885526622893506344496997518309653";
+const INV_PI_EXT2_STR: &str = "0.3183098861837906715377675267450287240689192914809128974953346881177935952684530701802276055325061719121456854535159";
 const PI_OVER_TWO_EXT2_STR: &str = "1.570796326794896619231321691639751442098584699687552910487472296153908203143104499314017412671058533991074043256641";
 const PI_OVER_FOUR_EXT2_STR: &str = "0.7853981633974483096156608458198757210492923498437764552437361480769541015715522496570087063355292669955370216283206";
 const TAN_PI_OVER_EIGHT_EXT2_STR: &str = "0.4142135623730950488016887242096980785696718753769480731766797379907324784621070388503875343276415727350138462309123";
@@ -143,6 +153,12 @@ pub(crate) fn inv_ln10_ext2() -> Extended2 {
 #[must_use]
 pub(crate) fn inv_ln2_ext2() -> Extended2 {
     Extended2::parse_str(INV_LN2_EXT2_STR)
+}
+
+/// `1/π` at rung 2 width (ADR-0061).
+#[must_use]
+pub(crate) fn inv_pi_ext2() -> Extended2 {
+    Extended2::parse_str(INV_PI_EXT2_STR)
 }
 
 /// `π/2` at rung 2 precision.
@@ -320,6 +336,9 @@ mod tests {
         let inv_ln2_ref = ln2_ref.reciprocal(ORACLE_P, AfRm::None);
         assert_ext_str_matches("INV_LN2_EXT_STR", INV_LN2_EXT_STR, &inv_ln2_ref, &mut cc);
 
+        let inv_pi_ref = pi_ref.reciprocal(ORACLE_P, AfRm::None);
+        assert_ext_str_matches("INV_PI_EXT_STR", INV_PI_EXT_STR, &inv_pi_ref, &mut cc);
+
         // π / 2
         let pi_over_two_ref = pi_ref.div(&two, ORACLE_P, AfRm::None);
         assert_ext_str_matches(
@@ -406,6 +425,9 @@ mod tests {
 
         let inv_ln2_ref = ln2_ref.reciprocal(ORACLE_P2, AfRm::None);
         assert_ext2_str_matches("INV_LN2_EXT2_STR", INV_LN2_EXT2_STR, &inv_ln2_ref, &mut cc);
+
+        let inv_pi_ref = pi_ref.reciprocal(ORACLE_P2, AfRm::None);
+        assert_ext2_str_matches("INV_PI_EXT2_STR", INV_PI_EXT2_STR, &inv_pi_ref, &mut cc);
 
         let pi_over_two_ref = pi_ref.div(&two, ORACLE_P2, AfRm::None);
         assert_ext2_str_matches(

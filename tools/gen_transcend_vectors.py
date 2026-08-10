@@ -120,8 +120,11 @@ DIRECTED_FUNCS = (
     # corpus bytes) untouched. rsqrt's directed risk profile is the
     # classifier-adjacent neighborhoods, same as the D1/D2 families.
     "rsqrt",
+    # ADR-0061 D4: classifier-adjacent neighborhoods are the directed
+    # risk profile, as for every family since D1.
+    "sinpi", "cospi", "tanpi", "asinpi", "acospi", "atanpi",
 )
-BINARY = ("atan2", "pow", "hypot")
+BINARY = ("atan2", "pow", "hypot", "atan2pi")  # atan2pi: ADR-0061 D4
 # ADR-0060 D3: the integer-operand surface (format x i32). A fourth
 # pass with its own rng stream; vector lines carry the i32 as the
 # second input token.
@@ -239,6 +242,20 @@ def _is_directed_exact_output_binary(name, xt, yt, fmt):
     that produce a representable result in the target format."""
     if name == "hypot":
         return _hypot_exact_kind(xt, yt, fmt) == "exact"
+    if name == "atan2pi":
+        # ADR-0061 D4: the diagonal family |y| = |x| is exact
+        # (atan2pi = +-1/4 or +-3/4, representable in every format);
+        # its ball sits ON a directed-mode boundary and never becomes
+        # decisive. The exact_pi classifier owns it; the corpus must
+        # skip it or trip the cap-hit gate.
+        (xc, xe, _xn) = xt
+        (yc, ye, _yn) = yt
+        def _strip(c, e):
+            while c % 10 == 0 and c != 0:
+                c //= 10
+                e += 1
+            return (c, e)
+        return _strip(xc, xe) == _strip(yc, ye)
     if name != "pow":
         return False
     (xc, xe, xn) = xt
@@ -687,13 +704,29 @@ FUNCS = {
     # the same stream-stability reason. arb.rsqrt is the certified
     # native primitive.
     "rsqrt": lambda a: a.rsqrt(),
+    # ADR-0061 Track D group D4 (§9.2 sinPi..atanPi), appended after
+    # D3 for the same stream-stability reason. The forward trio uses
+    # Arb's native *_pi primitives (exact reduction inside the ball
+    # arithmetic); the inverse three compose over a ball pi, which
+    # keeps the enclosure honest and the solve loop decisive.
+    "sinpi": lambda a: a.sin_pi(),
+    "cospi": lambda a: a.cos_pi(),
+    "tanpi": lambda a: a.tan_pi(),
+    "asinpi": lambda a: a.asin() / arb.pi(),
+    "acospi": lambda a: a.acos() / arb.pi(),
+    "atanpi": lambda a: a.atan() / arb.pi(),
 }
 
 # Per-function decimal-magnitude window for the random TMD scan, and
 # whether the argument is restricted (sign / unit interval / ≥1).
 TRIG = {"sin", "cos", "tan"}
 POSITIVE = {"ln", "log2", "log10", "rsqrt"}  # x > 0 (rsqrt: ADR-0060 D3)
-UNIT = {"asin", "acos", "atanh"}            # |x| < 1
+UNIT = {"asin", "acos", "atanh", "asinpi", "acospi"}  # |x| < 1
+# ADR-0061 D4: the forward pi trio. Bounded magnitude (large values
+# are integers, classifier-exact, and an exact draw would spin the
+# solve loop to the cap), and the exact residue classes (4x integral:
+# integers, half and quarter integers) rejected for the same reason.
+PIFWD = {"sinpi", "cospi", "tanpi"}
 GE_ONE = {"acosh"}                          # x ≥ 1
 NON_NEGATIVE = {"sqrt"}                      # x ≥ 0 (IEEE §5 sqrt)
 P1LOG = {"logp1", "log2p1", "log10p1"}       # x > -1 (ADR-0059 D1)
@@ -720,6 +753,21 @@ def in_domain(name, coef, exp, neg, fmt):
         # x is never zero here; negatives are the NaN special-value
         # contract, not a TMD candidate, so they are excluded.
         return not neg
+    if name in PIFWD:
+        # Bounded away from the all-integer decades, and never an
+        # exact residue: 4x integral covers every classifier-exact
+        # class (integer, half integer, quarter integer), whose Arb
+        # ball would never become decisive.
+        if mag > 8:
+            return False
+        if exp >= 0:
+            return False  # integer: classifier-exact
+        scaled = 4 * coef
+        e = exp
+        while e < 0 and scaled % 10 == 0:
+            scaled //= 10
+            e += 1
+        return e < 0  # still fractional after stripping: not a residue
     if name in ("exp", "exp2", "sinh", "cosh") or name in M1EXP:
         # ADR-0033 corpus-integrity gate fix. The prior `mag <= 3`
         # bound was sized for d128 (mag=3 means |x| < 10^4 which is
@@ -887,6 +935,26 @@ def decades(name, fmt):
                     out.append((314_159, -(k - 6), True))
                 if name in POSITIVE:
                     out.append((271_828, -(k - 6), False))
+    if name in PIFWD:
+        # ADR-0061 D4: small-magnitude fractional decades (integers
+        # and larger are classifier-exact and rejected by in_domain),
+        # plus classifier-adjacent probes beside the quarter, half,
+        # and integer residues, both signs, which is the family's
+        # directed risk profile.
+        for k in (-95, -30, -6, -1, 1, 3, 6):
+            out.append((314_159, k - 6, False))
+            out.append((314_159, k - 6, True))
+        for coef, e in (
+            (2_500_001, -7),  # just above 0.25
+            (2_499_999, -7),  # just below 0.25
+            (5_000_001, -7),  # just above 0.5
+            (7_499_999, -7),  # just below 0.75
+            (1_000_001, -6),  # just above 1
+            (9_999_999, -7),  # just below 1
+            (1_500_000_000_001, -12),  # beside 1.5
+        ):
+            out.append((coef, e, False))
+            out.append((coef, e, True))
     return out
 
 
@@ -1020,6 +1088,8 @@ BIN_FUNCS = {
     # arb.hypot in python-flint 0.6): squares and sqrt of balls keep
     # the enclosure honest; the solve loop widens until decisive.
     "hypot": lambda ax, ay: (ax * ax + ay * ay).sqrt(),
+    # ADR-0061 D4: atan2 scaled by a ball pi; certified composition.
+    "atan2pi": lambda ax, ay: arb.atan2(ay, ax) / arb.pi(),
 }
 
 

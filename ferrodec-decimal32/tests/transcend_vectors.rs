@@ -103,6 +103,17 @@ fn kernel(v: &frozen::FrozenVec, rm: RoundingMode) -> Decimal32 {
                 .atan2(x, rm)
                 .0
         }
+        "sinpi" => x.sin_pi(rm).0,
+        "cospi" => x.cos_pi(rm).0,
+        "tanpi" => x.tan_pi(rm).0,
+        "asinpi" => x.asin_pi(rm).0,
+        "acospi" => x.acos_pi(rm).0,
+        "atanpi" => x.atan_pi(rm).0,
+        "atan2pi" => {
+            parse(v.input2.as_deref().expect("atan2pi input2"))
+                .atan2_pi(x, rm)
+                .0
+        }
         "exp" => x.exp(rm).0,
         "ln" => x.ln(rm).0,
         "log2" => x.log2(rm).0,

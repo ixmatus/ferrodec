@@ -64,7 +64,16 @@ fn dec_round(mode: &str) -> DecRound {
 /// reach past the agreement run or the directed modes collapse onto
 /// the anchor (the D1/D2 review's width-collapse family).
 fn is_anchor_hugging(func: &str) -> bool {
-    matches!(func, "logp1" | "expm1" | "exp2m1" | "exp10m1" | "exp10")
+    // cospi joins the class (ADR-0061 D4): its tiny rows hug the
+    // grid point 1 at depth 2·|mag| digits ((pi·x)^2/2), the logp1
+    // shape with the quadratic doubling; the call site doubles the
+    // magnitude fed to work_bits for exactly that reason. The other
+    // six pi operations' corpus rows keep agreement runs under ~16
+    // digits (bounded input magnitudes), inside the base allowance.
+    matches!(
+        func,
+        "logp1" | "expm1" | "exp2m1" | "exp10m1" | "exp10" | "cospi"
+    )
 }
 
 /// The ADR-0060 D3 operations whose corpus rows include grid-hugging
@@ -185,6 +194,18 @@ fn eval(fv: &frozen::FrozenVec, p: u32) -> (Float, Ordering) {
             let ord = y.atan2_round(&x, Round::Nearest);
             return (y, ord);
         }
+        // ADR-0061 D4: atan2pi is MPFR-native (mpfr_atan2pi, rug
+        // atan2_pi); nothing composes and the exact reduction and
+        // scaling stay inside MPFR.
+        "atan2pi" => {
+            let mut y = Float::with_val(
+                p,
+                Float::parse(fv.input2.as_deref().expect("atan2pi input2"))
+                    .expect("frozen input2 parses in MPFR"),
+            );
+            let ord = y.atan2_pi_round(&x, Round::Nearest);
+            return (y, ord);
+        }
         _ => {}
     }
     let mut v = x;
@@ -236,6 +257,16 @@ fn eval(fv: &frozen::FrozenVec, p: u32) -> (Float, Ordering) {
             v.sub_assign_round(&one, Round::Nearest)
         }
         "rsqrt" => v.recip_sqrt_round(Round::Nearest),
+        // ADR-0061 D4: the six unary pi operations are MPFR-native in
+        // the vendored 4.2.2 (sinu/cosu/tanu and the asinu family at
+        // u = 2, following IEEE 754-2019 sinPi..atanPi); rug exposes
+        // them with explicit rounding. Nothing composes.
+        "sinpi" => v.sin_pi_round(Round::Nearest),
+        "cospi" => v.cos_pi_round(Round::Nearest),
+        "tanpi" => v.tan_pi_round(Round::Nearest),
+        "asinpi" => v.asin_pi_round(Round::Nearest),
+        "acospi" => v.acos_pi_round(Round::Nearest),
+        "atanpi" => v.atan_pi_round(Round::Nearest),
         "log2p1" => {
             v.ln_1p_round(Round::Nearest);
             let ln2 = Float::with_val(p, rug::float::Constant::Log2);
@@ -266,9 +297,13 @@ fn mpfr_cross_validates_arb_corpus() {
             if let Some(y2) = v.input2.as_deref() {
                 mag += decimal_magnitude(&parse_dec(y2)).unsigned_abs() as i64;
             }
+            // cospi's hug depth is 2·|mag| digits (quadratic at the
+            // 1 anchor), twice the logp1 model the shared tiny
+            // branch prices; feed it a doubled magnitude.
+            let wb_mag = if v.func == "cospi" { mag * 2 } else { mag };
             let p = work_bits(
                 prec as usize,
-                mag,
+                wb_mag,
                 TRIG.contains(&v.func.as_str()),
                 is_anchor_hugging(&v.func),
             )

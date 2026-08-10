@@ -90,7 +90,7 @@ mod mock_format;
 // Exact-result detection for cbrt / rootn / pow (§7.5 INEXACT
 // contract). Gated on `exp-log` (cbrt, rootn); `pow` implies
 // `exp-log`, so every consumer sees it.
-#[cfg(feature = "exp-log")]
+#[cfg(any(feature = "exp-log", feature = "trig-pi"))]
 mod exact;
 
 // The ADR-0060 exact integer adjudicator: the rung 2 ambiguous-path
@@ -98,6 +98,11 @@ mod exact;
 // whose classifiers are its completeness premise.
 #[cfg(feature = "exp-log")]
 mod adjudicate;
+
+// The pi-scaled family's exact classification (ADR-0061): the
+// residue classes and finite tables, Niven-complete, no ties.
+#[cfg(feature = "trig-pi")]
+mod exact_pi;
 
 #[cfg(feature = "trig")]
 pub mod argred;
@@ -119,8 +124,18 @@ pub mod hyperbolic;
 // this crate's input-side classification module lives.
 #[cfg(feature = "exp-log")]
 pub mod hypot;
-#[cfg(feature = "trig")]
+// Two features reach this module. `trig` compiles the public `atan` /
+// `asin` / `acos` / `atan2` kernels; `trig-pi` compiles only their
+// extended-precision cores, which `inverse_trig_pi` scales by `1/π`
+// (ADR-0061) so the pi-scaled family inherits one implementation of
+// the series rather than carrying a second.
+#[cfg(any(feature = "trig", feature = "trig-pi"))]
 pub mod inverse_trig;
+// The pi-scaled inverse family `asinPi` … `atan2Pi` (ADR-0061 Track D
+// D4): `inverse_trig`'s cores scaled by `1/π`, under their own §9.2.1
+// tables, exact classifiers, and ADR-0051 anchor arms.
+#[cfg(feature = "trig-pi")]
+pub mod inverse_trig_pi;
 #[cfg(feature = "exp-log")]
 pub mod ln;
 #[cfg(feature = "pow")]
@@ -137,5 +152,10 @@ pub mod rsqrt;
 pub mod powr;
 #[cfg(feature = "trig")]
 pub mod sincos;
+// The IEEE 754-2019 §9.2 forward pi-scaled trio (ADR-0061 Track D D4).
+// Standalone under `trig-pi`: the exact decimal reduction needs none of
+// `trig`'s Payne-Hanek machinery.
+#[cfg(feature = "trig-pi")]
+pub mod sincospi;
 
 pub use format::DecimalFormat;
