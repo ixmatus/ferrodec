@@ -142,5 +142,10 @@ pub mod rsqrt;
 pub mod powr;
 #[cfg(feature = "trig")]
 pub mod sincos;
+// The IEEE 754-2019 §9.2 forward pi-scaled trio (ADR-0061 Track D D4).
+// Standalone under `trig-pi`: the exact decimal reduction needs none of
+// `trig`'s Payne-Hanek machinery.
+#[cfg(feature = "trig-pi")]
+pub mod sincospi;
 
 pub use format::DecimalFormat;

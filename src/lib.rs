@@ -69,7 +69,7 @@ mod digits;
 #[cfg(feature = "dpd")]
 mod dpd;
 mod iter;
-#[cfg(any(feature = "trig", feature = "exp-log"))]
+#[cfg(any(feature = "trig", feature = "exp-log", feature = "trig-pi"))]
 mod math;
 mod multiword;
 #[cfg(feature = "num-traits")]
