@@ -964,6 +964,8 @@ pub(crate) trait ExtNum: Copy + core::fmt::Debug {
     fn inv_ln10(&self) -> Self;
     /// `1/ln(2)`.
     fn inv_ln2(&self) -> Self;
+    /// `1/π` (ADR-0061, the pi-scaled inverse family).
+    fn inv_pi(&self) -> Self;
     /// `π/2`.
     fn pi_over_two(&self) -> Self;
     /// `π/4`.
@@ -1190,6 +1192,9 @@ impl ExtNum for Extended {
     }
     fn inv_ln2(&self) -> Self {
         crate::consts::inv_ln2_ext()
+    }
+    fn inv_pi(&self) -> Self {
+        crate::consts::inv_pi_ext()
     }
     fn pi_over_two(&self) -> Self {
         crate::consts::pi_over_two_ext()

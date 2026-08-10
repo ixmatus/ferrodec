@@ -460,6 +460,29 @@ pub fn inv_ln2_digits(n: u64) -> DecBig {
 /// use ferrodec_multiword::bigconst::inv_ln10_digits;
 /// assert_eq!(inv_ln10_digits(10).to_string(), "4342944819");
 /// ```
+/// The first `n` decimal digits of `1/π` (ADR-0061, the pi-scaled
+/// inverse family's closing constant).
+///
+/// `1/π ≈ 0.318 ∈ [0.1, 1)`, so the first `n` digits are
+/// `floor((1/π) · 10^n)`, computed as a division into the computed
+/// `π` at guarded depth: `floor(10^(n + scale − 1) / pi_digits(scale))`
+/// with `scale = n + GUARD`. The divisor is `floor(π · 10^(scale − 1))`,
+/// within one ulp of `π · 10^(scale − 1)`, so the quotient's error
+/// stays below one unit in the `n`-th digit for every `n` the GUARD
+/// covers — the same argument [`inv_ln10_digits`] carries.
+///
+/// ```
+/// use ferrodec_multiword::bigconst::inv_pi_digits;
+/// assert_eq!(inv_pi_digits(10).to_string(), "3183098861");
+/// ```
+#[must_use]
+pub fn inv_pi_digits(n: u64) -> DecBig {
+    let n = checked_digits(n);
+    let scale = n + GUARD;
+    let divisor = pi_digits(u64::from(scale));
+    DecBig::pow10(n + scale - 1).div_rem(&divisor).0
+}
+
 #[must_use]
 pub fn inv_ln10_digits(n: u64) -> DecBig {
     let n = checked_digits(n);
@@ -693,6 +716,7 @@ mod tests {
             ("ln2_digits", ln2_digits(50), ln2_digits(120)),
             ("inv_ln2_digits", inv_ln2_digits(50), inv_ln2_digits(120)),
             ("inv_ln10_digits", inv_ln10_digits(50), inv_ln10_digits(120)),
+            ("inv_pi_digits", inv_pi_digits(50), inv_pi_digits(120)),
         ] {
             let truncated = deep.div_rem_pow10(70).0;
             let off = abs_diff(&shallow, &truncated)
@@ -717,6 +741,7 @@ mod tests {
             ),
             ("inv_ln2_digits", inv_ln2_digits(MIN_DIGITS)),
             ("inv_ln10_digits", inv_ln10_digits(MIN_DIGITS)),
+            ("inv_pi_digits", inv_pi_digits(MIN_DIGITS)),
         ] {
             assert_eq!(got.decimal_digit_count(), MIN_DIGITS, "{name} digit count");
         }

@@ -334,6 +334,13 @@ impl ExtendedDyn<'_> {
         self.make(bigconst::inv_ln2_digits(n), 1 - exp_of(n), false)
     }
 
+    /// `1/π`. Below 1, scale `10^n` (the `inv_ln10` shape).
+    #[must_use]
+    pub(crate) fn inv_pi(&self) -> Self {
+        let n = self.const_depth();
+        self.make(bigconst::inv_pi_digits(n), -exp_of(n), false)
+    }
+
     /// `π/2`, halved out of a one-digit-deeper `π`.
     ///
     /// Scale derivation. `P = pi_digits(n + 1) = floor(π · 10^n)` is an
@@ -1247,6 +1254,9 @@ impl ExtNum for ExtendedDyn<'_> {
     }
     fn inv_ln2(&self) -> Self {
         ExtendedDyn::inv_ln2(self)
+    }
+    fn inv_pi(&self) -> Self {
+        ExtendedDyn::inv_pi(self)
     }
     fn pi_over_two(&self) -> Self {
         ExtendedDyn::pi_over_two(self)

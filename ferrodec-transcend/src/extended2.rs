@@ -905,6 +905,9 @@ impl ExtNum for Extended2 {
     fn inv_ln2(&self) -> Self {
         crate::consts::inv_ln2_ext2()
     }
+    fn inv_pi(&self) -> Self {
+        crate::consts::inv_pi_ext2()
+    }
     fn pi_over_two(&self) -> Self {
         crate::consts::pi_over_two_ext2()
     }
