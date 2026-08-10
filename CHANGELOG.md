@@ -36,6 +36,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- decTest transcendental replay (fd-4zo.8): the `precision: 34`
+  subset of Mike Cowlishaw's `exp` / `ln` / `log10` / `power`
+  testcases (v2.62) replays against `Decimal128::exp` / `ln` /
+  `log10` / `pow` as a root conformance gate with exact per-file
+  pass pins — 221 externally authored correctly rounded rows, every
+  one bit-exact with matching flags. Rows outside the format's reach
+  (range-effect rows of the files' narrower-range blocks; seven rows
+  with 35-digit operands no `Decimal128` caller can supply) land in
+  counted skip buckets. Fixtures vendored under
+  `tests/vectors/gda-transcend/` with their own `SHA256SUMS`
+  integrity gate, byte-identical to the GDA crate's attested copies.
+
+### Added
+
 - `Decimal128::powi`, `powr`, `rootn`, `compound`, `rsqrt`, and
   `hypot` (IEEE 754-2019 §9.2 `pown` / `powr` / `rootn` /
   `compound` / `rSqrt` / `hypot`; ADR-0059 Track D D3 under

@@ -14,6 +14,7 @@ rot-risk: academic-personal
 provenance: primary
 consumers:
   - tests/conformance.rs
+  - tests/conformance_transcend.rs
   - ferrodec-decimal64/tests/conformance.rs
   - ferrodec-decimal32/tests/conformance.rs
   - ferrodec-decimal/tests/conformance.rs
