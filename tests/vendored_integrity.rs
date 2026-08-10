@@ -9,3 +9,12 @@
 fn vendored_dectest_integrity() {
     ferrodec_test_support::vendored::verify("tests/vectors");
 }
+
+/// The transcendental replay fixtures (fd-4zo.8): byte-identical
+/// copies of the GDA crate's vendored `exp` / `ln` / `log10` /
+/// `power` files, attested by their own manifest (the directory's
+/// README carries the provenance chain).
+#[test]
+fn vendored_gda_transcend_integrity() {
+    ferrodec_test_support::vendored::verify("tests/vectors/gda-transcend");
+}
