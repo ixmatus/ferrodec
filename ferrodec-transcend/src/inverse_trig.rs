@@ -100,11 +100,32 @@
 //! 18/18 exact), and the MPFR cross-validation gate
 //! (`ferrodec-test-support/tests/mpfr_gate.rs`, 0 disagreements)
 //! are the empirical witnesses.
+//!
+//! ## The extended-precision cores (the `trig-pi` seam)
+//!
+//! Each kernel splits into an extended-precision core
+//! (`atan_extended_core` and its three siblings, crate private and so
+//! named here without a doc link), which produces the pre-delivery
+//! working value, and a delivery tail, which owns the §9.2.1 rows,
+//! the ADR-0051 anchor legs, and the guarded rounding.
+//! `inverse_trig_pi` (ADR-0061) scales the same four cores by `1/π`,
+//! so the pi-scaled family inherits this module's reductions and
+//! series instead of carrying a second implementation of the same
+//! mathematics. That is why the module compiles under either
+//! `trig` or `trig-pi` while the public kernels below stay
+//! `trig`-gated: a `trig-pi`-only build needs the cores and none of
+//! the radian surface.
 
 use crate::extended::ExtNum;
 use crate::format::DecimalFormat;
+// The delivery tails' surface only: a `trig-pi`-only build compiles
+// the cores below and none of the §9.2.1 dispatch, the status flags,
+// or the ladder budgets those tails carry.
+#[cfg(feature = "trig")]
 use crate::ladder;
+#[cfg(feature = "trig")]
 use ferrodec_ieee::IeeeDecodedClass as Class;
+#[cfg(feature = "trig")]
 use ferrodec_ieee::{RoundingMode, Status};
 
 /// Inverse tangent. Range `(-π/2, +π/2)`.
@@ -120,6 +141,7 @@ use ferrodec_ieee::{RoundingMode, Status};
 /// delivered at `x = ±∞` is an irrational constant; its own distance
 /// to the rounding grid is certified offline with the `consts.rs`
 /// constants (ADR-0059 M8), not by the runtime predicate.
+#[cfg(feature = "trig")]
 pub fn atan_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
     ladder::ladder_run!(|ex| atan_kernel_body::<F, _>(ex, x, rm))
 }
@@ -128,6 +150,7 @@ pub fn atan_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
 /// (M8 ladder). `ex` is the working-precision exemplar (M8b): the
 /// receiver the constant and constructor surface reads its width from,
 /// never a value the result depends on.
+#[cfg(feature = "trig")]
 pub(crate) fn atan_kernel_body<F: DecimalFormat, E: ExtNum>(
     ex: E,
     x: F,
@@ -152,7 +175,7 @@ pub(crate) fn atan_kernel_body<F: DecimalFormat, E: ExtNum>(
         Class::Finite { .. } => {}
     }
     let x_ext = ex.from_format(x);
-    let result_ext = atan_ext::<F, E>(x_ext);
+    let result_ext = atan_extended_core::<F, E>(x_ext);
     // Grid-stuck at the input (ADR-0051): a small argument absorbs
     // every correction and the result is exactly `x`; the directed
     // modes need the side, and `|atan x| < |x|` is a theorem.
@@ -177,12 +200,14 @@ pub(crate) fn atan_kernel_body<F: DecimalFormat, E: ExtNum>(
 /// unconditional `INEXACT` is correct in every mode. The `±π/2`
 /// delivered at `x = ±1` is an irrational constant, certified
 /// offline with `consts.rs` (ADR-0059 M8).
+#[cfg(feature = "trig")]
 pub fn asin_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
     ladder::ladder_run!(|ex| asin_kernel_body::<F, _>(ex, x, rm))
 }
 
 /// Generic body of [`asin_kernel`] (M4, ADR-0059); `None` escalates
 /// (M8 ladder). `ex` is the working-precision exemplar (M8b).
+#[cfg(feature = "trig")]
 pub(crate) fn asin_kernel_body<F: DecimalFormat, E: ExtNum>(
     ex: E,
     x: F,
@@ -213,7 +238,7 @@ pub(crate) fn asin_kernel_body<F: DecimalFormat, E: ExtNum>(
         _ => {}
     }
     let x_ext = ex.from_format(x);
-    let result_ext = asin_ext::<F, E>(x_ext);
+    let result_ext = asin_extended_core::<F, E>(x_ext);
     // Grid-stuck at the input (ADR-0051): `|asin x| > |x|` is a
     // theorem, so the residual side is the growing one.
     // Unguarded: the anchor leg runs before the ladder's predicate.
@@ -237,12 +262,14 @@ pub(crate) fn asin_kernel_body<F: DecimalFormat, E: ExtNum>(
 /// correct in every mode. The `π/2` and `π` delivered at `x = 0` and
 /// `x = -1` are irrational constants, certified offline with
 /// `consts.rs` (ADR-0059 M8).
+#[cfg(feature = "trig")]
 pub fn acos_kernel<F: DecimalFormat>(x: F, rm: RoundingMode) -> (F, Status) {
     ladder::ladder_run!(|ex| acos_kernel_body::<F, _>(ex, x, rm))
 }
 
 /// Generic body of [`acos_kernel`] (M4, ADR-0059); `None` escalates
 /// (M8 ladder). `ex` is the working-precision exemplar (M8b).
+#[cfg(feature = "trig")]
 pub(crate) fn acos_kernel_body<F: DecimalFormat, E: ExtNum>(
     ex: E,
     x: F,
@@ -276,25 +303,7 @@ pub(crate) fn acos_kernel_body<F: DecimalFormat, E: ExtNum>(
         _ => {}
     }
     let x_ext = ex.from_format(x);
-    // acos(x) = 2 · atan(sqrt((1 − x) / (1 + x))) (fd-aqs.6). The
-    // previous `π/2 − asin(x)` form cancelled catastrophically for
-    // x near 1, where the result `≈ sqrt(2(1−x))` is tiny against
-    // two ~π/2-magnitude operands each carrying ~1e-49 absolute
-    // rounding error (up to ~1.5e6 ULP measured at Decimal128 by
-    // the 2026-06-09 review). Here both factors are exact for
-    // format-sourced coefficients — `1 − x` near x = 1 and `1 + x`
-    // near x = −1 cancel exactly — and `atan` preserves relative
-    // accuracy at both ends (small-argument Taylor on one side, the
-    // `π/2 − atan(1/t)` inversion against a result of comparable
-    // magnitude on the other), so the result is relative-accurate
-    // across the whole open domain. (cos(2·atan t) with
-    // t² = (1−x)/(1+x) reduces to x exactly, so the identity is the
-    // same function.)
-    let num = ex.one().sub(x_ext);
-    let den = ex.one().add(x_ext);
-    let t = num.div::<F>(den).sqrt::<F>();
-    let half = atan_ext::<F, E>(t);
-    let result_ext = half.add(half);
+    let result_ext = acos_extended_core::<F, E>(ex, x_ext);
     ladder::round_guarded::<F, E>(result_ext, rm, &ladder::ACOS)
 }
 
@@ -312,12 +321,14 @@ pub(crate) fn acos_kernel_body<F: DecimalFormat, E: ExtNum>(
 /// `±π` axis constants are irrational, certified offline with
 /// `consts.rs` (ADR-0059 M8), and everything else is neither exact
 /// nor a tie: the unconditional `INEXACT` is correct in every mode.
+#[cfg(feature = "trig")]
 pub fn atan2_kernel<F: DecimalFormat>(y: F, x: F, rm: RoundingMode) -> (F, Status) {
     ladder::ladder_run!(|ex| atan2_kernel_body::<F, _>(ex, y, x, rm))
 }
 
 /// Generic body of [`atan2_kernel`] (M4, ADR-0059); `None` escalates
 /// (M8 ladder). `ex` is the working-precision exemplar (M8b).
+#[cfg(feature = "trig")]
 pub(crate) fn atan2_kernel_body<F: DecimalFormat, E: ExtNum>(
     ex: E,
     y: F,
@@ -391,26 +402,26 @@ pub(crate) fn atan2_kernel_body<F: DecimalFormat, E: ExtNum>(
             (if y_neg { F::NEG_ZERO } else { F::ZERO }, Status::OK)
         });
     }
-    // Both finite non-zero. Compute y/x at working precision, run
-    // atan, then quadrant-shift.
+    // Both finite non-zero: the core computes y/x, runs atan, and
+    // quadrant-shifts. It reads the quadrant off the decoded
+    // operands' own sign bits, which `from_format` copies from the
+    // format data; the assertion states that identity where both
+    // spellings are still in scope.
     let y_ext = ex.from_format(y);
     let x_ext = ex.from_format(x);
-    let q = y_ext.div::<F>(x_ext);
-    let mut result_ext = atan_ext::<F, E>(q);
-    if x.is_sign_negative() {
-        // atan2 in quadrants 2 / 3: shift by ±π.
-        if y_neg {
-            result_ext = result_ext.sub(ex.pi());
-        } else {
-            result_ext = result_ext.add(ex.pi());
-        }
-    }
+    debug_assert!(
+        x_ext.sign() == x.is_sign_negative() && y_ext.sign() == y_neg,
+        "from_format carries the operand sign into the working type"
+    );
+    let result_ext = atan2_extended_core::<F, E>(ex, y_ext, x_ext);
     ladder::round_guarded::<F, E>(result_ext, rm, &ladder::ATAN2)
 }
 
-/// `atan(x)` at working precision. Pre-conditions: `x` is finite
-/// and non-zero (zero handled in the caller's special-case path).
-fn atan_ext<F: DecimalFormat, E: ExtNum>(x: E) -> E {
+/// `atan(x)` at working precision: the pre-delivery value the
+/// [`atan_kernel_body`] tail rounds and `atanPi` scales by `1/π`
+/// (ADR-0061). Pre-conditions: `x` is finite and non-zero (zero
+/// handled in the caller's special-case path).
+pub(crate) fn atan_extended_core<F: DecimalFormat, E: ExtNum>(x: E) -> E {
     let neg = x.sign();
     let mut t = x.abs();
     let mut shift = x.zero();
@@ -466,12 +477,13 @@ fn atan_ext<F: DecimalFormat, E: ExtNum>(x: E) -> E {
     result
 }
 
-/// `asin(x)` at extended precision for `|x| < 1`. Uses
-/// `2 · atan(x / (1 + sqrt(1 - x²)))` with the radicand factored
-/// exactly as `(1 − |x|)(1 + |x|)` — numerically stable across the
-/// full domain (no blow-up and no absolute-error residue at
-/// `|x| = 1`; ADR-0050).
-fn asin_ext<F: DecimalFormat, E: ExtNum>(x: E) -> E {
+/// `asin(x)` at extended precision for `|x| < 1`: the pre-delivery
+/// value the [`asin_kernel_body`] tail rounds and `asinPi` scales by
+/// `1/π` (ADR-0061). Uses `2 · atan(x / (1 + sqrt(1 - x²)))` with the
+/// radicand factored exactly as `(1 − |x|)(1 + |x|)` — numerically
+/// stable across the full domain (no blow-up and no absolute-error
+/// residue at `|x| = 1`; ADR-0050).
+pub(crate) fn asin_extended_core<F: DecimalFormat, E: ExtNum>(x: E) -> E {
     if x.is_zero() {
         return x;
     }
@@ -489,6 +501,58 @@ fn asin_ext<F: DecimalFormat, E: ExtNum>(x: E) -> E {
     let sqrt_term = one_minus_x_sq.sqrt::<F>();
     let denom = x.one().add(sqrt_term);
     let inner = x.div::<F>(denom);
-    let half_atan = atan_ext::<F, E>(inner);
+    let half_atan = atan_extended_core::<F, E>(inner);
     half_atan.add(half_atan)
+}
+
+/// `acos(x)` at extended precision for `|x| < 1`: the pre-delivery
+/// value the [`acos_kernel_body`] tail rounds and `acosPi` scales by
+/// `1/π` (ADR-0061).
+///
+/// `acos(x) = 2 · atan(sqrt((1 − x) / (1 + x)))` (fd-aqs.6). The
+/// previous `π/2 − asin(x)` form cancelled catastrophically for `x`
+/// near 1, where the result `≈ sqrt(2(1−x))` is tiny against two
+/// ~π/2-magnitude operands each carrying ~1e-49 absolute rounding
+/// error (up to ~1.5e6 ULP measured at `Decimal128` by the 2026-06-09
+/// review). Here both factors are exact for format-sourced
+/// coefficients — `1 − x` near `x = 1` and `1 + x` near `x = −1`
+/// cancel exactly — and `atan` preserves relative accuracy at both
+/// ends (small-argument Taylor on one side, the `π/2 − atan(1/t)`
+/// inversion against a result of comparable magnitude on the other),
+/// so the result is relative-accurate across the whole open domain.
+/// (`cos(2·atan t)` with `t² = (1−x)/(1+x)` reduces to `x` exactly,
+/// so the identity is the same function.)
+pub(crate) fn acos_extended_core<F: DecimalFormat, E: ExtNum>(ex: E, x: E) -> E {
+    let num = ex.one().sub(x);
+    let den = ex.one().add(x);
+    let t = num.div::<F>(den).sqrt::<F>();
+    let half = atan_extended_core::<F, E>(t);
+    half.add(half)
+}
+
+/// `atan2(y, x)` at extended precision: the pre-delivery value the
+/// [`atan2_kernel_body`] tail rounds and `atan2Pi` scales by `1/π`
+/// (ADR-0061).
+///
+/// Pre-conditions: both operands are decoded from finite non-zero
+/// format data, so each carries that operand's own sign bit and the
+/// quadrant shift below reads the quadrant off them. Every other
+/// class (the axes, the infinities, the NaNs) belongs to the callers'
+/// §9.2.1 tables, which differ between the radian and the revolution
+/// spelling and so cannot live here.
+pub(crate) fn atan2_extended_core<F: DecimalFormat, E: ExtNum>(ex: E, y: E, x: E) -> E {
+    let q = y.div::<F>(x);
+    let result = atan_extended_core::<F, E>(q);
+    if x.sign() {
+        // Quadrants 2 and 3: the quotient's `atan` lands in quadrant
+        // 1 or 4 (it cannot see the abscissa's sign), so shift by ±π
+        // in the direction the ordinate's sign selects.
+        if y.sign() {
+            result.sub(ex.pi())
+        } else {
+            result.add(ex.pi())
+        }
+    } else {
+        result
+    }
 }
