@@ -40,6 +40,10 @@ pub(crate) mod shift;
 pub(crate) mod sqrt;
 #[cfg(feature = "trig")]
 pub(crate) mod trig;
+// The IEEE 754-2019 §9.2 forward pi-scaled trio (ADR-0061 Track D D4),
+// under its own standalone feature.
+#[cfg(feature = "trig-pi")]
+pub(crate) mod trig_pi;
 
 #[allow(unused_imports)] // consumed by convert::parse and arithmetic ops in subsequent commits
 pub(crate) use round::round_and_pack_finite;
