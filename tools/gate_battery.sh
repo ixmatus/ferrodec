@@ -13,7 +13,7 @@
 #   tools/gate_battery.sh            # run every lane
 #   tools/gate_battery.sh fmt tests  # run the named lanes only
 #
-# Lanes: fmt clippy rustdoc tests transcend force_escalate ladder_audit
+# Lanes: fmt clippy rustdoc tests transcend telemetry force_escalate ladder_audit
 #        force_adjudicate force_rung3 thumbv6m
 #
 # The RUSTFLAGS lanes use per-lane CARGO_TARGET_DIR subdirectories so
@@ -76,6 +76,20 @@ lane_transcend() {
     # with and without the unbounded rung.
     cargo test -p ferrodec-transcend --features transcendentals &&
         cargo test -p ferrodec-transcend --features transcendentals,unbounded-ladder
+}
+
+lane_telemetry() {
+    # S3 pinned escalation counts (fd-4zo.21): the planted corpus's
+    # 20-per-file rung-2 entries, the sampled corpus's measured pins,
+    # and the siblings' structural zero. Default lane only (the cfg
+    # lanes bypass the natural predicate).
+    local td="target/battery/telemetry"
+    CARGO_TARGET_DIR="$td" \
+        cargo test -p ferrodec --features transcendentals,telemetry --test ladder_telemetry &&
+        CARGO_TARGET_DIR="$td" \
+            cargo test -p ferrodec-decimal64 --features transcendentals,telemetry --test ladder_telemetry &&
+        CARGO_TARGET_DIR="$td" \
+            cargo test -p ferrodec-decimal32 --features transcendentals,telemetry --test ladder_telemetry
 }
 
 lane_force_escalate() {
@@ -146,7 +160,7 @@ lane_thumbv6m() {
             --features transcendentals,binary-float -p ferrodec-decimal32
 }
 
-ALL_LANES=(fmt clippy rustdoc tests transcend force_escalate ladder_audit force_adjudicate force_rung3 thumbv6m)
+ALL_LANES=(fmt clippy rustdoc tests transcend telemetry force_escalate ladder_audit force_adjudicate force_rung3 thumbv6m)
 LANES=("$@")
 if [ ${#LANES[@]} -eq 0 ]; then
     LANES=("${ALL_LANES[@]}")
@@ -159,6 +173,7 @@ for l in "${LANES[@]}"; do
     rustdoc) lane rustdoc lane_rustdoc ;;
     tests) lane tests lane_tests ;;
     transcend) lane transcend lane_transcend ;;
+    telemetry) lane telemetry lane_telemetry ;;
     force_escalate) lane force_escalate lane_force_escalate ;;
     ladder_audit) lane ladder_audit lane_ladder_audit ;;
     force_adjudicate) lane force_adjudicate lane_force_adjudicate ;;
