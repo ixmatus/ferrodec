@@ -10,7 +10,7 @@
 use crate::margin::{boundary_distances, BoundaryDistances};
 use crate::prng::StreamKey;
 use crate::sample::{
-    gen_sample, mirror_extended, production_at, production_outputs, Func, Sample, Stratum,
+    gen_sample, mirror_extended, production_cells, production_ne, Func, Sample, Stratum, TargetFmt,
 };
 use crate::{u256_to_decimal, u256_to_f64};
 use std::collections::BTreeMap;
@@ -23,6 +23,7 @@ use std::time::Instant;
 pub struct Config {
     pub campaign: String,
     pub func: Func,
+    pub fmt: TargetFmt,
     pub stratum: Stratum,
     pub n: u64,
     pub shard: u32,
@@ -116,24 +117,36 @@ fn evaluate(cfg: &Config, i: u64, s: &Sample) -> Disposition {
     // Hot path: one production call (NearestEven, for the class gate
     // and the mirror divergence invariant) plus the mirror. The four
     // remaining modes are evaluated only when a line is emitted.
-    let ne = production_at(cfg.func, s, ferrodec_ieee::RoundingMode::NearestEven).0;
-    if !ne.is_finite() || ne.is_zero() || ne.is_subnormal() {
+    let (ne_str, nonnormal) = production_ne(cfg.fmt, cfg.func, s);
+    if nonnormal {
         return Disposition::NonNormal;
     }
-    let Some(ext) = mirror_extended(cfg.func, s) else {
+    let Some(ext) = mirror_extended(cfg.func, s, cfg.fmt) else {
         return Disposition::NoMirror;
     };
-    let Some(d) = boundary_distances(ext, 34) else {
+    let Some(d) = boundary_distances(ext, cfg.fmt.digits()) else {
         return Disposition::NoMirror;
     };
-    let mirror_ne = ext
-        .to_format::<ferrodec::Decimal128>(0, ferrodec_ieee::RoundingMode::NearestEven)
-        .0;
-    let diverged = format!("{mirror_ne}") != format!("{ne}");
+    let mirror_ne_str = match cfg.fmt {
+        TargetFmt::D128 => format!(
+            "{}",
+            ext.to_format::<ferrodec::Decimal128>(0, ferrodec_ieee::RoundingMode::NearestEven)
+                .0
+        ),
+        TargetFmt::D64 => format!(
+            "{}",
+            ext.to_format::<ferrodec_decimal64::Decimal64>(
+                0,
+                ferrodec_ieee::RoundingMode::NearestEven
+            )
+            .0
+        ),
+    };
+    let diverged = mirror_ne_str != ne_str;
     let within = d.within_ulp(cfg.thr_num, cfg.thr_pow);
     let survivor = within.grid || within.tie;
     let line = if survivor || diverged || cfg.emit_all {
-        let outs = production_outputs(cfg.func, s);
+        let cells = production_cells(cfg.fmt, cfg.func, s);
         let tag = if diverged {
             "D"
         } else if survivor {
@@ -151,8 +164,8 @@ fn evaluate(cfg: &Config, i: u64, s: &Sample) -> Disposition {
             u256_to_decimal(d.grid_x2),
             u256_to_decimal(d.tie_x2),
         );
-        for (v, st) in &outs {
-            let _ = write!(l, "\t{v}#{:02x}", st.bits());
+        for cell in &cells {
+            let _ = write!(l, "\t{cell}");
         }
         Some(l)
     } else {
@@ -209,9 +222,10 @@ pub fn run(cfg: &Config) -> io::Result<Summary> {
     if start == 0 {
         writeln!(
             out,
-            "# ferrodec-campaign sweep: campaign={} func={} stratum={} shard={} n={} thr={}e-{}",
+            "# ferrodec-campaign sweep: campaign={} func={} fmt={} stratum={} shard={} n={} thr={}e-{}",
             cfg.campaign,
             cfg.func.name(),
+            cfg.fmt.name(),
             cfg.stratum.name(),
             cfg.shard,
             cfg.n,
@@ -229,7 +243,7 @@ pub fn run(cfg: &Config) -> io::Result<Summary> {
     let mut hist: BTreeMap<i64, (u64, f64, f64)> = BTreeMap::new();
 
     for i in start..cfg.n {
-        let s = gen_sample(cfg.func, cfg.stratum, key.draws(i));
+        let s = gen_sample(cfg.func, cfg.stratum, cfg.fmt, key.draws(i));
         match evaluate(cfg, i, &s) {
             Disposition::NonNormal => sum.skip_nonnormal += 1,
             Disposition::NoMirror => sum.skip_no_mirror += 1,
@@ -312,7 +326,7 @@ pub fn calibrate(cfg: &Config, secs: f64) -> f64 {
     let mut i = 0u64;
     while start.elapsed().as_secs_f64() < secs {
         for _ in 0..256 {
-            let s = gen_sample(cfg.func, cfg.stratum, key.draws(i));
+            let s = gen_sample(cfg.func, cfg.stratum, cfg.fmt, key.draws(i));
             let _ = evaluate(cfg, i, &s);
             i += 1;
         }
@@ -328,6 +342,7 @@ mod tests {
         Config {
             campaign: "test".into(),
             func: Func::Sin,
+            fmt: TargetFmt::D128,
             stratum: Stratum::Decades { lo: 15, hi: 40 },
             n,
             shard: 0,
@@ -380,8 +395,8 @@ mod tests {
         ] {
             let key = StreamKey::derive("test", f.name(), st.name(), 1);
             for i in 0..50 {
-                let s1 = gen_sample(f, st, key.draws(i));
-                let s2 = gen_sample(f, st, key.draws(i));
+                let s1 = gen_sample(f, st, TargetFmt::D128, key.draws(i));
+                let s2 = gen_sample(f, st, TargetFmt::D128, key.draws(i));
                 assert_eq!(s1.x_str, s2.x_str);
                 assert_eq!(s1.y_str, s2.y_str);
                 assert!(s1.x.is_finite());

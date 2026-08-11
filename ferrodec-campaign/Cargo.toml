@@ -15,6 +15,7 @@ repository.workspace = true
 # plan S1).
 [dependencies]
 ferrodec = { path = "..", features = ["transcendentals"] }
+ferrodec-decimal64 = { path = "../ferrodec-decimal64", features = ["transcendentals"] }
 ferrodec-ieee = { path = "../ferrodec-ieee" }
 ferrodec-transcend = { path = "../ferrodec-transcend", features = ["transcendentals"] }
 ferrodec-multiword = { path = "../ferrodec-multiword" }

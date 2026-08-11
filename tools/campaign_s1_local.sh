@@ -21,6 +21,9 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT"  # build and run from the script's own tree (a worktree
+            # launch otherwise builds into the caller's cwd while BIN
+            # points here - the fd-4zo.19 first-launch failure)
 OUT="${S1_OUT:-$HOME/.local/share/ferrodec-campaign/s1}"
 JOBS="${S1_JOBS:-9}"
 N_TRIG="${S1_N_TRIG:-10000000}"

@@ -10,7 +10,7 @@
 //! Hand rolled argument parsing: a `publish = false` campaign driver
 //! does not earn a CLI dependency.
 
-use ferrodec_campaign::sample::{Func, Stratum};
+use ferrodec_campaign::sample::{Func, Stratum, TargetFmt};
 use ferrodec_campaign::sweep::{calibrate, run, Config};
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -60,6 +60,7 @@ fn main() -> ExitCode {
 fn parse_args() -> Result<(Config, Option<f64>), String> {
     let mut func = None;
     let mut stratum_name = String::from("decades");
+    let mut fmt = TargetFmt::D128;
     let mut decade_lo = 15i32;
     let mut decade_hi = 6140i32;
     let mut n = 1_000_000u64;
@@ -85,6 +86,9 @@ fn parse_args() -> Result<(Config, Option<f64>), String> {
         match args[i].as_str() {
             "--func" => func = Func::parse(&next(&mut i)?),
             "--stratum" => stratum_name = next(&mut i)?,
+            "--format" => {
+                fmt = TargetFmt::parse(&next(&mut i)?).ok_or("unknown --format (d128 d64)")?;
+            }
             "--decade-lo" => decade_lo = next(&mut i)?.parse().map_err(|e| format!("{e}"))?,
             "--decade-hi" => decade_hi = next(&mut i)?.parse().map_err(|e| format!("{e}"))?,
             "--n" => n = next(&mut i)?.parse().map_err(|e| format!("{e}"))?,
@@ -106,7 +110,8 @@ fn parse_args() -> Result<(Config, Option<f64>), String> {
         i += 1;
     }
 
-    let func = func.ok_or("missing required --func (sin cos tan exp exp2 pow)")?;
+    let func =
+        func.ok_or("missing required --func (sin cos tan exp exp2 pow ln log10 sinh cosh)")?;
     let stratum = match stratum_name.as_str() {
         "decades" => Stratum::Decades {
             lo: decade_lo,
@@ -120,6 +125,7 @@ fn parse_args() -> Result<(Config, Option<f64>), String> {
         Config {
             campaign,
             func,
+            fmt,
             stratum,
             n,
             shard,

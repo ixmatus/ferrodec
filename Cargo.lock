@@ -299,6 +299,7 @@ name = "ferrodec-campaign"
 version = "0.1.0"
 dependencies = [
  "ferrodec",
+ "ferrodec-decimal64",
  "ferrodec-ieee",
  "ferrodec-multiword",
  "ferrodec-transcend",
