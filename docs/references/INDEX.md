@@ -35,8 +35,12 @@ One line per entry; the entry file is the single home for every fact
 - [lefevre-stehle-zimmermann-d64-exp](lefevre-stehle-zimmermann-d64-exp.md) — conformance — the published decimal64 exp worst cases, recertified through Arb and replayed as the d64 external anchor gate (fd-4zo.7)
 - [matveev-2000](matveev-2000.md) — algorithm — explicit linear forms in logarithms, the provable ladder cap route
 - [mpdecimal](mpdecimal.md) — oracle — libmpdec via CPython decimal, the differential oracle
+- [matveev-2000](matveev-2000.md) — algorithm — explicit linear forms in logarithms, the S5 exp/ln/pow termination floor (recalled citation, verify)
 - [mpfr](mpfr.md) — oracle — MPFR via rug behind mpfr-gate, the independent corpus re-derivation
 - [c23-draft](c23-draft.md) — standard — C23 Annex F pi-scaled special-value rows, the second §9.2.1 proxy for the D4 family
+- [salikhov-2008](salikhov-2008.md) — algorithm — mu(pi) <= 7.6063, the prior irrationality-measure record (recalled citation, verify)
+- [shidlovskii-e-functions](shidlovskii-e-functions.md) — algorithm — E-function transcendence measures, the S5 recorded dead end (recalled citation, verify)
+- [zeilberger-zudilin-2020](zeilberger-zudilin-2020.md) — algorithm — mu(pi) <= 7.1032 (arXiv live-verified), the S5 huge-argument trig cap input
 - [mpmath](mpmath.md) — oracle — adaptive precision breadth oracle and anchor band corpus generator
 - [muller-elementary-functions](muller-elementary-functions.md) — algorithm — Elementary Functions, the per-function range reduction playbook
 - [muller-handbook-2018](muller-handbook-2018.md) — algorithm — Handbook of Floating-Point Arithmetic, the fixed precision envelope proofs
