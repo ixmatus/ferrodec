@@ -1,0 +1,117 @@
+# Deep verification lanes (fd-4zo.22, ADR-0059 S3): the expensive
+# anti-rot differentials that answer a different question than push
+# CI ("do the rungs still agree with each other and with the pinned
+# corpus"), on a weekly cadence plus on demand. Push CI (ci.yml) is
+# deliberately untouched: these lanes multiply its cost and their
+# failure mode is drift, not breakage, so they do not gate merges.
+#
+# The four lanes mirror tools/gate_battery.sh (the local merge-gate
+# battery); when a lane's invocation changes there, change it here.
+
+name: verification
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Mondays 06:13 UTC (off the hour to dodge scheduler congestion).
+    - cron: "13 6 * * 1"
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # Every guarded delivery routed through rung 2 (force_escalate),
+  # the top-rung ambiguity audit (ladder_audit), and the ADR-0060
+  # adjudicator differential (force_adjudicate), each against the
+  # full pinned corpus at all three formats.
+  force-rung2:
+    name: force-rung2 (${{ matrix.lane }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - lane: force_escalate
+            rustflags: "--cfg force_escalate"
+          - lane: ladder_audit
+            rustflags: "--cfg ladder_audit"
+          - lane: force_adjudicate
+            rustflags: "--cfg force_escalate --cfg force_adjudicate"
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: verification-${{ matrix.lane }}
+      - name: ferrodec (Decimal128)
+        run: cargo test -p ferrodec --features transcendentals
+        env:
+          RUSTFLAGS: ${{ matrix.rustflags }}
+      - name: ferrodec-decimal64
+        run: cargo test -p ferrodec-decimal64 --features transcendentals
+        env:
+          RUSTFLAGS: ${{ matrix.rustflags }}
+      - name: ferrodec-decimal32
+        run: cargo test -p ferrodec-decimal32 --features transcendentals
+        env:
+          RUSTFLAGS: ${{ matrix.rustflags }}
+
+  # The Python libmpdec + mpmath differential sweep (ADR-0026): an
+  # independent oracle family from Arb and MPFR.
+  differential:
+    name: differential
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: verification-differential
+      - run: python3 -m pip install --user mpmath
+      - run: cargo test --features transcendentals,differential --test differential -- --nocapture
+
+  # MPFR cross-validation of the whole frozen corpus (ADR-0026 phase
+  # 3): the vendored gmp-mpfr-sys build is the slow step, cached.
+  mpfr-gate:
+    name: mpfr-gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: verification-mpfr
+      - run: cargo test -p ferrodec-test-support --features mpfr-gate --test mpfr_gate -- --nocapture
+
+  # The S1 campaign machinery at smoke depth: a tiny-N end-to-end run
+  # of the probe (build, shard pool, checkpoint/resume audit) so the
+  # campaign tooling cannot rot between real campaigns. ~1e5 samples;
+  # the real S1/S2 depths run locally (tools/campaign_s1_local.sh).
+  campaign-smoke:
+    name: campaign-smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: verification-campaign
+      - name: probe at smoke depth
+        run: tools/campaign_s1_local.sh
+        env:
+          S1_OUT: ${{ runner.temp }}/s1-smoke
+          S1_JOBS: "2"
+          S1_N_TRIG: "20000"
+          S1_N_EXP: "20000"
+          S1_N_POW: "10000"
+          S1_N_SUB: "2000"
+          S1_SHARDS_TRIG: "1"
+          S1_SHARDS_EXP: "1"
+          S1_SHARDS_POW: "1"
+          S1_CKPT: "10000"
+      - name: outputs exist and are nonempty
+        run: |
+          set -o pipefail
+          test -f "${{ runner.temp }}/s1-smoke/DONE"
+          ls -l "${{ runner.temp }}/s1-smoke"/*.tsv
+          test -s "${{ runner.temp }}/s1-smoke/sin_decades_sub.tsv"

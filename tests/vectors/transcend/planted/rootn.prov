@@ -1,0 +1,37 @@
+# Provenance for planted/rootn.txt. Base fields as the sampled
+# corpus .prov. planted= signed distance (fractional ULP of
+# the output) to the targeted boundary family at generation
+# time; grade/family/budget document the construction;
+# escalates= the generator's threshold verdict
+# (t = rung1 x 10^(P-50) = 5.000e-09 fractional ULP, rung1 ROOTN=50000000
+# parsed from ladder.rs at generation).
+34 NearestEven 4321700000000000000000000000696739e-30 11 P=204 rad=1.833e-61 margin=1.335e-07 decisive planted=1.335e-07 grade=control family=mid budget=ROOTN@50000000 escalates=no
+34 NearestAway 4321700000000000000000000000696739e-30 11 P=204 rad=1.833e-61 margin=5.000e-01 decisive planted=1.335e-07 grade=control family=mid budget=ROOTN@50000000 escalates=no
+34 TowardZero 4321700000000000000000000000696739e-30 11 P=204 rad=1.833e-61 margin=5.000e-01 decisive planted=1.335e-07 grade=control family=mid budget=ROOTN@50000000 escalates=no
+34 TowardPositive 4321700000000000000000000000696739e-30 11 P=204 rad=1.833e-61 margin=5.000e-01 decisive planted=1.335e-07 grade=control family=mid budget=ROOTN@50000000 escalates=no
+34 TowardNegative 4321700000000000000000000000696739e-30 11 P=204 rad=1.833e-61 margin=5.000e-01 decisive planted=1.335e-07 grade=control family=mid budget=ROOTN@50000000 escalates=no
+34 NearestEven 6987413000000000000000000000270797e-28 11 P=204 rad=2.028e-61 margin=5.000e-01 decisive planted=-1.114e-07 grade=control family=grid budget=ROOTN@50000000 escalates=no
+34 NearestAway 6987413000000000000000000000270797e-28 11 P=204 rad=2.028e-61 margin=1.114e-07 decisive planted=-1.114e-07 grade=control family=grid budget=ROOTN@50000000 escalates=no
+34 TowardZero 6987413000000000000000000000270797e-28 11 P=204 rad=2.028e-61 margin=1.114e-07 decisive planted=-1.114e-07 grade=control family=grid budget=ROOTN@50000000 escalates=no
+34 TowardPositive 6987413000000000000000000000270797e-28 11 P=204 rad=2.028e-61 margin=1.114e-07 decisive planted=-1.114e-07 grade=control family=grid budget=ROOTN@50000000 escalates=no
+34 TowardNegative 6987413000000000000000000000270797e-28 11 P=204 rad=2.028e-61 margin=1.114e-07 decisive planted=-1.114e-07 grade=control family=grid budget=ROOTN@50000000 escalates=no
+34 NearestEven 4321700000000000000000006226981689e-30 11 P=204 rad=1.833e-61 margin=3.623e-10 decisive planted=-3.623e-10 grade=entry family=mid budget=ROOTN@50000000 escalates=yes
+34 NearestAway 4321700000000000000000006226981689e-30 11 P=204 rad=1.833e-61 margin=5.000e-01 decisive planted=-3.623e-10 grade=entry family=mid budget=ROOTN@50000000 escalates=yes
+34 TowardZero 4321700000000000000000006226981689e-30 11 P=204 rad=1.833e-61 margin=5.000e-01 decisive planted=-3.623e-10 grade=entry family=mid budget=ROOTN@50000000 escalates=yes
+34 TowardPositive 4321700000000000000000006226981689e-30 11 P=204 rad=1.833e-61 margin=5.000e-01 decisive planted=-3.623e-10 grade=entry family=mid budget=ROOTN@50000000 escalates=yes
+34 TowardNegative 4321700000000000000000006226981689e-30 11 P=204 rad=1.833e-61 margin=5.000e-01 decisive planted=-3.623e-10 grade=entry family=mid budget=ROOTN@50000000 escalates=yes
+34 NearestEven 6987413000000000000000012366975634e-28 11 P=204 rad=2.028e-61 margin=5.000e-01 decisive planted=-2.604e-10 grade=entry family=grid budget=ROOTN@50000000 escalates=yes
+34 NearestAway 6987413000000000000000012366975634e-28 11 P=204 rad=2.028e-61 margin=2.604e-10 decisive planted=-2.604e-10 grade=entry family=grid budget=ROOTN@50000000 escalates=yes
+34 TowardZero 6987413000000000000000012366975634e-28 11 P=204 rad=2.028e-61 margin=2.604e-10 decisive planted=-2.604e-10 grade=entry family=grid budget=ROOTN@50000000 escalates=yes
+34 TowardPositive 6987413000000000000000012366975634e-28 11 P=204 rad=2.028e-61 margin=2.604e-10 decisive planted=-2.604e-10 grade=entry family=grid budget=ROOTN@50000000 escalates=yes
+34 TowardNegative 6987413000000000000000012366975634e-28 11 P=204 rad=2.028e-61 margin=2.604e-10 decisive planted=-2.604e-10 grade=entry family=grid budget=ROOTN@50000000 escalates=yes
+34 NearestEven 4321700000000000000000031054610678e-30 11 P=204 rad=1.781e-61 margin=3.860e-12 decisive planted=3.860e-12 grade=deep family=mid budget=ROOTN@50000000 escalates=yes
+34 NearestAway 4321700000000000000000031054610678e-30 11 P=204 rad=1.781e-61 margin=5.000e-01 decisive planted=3.860e-12 grade=deep family=mid budget=ROOTN@50000000 escalates=yes
+34 TowardZero 4321700000000000000000031054610678e-30 11 P=204 rad=1.781e-61 margin=5.000e-01 decisive planted=3.860e-12 grade=deep family=mid budget=ROOTN@50000000 escalates=yes
+34 TowardPositive 4321700000000000000000031054610678e-30 11 P=204 rad=1.781e-61 margin=5.000e-01 decisive planted=3.860e-12 grade=deep family=mid budget=ROOTN@50000000 escalates=yes
+34 TowardNegative 4321700000000000000000031054610678e-30 11 P=204 rad=1.781e-61 margin=5.000e-01 decisive planted=3.860e-12 grade=deep family=mid budget=ROOTN@50000000 escalates=yes
+34 NearestEven 6987413000000000000000254146925513e-28 11 P=204 rad=2.028e-61 margin=5.000e-01 decisive planted=-3.751e-12 grade=deep family=grid budget=ROOTN@50000000 escalates=yes
+34 NearestAway 6987413000000000000000254146925513e-28 11 P=204 rad=2.028e-61 margin=3.751e-12 decisive planted=-3.751e-12 grade=deep family=grid budget=ROOTN@50000000 escalates=yes
+34 TowardZero 6987413000000000000000254146925513e-28 11 P=204 rad=2.028e-61 margin=3.751e-12 decisive planted=-3.751e-12 grade=deep family=grid budget=ROOTN@50000000 escalates=yes
+34 TowardPositive 6987413000000000000000254146925513e-28 11 P=204 rad=2.028e-61 margin=3.751e-12 decisive planted=-3.751e-12 grade=deep family=grid budget=ROOTN@50000000 escalates=yes
+34 TowardNegative 6987413000000000000000254146925513e-28 11 P=204 rad=2.028e-61 margin=3.751e-12 decisive planted=-3.751e-12 grade=deep family=grid budget=ROOTN@50000000 escalates=yes

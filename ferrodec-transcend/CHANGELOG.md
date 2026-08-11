@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- A `telemetry` feature (ADR-0059 S3, fd-4zo.21): process-wide
+  atomic counters at the ladder's escalation events (natural rung-2
+  entry, rung-3 entry, adjudicator decisions), off by default and
+  documented test-only. no_std with Relaxed ordering; requires
+  64-bit atomic RMW, so thumbv6m builds never enable it. Exists for
+  the format crates' pinned escalation-count tests.
+
 - The pi-scaled trigonometric machinery (ADR-0061, fd-4zo.26) under
   a standalone `trig-pi` feature: `exact_pi.rs` (the Niven residue
   classifier over decoded coefficient and exponent, the `PiExact`

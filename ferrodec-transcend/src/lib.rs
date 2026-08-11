@@ -72,6 +72,8 @@ extern crate alloc;
 
 pub mod consts;
 pub mod extended;
+#[cfg(feature = "telemetry")]
+pub mod telemetry;
 // Rung 2 of the ADR-0059 escalation ladder. Crate-internal until M8
 // wires the ladder; the kernels reach it only through the `ExtNum`
 // seam.

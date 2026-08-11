@@ -34,6 +34,10 @@ transcendentals = ["trig", "exp-log", "hyperbolic", "pow", "trig-pi"]
 # above, because it is the one part of this crate that allocates —
 # a Cortex-M0+ build keeps the fixed rungs and never sees a heap.
 unbounded-ladder = ["ferrodec-multiword/alloc"]
+# Escalation-depth counters for the S3 pinned-count tests
+# (fd-4zo.21). Test-only, off by default; needs 64-bit atomic RMW,
+# so never enabled on thumbv6m.
+telemetry = []
 
 [dependencies]
 ferrodec-ieee = { path = "../ferrodec-ieee", version = "0.1.4" }

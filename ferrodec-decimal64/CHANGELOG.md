@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- A `telemetry` feature forwarding `ferrodec-transcend/telemetry`
+  (ADR-0059 S3), and with it the structural zero pin: at P = 16
+  the escalation ladder's rung-1 threshold sits below what the
+  coefficient lattice can express, so no `Decimal64` input can
+  naturally escalate on any operation. The whole frozen corpus now
+  replays under the counters asserting exactly zero rung-2 entries,
+  turning that derivation into a live regression gate.
+
 - `Decimal64::sin_pi`, `cos_pi`, `tan_pi`, `asin_pi`, `acos_pi`,
   `atan_pi`, and `atan2_pi` (IEEE 754-2019 §9.2 `sinPi` / `cosPi` /
   `tanPi` / `asinPi` / `acosPi` / `atanPi` / `atan2Pi`; ADR-0061,

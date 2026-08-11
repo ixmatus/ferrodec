@@ -1,0 +1,37 @@
+# Provenance for planted/acosh.txt. Base fields as the sampled
+# corpus .prov. planted= signed distance (fractional ULP of
+# the output) to the targeted boundary family at generation
+# time; grade/family/budget document the construction;
+# escalates= the generator's threshold verdict
+# (t = rung1 x 10^(P-50) = 3.000e-12 fractional ULP, rung1 ACOSH=30000
+# parsed from ladder.rs at generation).
+34 NearestEven 1913000000000000000000001098055519e-33 P=160 rad=2.295e-48 margin=1.160e-10 decisive planted=1.160e-10 grade=control family=mid budget=ACOSH@30000 escalates=no
+34 NearestAway 1913000000000000000000001098055519e-33 P=160 rad=2.295e-48 margin=5.000e-01 decisive planted=1.160e-10 grade=control family=mid budget=ACOSH@30000 escalates=no
+34 TowardZero 1913000000000000000000001098055519e-33 P=160 rad=2.295e-48 margin=5.000e-01 decisive planted=1.160e-10 grade=control family=mid budget=ACOSH@30000 escalates=no
+34 TowardPositive 1913000000000000000000001098055519e-33 P=160 rad=2.295e-48 margin=5.000e-01 decisive planted=1.160e-10 grade=control family=mid budget=ACOSH@30000 escalates=no
+34 TowardNegative 1913000000000000000000001098055519e-33 P=160 rad=2.295e-48 margin=5.000e-01 decisive planted=1.160e-10 grade=control family=mid budget=ACOSH@30000 escalates=no
+34 NearestEven 3137000000000000000000000358931646e-33 P=160 rad=2.379e-48 margin=5.000e-01 decisive planted=-3.889e-11 grade=control family=grid budget=ACOSH@30000 escalates=no
+34 NearestAway 3137000000000000000000000358931646e-33 P=160 rad=2.379e-48 margin=3.890e-11 decisive planted=-3.889e-11 grade=control family=grid budget=ACOSH@30000 escalates=no
+34 TowardZero 3137000000000000000000000358931646e-33 P=160 rad=2.379e-48 margin=3.890e-11 decisive planted=-3.889e-11 grade=control family=grid budget=ACOSH@30000 escalates=no
+34 TowardPositive 3137000000000000000000000358931646e-33 P=160 rad=2.379e-48 margin=3.890e-11 decisive planted=-3.889e-11 grade=control family=grid budget=ACOSH@30000 escalates=no
+34 TowardNegative 3137000000000000000000000358931646e-33 P=160 rad=2.379e-48 margin=3.890e-11 decisive planted=-3.889e-11 grade=control family=grid budget=ACOSH@30000 escalates=no
+34 NearestEven 1913000000000000000001078591097988e-33 P=160 rad=2.247e-48 margin=3.559e-13 decisive planted=3.604e-13 grade=entry family=mid budget=ACOSH@30000 escalates=yes
+34 NearestAway 1913000000000000000001078591097988e-33 P=160 rad=2.247e-48 margin=5.000e-01 decisive planted=3.604e-13 grade=entry family=mid budget=ACOSH@30000 escalates=yes
+34 TowardZero 1913000000000000000001078591097988e-33 P=160 rad=2.247e-48 margin=5.000e-01 decisive planted=3.604e-13 grade=entry family=mid budget=ACOSH@30000 escalates=yes
+34 TowardPositive 1913000000000000000001078591097988e-33 P=160 rad=2.247e-48 margin=5.000e-01 decisive planted=3.604e-13 grade=entry family=mid budget=ACOSH@30000 escalates=yes
+34 TowardNegative 1913000000000000000001078591097988e-33 P=160 rad=2.247e-48 margin=5.000e-01 decisive planted=3.604e-13 grade=entry family=mid budget=ACOSH@30000 escalates=yes
+34 NearestEven 3136999999999999999998933828282863e-33 P=160 rad=2.379e-48 margin=5.000e-01 decisive planted=-2.668e-13 grade=entry family=grid budget=ACOSH@30000 escalates=yes
+34 NearestAway 3136999999999999999998933828282863e-33 P=160 rad=2.379e-48 margin=2.712e-13 decisive planted=-2.668e-13 grade=entry family=grid budget=ACOSH@30000 escalates=yes
+34 TowardZero 3136999999999999999998933828282863e-33 P=160 rad=2.379e-48 margin=2.712e-13 decisive planted=-2.668e-13 grade=entry family=grid budget=ACOSH@30000 escalates=yes
+34 TowardPositive 3136999999999999999998933828282863e-33 P=160 rad=2.379e-48 margin=2.712e-13 decisive planted=-2.668e-13 grade=entry family=grid budget=ACOSH@30000 escalates=yes
+34 TowardNegative 3136999999999999999998933828282863e-33 P=160 rad=2.379e-48 margin=2.712e-13 decisive planted=-2.668e-13 grade=entry family=grid budget=ACOSH@30000 escalates=yes
+34 NearestEven 1912999999999999999999954728716885e-33 P=160 rad=2.247e-48 margin=2.266e-14 decisive planted=-1.870e-14 grade=deep family=mid budget=ACOSH@30000 escalates=yes
+34 NearestAway 1912999999999999999999954728716885e-33 P=160 rad=2.247e-48 margin=5.000e-01 decisive planted=-1.870e-14 grade=deep family=mid budget=ACOSH@30000 escalates=yes
+34 TowardZero 1912999999999999999999954728716885e-33 P=160 rad=2.247e-48 margin=5.000e-01 decisive planted=-1.870e-14 grade=deep family=mid budget=ACOSH@30000 escalates=yes
+34 TowardPositive 1912999999999999999999954728716885e-33 P=160 rad=2.247e-48 margin=5.000e-01 decisive planted=-1.870e-14 grade=deep family=mid budget=ACOSH@30000 escalates=yes
+34 TowardNegative 1912999999999999999999954728716885e-33 P=160 rad=2.247e-48 margin=5.000e-01 decisive planted=-1.870e-14 grade=deep family=mid budget=ACOSH@30000 escalates=yes
+34 NearestEven 3137000000000000000013910188666383e-33 P=160 rad=2.379e-48 margin=5.000e-01 decisive planted=6.982e-14 grade=deep family=grid budget=ACOSH@30000 escalates=yes
+34 NearestAway 3137000000000000000013910188666383e-33 P=160 rad=2.379e-48 margin=6.579e-14 decisive planted=6.982e-14 grade=deep family=grid budget=ACOSH@30000 escalates=yes
+34 TowardZero 3137000000000000000013910188666383e-33 P=160 rad=2.379e-48 margin=6.579e-14 decisive planted=6.982e-14 grade=deep family=grid budget=ACOSH@30000 escalates=yes
+34 TowardPositive 3137000000000000000013910188666383e-33 P=160 rad=2.379e-48 margin=6.579e-14 decisive planted=6.982e-14 grade=deep family=grid budget=ACOSH@30000 escalates=yes
+34 TowardNegative 3137000000000000000013910188666383e-33 P=160 rad=2.379e-48 margin=6.579e-14 decisive planted=6.982e-14 grade=deep family=grid budget=ACOSH@30000 escalates=yes

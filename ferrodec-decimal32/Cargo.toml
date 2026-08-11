@@ -70,6 +70,9 @@ exp-log = ["binary-float", "dep:ferrodec-transcend", "dep:ferrodec-multiword", "
 trig = ["binary-float", "dep:ferrodec-transcend", "dep:ferrodec-multiword", "ferrodec-transcend/trig"]
 # The pi-scaled family (ADR-0061): standalone, no `trig` implied.
 trig-pi = ["binary-float", "dep:ferrodec-transcend", "dep:ferrodec-multiword", "ferrodec-transcend/trig-pi"]
+# S3 escalation-depth counters (test-only; see the
+# ferrodec-transcend feature of the same name).
+telemetry = ["ferrodec-transcend/telemetry"]
 hyperbolic = ["exp-log", "dep:ferrodec-transcend", "dep:ferrodec-multiword", "ferrodec-transcend/hyperbolic"]
 pow = ["exp-log", "dep:ferrodec-transcend", "dep:ferrodec-multiword", "ferrodec-transcend/pow"]
 # Convenience meta-feature: enable every transcendental at once.

@@ -1,0 +1,37 @@
+# Provenance for planted/tanpi.txt. Base fields as the sampled
+# corpus .prov. planted= signed distance (fractional ULP of
+# the output) to the targeted boundary family at generation
+# time; grade/family/budget document the construction;
+# escalates= the generator's threshold verdict
+# (t = rung1 x 10^(P-50) = 8.000e-13 fractional ULP, rung1 TANPI=8000
+# parsed from ladder.rs at generation).
+34 NearestEven 1309999999999999999999999096861686e-34 P=160 rad=1.072e-48 margin=2.876e-11 decisive planted=-2.874e-11 grade=control family=mid budget=TANPI@8000 escalates=no
+34 NearestAway 1309999999999999999999999096861686e-34 P=160 rad=1.072e-48 margin=5.000e-01 decisive planted=-2.874e-11 grade=control family=mid budget=TANPI@8000 escalates=no
+34 TowardZero 1309999999999999999999999096861686e-34 P=160 rad=1.072e-48 margin=5.000e-01 decisive planted=-2.874e-11 grade=control family=mid budget=TANPI@8000 escalates=no
+34 TowardPositive 1309999999999999999999999096861686e-34 P=160 rad=1.072e-48 margin=5.000e-01 decisive planted=-2.874e-11 grade=control family=mid budget=TANPI@8000 escalates=no
+34 TowardNegative 1309999999999999999999999096861686e-34 P=160 rad=1.072e-48 margin=5.000e-01 decisive planted=-2.874e-11 grade=control family=mid budget=TANPI@8000 escalates=no
+34 NearestEven 1870000000000000000000007508652389e-34 P=160 rad=1.642e-48 margin=5.000e-01 decisive planted=-6.459e-12 grade=control family=grid budget=TANPI@8000 escalates=no
+34 NearestAway 1870000000000000000000007508652389e-34 P=160 rad=1.642e-48 margin=6.493e-12 decisive planted=-6.459e-12 grade=control family=grid budget=TANPI@8000 escalates=no
+34 TowardZero 1870000000000000000000007508652389e-34 P=160 rad=1.642e-48 margin=6.493e-12 decisive planted=-6.459e-12 grade=control family=grid budget=TANPI@8000 escalates=no
+34 TowardPositive 1870000000000000000000007508652389e-34 P=160 rad=1.642e-48 margin=6.493e-12 decisive planted=-6.459e-12 grade=control family=grid budget=TANPI@8000 escalates=no
+34 TowardNegative 1870000000000000000000007508652389e-34 P=160 rad=1.642e-48 margin=6.493e-12 decisive planted=-6.459e-12 grade=control family=grid budget=TANPI@8000 escalates=no
+34 NearestEven 1309999999999999999994058636723713e-34 P=160 rad=1.072e-48 margin=2.217e-14 decisive planted=3.882e-14 grade=entry family=mid budget=TANPI@8000 escalates=yes
+34 NearestAway 1309999999999999999994058636723713e-34 P=160 rad=1.072e-48 margin=5.000e-01 decisive planted=3.882e-14 grade=entry family=mid budget=TANPI@8000 escalates=yes
+34 TowardZero 1309999999999999999994058636723713e-34 P=160 rad=1.072e-48 margin=5.000e-01 decisive planted=3.882e-14 grade=entry family=mid budget=TANPI@8000 escalates=yes
+34 TowardPositive 1309999999999999999994058636723713e-34 P=160 rad=1.072e-48 margin=5.000e-01 decisive planted=3.882e-14 grade=entry family=mid budget=TANPI@8000 escalates=yes
+34 TowardNegative 1309999999999999999994058636723713e-34 P=160 rad=1.072e-48 margin=5.000e-01 decisive planted=3.882e-14 grade=entry family=mid budget=TANPI@8000 escalates=yes
+34 NearestEven 1870000000000000000007850076115798e-34 P=160 rad=1.642e-48 margin=5.000e-01 decisive planted=5.721e-14 grade=entry family=grid budget=TANPI@8000 escalates=yes
+34 NearestAway 1870000000000000000007850076115798e-34 P=160 rad=1.642e-48 margin=2.523e-14 decisive planted=5.721e-14 grade=entry family=grid budget=TANPI@8000 escalates=yes
+34 TowardZero 1870000000000000000007850076115798e-34 P=160 rad=1.642e-48 margin=2.523e-14 decisive planted=5.721e-14 grade=entry family=grid budget=TANPI@8000 escalates=yes
+34 TowardPositive 1870000000000000000007850076115798e-34 P=160 rad=1.642e-48 margin=2.523e-14 decisive planted=5.721e-14 grade=entry family=grid budget=TANPI@8000 escalates=yes
+34 TowardNegative 1870000000000000000007850076115798e-34 P=160 rad=1.642e-48 margin=2.523e-14 decisive planted=5.721e-14 grade=entry family=grid budget=TANPI@8000 escalates=yes
+34 NearestEven 1309999999999999999994058636723713e-34 P=160 rad=1.072e-48 margin=2.217e-14 decisive planted=3.882e-14 grade=deep family=mid budget=TANPI@8000 escalates=yes
+34 NearestAway 1309999999999999999994058636723713e-34 P=160 rad=1.072e-48 margin=5.000e-01 decisive planted=3.882e-14 grade=deep family=mid budget=TANPI@8000 escalates=yes
+34 TowardZero 1309999999999999999994058636723713e-34 P=160 rad=1.072e-48 margin=5.000e-01 decisive planted=3.882e-14 grade=deep family=mid budget=TANPI@8000 escalates=yes
+34 TowardPositive 1309999999999999999994058636723713e-34 P=160 rad=1.072e-48 margin=5.000e-01 decisive planted=3.882e-14 grade=deep family=mid budget=TANPI@8000 escalates=yes
+34 TowardNegative 1309999999999999999994058636723713e-34 P=160 rad=1.072e-48 margin=5.000e-01 decisive planted=3.882e-14 grade=deep family=mid budget=TANPI@8000 escalates=yes
+34 NearestEven 1870000000000000000004214202987630e-34 P=160 rad=1.642e-48 margin=5.000e-01 decisive planted=-4.092e-14 grade=deep family=grid budget=TANPI@8000 escalates=yes
+34 NearestAway 1870000000000000000004214202987630e-34 P=160 rad=1.642e-48 margin=6.399e-14 decisive planted=-4.092e-14 grade=deep family=grid budget=TANPI@8000 escalates=yes
+34 TowardZero 1870000000000000000004214202987630e-34 P=160 rad=1.642e-48 margin=6.399e-14 decisive planted=-4.092e-14 grade=deep family=grid budget=TANPI@8000 escalates=yes
+34 TowardPositive 1870000000000000000004214202987630e-34 P=160 rad=1.642e-48 margin=6.399e-14 decisive planted=-4.092e-14 grade=deep family=grid budget=TANPI@8000 escalates=yes
+34 TowardNegative 1870000000000000000004214202987630e-34 P=160 rad=1.642e-48 margin=6.399e-14 decisive planted=-4.092e-14 grade=deep family=grid budget=TANPI@8000 escalates=yes
