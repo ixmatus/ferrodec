@@ -611,6 +611,21 @@ pub fn load_anchor_bands(prec: u32) -> Vec<FrozenVec> {
     load_from(&corpus_dir().join("anchor_bands"), prec)
 }
 
+/// Every planted rung-2-forcing vector (fd-4zo.20, ADR-0059 S3) for
+/// `prec` significant digits, from the `tests/vectors/transcend/`
+/// `planted/` subdirectory. The corpus is Decimal128-only by
+/// construction (the sibling formats' escalation thresholds sit
+/// below their coefficient lattices' resolution — the generator's
+/// module doc carries the derivation), so `prec` other than 34
+/// loads an empty set. Same line grammar and loader semantics as
+/// the sampled corpus; per-row construction provenance (grade,
+/// boundary family, planted distance, budget) lives in the `.prov`
+/// twins. Panics if the subdirectory is missing.
+#[must_use]
+pub fn load_planted(prec: u32) -> Vec<FrozenVec> {
+    load_from(&corpus_dir().join("planted"), prec)
+}
+
 /// Shared directory walk for [`load`] and [`load_anchor_bands`]:
 /// every `*.txt` in `dir`, filtered to `prec`, unary or binary line
 /// shape by [`BINARY_FUNCS`] stem.

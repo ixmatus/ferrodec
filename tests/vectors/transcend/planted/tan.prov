@@ -5,16 +5,16 @@
 # escalates= the generator's threshold verdict
 # (t = rung1 x 10^(P-50) = 3.000e-02 fractional ULP, rung1 TAN=300000000000000
 # parsed from ladder.rs at generation).
-34 NearestEven 7370000000000000000000000000000000e-34 P=166 rad=3.226e-50 margin=3.739e-01 decisive planted=3.739e-01 grade=control family=mid budget=TAN@300000000000000 escalates=no
-34 NearestAway 7370000000000000000000000000000000e-34 P=166 rad=3.226e-50 margin=1.261e-01 decisive planted=3.739e-01 grade=control family=mid budget=TAN@300000000000000 escalates=no
-34 TowardZero 7370000000000000000000000000000000e-34 P=166 rad=3.226e-50 margin=1.261e-01 decisive planted=3.739e-01 grade=control family=mid budget=TAN@300000000000000 escalates=no
-34 TowardPositive 7370000000000000000000000000000000e-34 P=166 rad=3.226e-50 margin=1.261e-01 decisive planted=3.739e-01 grade=control family=mid budget=TAN@300000000000000 escalates=no
-34 TowardNegative 7370000000000000000000000000000000e-34 P=166 rad=3.226e-50 margin=1.261e-01 decisive planted=3.739e-01 grade=control family=mid budget=TAN@300000000000000 escalates=no
-34 NearestEven 1219000000000000000000000000000000e-33 P=160 rad=1.475e-47 margin=1.973e-02 decisive planted=-4.803e-01 grade=control family=grid budget=TAN@300000000000000 escalates=no
-34 NearestAway 1219000000000000000000000000000000e-33 P=160 rad=1.475e-47 margin=4.803e-01 decisive planted=-4.803e-01 grade=control family=grid budget=TAN@300000000000000 escalates=no
-34 TowardZero 1219000000000000000000000000000000e-33 P=160 rad=1.475e-47 margin=4.803e-01 decisive planted=-4.803e-01 grade=control family=grid budget=TAN@300000000000000 escalates=no
-34 TowardPositive 1219000000000000000000000000000000e-33 P=160 rad=1.475e-47 margin=4.803e-01 decisive planted=-4.803e-01 grade=control family=grid budget=TAN@300000000000000 escalates=no
-34 TowardNegative 1219000000000000000000000000000000e-33 P=160 rad=1.475e-47 margin=4.803e-01 decisive planted=-4.803e-01 grade=control family=grid budget=TAN@300000000000000 escalates=no
+34 NearestEven 7370000000000000000000000000001022e-34 P=166 rad=3.226e-50 margin=2.401e-01 decisive planted=2.401e-01 grade=control family=mid budget=TAN@300000000000000 escalates=no
+34 NearestAway 7370000000000000000000000000001022e-34 P=166 rad=3.226e-50 margin=2.599e-01 decisive planted=2.401e-01 grade=control family=mid budget=TAN@300000000000000 escalates=no
+34 TowardZero 7370000000000000000000000000001022e-34 P=166 rad=3.226e-50 margin=2.599e-01 decisive planted=2.401e-01 grade=control family=mid budget=TAN@300000000000000 escalates=no
+34 TowardPositive 7370000000000000000000000000001022e-34 P=166 rad=3.226e-50 margin=2.599e-01 decisive planted=2.401e-01 grade=control family=mid budget=TAN@300000000000000 escalates=no
+34 TowardNegative 7370000000000000000000000000001022e-34 P=166 rad=3.226e-50 margin=2.599e-01 decisive planted=2.401e-01 grade=control family=mid budget=TAN@300000000000000 escalates=no
+34 NearestEven 1219000000000000000000000000013313e-33 P=160 rad=1.475e-47 margin=2.595e-01 decisive planted=-2.405e-01 grade=control family=grid budget=TAN@300000000000000 escalates=no
+34 NearestAway 1219000000000000000000000000013313e-33 P=160 rad=1.475e-47 margin=2.405e-01 decisive planted=-2.405e-01 grade=control family=grid budget=TAN@300000000000000 escalates=no
+34 TowardZero 1219000000000000000000000000013313e-33 P=160 rad=1.475e-47 margin=2.405e-01 decisive planted=-2.405e-01 grade=control family=grid budget=TAN@300000000000000 escalates=no
+34 TowardPositive 1219000000000000000000000000013313e-33 P=160 rad=1.475e-47 margin=2.405e-01 decisive planted=-2.405e-01 grade=control family=grid budget=TAN@300000000000000 escalates=no
+34 TowardNegative 1219000000000000000000000000013313e-33 P=160 rad=1.475e-47 margin=2.405e-01 decisive planted=-2.405e-01 grade=control family=grid budget=TAN@300000000000000 escalates=no
 34 NearestEven 7370000000000000000000000000001829e-34 P=166 rad=3.226e-50 margin=1.392e-03 decisive planted=1.392e-03 grade=entry family=mid budget=TAN@300000000000000 escalates=yes
 34 NearestAway 7370000000000000000000000000001829e-34 P=166 rad=3.226e-50 margin=4.986e-01 decisive planted=1.392e-03 grade=entry family=mid budget=TAN@300000000000000 escalates=yes
 34 TowardZero 7370000000000000000000000000001829e-34 P=166 rad=3.226e-50 margin=4.986e-01 decisive planted=1.392e-03 grade=entry family=mid budget=TAN@300000000000000 escalates=yes
