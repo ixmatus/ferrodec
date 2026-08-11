@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Planted rung-2-forcing corpus, pinned escalation telemetry, and a
+  scheduled deep-verification workflow (ADR-0059 S3; fd-4zo.20/.21/
+  .22). `tools/gen_planted_hardcases.py` constructs Decimal128
+  inputs at chosen distances from rounding boundaries (the
+  escalation threshold derives from the predicate's own unit:
+  `rung1 x 10^(P-50)` fractional ULP), so the ladder's second rung
+  receives natural Arb-certified traffic; 36 operations x 30 rows
+  replay bit-exact, with the 720 sub-threshold rows' rung-2 entries
+  pinned exactly per file under the new test-only `telemetry`
+  feature, alongside measured pins for the sampled corpus (sin 75,
+  cos 71, tan 23, compound 36, all others zero) and the siblings'
+  structural zero (their thresholds sit below their coefficient
+  lattices' resolution, now asserted over their whole corpora
+  rather than argued). `verification.yml` re-runs the
+  force-escalate, ladder-audit, adjudicator, differential, MPFR,
+  and campaign-smoke lanes weekly and on demand; push CI is
+  untouched.
+
 - `Decimal128::sin_pi`, `cos_pi`, `tan_pi`, `asin_pi`, `acos_pi`,
   `atan_pi`, and `atan2_pi` (IEEE 754-2019 §9.2 `sinPi` / `cosPi` /
   `tanPi` / `asinPi` / `acosPi` / `atanPi` / `atan2Pi`; ADR-0061,
