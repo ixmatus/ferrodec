@@ -72,11 +72,11 @@ narrower exponent range rarely triggers it.
 | --- | --- |
 | `fmt` (default) | `parse_str`, `Display`, `LowerExp`, `UpperExp`, `Engineering`. Alloc-free; uses `core::fmt::Write`. |
 | `binary-float` | `Decimal64::to_f64`, `Decimal64::from_f64`. Auto-enabled by every transcendental feature. |
-| `exp-log` | `exp`, `ln`, `exp2`, `log2`, `log10`. Correctly rounded via the shared `ferrodec-transcend` Extended-precision kernel (ADR-0032) (pure Rust, no FFI). |
+| `exp-log` | `exp`, `exp2`, `exp10`, `ln`, `log2`, `log10`, `exp_m1`, `exp2_m1`, `exp10_m1`, `ln_1p`, `log2_1p`, `log10_1p`, `cbrt`, `rootn`, `rsqrt`, `compound`, `hypot`. Correctly rounded via the shared `ferrodec-transcend` kernel on the ADR-0059 escalation ladder (pure Rust, no FFI). |
 | `trig` | `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`. Same shared correctly rounded kernel, Payne-Hanek argument reduction. |
 | `trig-pi` | `sin_pi`, `cos_pi`, `tan_pi`, `asin_pi`, `acos_pi`, `atan_pi`, `atan2_pi` (IEEE 754-2019 `sinPi` … `atan2Pi`). Standalone: pulls neither `trig` nor the Payne-Hanek table; the `x mod 2` reduction is exact decimal arithmetic. |
 | `hyperbolic` | `sinh`, `cosh`, `tanh`, `asinh`, `acosh`, `atanh`. Same shared correctly rounded kernel. Auto-pulls `exp-log`. |
-| `pow` | `pow`, `cbrt`. Same shared correctly rounded kernel. Auto-pulls `exp-log`. |
+| `pow` | `pow`, `powi`, `powr`. Same shared correctly rounded kernel. Auto-pulls `exp-log` (`pow(x, y) = exp(y · ln x)`). |
 | `transcendentals` | Convenience meta-feature: enables all five clusters. No transcendental routes through `f64`; `libm` is not a dependency. |
 | `ops` | `core::ops` overloads (`Add`, `Sub`, `Mul`, `Div`, `Rem`, `Neg`, plus `*Assign`). Defaults to `RoundingMode::NearestEven`; drops `Status`. |
 | `serde` | `Serialize` / `Deserialize` via the canonical decimal string. The `serde_bid` helper module serialises the raw 64-bit BID pattern in binary formats. |
@@ -113,9 +113,15 @@ narrower exponent range rarely triggers it.
 - **§5 sign**: `abs`, `neg`, `copysign`, `abs_with_status`,
   `neg_with_status`.
 - **§5 canonical**: `is_canonical`, `canonicalize`.
-- **§9.2 transcendental**: `exp`, `ln`, `sin`, `cos`, `tan`, `asin`,
-  `acos`, `atan`, `atan2`, `sinh`, `cosh`, `tanh`, `asinh`, `acosh`,
-  `atanh`, `pow`, `cbrt`.
+- **§9.2 transcendental**: the exponential and logarithm families
+  (`exp`, `exp2`, `exp10`, `exp_m1`, `exp2_m1`, `exp10_m1`, `ln`,
+  `log2`, `log10`, `ln_1p`, `log2_1p`, `log10_1p`), the
+  trigonometric and inverse families (`sin`, `cos`, `tan`, `asin`,
+  `acos`, `atan`, `atan2`), the hyperbolic families (`sinh`,
+  `cosh`, `tanh`, `asinh`, `acosh`, `atanh`), the power and root
+  group (`pow`, `powi`, `powr`, `cbrt`, `rootn`, `rsqrt`, `hypot`,
+  `compound`), and the pi scaled family (`sin_pi`, `cos_pi`,
+  `tan_pi`, `asin_pi`, `acos_pi`, `atan_pi`, `atan2_pi`).
 
 Every operation that can lose precision returns
 `(Decimal64, Status)`. The `Status` flags follow IEEE 754-2019 §7:
@@ -127,26 +133,42 @@ with `|=` / `Status::merge` across a sequence of operations.
 All §5 mandatory operations are correctly rounded per the active
 [`RoundingMode`].
 
-The whole §9.2 transcendental surface (`exp`, `ln`, `exp2`, `log2`,
-`log10`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`,
-`sinh`, `cosh`, `tanh`, `asinh`, `acosh`, `atanh`, `pow`, `cbrt`)
-is correctly rounded (ADR-0032; supersedes ADR-0024's faithful
-contract) at every IEEE 754-2019 rounding direction through the
-shared `ferrodec-transcend` Extended precision kernel, at exact
-parity with the `ferrodec` (Decimal128) parent. No transcendental
-routes through `f64` any more, so the pre-fd-r0l ~10⁻¹⁵
-f64-round-trip cap is lifted and `libm` is no longer a dependency.
-The forward trig functions use Payne-Hanek argument reduction
-(correctly rounded across the full Decimal64 magnitude range, not
-capped at the old `|x| < 2^53` limit); `pow` evaluates
-`exp(y · ln(|x|))` at Extended precision.
+The whole IEEE 754-2019 §9.2 transcendental surface is correctly
+rounded at every rounding direction through the shared
+`ferrodec-transcend` kernel on the ADR-0059 escalation ladder
+(ADR-0032 established the contract; the ladder discharges it),
+at exact parity with the `ferrodec` (Decimal128) parent: the exponential and
+logarithm families (`exp`, `exp2`, `exp10`, `exp_m1`, `exp2_m1`,
+`exp10_m1`, `ln`, `log2`, `log10`, `ln_1p`, `log2_1p`,
+`log10_1p`), the trigonometric and inverse families (`sin`, `cos`,
+`tan`, `asin`, `acos`, `atan`, `atan2`), the hyperbolic families
+(`sinh`, `cosh`, `tanh`, `asinh`, `acosh`, `atanh`), the power and
+root group (`pow`, `powi`, `powr`, `cbrt`, `rootn`, `rsqrt`,
+`hypot`, `compound`), and the pi scaled family (`sin_pi`,
+`cos_pi`, `tan_pi`, `asin_pi`, `acos_pi`, `atan_pi`, `atan2_pi`).
+The additions that postdate ADR-0032 (ADR-0059 Track D) are
+correctly rounded from first release. No transcendental routes
+through `f64`, and `libm` is not a dependency.
+
+At this format's precision the ladder collapses in the caller's
+favor: the escalation threshold sits below what the 16 digit
+coefficient lattice can express, so the ladder's first rung
+decides every representable input, and the S3 telemetry gate keeps
+that structural fact live by replaying the whole frozen corpus
+with exactly zero natural escalations (the Decimal128 parent
+carries the escalation machinery the deep cases need). The forward
+trig functions use Payne-Hanek argument reduction (correctly
+rounded across the full Decimal64 magnitude range); the pi scaled
+variants need no reduction table at all, because `x mod 2` is
+exact decimal arithmetic at every magnitude; `pow` evaluates
+`exp(y · ln(|x|))` at extended precision.
 
 The contract is correctly rounded (the returned value is the
 single nearest representable result, ties to even at
 `NearestEven` and the directed grid point at the four directed
 modes), proved on every committed Arb worst-case vector and
 empirically corroborated by MPFR with zero disagreements
-(ADR-0026, ADR-0032).
+(ADR-0026, ADR-0032, ADR-0059).
 
 ## Supported targets
 
@@ -167,6 +189,7 @@ MSRV: Rust 1.84.
 | Conformance vectors | The runner consumes every `dd*.decTest` file from the IBM / Speleotrove suite. Pass and skip counts move as dispatch arms are wired in (add/sub/mul/div/fma, the comparison and quantum surface, `rem_near` / `rem_trunc`, roundToIntegral, the copy family, and the §9.6 magnitude operations are dispatched); the invariant is zero failures. |
 | Unit tests | Hand-derived expected values for every operation, special cases, sign rules, and rounding boundaries. |
 | Property tests | Round-trip `parse_str → Display`. |
+| Frozen Arb corpus | The shared three-format frozen corpus replays at P = 16 with exact per-(function, mode) bucket pins, including the Track D additions and the published Lefèvre–Stehlé–Zimmermann decimal64 `exp` worst cases as an external anchor gate (170/170). With the test-only `telemetry` feature the replay additionally pins exactly zero natural rung-2 escalations over the whole corpus: at this precision the ladder's first rung decides every input, and the pin keeps that derivation live. |
 | Kani harnesses | Per-operation modules (addsub, mul, div, sqrt, fma, cmp) prove no-panic and IEEE 754 special-case propagation over a bounded operand set. Run via `cargo kani --package ferrodec-decimal64 --features=transcendentals`. |
 | Fuzz | Four cargo-fuzz targets (parse, arith, transcendentals, `total_cmp`) covering panic-freedom and algebraic-identity invariants over arbitrary u64 bit patterns. |
 
