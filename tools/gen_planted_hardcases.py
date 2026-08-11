@@ -522,10 +522,17 @@ def search_band(d0_int, s_int, q_int, kmax, lo_int, hi_int):
     return None
 
 
-def plant_one(op, name, x0, family, lo, hi):
+def plant_one(op, name, x0, family, lo, hi, control=False):
     """Plant one input for `op` near boundary family `family`
     ("mid" | "grid") with |true distance| in [lo, hi] fractional ULP.
-    Returns (coef, exp, planted_dist_fracupl) or None."""
+    For control rows the OTHER family's distance is bounded too: the
+    two families interleave at half-ULP spacing (|d_grid| + |d_mid| =
+    1/2 exactly), so a control planted near 0.5 - t of its target
+    family sits within t of the other and escalates anyway -- the
+    sin/tan 25-vs-20 finding from the first telemetry run. Acceptance
+    for control therefore requires min(|d_target|, |d_other|) >= lo,
+    i.e. |d_target| <= 1/2 - lo. Returns
+    (coef, exp, planted_dist_fracupl) or None."""
     f, d1, d2 = op["fwd"], op["d1"], op["d2"]
     y0 = f(x0)
     assert y0 > 0, (name, x0)
@@ -540,7 +547,8 @@ def plant_one(op, name, x0, family, lo, hi):
         d = d_mid if family == "mid" else d_grid
         ulp_y = mpf(10) ** ue
         adist = abs(d)
-        if lo <= adist <= hi:
+        hi_eff = min(hi, mpf("0.5") - lo) if control else hi
+        if lo <= adist <= hi_eff:
             return coef, exp, d
         # exact model coefficients in integer 1e-SCALE units
         s = d1(x) * ulp_x / ulp_y
@@ -548,7 +556,7 @@ def plant_one(op, name, x0, family, lo, hi):
         d_int = int(mp.nint(d * SCALE))
         s_int = int(mp.nint((s - mp.floor(s)) * SCALE))
         q_int = int(mp.nint(q * SCALE))
-        lo_int, hi_int = int(lo * SCALE), int(hi * SCALE)
+        lo_int, hi_int = int(lo * SCALE), int(hi_eff * SCALE)
         # target the geometric middle of the band; cap k by both the
         # model validity and the coefficient's trailing-digit room
         kmax = min(10 ** 14, coef - 10 ** (P - 1), 10 ** P - 1 - coef)
@@ -573,7 +581,7 @@ def plant_one(op, name, x0, family, lo, hi):
         y2 = f(x2)
         g2, m2, _ = dist_to_boundary(y2)
         d2v = m2 if family == "mid" else g2
-        if lo <= abs(d2v) <= hi:
+        if lo <= abs(d2v) <= hi_eff:
             return coef2, exp, d2v
         # model/truth drift: restart the loop from the new point
         coef = coef2
@@ -670,7 +678,8 @@ def main():
                     "%s %s: band [%s, %s] not clear of t=%s"
                     % (name, gname, lo, hi, t))
             for fam, x0 in (("mid", op["x0"][0]), ("grid", op["x0"][1])):
-                got = plant_one(op, name, x0, fam, lo, hi)
+                got = plant_one(op, name, x0, fam, lo, hi,
+                                control=not esc)
                 if got is None:
                     raise SystemExit("planting failed: %s %s %s"
                                      % (name, gname, fam))

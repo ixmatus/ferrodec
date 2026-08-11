@@ -341,6 +341,12 @@ pub(crate) fn round_guarded<F: DecimalFormat, E: ExtNum>(
             return None;
         }
         if v.near_rounding_boundary::<F>(v.rung_budget(budget)) {
+            #[cfg(feature = "telemetry")]
+            if E::RUNG == 1 {
+                crate::telemetry::count_rung2_entry();
+            } else {
+                crate::telemetry::count_rung3_entry();
+            }
             return None;
         }
     } else {
@@ -425,7 +431,11 @@ pub(crate) fn round_adjudicated<F: DecimalFormat, E: ExtNum>(
     match verdict {
         BoundaryVerdict::Clear => {}
         BoundaryVerdict::Near(b) => match decide(b) {
-            Some(side) => return Some(deliver_at_boundary::<F, E>(v, b, side, rm)),
+            Some(side) => {
+                #[cfg(feature = "telemetry")]
+                crate::telemetry::count_adjudication();
+                return Some(deliver_at_boundary::<F, E>(v, b, side, rm));
+            }
             None => {
                 if E::ESCALATES {
                     return None;

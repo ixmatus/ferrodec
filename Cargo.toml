@@ -108,6 +108,9 @@ trig = ["fmt", "ferrodec-transcend/trig"]
 # The pi-scaled family sin_pi..atan2_pi (ADR-0061): standalone, does
 # NOT imply `trig` (exact reduction needs no Payne-Hanek tables).
 trig-pi = ["fmt", "ferrodec-transcend/trig-pi"]
+# S3 escalation-depth counters (test-only; see the
+# ferrodec-transcend feature of the same name).
+telemetry = ["ferrodec-transcend/telemetry"]
 # Forwards to `ferrodec-transcend/exp-log` so the shared exp / ln /
 # cbrt kernel modules (gated there under the same name) are compiled
 # in when the core shim delegates to them.
