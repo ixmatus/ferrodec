@@ -63,11 +63,11 @@ to ±0 with the encoded sign and biased exponent, per IEEE 754-2019
 | --- | --- |
 | `fmt` (default) | `parse_str`, `Display`, `LowerExp`, `UpperExp`, `Engineering`. Alloc-free; uses `core::fmt::Write`. |
 | `binary-float` | `Decimal32::to_f64`, `Decimal32::from_f64`. Auto-enabled by every transcendental feature. |
-| `exp-log` | `exp`, `ln`, `exp2`, `log2`, `log10`. Correctly rounded via the shared `ferrodec-transcend` Extended-precision kernel (ADR-0032) (pure Rust, no FFI). |
+| `exp-log` | `exp`, `exp2`, `exp10`, `ln`, `log2`, `log10`, `exp_m1`, `exp2_m1`, `exp10_m1`, `ln_1p`, `log2_1p`, `log10_1p`, `cbrt`, `rootn`, `rsqrt`, `compound`, `hypot`. Correctly rounded via the shared `ferrodec-transcend` kernel on the ADR-0059 escalation ladder (pure Rust, no FFI). |
 | `trig` | `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`. Same shared correctly rounded kernel, Payne-Hanek argument reduction. |
 | `trig-pi` | `sin_pi`, `cos_pi`, `tan_pi`, `asin_pi`, `acos_pi`, `atan_pi`, `atan2_pi` (IEEE 754-2019 `sinPi` … `atan2Pi`). Standalone: pulls neither `trig` nor the Payne-Hanek table; the `x mod 2` reduction is exact decimal arithmetic. |
 | `hyperbolic` | `sinh`, `cosh`, `tanh`, `asinh`, `acosh`, `atanh`. Same shared correctly rounded kernel. Auto-pulls `exp-log`. |
-| `pow` | `pow`, `cbrt`. Same shared correctly rounded kernel. Auto-pulls `exp-log`. |
+| `pow` | `pow`, `powi`, `powr`. Same shared correctly rounded kernel. Auto-pulls `exp-log` (`pow(x, y) = exp(y · ln x)`). |
 | `transcendentals` | Convenience meta-feature: enables all five clusters. No transcendental routes through `f64`; `libm` is not a dependency. |
 | `ops` | `core::ops` overloads (`Add`, `Sub`, `Mul`, `Div`, `Rem`, `Neg`, plus `*Assign`). Defaults to `RoundingMode::NearestEven`; drops `Status`. |
 | `serde` | `Serialize` / `Deserialize` via the canonical decimal string. The `serde_bid` helper module serialises the raw 32-bit BID pattern in binary formats. |
@@ -106,9 +106,15 @@ to ±0 with the encoded sign and biased exponent, per IEEE 754-2019
 - **§5 sign**: `abs`, `neg`, `copysign`, `abs_with_status`,
   `neg_with_status`.
 - **§5 canonical**: `is_canonical`, `canonicalize`.
-- **§9.2 transcendental**: `exp`, `ln`, `sin`, `cos`, `tan`, `asin`,
-  `acos`, `atan`, `atan2`, `sinh`, `cosh`, `tanh`, `asinh`, `acosh`,
-  `atanh`, `pow`, `cbrt`.
+- **§9.2 transcendental**: the exponential and logarithm families
+  (`exp`, `exp2`, `exp10`, `exp_m1`, `exp2_m1`, `exp10_m1`, `ln`,
+  `log2`, `log10`, `ln_1p`, `log2_1p`, `log10_1p`), the
+  trigonometric and inverse families (`sin`, `cos`, `tan`, `asin`,
+  `acos`, `atan`, `atan2`), the hyperbolic families (`sinh`,
+  `cosh`, `tanh`, `asinh`, `acosh`, `atanh`), the power and root
+  group (`pow`, `powi`, `powr`, `cbrt`, `rootn`, `rsqrt`, `hypot`,
+  `compound`), and the pi scaled family (`sin_pi`, `cos_pi`,
+  `tan_pi`, `asin_pi`, `acos_pi`, `atan_pi`, `atan2_pi`).
 
 Every operation that can lose precision returns
 `(Decimal32, Status)`. The `Status` flags follow IEEE 754-2019 §7:
@@ -120,26 +126,43 @@ with `|=` / `Status::merge` across a sequence of operations.
 All §5 mandatory operations are correctly rounded per the active
 [`RoundingMode`].
 
-The whole §9.2 transcendental surface (`exp`, `ln`, `exp2`, `log2`,
-`log10`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`,
-`sinh`, `cosh`, `tanh`, `asinh`, `acosh`, `atanh`, `pow`, `cbrt`)
-is correctly rounded (ADR-0032; supersedes ADR-0024's faithful
-contract) at every IEEE 754-2019 rounding direction through the
-shared `ferrodec-transcend` Extended precision kernel, at exact
-parity with the `ferrodec` (Decimal128) parent and the
-`ferrodec-decimal64` sibling. No transcendental routes through
-`f64` any more, so the pre-fd-r0l f64-round-trip detour is gone and
-`libm` is no longer a dependency. The forward trig functions use
-Payne-Hanek argument reduction (correctly rounded across the full
-Decimal32 magnitude range); `pow` evaluates `exp(y · ln(|x|))` at
-Extended precision.
+The whole IEEE 754-2019 §9.2 transcendental surface is correctly
+rounded at every rounding direction through the shared
+`ferrodec-transcend` kernel on the ADR-0059 escalation ladder
+(ADR-0032 established the contract; the ladder discharges it),
+at exact parity with the `ferrodec` (Decimal128) parent and the
+`ferrodec-decimal64` sibling: the exponential and
+logarithm families (`exp`, `exp2`, `exp10`, `exp_m1`, `exp2_m1`,
+`exp10_m1`, `ln`, `log2`, `log10`, `ln_1p`, `log2_1p`,
+`log10_1p`), the trigonometric and inverse families (`sin`, `cos`,
+`tan`, `asin`, `acos`, `atan`, `atan2`), the hyperbolic families
+(`sinh`, `cosh`, `tanh`, `asinh`, `acosh`, `atanh`), the power and
+root group (`pow`, `powi`, `powr`, `cbrt`, `rootn`, `rsqrt`,
+`hypot`, `compound`), and the pi scaled family (`sin_pi`,
+`cos_pi`, `tan_pi`, `asin_pi`, `acos_pi`, `atan_pi`, `atan2_pi`).
+The additions that postdate ADR-0032 (ADR-0059 Track D) are
+correctly rounded from first release. No transcendental routes
+through `f64`, and `libm` is not a dependency.
+
+At this format's precision the ladder collapses in the caller's
+favor: the escalation threshold sits below what the 7 digit
+coefficient lattice can express, so the ladder's first rung
+decides every representable input, and the S3 telemetry gate keeps
+that structural fact live by replaying the whole frozen corpus
+with exactly zero natural escalations (the Decimal128 parent
+carries the escalation machinery the deep cases need). The forward
+trig functions use Payne-Hanek argument reduction (correctly
+rounded across the full Decimal32 magnitude range); the pi scaled
+variants need no reduction table at all, because `x mod 2` is
+exact decimal arithmetic at every magnitude; `pow` evaluates
+`exp(y · ln(|x|))` at extended precision.
 
 The contract is correctly rounded (the returned value is the
 single nearest representable result, ties to even at
 `NearestEven` and the directed grid point at the four directed
 modes), proved on every committed Arb worst-case vector and
 empirically corroborated by MPFR with zero disagreements
-(ADR-0026, ADR-0032).
+(ADR-0026, ADR-0032, ADR-0059).
 
 For Decimal32 this guarantee is exhaustive, not sampled, and is the
 family's strongest correctness result. The entire canonical §9.2
@@ -150,7 +173,11 @@ and proven correctly rounded, cross-checked against MPFR with zero
 disagreements (ADR-0033, ADR-0034). The wider formats cannot do this:
 their canonical input cardinalities (about 10¹⁸ for Decimal64, 10³⁶
 for Decimal128) are beyond exhaustive reach, so they keep the
-sampled-corpus margin above.
+sampled-corpus margin above. The exhaustive result covers the 18
+unary §9.2 transcendentals of the pre-ladder surface plus §5
+`sqrt`; the later ADR-0059 Track D additions (the `_1p`/`_m1`
+families, the algebraic group, the pi scaled family) hold the
+sampled-corpus and MPFR evidence base, not the exhaustive one.
 
 ## Supported targets
 
@@ -171,6 +198,7 @@ MSRV: Rust 1.84.
 | Conformance vectors | The runner consumes the vendored `ds*.decTest` files (`dsBase`, `dsEncode`). Pass and skip counts move as dispatch arms are wired in; the invariant is zero failures. Residual skips are extreme-exponent inputs and the non-IEEE rounding directives `half_down` / `05up` (will-not-fix per ferrodec ADR-0005). |
 | Unit tests | Hand-derived expected values for every operation, special cases, sign rules, and rounding boundaries. |
 | Property tests | Round-trip `parse_str → Display`. |
+| Frozen Arb corpus | The shared three-format frozen corpus replays at P = 7 with exact per-(function, mode) bucket pins, including the Track D additions. With the test-only `telemetry` feature the replay additionally pins exactly zero natural rung-2 escalations over the whole corpus: at this precision the ladder's first rung decides every input, and the pin keeps that derivation live. |
 | Kani harnesses | Per-operation modules (addsub, mul, div, sqrt, fma, cmp) prove no-panic and IEEE 754 special-case propagation over a bounded operand set. Run via `cargo kani --package ferrodec-decimal32 --features=fmt`. |
 | Fuzz | Four cargo-fuzz targets (parse, arith, transcendentals, `total_cmp`) covering panic-freedom and algebraic-identity invariants over arbitrary bit patterns. |
 | Exhaustive (Decimal32 only) | The full canonical §9.2 transcendental input space (~42 billion) and every non-negative `sqrt` input (1.728 billion) walked offline through a certified Arb filter, proven correctly rounded and MPFR-cross-checked with zero disagreements (ADR-0033/0034; `tests/transcend_vectors_exhaustive.rs`). A separate `tests/identity_exhaustive.rs` walks the full 2³² encoding space for total-order and round-trip identities. |
