@@ -564,6 +564,25 @@ pub(crate) fn atanh_kernel_body<F: DecimalFormat, E: ExtNum>(
 }
 
 /// `sinh(x)` at working precision.
+/// The 50-digit `sinh` intermediate, exposed for the S2 campaign
+/// mirror (fd-4zo.19): exactly the body the kernel rounds from, at
+/// the fixed `Extended` rung.
+#[must_use]
+pub fn sinh_extended(x: crate::extended::Extended) -> crate::extended::Extended {
+    sinh_ext(x)
+}
+
+/// The 50-digit `cosh` intermediate, exposed for the S2 campaign
+/// mirror (fd-4zo.19). Takes `|x|` exactly as `cosh_kernel_body`
+/// does: cosh is even, and the core's exp composition is only
+/// contracted for the nonnegative side (the first smoke run's 50%
+/// divergence on the negative band was this wrapper missing the
+/// `abs`).
+#[must_use]
+pub fn cosh_extended(x: crate::extended::Extended) -> crate::extended::Extended {
+    cosh_ext(x.abs())
+}
+
 fn sinh_ext<E: ExtNum>(x: E) -> E {
     if x.is_zero() {
         return x;
