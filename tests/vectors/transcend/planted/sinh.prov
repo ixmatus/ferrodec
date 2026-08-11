@@ -1,0 +1,37 @@
+# Provenance for planted/sinh.txt. Base fields as the sampled
+# corpus .prov. planted= signed distance (fractional ULP of
+# the output) to the targeted boundary family at generation
+# time; grade/family/budget document the construction;
+# escalates= the generator's threshold verdict
+# (t = rung1 x 10^(P-50) = 1.000e-10 fractional ULP, rung1 SINH=1000000
+# parsed from ladder.rs at generation).
+34 NearestEven 1117000000000000000000000667323296e-33 P=160 rad=3.789e-48 margin=2.859e-09 decisive planted=2.859e-09 grade=control family=mid budget=SINH@1000000 escalates=no
+34 NearestAway 1117000000000000000000000667323296e-33 P=160 rad=3.789e-48 margin=5.000e-01 decisive planted=2.859e-09 grade=control family=mid budget=SINH@1000000 escalates=no
+34 TowardZero 1117000000000000000000000667323296e-33 P=160 rad=3.789e-48 margin=5.000e-01 decisive planted=2.859e-09 grade=control family=mid budget=SINH@1000000 escalates=no
+34 TowardPositive 1117000000000000000000000667323296e-33 P=160 rad=3.789e-48 margin=5.000e-01 decisive planted=2.859e-09 grade=control family=mid budget=SINH@1000000 escalates=no
+34 TowardNegative 1117000000000000000000000667323296e-33 P=160 rad=3.789e-48 margin=5.000e-01 decisive planted=2.859e-09 grade=control family=mid budget=SINH@1000000 escalates=no
+34 NearestEven 2313000000000000000000000767439868e-33 P=160 rad=1.979e-47 margin=5.000e-01 decisive planted=9.623e-10 grade=control family=grid budget=SINH@1000000 escalates=no
+34 NearestAway 2313000000000000000000000767439868e-33 P=160 rad=1.979e-47 margin=9.622e-10 decisive planted=9.623e-10 grade=control family=grid budget=SINH@1000000 escalates=no
+34 TowardZero 2313000000000000000000000767439868e-33 P=160 rad=1.979e-47 margin=9.622e-10 decisive planted=9.623e-10 grade=control family=grid budget=SINH@1000000 escalates=no
+34 TowardPositive 2313000000000000000000000767439868e-33 P=160 rad=1.979e-47 margin=9.622e-10 decisive planted=9.623e-10 grade=control family=grid budget=SINH@1000000 escalates=no
+34 TowardNegative 2313000000000000000000000767439868e-33 P=160 rad=1.979e-47 margin=9.622e-10 decisive planted=9.623e-10 grade=control family=grid budget=SINH@1000000 escalates=no
+34 NearestEven 1117000000000000000000015561738943e-33 P=160 rad=3.789e-48 margin=7.515e-12 decisive planted=7.520e-12 grade=entry family=mid budget=SINH@1000000 escalates=yes
+34 NearestAway 1117000000000000000000015561738943e-33 P=160 rad=3.789e-48 margin=5.000e-01 decisive planted=7.520e-12 grade=entry family=mid budget=SINH@1000000 escalates=yes
+34 TowardZero 1117000000000000000000015561738943e-33 P=160 rad=3.789e-48 margin=5.000e-01 decisive planted=7.520e-12 grade=entry family=mid budget=SINH@1000000 escalates=yes
+34 TowardPositive 1117000000000000000000015561738943e-33 P=160 rad=3.789e-48 margin=5.000e-01 decisive planted=7.520e-12 grade=entry family=mid budget=SINH@1000000 escalates=yes
+34 TowardNegative 1117000000000000000000015561738943e-33 P=160 rad=3.789e-48 margin=5.000e-01 decisive planted=7.520e-12 grade=entry family=mid budget=SINH@1000000 escalates=yes
+34 NearestEven 2313000000000000000000015296488041e-33 P=160 rad=1.979e-47 margin=5.000e-01 decisive planted=-6.237e-12 grade=entry family=grid budget=SINH@1000000 escalates=yes
+34 NearestAway 2313000000000000000000015296488041e-33 P=160 rad=1.979e-47 margin=6.268e-12 decisive planted=-6.237e-12 grade=entry family=grid budget=SINH@1000000 escalates=yes
+34 TowardZero 2313000000000000000000015296488041e-33 P=160 rad=1.979e-47 margin=6.268e-12 decisive planted=-6.237e-12 grade=entry family=grid budget=SINH@1000000 escalates=yes
+34 TowardPositive 2313000000000000000000015296488041e-33 P=160 rad=1.979e-47 margin=6.268e-12 decisive planted=-6.237e-12 grade=entry family=grid budget=SINH@1000000 escalates=yes
+34 TowardNegative 2313000000000000000000015296488041e-33 P=160 rad=1.979e-47 margin=6.268e-12 decisive planted=-6.237e-12 grade=entry family=grid budget=SINH@1000000 escalates=yes
+34 NearestEven 1116999999999999999999682164649425e-33 P=160 rad=3.789e-48 margin=1.001e-13 decisive planted=1.050e-13 grade=deep family=mid budget=SINH@1000000 escalates=yes
+34 NearestAway 1116999999999999999999682164649425e-33 P=160 rad=3.789e-48 margin=5.000e-01 decisive planted=1.050e-13 grade=deep family=mid budget=SINH@1000000 escalates=yes
+34 TowardZero 1116999999999999999999682164649425e-33 P=160 rad=3.789e-48 margin=5.000e-01 decisive planted=1.050e-13 grade=deep family=mid budget=SINH@1000000 escalates=yes
+34 TowardPositive 1116999999999999999999682164649425e-33 P=160 rad=3.789e-48 margin=5.000e-01 decisive planted=1.050e-13 grade=deep family=mid budget=SINH@1000000 escalates=yes
+34 TowardNegative 1116999999999999999999682164649425e-33 P=160 rad=3.789e-48 margin=5.000e-01 decisive planted=1.050e-13 grade=deep family=mid budget=SINH@1000000 escalates=yes
+34 NearestEven 2312999999999999999997334530366433e-33 P=160 rad=1.979e-47 margin=5.000e-01 decisive planted=6.593e-14 grade=deep family=grid budget=SINH@1000000 escalates=yes
+34 NearestAway 2312999999999999999997334530366433e-33 P=160 rad=1.979e-47 margin=3.319e-14 decisive planted=6.593e-14 grade=deep family=grid budget=SINH@1000000 escalates=yes
+34 TowardZero 2312999999999999999997334530366433e-33 P=160 rad=1.979e-47 margin=3.319e-14 decisive planted=6.593e-14 grade=deep family=grid budget=SINH@1000000 escalates=yes
+34 TowardPositive 2312999999999999999997334530366433e-33 P=160 rad=1.979e-47 margin=3.319e-14 decisive planted=6.593e-14 grade=deep family=grid budget=SINH@1000000 escalates=yes
+34 TowardNegative 2312999999999999999997334530366433e-33 P=160 rad=1.979e-47 margin=3.319e-14 decisive planted=6.593e-14 grade=deep family=grid budget=SINH@1000000 escalates=yes

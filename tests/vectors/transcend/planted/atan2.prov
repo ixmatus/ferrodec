@@ -1,0 +1,37 @@
+# Provenance for planted/atan2.txt. Base fields as the sampled
+# corpus .prov. planted= signed distance (fractional ULP of
+# the output) to the targeted boundary family at generation
+# time; grade/family/budget document the construction;
+# escalates= the generator's threshold verdict
+# (t = rung1 x 10^(P-50) = 1.000e-12 fractional ULP, rung1 ATAN2=10000
+# parsed from ladder.rs at generation).
+34 NearestEven 125e-2 9130000000000000000073716143988057e-34 P=198 rad=5.411e-60 margin=3.949e-11 decisive planted=3.949e-11 grade=control family=mid budget=ATAN2@10000 escalates=no
+34 NearestAway 125e-2 9130000000000000000073716143988057e-34 P=198 rad=5.411e-60 margin=5.000e-01 decisive planted=3.949e-11 grade=control family=mid budget=ATAN2@10000 escalates=no
+34 TowardZero 125e-2 9130000000000000000073716143988057e-34 P=198 rad=5.411e-60 margin=5.000e-01 decisive planted=3.949e-11 grade=control family=mid budget=ATAN2@10000 escalates=no
+34 TowardPositive 125e-2 9130000000000000000073716143988057e-34 P=198 rad=5.411e-60 margin=5.000e-01 decisive planted=3.949e-11 grade=control family=mid budget=ATAN2@10000 escalates=no
+34 TowardNegative 125e-2 9130000000000000000073716143988057e-34 P=198 rad=5.411e-60 margin=5.000e-01 decisive planted=3.949e-11 grade=control family=mid budget=ATAN2@10000 escalates=no
+34 NearestEven 125e-2 2317000000000000000025861765675825e-33 P=192 rad=5.054e-58 margin=5.000e-01 decisive planted=3.798e-11 grade=control family=grid budget=ATAN2@10000 escalates=no
+34 NearestAway 125e-2 2317000000000000000025861765675825e-33 P=192 rad=5.054e-58 margin=3.798e-11 decisive planted=3.798e-11 grade=control family=grid budget=ATAN2@10000 escalates=no
+34 TowardZero 125e-2 2317000000000000000025861765675825e-33 P=192 rad=5.054e-58 margin=3.798e-11 decisive planted=3.798e-11 grade=control family=grid budget=ATAN2@10000 escalates=no
+34 TowardPositive 125e-2 2317000000000000000025861765675825e-33 P=192 rad=5.054e-58 margin=3.798e-11 decisive planted=3.798e-11 grade=control family=grid budget=ATAN2@10000 escalates=no
+34 TowardNegative 125e-2 2317000000000000000025861765675825e-33 P=192 rad=5.054e-58 margin=3.798e-11 decisive planted=3.798e-11 grade=control family=grid budget=ATAN2@10000 escalates=no
+34 NearestEven 125e-2 9130000000000000000073729638648665e-34 P=198 rad=5.411e-60 margin=6.064e-14 decisive planted=-6.064e-14 grade=entry family=mid budget=ATAN2@10000 escalates=yes
+34 NearestAway 125e-2 9130000000000000000073729638648665e-34 P=198 rad=5.411e-60 margin=5.000e-01 decisive planted=-6.064e-14 grade=entry family=mid budget=ATAN2@10000 escalates=yes
+34 TowardZero 125e-2 9130000000000000000073729638648665e-34 P=198 rad=5.411e-60 margin=5.000e-01 decisive planted=-6.064e-14 grade=entry family=mid budget=ATAN2@10000 escalates=yes
+34 TowardPositive 125e-2 9130000000000000000073729638648665e-34 P=198 rad=5.411e-60 margin=5.000e-01 decisive planted=-6.064e-14 grade=entry family=mid budget=ATAN2@10000 escalates=yes
+34 TowardNegative 125e-2 9130000000000000000073729638648665e-34 P=198 rad=5.411e-60 margin=5.000e-01 decisive planted=-6.064e-14 grade=entry family=mid budget=ATAN2@10000 escalates=yes
+34 NearestEven 125e-2 2317000000000000000025873915699542e-33 P=192 rad=5.054e-58 margin=5.000e-01 decisive planted=8.540e-14 grade=entry family=grid budget=ATAN2@10000 escalates=yes
+34 NearestAway 125e-2 2317000000000000000025873915699542e-33 P=192 rad=5.054e-58 margin=8.540e-14 decisive planted=8.540e-14 grade=entry family=grid budget=ATAN2@10000 escalates=yes
+34 TowardZero 125e-2 2317000000000000000025873915699542e-33 P=192 rad=5.054e-58 margin=8.540e-14 decisive planted=8.540e-14 grade=entry family=grid budget=ATAN2@10000 escalates=yes
+34 TowardPositive 125e-2 2317000000000000000025873915699542e-33 P=192 rad=5.054e-58 margin=8.540e-14 decisive planted=8.540e-14 grade=entry family=grid budget=ATAN2@10000 escalates=yes
+34 TowardNegative 125e-2 2317000000000000000025873915699542e-33 P=192 rad=5.054e-58 margin=8.540e-14 decisive planted=8.540e-14 grade=entry family=grid budget=ATAN2@10000 escalates=yes
+34 NearestEven 125e-2 9130000000000000000073729643440803e-34 P=198 rad=5.411e-60 margin=7.469e-14 decisive planted=-7.469e-14 grade=deep family=mid budget=ATAN2@10000 escalates=yes
+34 NearestAway 125e-2 9130000000000000000073729643440803e-34 P=198 rad=5.411e-60 margin=5.000e-01 decisive planted=-7.469e-14 grade=deep family=mid budget=ATAN2@10000 escalates=yes
+34 TowardZero 125e-2 9130000000000000000073729643440803e-34 P=198 rad=5.411e-60 margin=5.000e-01 decisive planted=-7.469e-14 grade=deep family=mid budget=ATAN2@10000 escalates=yes
+34 TowardPositive 125e-2 9130000000000000000073729643440803e-34 P=198 rad=5.411e-60 margin=5.000e-01 decisive planted=-7.469e-14 grade=deep family=mid budget=ATAN2@10000 escalates=yes
+34 TowardNegative 125e-2 9130000000000000000073729643440803e-34 P=198 rad=5.411e-60 margin=5.000e-01 decisive planted=-7.469e-14 grade=deep family=mid budget=ATAN2@10000 escalates=yes
+34 NearestEven 125e-2 2317000000000000000025873936492509e-33 P=192 rad=5.054e-58 margin=5.000e-01 decisive planted=2.053e-14 grade=deep family=grid budget=ATAN2@10000 escalates=yes
+34 NearestAway 125e-2 2317000000000000000025873936492509e-33 P=192 rad=5.054e-58 margin=2.053e-14 decisive planted=2.053e-14 grade=deep family=grid budget=ATAN2@10000 escalates=yes
+34 TowardZero 125e-2 2317000000000000000025873936492509e-33 P=192 rad=5.054e-58 margin=2.053e-14 decisive planted=2.053e-14 grade=deep family=grid budget=ATAN2@10000 escalates=yes
+34 TowardPositive 125e-2 2317000000000000000025873936492509e-33 P=192 rad=5.054e-58 margin=2.053e-14 decisive planted=2.053e-14 grade=deep family=grid budget=ATAN2@10000 escalates=yes
+34 TowardNegative 125e-2 2317000000000000000025873936492509e-33 P=192 rad=5.054e-58 margin=2.053e-14 decisive planted=2.053e-14 grade=deep family=grid budget=ATAN2@10000 escalates=yes
