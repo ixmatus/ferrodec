@@ -143,31 +143,54 @@ catalogued in the next section):
 ### The honest residual frontier
 
 State the limit plainly so it is not rediscovered or overclaimed.
-The result the testing surface supports is correctly rounded §9.2
-transcendentals on all three formats, proven by the 50 digit
-Extended kernel's headroom (more than thirty orders of magnitude
-over the smallest empirical Arb worst case half ULP margin) and
-corroborated at every committed Arb worst case vector with MPFR
-agreement. The per function headroom derivation lives in ADR-0032
-§Decision. The headroom is a proof envelope on the implementation
-as written; it is not a closed proof over the continuum, because
-the empirical worst case bound was found by a finite Arb search and
-not derived from proven hardest case bounds per transcendental per
-decimal width (which do not exist in the literature for every §9.2
-function).
+The shipped claim is the ADR-0059 tiered claim, which replaced the
+earlier fixed precision proof envelope (ADR-0032) after the
+project's own S1 falsification campaign refuted that envelope with
+certified misround witnesses on high decade trigonometric inputs.
+The tiers: unconditionally, every result lies within the top fixed
+rung's quantified bracket; correct rounding holds by construction
+conditional on two auditable premises, budget soundness (each
+rung's true error stays inside its per function budget) and
+classification completeness (every exact, tie, and anchor input is
+recognized before a kernel runs); and the expected residual under
+the statistical model is about one in 10^36 calls for default
+builds. Builds with the unbounded rung carry no residual, ADR-0060's
+adjudicated operand ranges are unconditional in every build, and the
+pi scaled family discharges the classification premise by theorem
+(ADR-0061's Niven closure and no-ties result). The Decimal32
+transcendental and square root surfaces remain exhaustively
+verified (ADR-0033/0034), and at Decimal64 and Decimal32 the
+escalation threshold sits below the coefficient lattice's
+resolution, so rung 1 decides those formats' entire input spaces, a
+derivation the telemetry gate pins as a live zero.
 
-The residual frontier is therefore narrowed, not eliminated. The
-exposure is a hard to round case the empirical worst case search did
-not surface, sitting inside the kernel's >30 orders of magnitude
-headroom (so the relative rounding error to the true result is
-bounded by far less than half an ULP at every input within the
-proof envelope) but not provably absent at every input across the
-continuum. The frontier is the same exposure the README disclosure
-names: rounding errors on §9.2 transcendental boundary inputs the
-Arb empirical worst case search did not happen to surface. A future
-contributor pushes the frontier by extending the corpus toward it
-and rerunning the worst case search; it is not a defect known to
-exist.
+The frontier is therefore the two premises, and the verification
+program attacks each from both sides. Budget soundness: the budget
+audit harness bounds observed error under a tenth of budget on the
+witness bands; the S2 deep margin campaign certified 207,862
+near boundary and divergence rows (2.7 billion samples) against the
+Arb proof tier with zero misrounds, including all 198,534 cases
+where rung 2 corrected rung 1, the ladder observed working at
+scale; and the planted corpus holds constructed inputs on both
+sides of every escalation threshold with exact pinned entry counts.
+One open item stands against this premise and is tracked as a
+defect, not hidden: fd-k9t, miscalibrated fixed Newton step counts
+for narrow format seeds in the Extended rungs, whose closure wants
+the deferred Decimal32 exhaustive replay. Classification
+completeness: the input side classifiers carry completeness proofs
+at their bail sites, the anchor band and oracle floor corpora pin
+the seams (the sub 10^-100 directed corrections are certified by
+the S4 Arb floor pass, closing the ADR-0051 bookkeeping note), and
+the D3/D4 reviews' repeated finding, a missed anchor family,
+surfaces as a loud pin or audit failure rather than silence. What
+no layer provides is a closed proof over the continuum: a hard to
+round case deeper than every empirical search and outside every
+classified family remains logically possible inside the tier 2
+bracket. The S5 spike (2026-08-10 memo) mapped the only visible
+route to shrinking that statement, the effective irrationality
+measure of pi for the trig reduction's zero and pole anchors,
+explicit but awaiting specialist verification; the linear forms and
+E function routes are recorded dead ends.
 
 The frontier has produced one realized defect class so far, and the
 record belongs here rather than in a changelog: the 2026-06-09
@@ -427,10 +450,13 @@ it; the Arb corpus turns specific worst case arguments into checked
 facts inside the astro-float skip decades; and MPFR independently
 confirms those facts bit for bit. The honest composite, restated
 from Part I, is correctly rounded §9.2 transcendentals on all three
-formats with the proof envelope as the load bearing claim, the
-empirical corroborators as the standing defense, and the residual
-frontier (a hard to round case the worst case search did not surface)
-named rather than hidden. Formal proof (Kani) and the fuzz harness
+formats under the ADR-0059 tiered claim, with the escalation ladder
+and its adjudicated and theorem closed subsets as the load bearing
+construction, the empirical corroborators (the frozen, planted,
+campaign, external, and conformance corpora, with MPFR agreement)
+as the standing defense, and the residual frontier (the two
+auditable premises, with fd-k9t the one named open item) stated
+rather than hidden. Formal proof (Kani) and the fuzz harness
 exist for the special value, encode and decode, and total order
 surfaces; they are panic and invariant guards, not transcendental
 value oracles, and are documented in the README's Verification

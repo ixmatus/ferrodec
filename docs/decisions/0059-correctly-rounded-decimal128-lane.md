@@ -443,6 +443,55 @@ close out (verification map, testing.md frontier, KNOWN_ISSUES
 posture). The README disclosure edit is drafted under per edit
 approval and lands only with the atomic merge.
 
+## Lane close (recorded 2026-08-13; S1 through S6)
+
+The verification program the Decision section scoped is complete;
+this addendum is the promotion ritual's terminus, recording where
+each slice's output lives so the tracker can forget it.
+
+- **S1 falsification** (fd-4zo.5): 1,819 certified witnesses,
+  pinned replay, the Outcome section above.
+- **Track D surface** (D1 ln_1p family, D2 expm1 family, D3
+  algebraic group under ADR-0060, D4 pi scaled family under
+  ADR-0061): the whole remaining §9.2 surface correctly rounded
+  from first release, each group's record in its ADR and landing
+  addendum.
+- **S4 oracle floor** (fd-4zo.6): the sub 10^-100 directed
+  corrections certified in Arb; ADR-0051's bookkeeping note closed.
+- **The LSZ external anchor** (fd-4zo.7): the published decimal64
+  exp worst cases replay 170/170; the only externally authored
+  worst case table in any decimal format now gates the kernel.
+- **decTest replay** (fd-4zo.8): 221 externally authored correctly
+  rounded rows, bit exact with flags.
+- **S3 escalation instruments** (fd-4zo.20/.21/.22): the planted
+  rung 2 forcing corpus (36 operations, thresholds derived from the
+  predicate's own unit), exact escalation count pins in both
+  directions plus the siblings' structural zero, and the weekly
+  verification workflow.
+- **S2 deep margin campaign** (fd-4zo.19): 2.7 billion samples;
+  207,862 near boundary and divergence rows certified against the
+  Arb proof tier at zero misrounds; all 198,534 rung 2 corrections
+  individually confirmed, the largest direct observation of this
+  ADR's mechanism working; the 600 hardest inputs frozen with the
+  campaign manifest; the snap threshold citation reground two
+  decades deeper (1.8e-11 ULP) with its separation argument intact.
+- **S5 spike** (fd-4zo.27): the transcendence measure memo. The
+  mu(pi) route to an explicit trig reduction floor is live pending
+  specialist verification; linear forms and E functions are
+  recorded dead ends. powr's tier stands (ADR-0060's negative
+  result is unaffected).
+- **S6** (fd-4zo.28): the testing.md frontier rewritten to this
+  ADR's tiered claim, KNOWN_ISSUES carrying fd-k9t as the one open
+  item against the budget soundness premise.
+
+Remaining outside the lane: fd-k9t (closure wants the deferred
+Decimal32 exhaustive replay, AWS scale, parked by decision); the
+S2 cloud deepening tiers (gate approved option, never exercised);
+the S5 specialist verification (would upgrade huge argument trig's
+termination story). The lane's beads are closed; the durable
+record is this document, the per group ADRs (0060, 0061), the
+corpora and their manifests, and the testing.md frontier.
+
 ## Related
 
 - Plan: `plans/2026-07-25-correctly-rounded-d128-transcendentals-lane.md`
