@@ -1,0 +1,87 @@
+{
+  "campaign": "s2 (+s2d64)",
+  "frozen_at_git": "e46511a",
+  "groups": {
+    "cos_d128": {
+      "candidates": 961,
+      "kept": 50,
+      "min_margin_ulp": 4.97712e-11,
+      "worst_kept_margin_ulp": 5.10790039e-08
+    },
+    "cos_d64": {
+      "candidates": 402,
+      "kept": 50,
+      "min_margin_ulp": 5.248656070204094e-09,
+      "worst_kept_margin_ulp": 1.1424922628685237e-07
+    },
+    "cosh_d128": {
+      "candidates": 791,
+      "kept": 50,
+      "min_margin_ulp": 2.348947e-10,
+      "worst_kept_margin_ulp": 6.25384028e-08
+    },
+    "exp_d128": {
+      "candidates": 898,
+      "kept": 50,
+      "min_margin_ulp": 8.706676e-10,
+      "worst_kept_margin_ulp": 4.961813e-08
+    },
+    "exp_d64": {
+      "candidates": 504,
+      "kept": 50,
+      "min_margin_ulp": 8.19056194662606e-10,
+      "worst_kept_margin_ulp": 9.142327543724677e-08
+    },
+    "ln_d128": {
+      "candidates": 1000,
+      "kept": 50,
+      "min_margin_ulp": 3.139592e-10,
+      "worst_kept_margin_ulp": 5.47995251e-08
+    },
+    "log10_d128": {
+      "candidates": 1039,
+      "kept": 50,
+      "min_margin_ulp": 3.996993e-10,
+      "worst_kept_margin_ulp": 4.24823215e-08
+    },
+    "pow_d128": {
+      "candidates": 692,
+      "kept": 50,
+      "min_margin_ulp": 2.3170183e-09,
+      "worst_kept_margin_ulp": 7.94728762e-08
+    },
+    "sin_d128": {
+      "candidates": 935,
+      "kept": 50,
+      "min_margin_ulp": 1.77391e-11,
+      "worst_kept_margin_ulp": 3.55545214e-08
+    },
+    "sin_d64": {
+      "candidates": 429,
+      "kept": 50,
+      "min_margin_ulp": 1.1743143420433997e-08,
+      "worst_kept_margin_ulp": 1.3768695979157367e-07
+    },
+    "sinh_d128": {
+      "candidates": 757,
+      "kept": 50,
+      "min_margin_ulp": 4.932618e-10,
+      "worst_kept_margin_ulp": 6.597209e-08
+    },
+    "tan_d128": {
+      "candidates": 920,
+      "kept": 50,
+      "min_margin_ulp": 2.107758e-10,
+      "worst_kept_margin_ulp": 5.26372792e-08
+    }
+  },
+  "keep_per_group": 50,
+  "selection": "min(grid, tie) fractional-ULP distance, exact integer sweep measurement; outputs from the certifier's Arb solve at full CAP_BITS",
+  "sweep_runlog": [
+    "campaign=s2 git=1532a08 started=2026-08-11 00:09:29",
+    "N_TRIG=300000000 N_EXP=150000000 N_LN=250000000 N_POW=200000000 N_HYP=100000000 N_D64=100000000 SHARDS=10 thr=1e-6",
+    "campaign=s2 git=6050f5d started=2026-08-11 00:17:15",
+    "N_TRIG=300000000 N_EXP=150000000 N_LN=250000000 N_POW=200000000 N_HYP=100000000 N_D64=100000000 SHARDS=10 thr=1e-6"
+  ],
+  "threshold_frac_ulp": "1e-6"
+}

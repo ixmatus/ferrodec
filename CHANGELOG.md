@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- S2 deep-margin campaign corpus (fd-4zo.19, ADR-0059 S2): the
+  hardest certified survivors of a 2.7e9-sample local sweep land as
+  a pinned replay gate (450 Decimal128 rows across nine functions,
+  every output from the Arb proof tier, exact per-bucket pins,
+  MANIFEST.json with the campaign parameters). Certification also
+  adjudicated every one of the campaign's 198,534 mirror-divergence
+  rows - the cases where the escalation ladder's second rung
+  corrected the first's rounding - against Arb with zero
+  disagreements, the largest direct observation of the ladder
+  working to date. The deepest certified margin (1.8e-11 ULP, sin)
+  regrounds the extended.rs snap-threshold citation two decades
+  deeper with the separation argument intact.
+
 - Planted rung-2-forcing corpus, pinned escalation telemetry, and a
   scheduled deep-verification workflow (ADR-0059 S3; fd-4zo.20/.21/
   .22). `tools/gen_planted_hardcases.py` constructs Decimal128

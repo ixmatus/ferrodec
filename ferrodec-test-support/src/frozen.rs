@@ -626,6 +626,90 @@ pub fn load_planted(prec: u32) -> Vec<FrozenVec> {
     load_from(&corpus_dir().join("planted"), prec)
 }
 
+/// Every S2 deep-margin campaign vector (fd-4zo.19, ADR-0059 S2) for
+/// `prec` significant digits, from the `campaign/` subdirectory: the
+/// hardest certified survivors of the 2.7e9-sample local sweep, at
+/// most 50 per (function, format), outputs from the certifier's Arb
+/// proof tier. Decimal128 carries all nine priority functions;
+/// Decimal64 carries `exp`, `sin`, `cos`. `MANIFEST.json` records
+/// the campaign parameters; per-row margins live in the `.prov`
+/// twins. Panics if the subdirectory is missing.
+#[must_use]
+pub fn load_campaign(prec: u32) -> Vec<FrozenVec> {
+    load_from(&corpus_dir().join("campaign"), prec)
+}
+
+/// Exact per-(function, mode) bucket pins for the S2 campaign corpus
+/// at P = 34 (fd-4zo.19): nine priority functions, every bucket
+/// exactly the 50-hardest cap. Authored from a direct corpus scan,
+/// independent of the loader.
+pub const EXPECTED_BUCKETS_CAMPAIGN_P34: &[(&str, &str, usize)] = &[
+    ("cos", "NearestAway", 50),
+    ("cos", "NearestEven", 50),
+    ("cos", "TowardNegative", 50),
+    ("cos", "TowardPositive", 50),
+    ("cos", "TowardZero", 50),
+    ("cosh", "NearestAway", 50),
+    ("cosh", "NearestEven", 50),
+    ("cosh", "TowardNegative", 50),
+    ("cosh", "TowardPositive", 50),
+    ("cosh", "TowardZero", 50),
+    ("exp", "NearestAway", 50),
+    ("exp", "NearestEven", 50),
+    ("exp", "TowardNegative", 50),
+    ("exp", "TowardPositive", 50),
+    ("exp", "TowardZero", 50),
+    ("ln", "NearestAway", 50),
+    ("ln", "NearestEven", 50),
+    ("ln", "TowardNegative", 50),
+    ("ln", "TowardPositive", 50),
+    ("ln", "TowardZero", 50),
+    ("log10", "NearestAway", 50),
+    ("log10", "NearestEven", 50),
+    ("log10", "TowardNegative", 50),
+    ("log10", "TowardPositive", 50),
+    ("log10", "TowardZero", 50),
+    ("pow", "NearestAway", 50),
+    ("pow", "NearestEven", 50),
+    ("pow", "TowardNegative", 50),
+    ("pow", "TowardPositive", 50),
+    ("pow", "TowardZero", 50),
+    ("sin", "NearestAway", 50),
+    ("sin", "NearestEven", 50),
+    ("sin", "TowardNegative", 50),
+    ("sin", "TowardPositive", 50),
+    ("sin", "TowardZero", 50),
+    ("sinh", "NearestAway", 50),
+    ("sinh", "NearestEven", 50),
+    ("sinh", "TowardNegative", 50),
+    ("sinh", "TowardPositive", 50),
+    ("sinh", "TowardZero", 50),
+    ("tan", "NearestAway", 50),
+    ("tan", "NearestEven", 50),
+    ("tan", "TowardNegative", 50),
+    ("tan", "TowardPositive", 50),
+    ("tan", "TowardZero", 50),
+];
+
+/// The P = 16 campaign pins: the Decimal64 priority trio.
+pub const EXPECTED_BUCKETS_CAMPAIGN_P16: &[(&str, &str, usize)] = &[
+    ("cos", "NearestAway", 50),
+    ("cos", "NearestEven", 50),
+    ("cos", "TowardNegative", 50),
+    ("cos", "TowardPositive", 50),
+    ("cos", "TowardZero", 50),
+    ("exp", "NearestAway", 50),
+    ("exp", "NearestEven", 50),
+    ("exp", "TowardNegative", 50),
+    ("exp", "TowardPositive", 50),
+    ("exp", "TowardZero", 50),
+    ("sin", "NearestAway", 50),
+    ("sin", "NearestEven", 50),
+    ("sin", "TowardNegative", 50),
+    ("sin", "TowardPositive", 50),
+    ("sin", "TowardZero", 50),
+];
+
 /// Shared directory walk for [`load`] and [`load_anchor_bands`]:
 /// every `*.txt` in `dir`, filtered to `prec`, unary or binary line
 /// shape by [`BINARY_FUNCS`] stem.

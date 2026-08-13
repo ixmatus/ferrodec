@@ -346,11 +346,18 @@ impl Extended {
     /// series, halving) can leave around an anchor it mathematically
     /// hugs — is at most ~10 such units (~10^-49 relative), so any
     /// result whose *side* relative to the anchor is unreliable is
-    /// snapped. A genuinely separated result sits at least one format
-    /// half-ULP from the nearest grid point by the ADR-0033 empirical
-    /// worst-case margins (≥ ~10^-9 ULP, i.e. ≥ ~10^-42 relative at
-    /// the widest format), so it is never snapped and the bare value
-    /// decides every mode itself. In between, both treatments agree:
+    /// snapped. A genuinely separated result sits far from the
+    /// nearest grid point by the empirical worst-case margins: the
+    /// ADR-0033 Decimal32 exhaustive program and, deeper, the S2
+    /// local campaign (fd-4zo.19; 2.7e9 samples over the priority
+    /// set), whose smallest certified survivor margin is 1.8e-11 ULP
+    /// (`sin`, Decimal128; campaign MANIFEST.json), i.e. ≥ ~10^-44
+    /// relative at the widest format — still three decades above
+    /// this snap threshold, so it is never snapped and the bare
+    /// value decides every mode itself. (S2 superseded the earlier
+    /// ~10^-9-ULP ADR-0033 citation here: the number moved two
+    /// decades deeper, the separation argument holds unchanged.)
+    /// In between, both treatments agree:
     /// a snapped value within the threshold rounds identically to the
     /// true result at every direction and format precision, because
     /// both lie strictly between the same format grid points on the

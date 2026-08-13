@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- S2 campaign corpus replay gate (fd-4zo.19): the Decimal64 slice
+  of the deep-margin campaign (exp, sin, cos; 150 rows, the hardest
+  certified survivors of 1.2e9 Decimal64-targeted samples) replays
+  bit-exact with exact per-bucket pins.
+
 - A `telemetry` feature forwarding `ferrodec-transcend/telemetry`
   (ADR-0059 S3), and with it the structural zero pin: at P = 16
   the escalation ladder's rung-1 threshold sits below what the
