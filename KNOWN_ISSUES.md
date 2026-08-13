@@ -8,7 +8,23 @@ are recorded first, under "Known defects".
 
 ## Known defects
 
-None currently open. The 2026-06-09 review's transcendental findings
+One open, named rather than hidden:
+
+- **fd-k9t: fixed Newton step counts miscalibrated for narrow
+  format seeds.** The Extended rungs' reciprocal and root Newton
+  loops run a fixed step count derived for Decimal128 seeds; a
+  Decimal64 or Decimal32 seed starts further from the root, and the
+  derivation does not cover it. This is a budget soundness premise
+  gap (ADR-0059's first auditable premise), not an observed
+  misround: no failing input is known, every corpus (frozen,
+  planted, campaign, exhaustive) replays green, and the Decimal32
+  surface is exhaustively verified as shipped. Closure wants the
+  deferred Decimal32 exhaustive replay under the recalibrated
+  counts, an AWS scale run parked by decision. Tracked on the bead;
+  the testing.md frontier names it as the one open item against the
+  premise.
+
+The 2026-06-09 review's transcendental findings
 are all fixed: the anchor band value defects (`ln`/`log10`/`log2`
 below 1, `atanh`/`asinh` small arguments, `asin`/`acos` near ±1,
 `pow` near-1 bases) by the ADR-0050 reformulations, with
@@ -22,13 +38,14 @@ arguments (e.g. `sin(1E-40)` at `Decimal32` under `TowardNegative`)
 by the ADR-0051 residual seam in fd-aqs.7. The `cbrt` / `pow`
 spurious-INEXACT defect (`fd-92w.8`) was fixed earlier (ADR-0047).
 
-One verification (not behaviour) note from ADR-0051 stands: directed
-mode results whose correction sits below ~10^-100 relative (e.g.
-`atanh(1.000001E-95)` at `Decimal32`) are delivered by the same
-proven seam but pinned only at the nearest modes, because the band
-corpus generator's mpmath oracle cannot independently certify the
-side there. Certifying those few decades needs a higher-precision
-offline oracle pass; it is bookkeeping, not a suspected defect.
+The ADR-0051 verification note (directed mode results whose
+correction sits below ~10^-100 relative, pinned only at the nearest
+modes because the band generator's mpmath oracle could not certify
+the side) is CLOSED: the S4 oracle floor pass (fd-4zo.6, merged
+2026-08-11) certified the side and a 10^-100-ULP bracket for every
+such input in Arb ball arithmetic, and the 42 directed lines now
+replay against the kernel as pins. The residual seam there is
+proven and pinned, not trusted.
 
 ## Headline numbers
 
