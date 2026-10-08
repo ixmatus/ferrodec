@@ -154,10 +154,13 @@
 //! short of the cap), and Newton-seeded `div` / `recip` / `sqrt`
 //! charge 15 each (seed plus three iterations of a few ops).
 
+#[cfg(any(feature = "exp-log", feature = "trig", feature = "trig-pi"))]
 use crate::extended::ExtNum;
 #[cfg(doc)]
 use crate::extended::Extended;
+#[cfg(any(feature = "exp-log", feature = "trig", feature = "trig-pi"))]
 use crate::format::DecimalFormat;
+#[cfg(any(feature = "exp-log", feature = "trig", feature = "trig-pi"))]
 use ferrodec_ieee::{RoundingMode, Status};
 
 /// The identity of one rounding boundary of a destination format: the
@@ -320,6 +323,7 @@ pub(crate) struct Budget {
 /// The `| INEXACT` matches every guarded call site's contract: by the
 /// M7 classification the true result at these sites is irrational,
 /// so the flag is unconditionally correct.
+#[cfg(any(feature = "exp-log", feature = "trig", feature = "trig-pi"))]
 pub(crate) fn round_guarded<F: DecimalFormat, E: ExtNum>(
     v: E,
     rm: RoundingMode,
@@ -502,6 +506,7 @@ fn deliver_at_boundary<F: DecimalFormat, E: ExtNum>(
 /// A plain function (not a method) so the wrappers stay one
 /// expression; the closures monomorphize per rung with zero dispatch.
 #[cfg(not(feature = "unbounded-ladder"))]
+#[cfg(any(feature = "exp-log", feature = "trig", feature = "trig-pi"))]
 pub(crate) fn run<F: DecimalFormat>(
     rung1: impl FnOnce() -> Option<(F, Status)>,
     rung2: impl FnOnce() -> Option<(F, Status)>,
@@ -515,6 +520,7 @@ pub(crate) fn run<F: DecimalFormat>(
 /// The Ziv driver's starting precision: double rung 2's width, per the
 /// plan of record ("doubling from 220 digits").
 #[cfg(feature = "unbounded-ladder")]
+#[cfg(any(feature = "exp-log", feature = "trig", feature = "trig-pi"))]
 const ZIV_START_PRECISION: u32 = 220;
 
 /// Run the unbounded ladder for a kernel body: rung 1, rung 2 (which
@@ -535,6 +541,7 @@ const ZIV_START_PRECISION: u32 = 220;
 /// after eight escalations beyond rung 3's entry, each of which has
 /// probability ~`budget/10^p` under the ADR-0059 model.
 #[cfg(feature = "unbounded-ladder")]
+#[cfg(any(feature = "exp-log", feature = "trig", feature = "trig-pi"))]
 pub(crate) fn run3<F: DecimalFormat>(
     rung1: impl FnOnce() -> Option<(F, Status)>,
     rung2: impl FnOnce() -> Option<(F, Status)>,
@@ -573,6 +580,7 @@ pub(crate) fn run3<F: DecimalFormat>(
 /// pre-M8b two-closure [`run`] call — only a `let`-binding inside each
 /// closure distinguishes it, so rungs 1 and 2 stay byte-identical.
 #[cfg(not(feature = "unbounded-ladder"))]
+#[cfg(any(feature = "exp-log", feature = "trig", feature = "trig-pi"))]
 macro_rules! ladder_run {
     (|$ex:ident| $body:expr) => {
         $crate::ladder::run(
@@ -591,6 +599,7 @@ macro_rules! ladder_run {
 /// The `unbounded-ladder` expansion of [`ladder_run!`]: the same two
 /// fixed rungs, then the Ziv loop over per-attempt arenas.
 #[cfg(feature = "unbounded-ladder")]
+#[cfg(any(feature = "exp-log", feature = "trig", feature = "trig-pi"))]
 macro_rules! ladder_run {
     (|$ex:ident| $body:expr) => {
         $crate::ladder::run3(
@@ -611,6 +620,7 @@ macro_rules! ladder_run {
     };
 }
 
+#[cfg(any(feature = "exp-log", feature = "trig", feature = "trig-pi"))]
 pub(crate) use ladder_run;
 
 // ----------------------------------------------------------------------------
@@ -657,17 +667,20 @@ pub(crate) use ladder_run;
 //   each formula.
 
 /// [`EXP`] at `p`: reduction 22,201 + series `3(p + 10)`, ×10.
+#[cfg(feature = "exp-log")]
 fn exp_budget_dyn(p: u32) -> u128 {
     10 * (22_300 + 3 * u128::from(p))
 }
 /// [`EXP2`] at `p`: [`exp_budget_dyn`]'s items + the argument
 /// const-multiply 22,200, ×10.
+#[cfg(feature = "exp-log")]
 fn exp2_budget_dyn(p: u32) -> u128 {
     10 * (44_500 + 3 * u128::from(p))
 }
 /// [`EXPM1`] at `p`: the reduction band's 32,700 constant items +
 /// series `3(p + 10)` through the ≤ 1.47 closing amplification
 /// (≈ 5p), ×10.
+#[cfg(feature = "exp-log")]
 fn expm1_budget_dyn(p: u32) -> u128 {
     10 * (32_800 + 5 * u128::from(p))
 }
@@ -676,12 +689,14 @@ fn expm1_budget_dyn(p: u32) -> u128 {
 /// (argument multiply ≈ 33,000 + [`EXPM1`]'s reduction block
 /// ≈ 32,800) + series `3(p + 10)` through the closing amplification
 /// (≈ 5p), ×10.
+#[cfg(feature = "exp-log")]
 fn expbasem1_budget_dyn(p: u32) -> u128 {
     10 * (65_800 + 5 * u128::from(p))
 }
 /// [`LN`] (and [`LOG10`] / [`LOG2`]) at `p`: decade path ~160 + log1p
 /// series `3 · 5p` + closing ops, ×10. Reproduces the catalog's 950
 /// at 50 and 1,850 at 110 before the pad.
+#[cfg(feature = "exp-log")]
 fn ln_budget_dyn(p: u32) -> u128 {
     10 * (200 + 15 * u128::from(p))
 }
@@ -690,54 +705,65 @@ fn ln_budget_dyn(p: u32) -> u128 {
 /// `3(2p + 20)` + recomposition ≤ 10, ×10. No 10^13-unit truncation
 /// item here: the runtime reduction's π/2 depth follows `p`, which is
 /// exactly what rung 1's fixed 38-digit constant could not do.
+#[cfg(feature = "trig")]
 fn sin_budget_dyn(p: u32) -> u128 {
     10 * (6 * u128::from(p) + 80)
 }
 /// [`TAN`] at `p`: both components' items through the quotient +
 /// Newton 60, ×10.
+#[cfg(feature = "trig")]
 fn tan_budget_dyn(p: u32) -> u128 {
     10 * (12 * u128::from(p) + 175)
 }
 /// [`ATAN`] at `p`: Newton 60 + inner reduction 16 + series
 /// `3(4p + 10)` + recomposition 10, ×10.
+#[cfg(any(feature = "trig", feature = "trig-pi"))]
 fn atan_budget_dyn(p: u32) -> u128 {
     10 * (12 * u128::from(p) + 120)
 }
 /// [`ASIN`] / [`ACOS`] at `p`: sqrt 60 + div 60 + the atan core +
 /// doubling, ×10.
+#[cfg(any(feature = "trig", feature = "trig-pi"))]
 fn asin_budget_dyn(p: u32) -> u128 {
     10 * (12 * u128::from(p) + 240)
 }
 /// [`ATAN2`] at `p`: div 60 + the atan core + quadrant adjustment,
 /// ×10.
+#[cfg(any(feature = "trig", feature = "trig-pi"))]
 fn atan2_budget_dyn(p: u32) -> u128 {
     10 * (12 * u128::from(p) + 180)
 }
 /// [`SINH`] at `p`: two exp cores through the `coth(0.5) ≈ 2.17`
 /// cancellation + the small-band series, ×10.
+#[cfg(feature = "hyperbolic")]
 fn sinh_budget_dyn(p: u32) -> u128 {
     10 * (96_600 + 14 * u128::from(p))
 }
 /// [`COSH`] at `p`: two exp cores, no cancellation, ×10.
+#[cfg(feature = "hyperbolic")]
 fn cosh_budget_dyn(p: u32) -> u128 {
     10 * (44_500 + 6 * u128::from(p))
 }
 /// [`TANH`] at `p`: the sinh and cosh sums through the quotient +
 /// Newton 60, ×10.
+#[cfg(feature = "hyperbolic")]
 fn tanh_budget_dyn(p: u32) -> u128 {
     10 * (141_100 + 20 * u128::from(p))
 }
 /// [`ASINH`] at `p`: the log1p series `3 · 5p` + argument ops and
 /// Newton charges, ×10.
+#[cfg(feature = "hyperbolic")]
 fn asinh_budget_dyn(p: u32) -> u128 {
     10 * (15 * u128::from(p) + 450)
 }
 /// [`ACOSH`] at `p`: the direct band's ×7 amplification items + the
 /// ln core, ×10.
+#[cfg(feature = "hyperbolic")]
 fn acosh_budget_dyn(p: u32) -> u128 {
     10 * (15 * u128::from(p) + 2_700)
 }
 /// [`ATANH`] at `p`: the ratio band's ops + the ln core, ×10.
+#[cfg(feature = "hyperbolic")]
 fn atanh_budget_dyn(p: u32) -> u128 {
     10 * (15 * u128::from(p) + 400)
 }
@@ -745,18 +771,21 @@ fn atanh_budget_dyn(p: u32) -> u128 {
 /// enter the square root, which halves their relative error, and the
 /// Newton-seeded `sqrt` charges the flat 60 the module doc fixes for
 /// every supported `p`; the scaling shifts are exact. `(60 + 25) × 10`.
+#[cfg(feature = "exp-log")]
 fn hypot_budget_dyn(_p: u32) -> u128 {
     850
 }
 /// [`CBRT`] at `p`: the ln sum amplified through `|ln x|/3 ≤ 4,717`,
 /// plus the exp series, ×10. Reproduces the catalog's 4.6e6 at 50
 /// and 8.7e6 at 110 before the pad.
+#[cfg(feature = "exp-log")]
 fn cbrt_budget_dyn(p: u32) -> u128 {
     10 * ((200 + 15 * u128::from(p)) * 4_717 + 3 * u128::from(p) + 31)
 }
 /// [`POW`] at `p`: the ln sum + product rounding amplified through
 /// `|y·ln x| ≤ 14,151` + the exp series, ×10. Reproduces the
 /// catalog's 1.35e7 at 50 and 2.62e7 at 110 before the pad.
+#[cfg(feature = "exp-log")]
 fn pow_budget_dyn(p: u32) -> u128 {
     10 * ((201 + 15 * u128::from(p)) * 14_151 + 3 * (u128::from(p) + 10))
 }
@@ -765,6 +794,7 @@ fn pow_budget_dyn(p: u32) -> u128 {
 /// term scales with the working width (the dynamic rung's `sqrt` and
 /// `recip` derive their own step counts from `p`, which is what the
 /// flat 60 already prices).
+#[cfg(feature = "exp-log")]
 fn rsqrt_budget_dyn(_p: u32) -> u128 {
     1_250
 }
@@ -774,9 +804,23 @@ fn rsqrt_budget_dyn(_p: u32) -> u128 {
 /// working-precision multiplies charge 1 each through the ≤ 6×
 /// exponent amplification, and glue rounds the sum up: `(60 + 5·2 + 5)`
 /// ≈ 75, ×10 → 750.
+#[cfg(feature = "pow")]
 fn powi_int_budget_dyn(_p: u32) -> u128 {
     750
 }
+
+// Every budget constant and its dynamic formula is gated on the feature
+// of the kernel that reads it (the inverse trig budgets on `trig` alone,
+// `trig-pi` compiles only `inverse_trig`'s cores, which deliver through
+// their own pi-family budgets, though they share the dynamic formulas,
+// which carry the union). The ladder's shared machinery
+// (`round_guarded`, `run`, `run3`, `ladder_run!`, and the imports only
+// they use) is gated on the union of the
+// clusters. A build that resolves this crate with no cluster at all
+// (`cargo clippy -p ferrodec-decimal --all-features` does, through the
+// `interop` dependency on the formats with only `fmt`) then carries no
+// dead items under `-D warnings`; push CI was red on exactly that
+// selection from 2026-07-26 to 2026-10-08.
 
 /// `exp`. Itemization (rung 1):
 ///
@@ -791,6 +835,7 @@ fn powi_int_budget_dyn(_p: u32) -> u128 {
 /// Sum ≈ 22,400; ×10 pad → 250,000 (rounded up). Rung 2: identical
 /// structure (the amplification is precision-independent), cap 120
 /// series → ≈ 22,600; padded → 250,000 in rung 2 units.
+#[cfg(feature = "exp-log")]
 pub(crate) const EXP: Budget = Budget {
     rung1: 250_000,
     rung2: 250_000,
@@ -801,6 +846,7 @@ pub(crate) const EXP: Budget = Budget {
 /// `x·ln2` (magnitude ≤ 14151 by the overflow gate) adds another
 /// ≤ 22,200 units of absolute-in-argument error on top of [`EXP`]'s
 /// items. Sum ≈ 44,600; ×10 → 500,000. Same shape both rungs.
+#[cfg(feature = "exp-log")]
 pub(crate) const EXP2: Budget = Budget {
     rung1: 500_000,
     rung2: 500_000,
@@ -825,6 +871,7 @@ pub(crate) const EXP2: Budget = Budget {
 /// series → ≈ 33,400; ×10 → 350,000. Dynamic: the same itemization at
 /// `p` (series `3(p + 10)` with the ×3.17 band factor folded into the
 /// constant term), ×10 inside the formula.
+#[cfg(feature = "exp-log")]
 pub(crate) const EXPM1: Budget = Budget {
     rung1: 350_000,
     rung2: 350_000,
@@ -837,6 +884,7 @@ pub(crate) const EXPM1: Budget = Budget {
 /// units through `d(e^u − 1) = e^u du` and the ≤ 1.47 closing
 /// factor: ≤ ~33,000) on top of [`EXPM1`]'s items (≤ ~33,000).
 /// Sum ≈ 66,000; ×10 → 700,000, both rungs.
+#[cfg(feature = "exp-log")]
 pub(crate) const EXP2M1: Budget = Budget {
     rung1: 700_000,
     rung2: 700_000,
@@ -849,6 +897,7 @@ pub(crate) const EXP2M1: Budget = Budget {
 /// composition shape as [`EXP2`] (the ≤ 14,151 argument bound is the
 /// same overflow gate). Sum ≈ 44,600; ×10 → 500,000, both rungs;
 /// dynamic shares [`exp2_budget_dyn`].
+#[cfg(feature = "exp-log")]
 pub(crate) const EXP10: Budget = Budget {
     rung1: 500_000,
     rung2: 500_000,
@@ -861,6 +910,7 @@ pub(crate) const EXP10: Budget = Budget {
 /// (≤ ~33,000), the same composition shape as [`EXP2M1`], whose
 /// dynamic formula it shares. Sum ≈ 66,000; ×10 → 700,000, both
 /// rungs.
+#[cfg(feature = "exp-log")]
 pub(crate) const EXP10M1: Budget = Budget {
     rung1: 700_000,
     rung2: 700_000,
@@ -883,6 +933,7 @@ pub(crate) const EXP10M1: Budget = Budget {
 ///
 /// Sum ≤ ~950; ×10 → 15,000 (rounded up). Rung 2: cap 550 series →
 /// ≤ 1,650 + 160 ≈ 1,850; ×10 → 25,000.
+#[cfg(feature = "exp-log")]
 pub(crate) const LN: Budget = Budget {
     rung1: 15_000,
     rung2: 25_000,
@@ -892,6 +943,7 @@ pub(crate) const LN: Budget = Budget {
 /// `log10 = ln(x) · (1/ln10)`: [`LN`] plus one const-multiply on the
 /// *result* (relative, ≤ 1.5 units). Same constants as [`LN`] after
 /// the pad absorbs it.
+#[cfg(feature = "exp-log")]
 pub(crate) const LOG10: Budget = Budget {
     rung1: 15_000,
     rung2: 25_000,
@@ -899,6 +951,7 @@ pub(crate) const LOG10: Budget = Budget {
 };
 
 /// `log2 = ln(x) · (1/ln2)`: as [`LOG10`].
+#[cfg(feature = "exp-log")]
 pub(crate) const LOG2: Budget = Budget {
     rung1: 15_000,
     rung2: 25_000,
@@ -928,6 +981,7 @@ pub(crate) const LOG2: Budget = Budget {
 /// extra op absorbed by the pad. Rung 2: cap 550 series → ≈ 1,850;
 /// ×10 → 25,000. Dynamic: [`ln_budget_dyn`], the same itemization
 /// re-evaluated at `p`.
+#[cfg(feature = "exp-log")]
 pub(crate) const LOGP1: Budget = Budget {
     rung1: 15_000,
     rung2: 25_000,
@@ -941,6 +995,7 @@ pub(crate) const LOGP1: Budget = Budget {
 /// multiply. Tiny inputs deliver `x · (1/ln 2)`, a generic working
 /// value with no grid anchor (slope ≠ 1), so unlike [`LOGP1`] no
 /// anchor seam precedes the guard.
+#[cfg(feature = "exp-log")]
 pub(crate) const LOG2P1: Budget = Budget {
     rung1: 15_000,
     rung2: 25_000,
@@ -954,6 +1009,7 @@ pub(crate) const LOG2P1: Budget = Budget {
 /// multiply. Tiny inputs deliver `x · (1/ln 10)`, a generic working
 /// value with no grid anchor (slope ≠ 1), so unlike [`LOGP1`] no
 /// anchor seam precedes the guard.
+#[cfg(feature = "exp-log")]
 pub(crate) const LOG10P1: Budget = Budget {
     rung1: 15_000,
     rung2: 25_000,
@@ -982,6 +1038,7 @@ pub(crate) const LOG10P1: Budget = Budget {
 /// `reduce_wide` truncation is `< 10^-114` relative (< 10^-4 units,
 /// M6), window ≥ 110 surviving digits (~1 unit), series at cap 240 →
 /// ≤ 720, recomposition ≤ 10 → sum ≈ 740; ×10 → 10,000.
+#[cfg(feature = "trig")]
 pub(crate) const SIN: Budget = Budget {
     rung1: 150_000_000_000_000,
     rung2: 10_000,
@@ -990,6 +1047,7 @@ pub(crate) const SIN: Budget = Budget {
 
 /// `cos`: identical pipeline to [`SIN`]; the reduced-range map factor
 /// is `|y·tan y| ≤ π²/16 < 1`.
+#[cfg(feature = "trig")]
 pub(crate) const COS: Budget = Budget {
     rung1: 150_000_000_000_000,
     rung2: 10_000,
@@ -999,6 +1057,7 @@ pub(crate) const COS: Budget = Budget {
 /// `tan = sin/cos` on the shared reduction: both operands' relative
 /// errors add through the quotient (≤ 2 × the [`SIN`] sum) plus a
 /// Newton division (15). ×10 → 3e14 / 25,000.
+#[cfg(feature = "trig")]
 pub(crate) const TAN: Budget = Budget {
     rung1: 300_000_000_000_000,
     rung2: 25_000,
@@ -1010,6 +1069,7 @@ pub(crate) const TAN: Budget = Budget {
 /// `π/2 − result` recomposition against a result ≥ π/8 in that branch
 /// ≤ 10. Sum ≈ 640; ×10 → 10,000. Rung 2: cap 450 → ≈ 1,400; ×10 →
 /// 20,000.
+#[cfg(feature = "trig")]
 pub(crate) const ATAN: Budget = Budget {
     rung1: 10_000,
     rung2: 20_000,
@@ -1019,6 +1079,7 @@ pub(crate) const ATAN: Budget = Budget {
 /// `asin = 2·atan(x / (1 + sqrt((1−|x|)(1+|x|))))` (fd-aqs.6, exact
 /// factors for format-sourced `x`): sqrt 15 + div 15 + the [`ATAN`]
 /// core ≈ 640 + doubling 1. Sum ≈ 680; ×10 → 10,000 / rung 2 20,000.
+#[cfg(feature = "trig")]
 pub(crate) const ASIN: Budget = Budget {
     rung1: 10_000,
     rung2: 20_000,
@@ -1029,6 +1090,7 @@ pub(crate) const ASIN: Budget = Budget {
 /// div 15 + sqrt 15 + [`ATAN`] core ≈ 640 + doubling 1; the large-`t`
 /// branch's `π/2 − atan(1/t)` recomposition is relative-safe against
 /// its ≥ π/2 result. Sum ≈ 680; ×10 → 10,000 / 20,000.
+#[cfg(feature = "trig")]
 pub(crate) const ACOS: Budget = Budget {
     rung1: 10_000,
     rung2: 20_000,
@@ -1040,6 +1102,7 @@ pub(crate) const ACOS: Budget = Budget {
 /// magnitude ≥ π/2 in the adjusted quadrants → ≤ 4). Sum ≈ 660;
 /// ×10 → 10,000 / 20,000. The exact-axis and constant deliveries
 /// bypass the guard.
+#[cfg(feature = "trig")]
 pub(crate) const ATAN2: Budget = Budget {
     rung1: 10_000,
     rung2: 20_000,
@@ -1053,6 +1116,7 @@ pub(crate) const ATAN2: Budget = Budget {
 /// factor is `coth|x| ≤ coth(0.5) ≈ 2.17` at the band edge →
 /// ≤ 98,000; halving is exact-adjacent (≤ 1). Sum ≈ 98,000; ×10 →
 /// 1,000,000. Same shape both rungs.
+#[cfg(feature = "hyperbolic")]
 pub(crate) const SINH: Budget = Budget {
     rung1: 1_000_000,
     rung2: 1_000_000,
@@ -1062,6 +1126,7 @@ pub(crate) const SINH: Budget = Budget {
 /// `cosh = (e^x + e^{-x})/2`: two [`EXP`]-core runs through an
 /// *addition* (no cancellation, factor ≤ 1) → ≤ 45,000; small band
 /// Taylor ≤ 360. ×10 → 500,000. Both rungs.
+#[cfg(feature = "hyperbolic")]
 pub(crate) const COSH: Budget = Budget {
     rung1: 500_000,
     rung2: 500_000,
@@ -1071,6 +1136,7 @@ pub(crate) const COSH: Budget = Budget {
 /// `tanh = sinh/cosh` below the nines-saturation band: the two cores'
 /// relative errors add through the quotient (≤ [`SINH`]'s 98,000 +
 /// [`COSH`]'s 45,000) + division 15. ×10 → 1,500,000. Both rungs.
+#[cfg(feature = "hyperbolic")]
 pub(crate) const TANH: Budget = Budget {
     rung1: 1_500_000,
     rung2: 1_500_000,
@@ -1085,6 +1151,7 @@ pub(crate) const TANH: Budget = Budget {
 /// `|result| ≥ 0.85`): argument ops ≤ 33 against that floor ≤ 40,
 /// plus [`LN`]'s ≈ 950. Sum ≤ ~1,000; ×10 → 15,000. Rung 2 series
 /// caps → ≤ ~2,000; ×10 → 30,000.
+#[cfg(feature = "hyperbolic")]
 pub(crate) const ASINH: Budget = Budget {
     rung1: 15_000,
     rung2: 30_000,
@@ -1098,6 +1165,7 @@ pub(crate) const ASINH: Budget = Budget {
 /// carry ≤ 100× of 2 units ≈ 200, sqrt halves it + 15, and the `ln`
 /// amplification against `|result| ≥ 0.14` ≈ ×7 → ≤ 1,700 + [`LN`]'s
 /// ≈ 950. Sum ≤ ~2,700; ×10 → 30,000. Rung 2 → 50,000.
+#[cfg(feature = "hyperbolic")]
 pub(crate) const ACOSH: Budget = Budget {
     rung1: 30_000,
     rung2: 50_000,
@@ -1111,6 +1179,7 @@ pub(crate) const ACOSH: Budget = Budget {
 /// `|result| ≥ atanh(0.15) ≈ 0.151`… the ratio path's `ln` argument
 /// is ≥ 1.35 so `|ln| ≥ 0.30`: ops ≤ 17 against that floor ≤ 60 +
 /// [`LN`]'s ≈ 950. Sum ≤ ~1,050; ×10 → 15,000. Rung 2 → 30,000.
+#[cfg(feature = "hyperbolic")]
 pub(crate) const ATANH: Budget = Budget {
     rung1: 15_000,
     rung2: 30_000,
@@ -1139,6 +1208,7 @@ pub(crate) const ATANH: Budget = Budget {
 /// The anchor band's residual delivery and the input-side exact and
 /// tie classification both bypass this budget entirely: they run
 /// before the guard and are correct by construction, not by margin.
+#[cfg(feature = "exp-log")]
 pub(crate) const HYPOT: Budget = Budget {
     rung1: 250,
     rung2: 250,
@@ -1151,6 +1221,7 @@ pub(crate) const HYPOT: Budget = Budget {
 /// `div_u32(3)` (÷3, +1 unit), i.e. ≤ 4.5e6 result-relative units,
 /// plus the [`EXP`] Taylor ≤ 180. Sum ≈ 4.6e6; ×10 → 5e7. Rung 2:
 /// `ln` ≤ 1,850 → ≤ 8.8e6; ×10 → 1e8.
+#[cfg(feature = "exp-log")]
 pub(crate) const CBRT: Budget = Budget {
     rung1: 50_000_000,
     rung2: 100_000_000,
@@ -1172,6 +1243,7 @@ pub(crate) const CBRT: Budget = Budget {
 /// computation. (`n = −2` never reaches this budget: it delegates to
 /// the `rsqrt` kernel and [`RSQRT`], whose Newton composition is what
 /// lets that operand carry ADR-0060's unconditional claim.)
+#[cfg(feature = "exp-log")]
 pub(crate) const ROOTN: Budget = Budget {
     rung1: 50_000_000,
     rung2: 100_000_000,
@@ -1188,6 +1260,7 @@ pub(crate) const ROOTN: Budget = Budget {
 /// near-1-base hazard (ADR-0050) is inside the `ln` relative model by
 /// the fd-aqs.6 direct path, so no separate item. Sum ≈ 1.4e7;
 /// ×10 → 1.5e8. Rung 2: `ln` ≤ 1,850 → ≤ 2.6e7; ×10 → 3e8.
+#[cfg(feature = "pow")]
 pub(crate) const POW: Budget = Budget {
     rung1: 150_000_000,
     rung2: 300_000_000,
@@ -1221,6 +1294,7 @@ pub(crate) const POW: Budget = Budget {
 /// it away (≤ 8 if it is credited); ×10 → 400, both rungs. Dynamic:
 /// [`rsqrt_budget_dyn`], the same items with the Newton charges at the
 /// module doc's flat 60.
+#[cfg(feature = "exp-log")]
 pub(crate) const RSQRT: Budget = Budget {
     rung1: 400,
     rung2: 400,
@@ -1265,6 +1339,7 @@ pub(crate) const RSQRT: Budget = Budget {
 /// format rounder's §7.4 disposition is correct at any exponent in
 /// it, while every value that sits exactly ON the grid out there is
 /// disposed of input side by `exact::powi_exact_input`.
+#[cfg(feature = "pow")]
 pub(crate) const POWI_INT: Budget = Budget {
     rung1: 200,
     rung2: 200,
@@ -1280,6 +1355,7 @@ pub(crate) const POWI_INT: Budget = Budget {
 /// difference from `pow` is that the multiplier is an exact integer
 /// rather than a format value, which removes an error source rather
 /// than adding one. Same constants, same dynamic formula.
+#[cfg(feature = "pow")]
 pub(crate) const POWI: Budget = Budget {
     rung1: 150_000_000,
     rung2: 300_000_000,
@@ -1313,6 +1389,7 @@ pub(crate) const POWI: Budget = Budget {
 /// bound into the same exponential), so the two catalogs agree
 /// numerically and `compound` shares [`pow_budget_dyn`] rather than
 /// carrying a second formula for the same model.
+#[cfg(feature = "exp-log")]
 pub(crate) const COMPOUND: Budget = Budget {
     rung1: 150_000_000,
     rung2: 300_000_000,
@@ -1334,6 +1411,7 @@ pub(crate) const COMPOUND: Budget = Budget {
 /// own function's Tier 1 claim (ADR-0059), so a future revision that
 /// turns out unsound reopens the correctness exposure on `powr` alone
 /// instead of silently moving `pow` with it.
+#[cfg(feature = "pow")]
 pub(crate) const POWR: Budget = Budget {
     rung1: 150_000_000,
     rung2: 300_000_000,
@@ -1357,6 +1435,7 @@ pub(crate) const POWR: Budget = Budget {
 /// Sum ≈ 365; ×10 → 4,000 (rounded up). Rung 2: cap 240 → ≈ 725;
 /// ×10 → 10,000. The escalation rate lands near `8×10^-13` per call
 /// where trig's is 3%: the payoff of the exact reduction, priced.
+#[cfg(feature = "trig-pi")]
 pub(crate) const SINPI: Budget = Budget {
     rung1: 4_000,
     rung2: 10_000,
@@ -1364,6 +1443,7 @@ pub(crate) const SINPI: Budget = Budget {
 };
 
 /// [`SINPI`] at `p`: the same items with the series at `2p + 20`.
+#[cfg(feature = "trig-pi")]
 fn sinpi_budget_dyn(p: u32) -> u128 {
     10 * (6 * u128::from(p) + 70)
 }
@@ -1371,6 +1451,7 @@ fn sinpi_budget_dyn(p: u32) -> u128 {
 /// `tanPi = sinPi/cosPi` on the shared reduction: both components'
 /// relative errors add through the quotient (≤ 2 × [`SINPI`]'s sum)
 /// plus a Newton division (15). ×10 → 8,000 / 25,000.
+#[cfg(feature = "trig-pi")]
 pub(crate) const TANPI: Budget = Budget {
     rung1: 8_000,
     rung2: 25_000,
@@ -1378,6 +1459,7 @@ pub(crate) const TANPI: Budget = Budget {
 };
 
 /// [`TANPI`] at `p`: both series plus the flat Newton 60.
+#[cfg(feature = "trig-pi")]
 fn tanpi_budget_dyn(p: u32) -> u128 {
     10 * (12 * u128::from(p) + 200)
 }
@@ -1387,6 +1469,7 @@ fn tanpi_budget_dyn(p: u32) -> u128 {
 /// const-multiply on the result (relative, ≤ 1.5). Sum ≈ 680;
 /// ×10 → 10,000 / rung 2 20,000 — [`ASIN`]'s constants, the pad
 /// absorbing the extra multiply, and the shared dynamic formula.
+#[cfg(feature = "trig-pi")]
 pub(crate) const ASINPI: Budget = Budget {
     rung1: 10_000,
     rung2: 20_000,
@@ -1395,6 +1478,7 @@ pub(crate) const ASINPI: Budget = Budget {
 
 /// `acosPi = acos(x)/π`: as [`ASINPI`] over [`ACOS`]'s identical
 /// itemization.
+#[cfg(feature = "trig-pi")]
 pub(crate) const ACOSPI: Budget = Budget {
     rung1: 10_000,
     rung2: 20_000,
@@ -1403,6 +1487,7 @@ pub(crate) const ACOSPI: Budget = Budget {
 
 /// `atanPi = atan(x)/π`: [`ATAN`]'s ≈ 640 plus the `1/π`
 /// const-multiply, pad-absorbed. Same constants, same dynamic.
+#[cfg(feature = "trig-pi")]
 pub(crate) const ATANPI: Budget = Budget {
     rung1: 10_000,
     rung2: 20_000,
@@ -1411,6 +1496,7 @@ pub(crate) const ATANPI: Budget = Budget {
 
 /// `atan2Pi = atan2(y, x)/π`: [`ATAN2`]'s ≈ 660 plus the `1/π`
 /// const-multiply, pad-absorbed. Same constants, same dynamic.
+#[cfg(feature = "trig-pi")]
 pub(crate) const ATAN2PI: Budget = Budget {
     rung1: 10_000,
     rung2: 20_000,
