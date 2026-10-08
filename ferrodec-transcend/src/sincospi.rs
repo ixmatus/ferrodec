@@ -610,7 +610,10 @@ mod tests {
         );
         // And their square sum is 1.
         let one = ex.one();
-        assert!(s.square().add(c.square()).sub(one).abs().cmp(tol) == Ordering::Less);
+        assert_eq!(
+            s.square().add(c.square()).sub(one).abs().cmp(tol),
+            Ordering::Less
+        );
     }
 
     /// `sin(0)` and `cos(0)` anchor the series at the other end.

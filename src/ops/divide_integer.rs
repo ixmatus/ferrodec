@@ -240,7 +240,7 @@ fn divide_integer_finite(a: Decimal128, b: Decimal128) -> (Decimal128, Status) {
     // q fits in u128 because its digit count is at most PRECISION
     // (= 34), well below 10^38.
     let q_u128 = q.lo;
-    debug_assert!(q.hi == 0);
+    debug_assert_eq!(q.hi, 0);
     (
         Decimal128::from_bits(pack_finite(result_sign, BIAS, q_u128)),
         Status::OK,

@@ -138,7 +138,7 @@ fn sqrt_positive_finite(coef: u64, biased_exp: u32, rm: RoundingMode) -> (Decima
     // parity so working_exp - scale stays even.
     let d = decimal_digit_count(working_coef as u32);
     let scale = if d % 2 == 0 { 16 - d } else { 15 - d };
-    debug_assert!(scale % 2 == 0);
+    debug_assert_eq!(scale % 2, 0);
     debug_assert!((scale as usize) < POW10_U64.len());
 
     working_coef *= POW10_U64[scale as usize];
@@ -146,7 +146,7 @@ fn sqrt_positive_finite(coef: u64, biased_exp: u32, rm: RoundingMode) -> (Decima
 
     // working_exp is now even (subtracting an even scale from an even
     // working_exp).
-    debug_assert!(working_exp & 1 == 0);
+    debug_assert_eq!(working_exp & 1, 0);
 
     let isqrt_val = working_coef.isqrt();
     let isqrt_squared = isqrt_val * isqrt_val;

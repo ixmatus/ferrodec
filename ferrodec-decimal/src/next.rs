@@ -245,9 +245,9 @@ mod tests {
         // Zero to the least positive subnormal; a subnormal step; both flagless.
         let (r, s) = parse("0").next_plus(&c);
         assert_eq!(r, parse("1E-391"));
-        assert!(s == Status::OK);
+        assert_eq!(s, Status::OK);
         assert_eq!(parse("1E-391").next_plus(&c).0, parse("2E-391"));
-        assert!(parse("1E-391").next_plus(&c).1 == Status::OK);
+        assert_eq!(parse("1E-391").next_plus(&c).1, Status::OK);
         // A tiny negative steps up to negative zero at the floor, no flags.
         assert_eq!(parse("-1E-99999").next_plus(&c).0, parse("-0E-391"));
         // Largest finite steps to infinity, still no flag for next_plus.
@@ -282,11 +282,11 @@ mod tests {
         // Equal operands: self with the sign of other, no flags.
         let (r, s) = parse("10").next_toward(&parse("10"), &c);
         assert_eq!(r, parse("10"));
-        assert!(s == Status::OK);
+        assert_eq!(s, Status::OK);
         // Normal-to-normal step raises nothing.
         let (r, s) = parse("1").next_toward(&parse("10"), &c);
         assert_eq!(r, parse("1.00000001"));
-        assert!(s == Status::OK);
+        assert_eq!(s, Status::OK);
         // A subnormal result raises underflow and inexact.
         let (r, s) = parse("0").next_toward(&Decimal::infinity(false), &c);
         assert_eq!(r, parse("1E-391"));
