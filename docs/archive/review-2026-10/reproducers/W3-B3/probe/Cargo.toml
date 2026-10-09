@@ -1,0 +1,15 @@
+[package]
+name = "b3probe"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+
+[dependencies]
+ferrodec = { path = "../../../../../..", features = ["fmt","binary-float","serde","num-traits","ops","dpd"] }
+ferrodec-decimal64 = { path = "../../../../../../ferrodec-decimal64", features = ["fmt","binary-float","serde","num-traits","ops","dpd"] }
+ferrodec-decimal32 = { path = "../../../../../../ferrodec-decimal32", features = ["fmt","binary-float","serde","num-traits","ops","dpd"] }
+serde_json = "1"
+num-traits = "0.2"
+bincode = "1"
+serde = { version = "1", features = ["derive"] }

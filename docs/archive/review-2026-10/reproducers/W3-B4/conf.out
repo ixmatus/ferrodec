@@ -1,0 +1,206 @@
+abs.decTest                  89 pass     0 fail      0 skip
+add.decTest                2100 pass     0 fail      0 skip
+and.decTest                 279 pass     0 fail      0 skip
+SKIP base.decTest basx912 [tosci-exp-overflow] basx912 toSci '0.9e9999999999'     -> Infinity Overflow  Inexact Rounded
+SKIP base.decTest basx913 [tosci-exp-overflow] basx913 toSci '99e-9999999999'     -> 0E-1000000007 Underflow Subnormal Inexact Rounded Clamped
+SKIP base.decTest basx914 [tosci-exp-overflow] basx914 toSci '111e9999999999'     -> Infinity Overflow  Inexact Rounded
+SKIP base.decTest basx915 [tosci-exp-overflow] basx915 toSci '1111e-9999999999'   -> 0E-1000000007 Underflow Subnormal Inexact Rounded Clamped
+SKIP base.decTest basx916 [tosci-exp-overflow] basx916 toSci '1111e-99999999999'  -> 0E-1000000007 Underflow Subnormal Inexact Rounded Clamped
+SKIP base.decTest basx924 [tosci-exp-overflow] basx924 toSci '-0.9e9999999999'    -> -Infinity Overflow  Inexact Rounded
+SKIP base.decTest basx925 [tosci-exp-overflow] basx925 toSci '-99e-9999999999'    -> -0E-1000000007 Underflow Subnormal Inexact Rounded Clamped
+SKIP base.decTest basx926 [tosci-exp-overflow] basx926 toSci '-111e9999999999'    -> -Infinity Overflow  Inexact Rounded
+SKIP base.decTest basx927 [tosci-exp-overflow] basx927 toSci '-1111e-9999999999'  -> -0E-1000000007 Underflow Subnormal Inexact Rounded Clamped
+SKIP base.decTest basx928 [tosci-exp-overflow] basx928 toSci '-1111e-99999999999' -> -0E-1000000007 Underflow Subnormal Inexact Rounded Clamped
+SKIP base.decTest basx1021 [tosci-exp-overflow] basx1021 tosci 1e+2147483649 -> Infinity Overflow Inexact Rounded
+SKIP base.decTest basx1022 [tosci-exp-overflow] basx1022 tosci 1e+2147483648 -> Infinity Overflow Inexact Rounded
+SKIP base.decTest basx1026 [tosci-exp-overflow] basx1026 tosci 1e-2147483649 -> 0E-1000000014 Underflow Subnormal Inexact Rounded Clamped
+SKIP base.decTest basx1031 [tosci-exp-overflow] basx1031 tosci 1e+2147483649 -> Infinity Overflow Inexact Rounded
+SKIP base.decTest basx1032 [tosci-exp-overflow] basx1032 tosci 1e+2147483648 -> Infinity Overflow Inexact Rounded
+SKIP base.decTest basx1036 [tosci-exp-overflow] basx1036 tosci 1e-2147483649 -> 0E-101 Underflow Subnormal Inexact Rounded Clamped
+base.decTest               1154 pass     0 fail     16 skip
+SKIP clamp.decTest clam090 [hash-expected] clam090 apply   1e-398                  -> #0000000000000001  Subnormal
+SKIP clamp.decTest clam091 [hash-expected] clam091 apply   1.9e-398                -> #0000000000000002  Subnormal Underflow Inexact Rounded
+SKIP clamp.decTest clam092 [hash-expected] clam092 apply   1.1e-398                -> #0000000000000001  Subnormal Underflow Inexact Rounded
+SKIP clamp.decTest clam093 [hash-expected] clam093 apply   1.00000000001e-398      -> #0000000000000001  Subnormal Underflow Inexact Rounded
+SKIP clamp.decTest clam094 [hash-expected] clam094 apply   1.00000000000001e-398   -> #0000000000000001  Subnormal Underflow Inexact Rounded
+SKIP clamp.decTest clam095 [hash-expected] clam095 apply   1.000000000000001e-398  -> #0000000000000001  Subnormal Underflow Inexact Rounded
+SKIP clamp.decTest clam096 [hash-expected] clam096 apply   0.1e-398                -> #0000000000000000  Subnormal Underflow Inexact Rounded Clamped
+SKIP clamp.decTest clam097 [hash-expected] clam097 apply   0.00000000001e-398      -> #0000000000000000  Subnormal Underflow Inexact Rounded Clamped
+SKIP clamp.decTest clam098 [hash-expected] clam098 apply   0.00000000000001e-398   -> #0000000000000000  Subnormal Underflow Inexact Rounded Clamped
+SKIP clamp.decTest clam099 [hash-expected] clam099 apply   0.000000000000001e-398  -> #0000000000000000  Subnormal Underflow Inexact Rounded Clamped
+SKIP clamp.decTest clam189 [hash-expected] clam189 apply   -1e-398                 -> #8000000000000001  Subnormal
+SKIP clamp.decTest clam190 [hash-expected] clam190 apply   -1.0e-398               -> #8000000000000001  Subnormal Rounded
+SKIP clamp.decTest clam191 [hash-expected] clam191 apply   -1.9e-398               -> #8000000000000002  Subnormal Underflow Inexact Rounded
+SKIP clamp.decTest clam192 [hash-expected] clam192 apply   -1.1e-398               -> #8000000000000001  Subnormal Underflow Inexact Rounded
+SKIP clamp.decTest clam193 [hash-expected] clam193 apply   -1.00000000001e-398     -> #8000000000000001  Subnormal Underflow Inexact Rounded
+SKIP clamp.decTest clam194 [hash-expected] clam194 apply   -1.00000000000001e-398  -> #8000000000000001  Subnormal Underflow Inexact Rounded
+SKIP clamp.decTest clam195 [hash-expected] clam195 apply   -1.000000000000001e-398 -> #8000000000000001  Subnormal Underflow Inexact Rounded
+SKIP clamp.decTest clam196 [hash-expected] clam196 apply   -0.1e-398               -> #8000000000000000  Subnormal Underflow Inexact Rounded Clamped
+SKIP clamp.decTest clam197 [hash-expected] clam197 apply   -0.00000000001e-398     -> #8000000000000000  Subnormal Underflow Inexact Rounded Clamped
+SKIP clamp.decTest clam198 [hash-expected] clam198 apply   -0.00000000000001e-398  -> #8000000000000000  Subnormal Underflow Inexact Rounded Clamped
+SKIP clamp.decTest clam199 [hash-expected] clam199 apply   -0.000000000000001e-398 -> #8000000000000000  Subnormal Underflow Inexact Rounded Clamped
+clamp.decTest               111 pass     0 fail     21 skip
+class.decTest                84 pass     0 fail      0 skip
+compare.decTest             639 pass     0 fail      0 skip
+comparesig.decTest          625 pass     0 fail      0 skip
+comparetotal.decTest        670 pass     0 fail      0 skip
+comparetotmag.decTest       664 pass     0 fail      0 skip
+copy.decTest                 43 pass     0 fail      0 skip
+copyabs.decTest              43 pass     0 fail      0 skip
+copynegate.decTest           43 pass     0 fail      0 skip
+copysign.decTest            111 pass     0 fail      0 skip
+divide.decTest              631 pass     0 fail      0 skip
+divideint.decTest           389 pass     0 fail      0 skip
+SKIP exp.decTest expx901 [invalid_context] expx901 exp  -Infinity     -> NaN Invalid_context
+SKIP exp.decTest expx902 [invalid_context] expx902 exp  -Infinity     -> NaN Invalid_context
+SKIP exp.decTest expx903 [invalid_context] expx903 exp  -Infinity     -> NaN Invalid_context
+SKIP exp.decTest expx905 [invalid_context] expx905 exp  -Infinity     -> NaN Invalid_context
+exp.decTest                 436 pass     0 fail      4 skip
+fma.decTest                2612 pass     0 fail      0 skip
+SKIP inexact.decTest inx401 [unknown-op] inx401 rescale 0       0   -> 0
+SKIP inexact.decTest inx402 [unknown-op] inx402 rescale 1       0   -> 1
+SKIP inexact.decTest inx403 [unknown-op] inx403 rescale 0.1    +2   -> 0E+2 Inexact Rounded
+SKIP inexact.decTest inx404 [unknown-op] inx404 rescale 0.1    +1   -> 0E+1 Inexact Rounded
+SKIP inexact.decTest inx405 [unknown-op] inx405 rescale 0.1     0   -> 0 Inexact Rounded
+SKIP inexact.decTest inx406 [unknown-op] inx406 rescale 0.1    -1   -> 0.1
+SKIP inexact.decTest inx407 [unknown-op] inx407 rescale 0.1    -2   -> 0.10
+inexact.decTest             145 pass     0 fail      7 skip
+invert.decTest              128 pass     0 fail      0 skip
+SKIP ln.decTest lnx901 [invalid_context] lnx901  ln 1 ->  NaN            Invalid_context
+SKIP ln.decTest lnx902 [invalid_context] lnx902  ln 0 ->  NaN            Invalid_context
+SKIP ln.decTest lnx903 [invalid_context] lnx903  ln 1   ->  NaN          Invalid_context
+SKIP ln.decTest lnx905 [invalid_context] lnx905  ln 1   ->  NaN          Invalid_context
+ln.decTest                  410 pass     0 fail      4 skip
+SKIP log10.decTest logx901 [invalid_context] logx901  log10 1 ->  NaN            Invalid_context
+SKIP log10.decTest logx902 [invalid_context] logx902  log10 0 ->  NaN            Invalid_context
+SKIP log10.decTest logx903 [invalid_context] logx903  log10 1   ->  NaN            Invalid_context
+SKIP log10.decTest logx905 [invalid_context] logx905  log10 1   ->  NaN            Invalid_context
+log10.decTest               385 pass     0 fail      4 skip
+logb.decTest                128 pass     0 fail      0 skip
+max.decTest                 328 pass     0 fail      0 skip
+maxmag.decTest              313 pass     0 fail      0 skip
+min.decTest                 317 pass     0 fail      0 skip
+minmag.decTest              303 pass     0 fail      0 skip
+minus.decTest               113 pass     0 fail      0 skip
+multiply.decTest            521 pass     0 fail      0 skip
+nextminus.decTest           104 pass     0 fail      0 skip
+nextplus.decTest            106 pass     0 fail      0 skip
+nexttoward.decTest          341 pass     0 fail      0 skip
+or.decTest                  276 pass     0 fail      0 skip
+plus.decTest                122 pass     0 fail      0 skip
+BAND powx163 ["10", "999999"] -> got 1.00000000E+999999 [Status(16)] want 1.00000000E+999999 ["rounded"]
+BAND powx164 ["10", "999998"] -> got 1.00000000E+999998 [Status(16)] want 1.00000000E+999998 ["rounded"]
+BAND powx165 ["10", "999997"] -> got 1.00000000E+999997 [Status(16)] want 1.00000000E+999997 ["rounded"]
+BAND powx166 ["10", "333333"] -> got 1.00000000E+333333 [Status(16)] want 1.00000000E+333333 ["rounded"]
+BAND powx118 ["10", "-333333"] -> got 1.00000000E-333333 [Status(16)] want 1E-333333 []
+BAND powx119 ["10", "-999998"] -> got 1.00000000E-999998 [Status(16)] want 1E-999998 []
+BAND powx120 ["10", "-999999"] -> got 1.00000000E-999999 [Status(16)] want 1E-999999 []
+BAND powx279 ["10", "999999"] -> got 1.00000000E+999999 [Status(16)] want 1.00000000E+999999 ["rounded"]
+BAND powx291 ["0.1", "999999"] -> got 1.00000000E-999999 [Status(16)] want 1E-999999 []
+BAND powx311 ["-10", "999999"] -> got -1.00000000E+999999 [Status(16)] want -1.00000000E+999999 ["rounded"]
+BAND powx321 ["-0.1", "999999"] -> got -1.00000000E-999999 [Status(16)] want -1E-999999 []
+BAND powx331 ["-10", "999998"] -> got 1.00000000E+999998 [Status(16)] want 1.00000000E+999998 ["rounded"]
+BAND powx341 ["-0.1", "999998"] -> got 1.00000000E-999998 [Status(16)] want 1E-999998 []
+BAND powx350 ["1e-1", "500000"] -> got 1.00000000E-500000 [Status(16)] want 1E-500000 []
+BAND powx352 ["1e-2", "500000"] -> got 1.0000000E-1000000 [Status(24)] want 1E-1000000 ["subnormal"]
+BAND powx353 ["1e-2", "500001"] -> got 1.00000E-1000002 [Status(24)] want 1E-1000002 ["subnormal"]
+BAND powx354 ["1e-2", "500002"] -> got 1.000E-1000004 [Status(24)] want 1E-1000004 ["subnormal"]
+BAND powx355 ["1e-2", "500003"] -> got 1.0E-1000006 [Status(24)] want 1E-1000006 ["subnormal"]
+BAND powx365 ["0.01", "500000"] -> got 1.0000000E-1000000 [Status(24)] want 1E-1000000 ["subnormal"]
+BAND powx371 ["1e-1", "-500000"] -> got 1.00000000E+500000 [Status(16)] want 1E+500000 []
+BAND powx1063 ["10", "999999999"] -> got 1.00000000E+999999999 [Status(16)] want 1.00000000E+999999999 ["rounded"]
+BAND powx1064 ["10", "999999998"] -> got 1.00000000E+999999998 [Status(16)] want 1.00000000E+999999998 ["rounded"]
+BAND powx1065 ["10", "999999997"] -> got 1.00000000E+999999997 [Status(16)] want 1.00000000E+999999997 ["rounded"]
+BAND powx1066 ["10", "333333333"] -> got 1.00000000E+333333333 [Status(16)] want 1.00000000E+333333333 ["rounded"]
+SKIP power.decTest powx1183 [invalid_context] powx1183 power   '7'   '1000000000'  -> NaN Invalid_context
+SKIP power.decTest powx1184 [invalid_context] powx1184 power   '7'   '1000000001'  -> NaN Invalid_context
+BAND powx1118 ["10", "-333333333"] -> got 1.00000000E-333333333 [Status(16)] want 1E-333333333 []
+BAND powx1119 ["10", "-999999998"] -> got 1.00000000E-999999998 [Status(16)] want 1E-999999998 []
+BAND powx1120 ["10", "-999999999"] -> got 1.00000000E-999999999 [Status(16)] want 1E-999999999 []
+BAND powx1281 ["10", "999999999"] -> got 1.00000000E+999999999 [Status(16)] want 1.00000000E+999999999 ["rounded"]
+BAND powx1291 ["0.1", "999999999"] -> got 1.00000000E-999999999 [Status(16)] want 1E-999999999 []
+BAND powx1311 ["-10", "999999999"] -> got -1.00000000E+999999999 [Status(16)] want -1.00000000E+999999999 ["rounded"]
+BAND powx1321 ["-0.1", "999999999"] -> got -1.00000000E-999999999 [Status(16)] want -1E-999999999 []
+BAND powx1331 ["-10", "999999998"] -> got 1.00000000E+999999998 [Status(16)] want 1.00000000E+999999998 ["rounded"]
+BAND powx1341 ["-0.1", "999999998"] -> got 1.00000000E-999999998 [Status(16)] want 1E-999999998 []
+BAND powx1350 ["1e-1", "500000000"] -> got 1.00000000E-500000000 [Status(16)] want 1E-500000000 []
+BAND powx1352 ["1e-2", "500000000"] -> got 1.0000000E-1000000000 [Status(24)] want 1E-1000000000 ["subnormal"]
+BAND powx1353 ["1e-2", "500000001"] -> got 1.00000E-1000000002 [Status(24)] want 1E-1000000002 ["subnormal"]
+BAND powx1354 ["1e-2", "500000002"] -> got 1.000E-1000000004 [Status(24)] want 1E-1000000004 ["subnormal"]
+BAND powx1355 ["1e-2", "500000003"] -> got 1.0E-1000000006 [Status(24)] want 1E-1000000006 ["subnormal"]
+BAND powx1365 ["0.01", "500000000"] -> got 1.0000000E-1000000000 [Status(24)] want 1E-1000000000 ["subnormal"]
+BAND powx1371 ["1e-1", "-500000000"] -> got 1.00000000E+500000000 [Status(16)] want 1E+500000000 []
+BAND powx2061 ["-1", "100000"] -> got 1 [Status(16)] want 1 []
+BAND powx2062 ["-1", "999999"] -> got -1 [Status(16)] want -1 []
+BAND powx2063 ["-1", "1278000"] -> got 1 [Status(16)] want 1 []
+BAND powx2064 ["-1", "127803"] -> got -1 [Status(16)] want -1 []
+BAND powx2065 ["-1", "127890"] -> got 1 [Status(16)] want 1 []
+BAND powx2066 ["-1", "1167891"] -> got -1 [Status(16)] want -1 []
+BAND powx2067 ["-1", "1278901"] -> got -1 [Status(16)] want -1 []
+BAND powx2068 ["-1", "127896"] -> got 1 [Status(16)] want 1 []
+BAND powx2069 ["-1", "-167897"] -> got -1 [Status(16)] want -1 []
+BAND powx2071 ["-1", "100000"] -> got 1 [Status(16)] want 1 []
+BAND powx2072 ["-1", "-100001"] -> got -1 [Status(16)] want -1 []
+BAND powx2073 ["-1", "1278000"] -> got 1 [Status(16)] want 1 []
+BAND powx2074 ["-1", "-167896"] -> got 1 [Status(16)] want 1 []
+BAND powx2075 ["-1", "100000"] -> got 1 [Status(16)] want 1 []
+BAND powx2076 ["-1", "-100009"] -> got -1 [Status(16)] want -1 []
+SKIP power.decTest powx4001 [invalid_context] powx4001  power 1 1.1 ->  NaN         Invalid_context
+SKIP power.decTest powx4002 [invalid_context] powx4002  power 1 1.1 ->  NaN         Invalid_context
+SKIP power.decTest powx4003 [invalid_context] powx4003  power 1 1.1  ->  NaN        Invalid_context
+SKIP power.decTest powx4005 [invalid_context] powx4005  power 1 1.1  ->  NaN        Invalid_context
+SKIP power.decTest powx4008 [math-range] powx4008  power 1             1.1E+1000000 ->  NaN Invalid_operation
+SKIP power.decTest powx4010 [math-range] powx4010  power 1.1E+1000000  1.1          ->  NaN Invalid_operation
+SKIP power.decTest powx4012 [math-range] powx4012  power 1             1.1E-1999998 ->  NaN Invalid_operation
+SKIP power.decTest powx4014 [math-range] powx4014  power 1.1E-1999998  1.1          ->  NaN Invalid_operation
+power.decTest              1197 pass     0 fail     10 skip
+powersqrt.decTest          2856 pass     0 fail      0 skip
+SKIP quantize.decTest quax525 [exp-overflow-operand] quax525 quantize 123.456  1e12345678903 -> NaN Invalid_operation
+SKIP quantize.decTest quax531 [exp-overflow-operand] quax531 quantize 123.456 1e-12345678903 -> NaN Invalid_operation
+SKIP quantize.decTest quax805 [exp-overflow-operand] quax805 quantize   0   1e3000000000 -> NaN Invalid_operation
+SKIP quantize.decTest quax806 [exp-overflow-operand] quax806 quantize   0  1e-3000000000 -> NaN Invalid_operation
+SKIP quantize.decTest quax807 [exp-overflow-operand] quax807 quantize   0   1e4000000000 -> NaN Invalid_operation
+SKIP quantize.decTest quax808 [exp-overflow-operand] quax808 quantize   0  1e-4000000000 -> NaN Invalid_operation
+SKIP quantize.decTest quax809 [exp-overflow-operand] quax809 quantize   0   1e5000000000 -> NaN Invalid_operation
+SKIP quantize.decTest quax810 [exp-overflow-operand] quax810 quantize   0  1e-5000000000 -> NaN Invalid_operation
+SKIP quantize.decTest quax811 [exp-overflow-operand] quax811 quantize   0   1e6000000000 -> NaN Invalid_operation
+SKIP quantize.decTest quax812 [exp-overflow-operand] quax812 quantize   0  1e-6000000000 -> NaN Invalid_operation
+SKIP quantize.decTest quax813 [exp-overflow-operand] quax813 quantize   0   1e7000000000 -> NaN Invalid_operation
+SKIP quantize.decTest quax814 [exp-overflow-operand] quax814 quantize   0  1e-7000000000 -> NaN Invalid_operation
+SKIP quantize.decTest quax815 [exp-overflow-operand] quax815 quantize   0   1e8000000000 -> NaN Invalid_operation
+SKIP quantize.decTest quax816 [exp-overflow-operand] quax816 quantize   0  1e-8000000000 -> NaN Invalid_operation
+SKIP quantize.decTest quax817 [exp-overflow-operand] quax817 quantize   0   1e9000000000 -> NaN Invalid_operation
+SKIP quantize.decTest quax818 [exp-overflow-operand] quax818 quantize   0  1e-9000000000 -> NaN Invalid_operation
+SKIP quantize.decTest quax819 [exp-overflow-operand] quax819 quantize   0   1e9999999999 -> NaN Invalid_operation
+SKIP quantize.decTest quax820 [exp-overflow-operand] quax820 quantize   0  1e-9999999999 -> NaN Invalid_operation
+SKIP quantize.decTest quax821 [exp-overflow-operand] quax821 quantize   0   1e10000000000 -> NaN Invalid_operation
+SKIP quantize.decTest quax822 [exp-overflow-operand] quax822 quantize   0  1e-10000000000 -> NaN Invalid_operation
+SKIP quantize.decTest quax861 [exp-overflow-operand] quax861 quantize   1  1e+2147483649 -> NaN Invalid_operation
+SKIP quantize.decTest quax862 [exp-overflow-operand] quax862 quantize   1  1e+2147483648 -> NaN Invalid_operation
+SKIP quantize.decTest quax866 [exp-overflow-operand] quax866 quantize   1  1e-2147483649 -> NaN Invalid_operation
+SKIP quantize.decTest quax1022 [hash-operand] quax1022 quantize 64#8.666666666666000E+384  64#1.000000000000000E+384  -> 8.666666666666000E+384
+SKIP quantize.decTest quax1023 [hash-operand] quax1023 quantize 64#8.666666666666000E+384  128#1.000000000000000E+384 -> 8.666666666666000E+384
+SKIP quantize.decTest quax1024 [hash-operand] quax1024 quantize 64#8.666666666666000E+384  64#1E+384                  -> 8.666666666666000E+384
+SKIP quantize.decTest quax1025 [hash-expected] quax1025 quantize 64#8.666666666666000E+384  64#1E+384   -> 64#8.666666666666000E+384
+SKIP quantize.decTest quax1026 [hash-expected] quax1026 quantize 64#8.666666666666000E+384 128#1E+384   -> 64#9E+384 Inexact Rounded Clamped
+SKIP quantize.decTest quax1027 [hash-operand] quax1027 quantize 64#8.666666666666000E+323  64#1E+31    -> NaN Invalid_operation
+SKIP quantize.decTest quax1028 [hash-operand] quax1028 quantize 64#8.666666666666000E+323 128#1E+31    -> NaN Invalid_operation
+SKIP quantize.decTest quax1029 [hash-expected] quax1029 quantize 64#8.66666666E+3          128#1E+10    -> 64#0E10 Inexact Rounded
+SKIP quantize.decTest quax0a2 [hash-operand] quax0a2 quantize 128#8.555555555555555555555555555555555E+6143  128#1E+6143  -> 8.55555555555555555555555555555556E+6143   Rounded Inexact
+SKIP quantize.decTest quax0a3 [hash-operand] quax0a3 quantize 128#8.555555555555555555555555555555555E+6144  128#1E+6144  -> 8.555555555555555555555555555555555E+6144
+quantize.decTest            742 pass     0 fail     33 skip
+reduce.decTest              168 pass     0 fail      0 skip
+remainder.decTest           517 pass     0 fail      0 skip
+remaindernear.decTest       446 pass     0 fail      0 skip
+rotate.decTest              195 pass     0 fail      0 skip
+rounding.decTest           1030 pass     0 fail      0 skip
+samequantum.decTest         333 pass     0 fail      0 skip
+scaleb.decTest              155 pass     0 fail      0 skip
+shift.decTest               200 pass     0 fail      0 skip
+squareroot.decTest         3586 pass     0 fail      0 skip
+subtract.decTest            681 pass     0 fail      0 skip
+tointegral.decTest          168 pass     0 fail      0 skip
+tointegralx.decTest         180 pass     0 fail      0 skip
+xor.decTest                 277 pass     0 fail      0 skip
+
+TOTAL: 27593 cases — 27494 pass, 0 fail, 99 skip, 0 unparsed
