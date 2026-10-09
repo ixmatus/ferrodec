@@ -102,10 +102,22 @@ jobs:
   kani:
     name: kani harnesses
     runs-on: ubuntu-latest
+    # The whole job took 66 to 81 minutes on main in August 2026; a hang
+    # in the installer must fail in hours, not consume GitHub's six hour
+    # default (the first run on review-2026-10 did exactly that).
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
+      # Pin the Kani the local battery proves with (`cargo kani --version`
+      # at the Phase 0 tip of the 2026-10 review). The action's default is
+      # `latest`, which floated to 0.68.0 (released 2026-09-16) after the
+      # last green run and hung the install step on 2026-10-09 (six hours
+      # on the first run, far past August's 22 minutes on the rerun). Bump
+      # deliberately, after the battery passes locally with the new version.
       - uses: model-checking/kani-github-action@v1.1
+        with:
+          kani-version: "0.67.0"
       - run: cargo kani --package ferrodec-ieee
       # The dpd feature gates the DPD codec harnesses on the root and
       # decimal64 crates; without it those proofs never ran in CI (fd-aqs.9).

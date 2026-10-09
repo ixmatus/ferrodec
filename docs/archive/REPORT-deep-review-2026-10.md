@@ -43,7 +43,13 @@ merged branches were removed after their uncommitted deliverables were
 captured as the splice artifact. One regression was introduced in
 Phase 0 (ladder budget items gated by `cfg` broke the crate's own tests
 at default features) and was caught by reader C1 and fixed inside the
-arc; the record says so.
+arc; the record says so. A fifth CI cause appeared only when the branch
+first ran on GitHub, at the arc's close: the Kani action installs
+`latest`, which floated to 0.68.0 (released 2026-09-16) after the last
+green run and hung the install step for six hours; the job now pins
+0.67.0, the version the local battery proves with, and is bounded at
+three hours. Twenty six of the twenty seven jobs were green on the
+first run.
 
 Totals: 19 readers, 185 findings (Wave 1 110 across five readers
 counting D2's thirty claim rows; Wave 2 31; Wave 3 54; Wave 4 49),
