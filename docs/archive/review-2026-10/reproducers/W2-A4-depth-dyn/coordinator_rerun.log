@@ -1,0 +1,13 @@
+START Thu Oct  8 23:56:14 PDT 2026
+cargo EXIT=0
+97 /private/tmp/claude-502/-Users-parnell-Development-ferrodec/7aa0469f-7024-4109-8d3d-fac13748b08d/scratchpad/A4/scdump.rerun.txt
+check EXIT=0
+SCD220  q= 4639 neg=False S |val|~ 2.07e-38 err= -1.513e+4 ulp  budget=  14000 OVER
+SCD220  q= 4639 neg=False C |val|~      1.0 err=       0.3 ulp  budget=  14000 
+SCD220  q= 4639 neg=True  S |val|~ 2.07e-38 err=  1.513e+4 ulp  budget=  14000 OVER
+SCD220  q= 4639 neg=True  C |val|~      1.0 err=       0.3 ulp  budget=  14000 
+SCD220  q= 1381 neg=False S |val|~      1.0 err=   -0.6322 ulp  budget=  14000 
+SCD220  q= 1381 neg=False C |val|~ 1.03e-37 err=   -1228.0 ulp  budget=  14000 
+SCD220  q= 1381 neg=True  S |val|~      1.0 err=    0.6322 ulp  budget=  14000 
+SCD220  q= 1381 neg=True  C |val|~ 1.03e-37 err=   -1228.0 ulp  budget=  14000 
+END Thu Oct  8 23:56:27 PDT 2026

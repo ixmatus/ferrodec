@@ -1,0 +1,15 @@
+[package]
+name = "a3probe"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+ferrodec = { path = "../../../../../..", features = ["transcendentals"] }
+ferrodec-decimal64 = { path = "../../../../../../ferrodec-decimal64", features = ["transcendentals"] }
+ferrodec-decimal32 = { path = "../../../../../../ferrodec-decimal32", features = ["transcendentals"] }
+ferrodec-ieee = { path = "../../../../../../ferrodec-ieee" }
+ferrodec-transcend = { path = "../../../../../../ferrodec-transcend", features = ["transcendentals"] }
+ferrodec-multiword = { path = "../../../../../../ferrodec-multiword" }

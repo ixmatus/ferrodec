@@ -1,0 +1,133 @@
+--- /Users/parnell/Development/ferrodec/ferrodec-transcend/src/argred.rs	2026-10-08 16:15:06
++++ A4/tc/src/argred.rs	2026-10-08 17:30:51
+@@ -1711,3 +1711,130 @@
+         }
+     }
+ }
++
++#[cfg(test)]
++mod a4_probe {
++    extern crate alloc;
++    extern crate std;
++    use super::*;
++    use crate::mock_format::ValueFmt128;
++    use alloc::string::String;
++    use std::println;
++
++    fn u256s(mut c: U256) -> String {
++        let mut v = alloc::vec::Vec::new();
++        while !c.is_zero() { let (q, d) = c.div_rem10(); v.push(b'0' + d as u8); c = q; }
++        if v.is_empty() { v.push(b'0'); }
++        v.reverse(); String::from_utf8(v).unwrap()
++    }
++    pub(super) fn u384s_pub(c: U384) -> String { u384s(c) }
++    fn u384s(mut c: U384) -> String {
++        let mut v = alloc::vec::Vec::new();
++        while !c.is_zero() { let (q, d) = c.div_rem10(); v.push(b'0' + d as u8); c = q; }
++        if v.is_empty() { v.push(b'0'); }
++        v.reverse(); String::from_utf8(v).unwrap()
++    }
++
++    fn inputs() -> alloc::vec::Vec<(u128, i32)> {
++        alloc::vec![
++            (9308532438209917461067659354862169, 4639),
++            (2344813655066356855719930664718056, 1381),
++            (6979794724988577187926241954295594, 2278),
++            (4272221537462525975023616239425960, 5981),
++            (427222153746252597502361623942596, 5982),
++            (8183313630130946480858189384676898, 1356),
++            (9308532438209917461067659354862169, 4640),
++            // extremes
++            (9_999_999_999_999_999_999_999_999_999_999_999, 6111),
++            (1_000_000_000_000_000_000_000_000_000_000_000, 6111),
++            (1, 6111),
++            (1, 6144), // non-canonical q above q_max: only a mock can hand this in
++            (1, -1),
++            (9_999_999_999_999_999_999_999_999_999_999_999, -34),
++            (9_999_999_999_999_999_999_999_999_999_999_999, -35),
++            (1, -6176),
++            // round_34(k*pi/2) for k = 1..8 (34 digits, nearest)
++            (1570796326794896619231321691639751, -33),
++            (3141592653589793238462643383279503, -33),
++            (4712388980384689857693965074919254, -33),
++            (6283185307179586476925286766559006, -33),
++            (7853981633974483096156608458198757, -33),
++            (9424777960769379715387930149838509, -33),
++            (1099557428756427633461925184147826, -32),
++            (1256637061435917295385057353311801, -32),
++        ]
++    }
++
++    #[test]
++    fn a4_dump() {
++        for (c, q) in inputs() {
++            let x = ValueFmt128 { coef: c, exp: q, sign: false };
++            let (k1, r1, _) = reduce_body::<ValueFmt128, Extended>(Extended::ZERO, x);
++            println!("R1 {c} {q} k={k1} sign={} coef={} exp={}", r1.sign, u256s(r1.coef), r1.exp);
++            let (k2, r2, _) = reduce_wide::<ValueFmt128>(x);
++            println!("R2 {c} {q} k={k2} sign={} coef={} exp={}", r2.sign, u384s(r2.coef), r2.exp);
++            #[cfg(feature = "unbounded-ladder")]
++            for p in [110u32, 220, 440, 880, 1760] {
++                let a = crate::extended_dyn::DynArena::new(p);
++                let (kd, rd, _) = reduce_dyn::<ValueFmt128>(a.exemplar(), x);
++                println!("RD{p} {c} {q} k={kd} {rd:?}");
++            }
++        }
++    }
++}
++
++#[cfg(all(test, feature = "unbounded-ladder"))]
++mod a4_probe_sc {
++    extern crate std;
++    use super::*;
++    use crate::mock_format::ValueFmt128;
++    use std::println;
++
++    #[test]
++    fn a4_sincos_dump() {
++        let deep: [(u128, i32); 4] = [
++            (9308532438209917461067659354862169, 4639),
++            (2344813655066356855719930664718056, 1381),
++            (6979794724988577187926241954295594, 2278),
++            (4272221537462525975023616239425960, 5981),
++        ];
++        for (c, q) in deep {
++            for neg in [false, true] {
++                let x = ValueFmt128 { coef: c, exp: q, sign: neg };
++                let (s2, c2, _) = crate::sincos::sincos_extended_body::<ValueFmt128, crate::extended2::Extended2>(crate::extended2::Extended2::ZERO, x);
++                println!("SC2 {c} {q} {neg} S sign={} coef={} exp={}", s2.sign, super::a4_probe::u384s_pub(s2.coef), s2.exp);
++                println!("SC2 {c} {q} {neg} C sign={} coef={} exp={}", c2.sign, super::a4_probe::u384s_pub(c2.coef), c2.exp);
++                for p in [110u32, 220, 440, 880, 1760] {
++                    let a = crate::extended_dyn::DynArena::new(p);
++                    let (sd, cd, _) = crate::sincos::sincos_extended_body::<ValueFmt128, _>(a.exemplar(), x);
++                    println!("SCD{p} {c} {q} {neg} S {sd:?}");
++                    println!("SCD{p} {c} {q} {neg} C {cd:?}");
++                }
++            }
++        }
++    }
++}
++
++#[cfg(all(test, feature = "unbounded-ladder"))]
++mod a4_table {
++    extern crate std;
++    use super::*;
++    use ferrodec_multiword::bigconst;
++    use std::println;
++    #[test]
++    fn a4_whole_table_vs_generator() {
++        let n = table::TWO_OVER_PI_DIGITS as u64;
++        let d = bigconst::two_over_pi_digits(n);
++        let s = std::format!("{d}");
++        assert_eq!(s.len() as u64, n);
++        let mut mism = 0;
++        let mut tabs = std::string::String::new();
++        for (i, ch) in s.bytes().enumerate() {
++            let t = two_over_pi_digit(i + 1);
++            tabs.push((b'0' + t) as char);
++            if t != ch - b'0' { mism += 1; println!("MISMATCH digit {}", i + 1); }
++        }
++        std::fs::write(std::env::var("A4_TABLE_OUT").unwrap(), tabs).unwrap();
++        println!("TABLE compared {} digits, {} mismatches", s.len(), mism);
++    }
++}

@@ -38,3 +38,20 @@ entries: 53; INDEX lines: 53
 ## ADRs
 
 files: 61; highest: 0061-pi-scaled-family-design.md
+
+## Battery totals (Phase 0 tip 2711d38, dedicated worktree, 2026-10-08)
+
+All fourteen lanes PASS: fmt clippy clippy_members rustdoc tests members transcend telemetry force_escalate ladder_audit force_adjudicate force_rung3 thumbv6m kani. Toolchain preflight: rustc 1.99.0 (b940084d7 2026-09-28). Cargo reported passed counts summed per lane (a suite that runs in two lanes is counted in each):
+
+| lane | tests passed |
+|---|---|
+| force_adjudicate | 2883 |
+| force_escalate | 2883 |
+| force_rung3 | 2883 |
+| ladder_audit | 2883 |
+| members | 2435 |
+| telemetry | 3 |
+| tests | 4093 |
+| transcend | 480 |
+
+Kani: the four CI invocations completed (ferrodec-ieee; root with transcendentals,dpd; decimal32 with fmt,dpd; decimal64 with transcendentals,dpd). Per harness counts are in counts.md's declarations table (87 + 104 + 105 + 1).
