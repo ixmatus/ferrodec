@@ -1,0 +1,37 @@
+--- /Users/parnell/Development/ferrodec/ferrodec-multiword/src/decbig.rs	2026-07-03 19:29:42
++++ mwcopy/src/decbig.rs	2026-10-09 00:18:28
+@@ -42,6 +42,11 @@
+ 
+ use alloc::vec::Vec;
+ use core::cmp::Ordering;
++use core::sync::atomic::{AtomicU64, Ordering as AO};
++pub static ADDBACK: AtomicU64 = AtomicU64::new(0);
++pub static D3DEC: AtomicU64 = AtomicU64::new(0);
++pub static D3DEC2: AtomicU64 = AtomicU64::new(0);
++pub static QLIMBS: AtomicU64 = AtomicU64::new(0);
+ 
+ /// Radix: each limb holds one nine-digit decimal group, `[0, 10^9)`.
+ const B: u64 = 1_000_000_000;
+@@ -414,11 +419,14 @@
+             let num = un[j + n] * B + un[j + n - 1];
+             let mut qhat = num / vn1;
+             let mut rhat = num % vn1;
++            let mut decs = 0u32;
++            QLIMBS.fetch_add(1, AO::Relaxed);
+             // The estimate is at most two too large; this corrects it.
+             loop {
+                 if qhat >= B || qhat * vn2 > rhat * B + un[j + n - 2] {
+                     qhat -= 1;
+                     rhat += vn1;
++                    decs += 1; if decs == 1 { D3DEC.fetch_add(1, AO::Relaxed); } else { D3DEC2.fetch_add(1, AO::Relaxed); }
+                     if rhat < B {
+                         continue;
+                     }
+@@ -450,6 +458,7 @@
+                 // cancels the borrow that just occurred).
+                 un[j + n] = (top + B as i64) as u64;
+                 qhat -= 1;
++                ADDBACK.fetch_add(1, AO::Relaxed);
+                 let mut carry2 = 0u64;
+                 for i in 0..n {
+                     let s = un[j + i] + vn[i] + carry2;

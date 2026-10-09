@@ -54,10 +54,8 @@ fn value_agrees(value: &Expect, expected: &str) -> Option<bool> {
             // decTest expected strings are cohort-faithful; parse to
             // (sign, coefficient, exponent) and compare exactly. This
             // pins the §6.3 preferred exponent against the reference.
-            match parse_decimal(expected) {
-                Some(d) => d.neg == *neg && d.coeff == *coeff && d.exp == *exp,
-                None => return None,
-            }
+            let d = parse_decimal(expected)?;
+            d.neg == *neg && d.coeff == *coeff && d.exp == *exp
         }
     })
 }

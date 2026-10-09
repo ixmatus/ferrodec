@@ -35,8 +35,8 @@ transcendentals = ["trig", "exp-log", "hyperbolic", "pow", "trig-pi"]
 # a Cortex-M0+ build keeps the fixed rungs and never sees a heap.
 unbounded-ladder = ["ferrodec-multiword/alloc"]
 # Escalation-depth counters for the S3 pinned-count tests
-# (fd-4zo.21). Test-only, off by default; needs 64-bit atomic RMW,
-# so never enabled on thumbv6m.
+# (fd-4zo.21). Test-only, off by default. On targets without 64-bit
+# atomic RMW (thumbv6m) the counters compile as no-ops; see telemetry.rs.
 telemetry = []
 
 [dependencies]

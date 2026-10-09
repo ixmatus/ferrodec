@@ -1,0 +1,12 @@
+[package]
+name = "p1b"
+version = "0.0.0"
+edition = "2021"
+
+[dependencies]
+ferrodec = { path = "/Users/parnell/Development/ferrodec", features = ["transcendentals"] }
+ferrodec-transcend = { path = "/Users/parnell/Development/ferrodec/ferrodec-transcend", features = ["trig"] }
+ferrodec-multiword = { path = "/Users/parnell/Development/ferrodec/ferrodec-multiword", features = ["alloc"] }
+ferrodec-ieee = { path = "/Users/parnell/Development/ferrodec/ferrodec-ieee" }
+
+[workspace]

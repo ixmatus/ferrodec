@@ -1,0 +1,50 @@
+## Ziv cap: pow exact/midpoint results
+pow(4,0.5) p9 Down: 1.99999999 [Status(16)] elapsed=2.473s
+pow(4,0.5) p9 Floor: 1.99999999 [Status(16)] elapsed=2.465s
+pow(4,0.5) p9 ZeroFiveUp: 1.99999999 [Status(16)] elapsed=2.475s
+pow(4,0.5) p9 HalfEven: 2.00000000 [Status(16)] elapsed=178.375µs
+pow(1.5625,0.5) p2 HalfUp: 1.2 [Status(16)] elapsed=3.259s
+pow(-1,100000) p9 HalfEven: 1 [Status(16)] elapsed=483.820ms
+pow(-1,100001) p9 HalfEven: -1 [Status(16)] elapsed=486.790ms
+pow(-1,100000) p9 Ceiling: 2 [Status(16)] elapsed=483.256ms
+pow(-1,100001) p9 Ceiling: -1 [Status(16)] elapsed=485.425ms
+pow(-1,100000) p9 Floor: 1 [Status(16)] elapsed=488.278ms
+pow(-1,100001) p9 Floor: -2 [Status(16)] elapsed=488.027ms
+pow(-1,100000) p9 Up: 2 [Status(16)] elapsed=493.171ms
+pow(-1,100001) p9 Up: -2 [Status(16)] elapsed=486.791ms
+pow(10,10001) p9 HalfEven: 1.00000000E+10001 [Status(16)] elapsed=209.417µs
+pow(10,10001) p9 Down: 9.99999999E+10000 [Status(16)] elapsed=1.747s
+pow(0.1,999999) p9 Ceiling: 1.00000001E-999999 [Status(16)] elapsed=1.278s
+exp(crafted 20000-digit x) p9: 1.00000000 [Status(16)] elapsed=1.697s
+ln(crafted 20000-digit y) p9: 1.00000000 [Status(16)] elapsed=2.196s
+## Context extremes
+1E-2147483648 * 0.1 (p9, emin i32::MIN): 1E+2147483647 [Status(0)] elapsed=1.375µs
+1E-2147483648 / 10 (p9, emin i32::MIN): 1E+2147483647 [Status(0)] elapsed=2.292µs
+next_plus(0) p2 emin i32::MIN: 1E+2147483647 [Status(0)] elapsed=2.584µs
+next_plus(0) p1.2e9 emin -999999999: 1E+2094967298 [Status(0)] elapsed=1.750µs
+sqrt(2) p2147483649: 1.41E+2147483648 [Status(24)] elapsed=4.375µs
+sqrt(2) pU32MAX: 1 [Status(24)] elapsed=3.417µs
+1/3 pU32MAX: 0 [Status(24)] elapsed=1.875µs
+## Panics
+
+thread 'main' (3311100) panicked at /Users/parnell/Development/ferrodec/ferrodec-decimal/src/arith.rs:251:58:
+
+thread 'main' (3311104) panicked at /Users/parnell/Development/ferrodec/ferrodec-decimal/src/arith.rs:272:54:
+
+thread 'main' (3311108) panicked at /Users/parnell/Development/ferrodec/ferrodec-decimal/src/interop.rs:40:14:
+
+thread 'main' (3311112) panicked at /Users/parnell/Development/ferrodec/ferrodec-decimal/src/interop.rs:54:14:
+## divide_integer overflow
+divint(11E+9,1) p16 emax9: 11000000000 [Status(0)] elapsed=1.542µs
+## clamp=1 ignored
+reduce(1000E+381) p16 emax384 clamp1: 1E+384 [Status(32)] elapsed=2.375µs
+quantize(1E+370,1E+380) p16 emax384 clamp1: 0E+380 [Status(16)] elapsed=1.583µs
+## to_f64
+to_f64(1) NE: 1.0 bits=0x3ff0000000000000 Status(16)
+to_f64(1E-310) NE: 1e-310 bits=0x12688b70e62b Status(16)
+to_f64(1E+400) TZ: inf bits=0x7ff0000000000000 Status(20)
+to_f64(-NaN): NaN bits=0x7ff8000000000000 Status(0)
+## pow integer_magnitude materialization
+Infinity [Status(20)] elapsed=557.771ms
+          1911078912  maximum resident set size
+          1834175640  cycles elapsed

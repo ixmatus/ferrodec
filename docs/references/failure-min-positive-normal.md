@@ -15,8 +15,10 @@ provenance: primary
 consumers:
   - docs/archive/REPORT-rigorous-review-2026-06-09.md
 verification:
-  - tests/conformance.rs
-notes: "Open at write time: the constant is still wrong pending fd-aqs.1; this entry records the post mortem now and gains the fix pointer when the fix lands (the accretion ritual)."
+  - src/decimal.rs
+  - ferrodec-decimal64/src/decimal.rs
+  - ferrodec-decimal32/src/decimal.rs
+notes: "Closed at 7ae03af (fd-aqs.1); the status line below records the fix. The 2026-10 review (D4-4) found this entry still saying open four months after the fix, and its verification pointing at a runner with no check: the value pins are the verification now."
 ---
 
 # Failure: MIN_POSITIVE_NORMAL wrong on every fixed format
@@ -41,5 +43,4 @@ cohort, not a predicate), and the registry's constants discipline
 exists because a constant that nothing recomputes is documentation
 wearing a type signature.
 
-**Status.** Open at write time; fd-aqs.1 carries the fix and the
-value pins. This entry gains the fix commit pointer when it lands.
+**Status.** Closed at 7ae03af (fd-aqs.1). The entry said open until the 2026-10 review corrected it (D4-4).

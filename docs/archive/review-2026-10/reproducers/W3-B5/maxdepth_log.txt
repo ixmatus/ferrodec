@@ -1,0 +1,18 @@
+pi 100000 took 7.265274667s
+two_over_pi 100000 took 7.490227083s
+ln2 100000 took 8.273184208s
+ln10 100000 took 15.8322205s
+e 100000 took 1.493956417s
+tan_pi_8 100000 took 5.35795475s
+inv_ln2 100000 took 8.740263375s
+inv_ln10 100000 took 16.27730475s
+inv_pi 99976 took 7.557172916s
+pi n=100000 digits=100000 diff=0 (oracle self-agree True) 0.8s
+two_over_pi n=100000 digits=100000 diff=0 (oracle self-agree True) 0.6s
+ln2 n=100000 digits=100000 diff=0 (oracle self-agree True) 2.2s
+ln10 n=100000 digits=100000 diff=0 (oracle self-agree True) 8.5s
+e n=100000 digits=100000 diff=0 (oracle self-agree True) 0.5s
+tan_pi_8 n=100000 digits=100000 diff=0 (oracle self-agree True) 0.2s
+inv_ln2 n=100000 digits=100000 diff=0 (oracle self-agree True) 0.6s
+inv_ln10 n=100000 digits=100000 diff=0 (oracle self-agree True) 6.0s
+inv_pi n=99976 digits=99976 diff=0 (oracle self-agree True) 0.6s

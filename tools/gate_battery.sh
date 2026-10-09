@@ -13,8 +13,17 @@
 #   tools/gate_battery.sh            # run every lane
 #   tools/gate_battery.sh fmt tests  # run the named lanes only
 #
-# Lanes: fmt clippy rustdoc tests transcend telemetry force_escalate ladder_audit
-#        force_adjudicate force_rung3 thumbv6m
+# Lanes: fmt clippy clippy_members rustdoc tests members transcend telemetry
+#        force_escalate ladder_audit force_adjudicate force_rung3 thumbv6m kani
+#
+# Selection parity with .github/workflows/ci.yml is a gate property
+# (the 2026-07-26 to 2026-10-08 lesson: push CI on main was red for
+# ten weeks while this battery was green, because each instrument
+# selected feature sets and packages the other never built). When CI
+# gains a selection, the matching lane lands here in the same commit,
+# and vice versa. The toolchain floats on `stable` on both sides, so
+# `rustup update stable` before a battery run is part of the gate;
+# the preflight below prints the version into every log.
 #
 # The RUSTFLAGS lanes use per-lane CARGO_TARGET_DIR subdirectories so
 # repeated battery runs reuse each configuration's cache instead of
@@ -22,6 +31,12 @@
 
 set -euo pipefail
 cd "$(dirname "$0")/.."
+
+echo "=== preflight: $(rustc --version) / $(cargo --version)"
+# `rustup check` exits 100 when any toolchain has an update, so its exit
+# status is not "unavailable"; only an empty report is.
+preflight_check="$({ rustup check 2>/dev/null || true; } | grep '^stable' || true)"
+echo "=== preflight: ${preflight_check:-rustup check unavailable (offline?)}"
 
 FAILED=()
 
@@ -52,6 +67,23 @@ lane_clippy() {
         cargo clippy -p ferrodec-multiword --all-features --all-targets -- -D warnings
 }
 
+lane_clippy_members() {
+    # CI's per-package clippy jobs: `cargo clippy -p X --all-features`
+    # resolves X's dependencies with ONLY X's feature requests, which
+    # the workspace-wide sweep above never sees (ferrodec-decimal pulls
+    # ferrodec-transcend with no function cluster, which is how the
+    # ladder module went dead-code red on CI for ten weeks).
+    # ferrodec-ieee and ferrodec-test-support run without
+    # --all-features as in CI: test-support's `mpfr-gate` needs the
+    # MPFR C library.
+    cargo clippy -p ferrodec --all-features --all-targets -- -D warnings &&
+        cargo clippy -p ferrodec-decimal64 --all-features --all-targets -- -D warnings &&
+        cargo clippy -p ferrodec-decimal32 --all-features --all-targets -- -D warnings &&
+        cargo clippy -p ferrodec-decimal --all-features --all-targets -- -D warnings &&
+        cargo clippy -p ferrodec-ieee --all-targets -- -D warnings &&
+        cargo clippy -p ferrodec-test-support --all-targets -- -D warnings
+}
+
 lane_rustdoc() {
     # ferrodec-multiword needs --all-features (DecBig / u768 docs).
     RUSTDOCFLAGS="-D warnings" cargo doc --no-deps -p ferrodec --features transcendentals &&
@@ -71,11 +103,28 @@ lane_tests() {
         cargo test -p ferrodec-decimal32 --features transcendentals
 }
 
+lane_members() {
+    # The suites CI runs that the `tests` lane does not: the root and
+    # d64 `--all-features` rows of the CI matrix (which include the
+    # Python differential and the dpd / serde / num-traits surfaces),
+    # the arbitrary-precision crate's 27k-vector conformance suite, the
+    # multiword and ieee substrates, and the test-support crate's own
+    # suite (the ADR-0052 registry guard lives there and was red for
+    # eight weeks while no lane ran it).
+    cargo test -p ferrodec --all-features &&
+        cargo test -p ferrodec-decimal64 --all-features &&
+        cargo test -p ferrodec-decimal --all-features &&
+        cargo test -p ferrodec-multiword --all-features &&
+        cargo test -p ferrodec-ieee &&
+        cargo test -p ferrodec-test-support
+}
+
 lane_transcend() {
     # The kernel crate's own tests (budget audit, predicate, seams),
     # with and without the unbounded rung.
     cargo test -p ferrodec-transcend --features transcendentals &&
-        cargo test -p ferrodec-transcend --features transcendentals,unbounded-ladder
+        cargo test -p ferrodec-transcend --features transcendentals,unbounded-ladder &&
+        cargo test -p ferrodec-transcend --all-features
 }
 
 lane_telemetry() {
@@ -151,16 +200,35 @@ lane_force_rung3() {
 }
 
 lane_thumbv6m() {
-    # The Cortex-M0+ floor build (no_std, no allocator by default).
+    # The Cortex-M0+ floor build (no_std, no allocator by default),
+    # then CI's `--all-features` cross builds (every opt-in feature,
+    # including the test-only `telemetry` counters, must at least
+    # compile for the floor target: the AtomicU64 lesson) and the
+    # substrate crates CI cross-builds.
     cargo build --target thumbv6m-none-eabi --no-default-features \
         --features transcendentals,binary-float -p ferrodec &&
         cargo build --target thumbv6m-none-eabi --no-default-features \
             --features transcendentals,binary-float -p ferrodec-decimal64 &&
         cargo build --target thumbv6m-none-eabi --no-default-features \
-            --features transcendentals,binary-float -p ferrodec-decimal32
+            --features transcendentals,binary-float -p ferrodec-decimal32 &&
+        cargo build --target thumbv6m-none-eabi --all-features -p ferrodec &&
+        cargo build --target thumbv6m-none-eabi --all-features -p ferrodec-decimal64 &&
+        cargo build --target thumbv6m-none-eabi --all-features -p ferrodec-decimal32 &&
+        cargo build --target thumbv6m-none-eabi --no-default-features -p ferrodec-decimal &&
+        cargo build --target thumbv6m-none-eabi -p ferrodec-ieee &&
+        cargo build --target thumbv6m-none-eabi -p ferrodec-multiword
 }
 
-ALL_LANES=(fmt clippy rustdoc tests transcend telemetry force_escalate ladder_audit force_adjudicate force_rung3 thumbv6m)
+lane_kani() {
+    # CI's four Kani invocations (about three minutes wall for the
+    # whole suite). The dpd feature gates the DPD codec harnesses.
+    cargo kani --package ferrodec-ieee &&
+        cargo kani --features=transcendentals,dpd &&
+        cargo kani --package ferrodec-decimal32 --features=fmt,dpd &&
+        cargo kani --package ferrodec-decimal64 --features=transcendentals,dpd
+}
+
+ALL_LANES=(fmt clippy clippy_members rustdoc tests members transcend telemetry force_escalate ladder_audit force_adjudicate force_rung3 thumbv6m kani)
 LANES=("$@")
 if [ ${#LANES[@]} -eq 0 ]; then
     LANES=("${ALL_LANES[@]}")
@@ -170,8 +238,10 @@ for l in "${LANES[@]}"; do
     case "$l" in
     fmt) lane fmt lane_fmt ;;
     clippy) lane clippy lane_clippy ;;
+    clippy_members) lane clippy_members lane_clippy_members ;;
     rustdoc) lane rustdoc lane_rustdoc ;;
     tests) lane tests lane_tests ;;
+    members) lane members lane_members ;;
     transcend) lane transcend lane_transcend ;;
     telemetry) lane telemetry lane_telemetry ;;
     force_escalate) lane force_escalate lane_force_escalate ;;
@@ -179,6 +249,7 @@ for l in "${LANES[@]}"; do
     force_adjudicate) lane force_adjudicate lane_force_adjudicate ;;
     force_rung3) lane force_rung3 lane_force_rung3 ;;
     thumbv6m) lane thumbv6m lane_thumbv6m ;;
+    kani) lane kani lane_kani ;;
     *)
         echo "unknown lane: $l (known: ${ALL_LANES[*]})" >&2
         exit 2

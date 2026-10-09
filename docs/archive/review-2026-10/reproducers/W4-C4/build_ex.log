@@ -1,0 +1,38 @@
+== ferrodec examples
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 5.01s
+== ferrodec bench
+    Finished `bench` profile [optimized] target(s) in 21.86s
+  Executable benches src/lib.rs (/private/tmp/claude-502/-Users-parnell-Development-ferrodec/7aa0469f-7024-4109-8d3d-fac13748b08d/scratchpad/target-C4/release/deps/ferrodec-620f634dd0d52d07)
+  Executable benches/comparison.rs (/private/tmp/claude-502/-Users-parnell-Development-ferrodec/7aa0469f-7024-4109-8d3d-fac13748b08d/scratchpad/target-C4/release/deps/comparison-31204bd0b00e606f)
+  Executable benches/conversions.rs (/private/tmp/claude-502/-Users-parnell-Development-ferrodec/7aa0469f-7024-4109-8d3d-fac13748b08d/scratchpad/target-C4/release/deps/conversions-53267ef62aa58d1d)
+  Executable benches/core_ops.rs (/private/tmp/claude-502/-Users-parnell-Development-ferrodec/7aa0469f-7024-4109-8d3d-fac13748b08d/scratchpad/target-C4/release/deps/core_ops-a09943982a3eaa30)
+  Executable benches/transcendentals.rs (/private/tmp/claude-502/-Users-parnell-Development-ferrodec/7aa0469f-7024-4109-8d3d-fac13748b08d/scratchpad/target-C4/release/deps/transcendentals-7d90b7970ffcd38e)
+== ferrodec-decimal64 examples
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3.50s
+== ferrodec-decimal64 bench
+    Finished `bench` profile [optimized] target(s) in 11.06s
+  Executable benches src/lib.rs (/private/tmp/claude-502/-Users-parnell-Development-ferrodec/7aa0469f-7024-4109-8d3d-fac13748b08d/scratchpad/target-C4/release/deps/ferrodec_decimal64-b99fe50a700aa8ed)
+== ferrodec-decimal32 examples
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.57s
+== ferrodec-decimal32 bench
+    Finished `bench` profile [optimized] target(s) in 5.43s
+  Executable benches src/lib.rs (/private/tmp/claude-502/-Users-parnell-Development-ferrodec/7aa0469f-7024-4109-8d3d-fac13748b08d/scratchpad/target-C4/release/deps/ferrodec_decimal32-b26a9e402a905c32)
+== ferrodec-decimal examples
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.75s
+== ferrodec-decimal bench
+    Finished `bench` profile [optimized] target(s) in 8.40s
+  Executable benches src/lib.rs (/private/tmp/claude-502/-Users-parnell-Development-ferrodec/7aa0469f-7024-4109-8d3d-fac13748b08d/scratchpad/target-C4/release/deps/ferrodec_decimal-29833e643d1446c0)
+  Executable benches/decimal_ops.rs (/private/tmp/claude-502/-Users-parnell-Development-ferrodec/7aa0469f-7024-4109-8d3d-fac13748b08d/scratchpad/target-C4/release/deps/decimal_ops-773425e36cfa29c7)
+== ferrodec-multiword examples
+warning: target filter `examples` specified, but no targets matched; this is a no-op
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.02s
+== ferrodec-multiword bench
+    Finished `bench` profile [optimized] target(s) in 10.89s
+  Executable benches src/lib.rs (/private/tmp/claude-502/-Users-parnell-Development-ferrodec/7aa0469f-7024-4109-8d3d-fac13748b08d/scratchpad/target-C4/release/deps/ferrodec_multiword-5e1c9331d8111819)
+  Executable benches/decbig_ops.rs (/private/tmp/claude-502/-Users-parnell-Development-ferrodec/7aa0469f-7024-4109-8d3d-fac13748b08d/scratchpad/target-C4/release/deps/decbig_ops-eea446ce7a7e1785)
+== ferrodec-ieee examples
+warning: target filter `examples` specified, but no targets matched; this is a no-op
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.01s
+== ferrodec-ieee bench
+    Finished `bench` profile [optimized] target(s) in 2.16s
+  Executable benches src/lib.rs (/private/tmp/claude-502/-Users-parnell-Development-ferrodec/7aa0469f-7024-4109-8d3d-fac13748b08d/scratchpad/target-C4/release/deps/ferrodec_ieee-58358b9a9cf737a6)

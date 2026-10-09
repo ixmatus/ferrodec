@@ -1,0 +1,13 @@
+ M ferrodec-decimal32/src/ops/mod.rs
+ M ferrodec-decimal64/src/ops/mod.rs
+ M ferrodec-transcend/src/exact.rs
+ M ferrodec-transcend/src/ladder.rs
+ M ferrodec-transcend/src/lib.rs
+ M src/math/mod.rs
+?? ferrodec-decimal32/src/ops/rsqrt.rs
+?? ferrodec-decimal32/tests/transcend_exact_rsqrt.rs
+?? ferrodec-decimal64/src/ops/rsqrt.rs
+?? ferrodec-decimal64/tests/transcend_exact_rsqrt.rs
+?? ferrodec-transcend/src/rsqrt.rs
+?? src/math/rsqrt.rs
+?? tests/transcend_exact_rsqrt.rs

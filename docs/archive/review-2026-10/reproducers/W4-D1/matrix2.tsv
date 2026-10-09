@@ -1,0 +1,67 @@
+ferrodec-transcend	trig,exp-log	thumbv6m	build=0	clippy=101
+ferrodec-transcend	trig,hyperbolic	thumbv6m	build=0	clippy=101
+ferrodec-transcend	trig,pow	thumbv6m	build=0	clippy=0
+ferrodec-transcend	trig-pi,trig	thumbv6m	build=0	clippy=101
+ferrodec-transcend	trig-pi,exp-log	thumbv6m	build=0	clippy=101
+ferrodec-transcend	trig-pi,pow	thumbv6m	build=0	clippy=0
+ferrodec-transcend	exp-log,pow	thumbv6m	build=0	clippy=0
+ferrodec-transcend	hyperbolic,pow	thumbv6m	build=0	clippy=0
+ferrodec	trig,exp-log	thumbv6m	build=0	clippy=101
+ferrodec	trig,hyperbolic	thumbv6m	build=0	clippy=101
+ferrodec	trig,pow	thumbv6m	build=0	clippy=0
+ferrodec	trig-pi,trig	thumbv6m	build=0	clippy=101
+ferrodec	trig-pi,exp-log	thumbv6m	build=0	clippy=101
+ferrodec	trig-pi,pow	thumbv6m	build=0	clippy=0
+ferrodec	exp-log,pow	thumbv6m	build=0	clippy=0
+ferrodec	hyperbolic,pow	thumbv6m	build=0	clippy=0
+ferrodec-decimal64	trig,exp-log	thumbv6m	build=0	clippy=101
+ferrodec-decimal64	trig,hyperbolic	thumbv6m	build=0	clippy=101
+ferrodec-decimal64	trig,pow	thumbv6m	build=0	clippy=0
+ferrodec-decimal64	trig-pi,trig	thumbv6m	build=0	clippy=101
+ferrodec-decimal64	trig-pi,exp-log	thumbv6m	build=0	clippy=101
+ferrodec-decimal64	trig-pi,pow	thumbv6m	build=0	clippy=0
+ferrodec-decimal64	exp-log,pow	thumbv6m	build=0	clippy=0
+ferrodec-decimal64	hyperbolic,pow	thumbv6m	build=0	clippy=0
+ferrodec-decimal32	trig,exp-log	thumbv6m	build=0	clippy=101
+ferrodec-decimal32	trig,hyperbolic	thumbv6m	build=0	clippy=101
+ferrodec-decimal32	trig,pow	thumbv6m	build=0	clippy=0
+ferrodec-decimal32	trig-pi,trig	thumbv6m	build=0	clippy=101
+ferrodec-decimal32	trig-pi,exp-log	thumbv6m	build=0	clippy=101
+ferrodec-decimal32	trig-pi,pow	thumbv6m	build=0	clippy=0
+ferrodec-decimal32	exp-log,pow	thumbv6m	build=0	clippy=0
+ferrodec-decimal32	hyperbolic,pow	thumbv6m	build=0	clippy=0
+ferrodec	trig-pi(-A dead_code)	host	-	clippy=0
+ferrodec	exp-log(-A dead_code)	host	-	clippy=0
+ferrodec	hyperbolic(-A dead_code)	host	-	clippy=0
+ferrodec-decimal64	trig-pi(-A dead_code)	host	-	clippy=0
+ferrodec-decimal64	exp-log(-A dead_code)	host	-	clippy=0
+ferrodec-decimal64	hyperbolic(-A dead_code)	host	-	clippy=0
+ferrodec-decimal32	trig-pi(-A dead_code)	host	-	clippy=0
+ferrodec-decimal32	exp-log(-A dead_code)	host	-	clippy=0
+ferrodec-decimal32	hyperbolic(-A dead_code)	host	-	clippy=0
+ferrodec-ieee	--all-features --all-targets	host	-	clippy=0
+ferrodec-multiword	--all-features --all-targets	host	-	clippy=0
+ferrodec-transcend	--all-features --all-targets	host	-	clippy=0
+ferrodec	--all-features --all-targets	host	-	clippy=0
+ferrodec-decimal64	--all-features --all-targets	host	-	clippy=0
+ferrodec-decimal32	--all-features --all-targets	host	-	clippy=0
+ferrodec-decimal	--all-features --all-targets	host	-	clippy=0
+ferrodec-test-support	--features transcend-oracle --all-targets	host	-	clippy=0
+ferrodec-campaign	--all-features --all-targets	host	-	clippy=0
+ferrodec	default	thumbv8m.main	build=0	-
+ferrodec	--features transcendentals	thumbv8m.main	build=0	-
+ferrodec-decimal64	default	thumbv8m.main	build=0	-
+ferrodec-decimal64	--features transcendentals	thumbv8m.main	build=0	-
+ferrodec-decimal32	default	thumbv8m.main	build=0	-
+ferrodec-decimal32	--features transcendentals	thumbv8m.main	build=0	-
+ferrodec-decimal	default	thumbv8m.main	build=0	-
+ferrodec-decimal	--features interop,binary-float	thumbv8m.main	build=0	-
+ferrodec-transcend	default	thumbv8m.main	build=0	-
+ferrodec-transcend	--features transcendentals	thumbv8m.main	build=0	-
+ferrodec-multiword	default	thumbv8m.main	build=0	-
+ferrodec-multiword	--features alloc	thumbv8m.main	build=0	-
+ferrodec-ieee	default	thumbv8m.main	build=0	-
+ferrodec	all shipping features	thumbv6m	build=0	-
+ferrodec-decimal64	all shipping features	thumbv6m	build=0	-
+ferrodec-decimal32	all shipping features	thumbv6m	build=0	-
+DONE

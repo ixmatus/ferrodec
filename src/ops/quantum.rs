@@ -789,14 +789,14 @@ mod tests {
     #[test]
     fn logb_zero() {
         let (r, st) = Decimal128::ZERO.logb();
-        assert!(r == Decimal128::NEG_INFINITY);
+        assert_eq!(r, Decimal128::NEG_INFINITY);
         assert!(st.div_by_zero());
     }
 
     #[test]
     fn logb_infinity() {
         let (r, st) = Decimal128::INFINITY.logb();
-        assert!(r == Decimal128::INFINITY);
+        assert_eq!(r, Decimal128::INFINITY);
         assert!(st.is_ok());
     }
 

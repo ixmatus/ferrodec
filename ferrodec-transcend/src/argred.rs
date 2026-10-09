@@ -613,7 +613,7 @@ pub(crate) fn reduce_body<F: DecimalFormat, E: ExtNum>(ex: E, x: F) -> (u32, E, 
         i_hi - i_lo + 1,
         (i_hi_signed as usize - i_lo_signed.max(1) as usize) + 1
     );
-    debug_assert!(i_hi as i32 - q == I_HI_OFFSET as i32);
+    debug_assert_eq!(i_hi as i32 - q, I_HI_OFFSET as i32);
 
     let split = split_product(p);
 
@@ -826,7 +826,7 @@ pub(crate) fn reduce_wide<F: DecimalFormat>(x: F) -> (u32, Extended2, Status) {
     // P = c × W ≤ 34 + 182 = 216 digits — inside U768's 231.
     let p = w.mul_u128(c);
 
-    debug_assert!(i_hi as i32 - q == I_HI_OFFSET2 as i32);
+    debug_assert_eq!(i_hi as i32 - q, I_HI_OFFSET2 as i32);
 
     let split = split_product_wide(p);
 
@@ -1110,7 +1110,7 @@ pub(crate) fn reduce_dyn<F: DecimalFormat>(
     // Nothing here reasons about individual digit values, so the
     // generator's unit cannot be amplified by a borrow across the
     // window boundary.
-    debug_assert!(i_hi as i32 - q == offset as i32);
+    debug_assert_eq!(i_hi as i32 - q, offset as i32);
 
     // Split: drop the `33 + CARRY_GUARD` unread tail, take the next
     // `frac_dyn` digits as the fraction, read the integer above it.

@@ -1,0 +1,10 @@
+ M ferrodec-decimal32/src/ops/pow.rs
+ M ferrodec-decimal64/src/ops/pow.rs
+ M ferrodec-transcend/src/exact.rs
+ M ferrodec-transcend/src/ladder.rs
+ M ferrodec-transcend/src/pow.rs
+ M src/math/pow.rs
+?? ferrodec-decimal32/tests/transcend_exact_powi.rs
+?? ferrodec-decimal64/tests/transcend_exact_powi.rs
+?? tests/property_powi.rs
+?? tests/transcend_exact_powi.rs

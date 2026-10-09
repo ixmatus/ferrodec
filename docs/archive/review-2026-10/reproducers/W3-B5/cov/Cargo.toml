@@ -1,0 +1,9 @@
+[package]
+name = "b5cov"
+version = "0.0.0"
+edition = "2021"
+[dependencies]
+ferrodec-multiword = { path = "../mwcopy", features = ["alloc"] }
+[profile.dev]
+opt-level = 3
+[workspace]

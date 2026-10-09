@@ -1,0 +1,918 @@
+diff --git a/ferrodec-decimal32/src/ops/pow.rs b/ferrodec-decimal32/src/ops/pow.rs
+index 7e65b4d..22e6d6c 100644
+--- a/ferrodec-decimal32/src/ops/pow.rs
++++ b/ferrodec-decimal32/src/ops/pow.rs
+@@ -80,6 +80,29 @@ impl Decimal32 {
+         ferrodec_transcend::pow::pow_kernel::<Decimal32>(self, exponent, rm)
+     }
+ 
++    /// IEEE 754-2019 §9.2 `pown(self, n)`: `self` raised to the
++    /// integer power `n`.
++    ///
++    /// A negative base is legal for every `n` (the exponent is an
++    /// integer by type, so `pow`'s negative-base `INVALID` has no
++    /// analog); the result is negative exactly when `self` is negative
++    /// and `n` is odd. Pure delegation onto the shared kernel, which
++    /// resolves every §9.2.1 special value internally and runs the
++    /// ADR-0059 escalation ladder from this operation's first release.
++    /// The special-value table, the two-arm kernel (working-precision
++    /// powering for `|n| ≤ 6`, `exp(n·ln|self|)` beyond), the
++    /// exactness and tie classification, and the ADR-0060 operand
++    /// ranges over which the correct-rounding claim is unconditional
++    /// all live on `ferrodec_transcend::pow::powi_kernel`.
++    ///
++    /// Preferred exponent (§9.2.2): `Q(pown(x, n))` is
++    /// `floor(n × Q(x))` where the result is exact.
++    #[must_use]
++    #[doc(alias = "pown")]
++    pub fn powi(self, n: i32, rm: RoundingMode) -> (Self, Status) {
++        ferrodec_transcend::pow::powi_kernel::<Decimal32>(self, n, rm)
++    }
++
+     /// IEEE 754-2019 §9.2 `cbrt(self)` rounded by `rm`. Defined for
+     /// all real x including negatives. `cbrt(±0) = ±0`,
+     /// `cbrt(±∞) = ±∞`, NaN propagates.
+diff --git a/ferrodec-decimal64/src/ops/pow.rs b/ferrodec-decimal64/src/ops/pow.rs
+index 49933e9..82234a9 100644
+--- a/ferrodec-decimal64/src/ops/pow.rs
++++ b/ferrodec-decimal64/src/ops/pow.rs
+@@ -83,6 +83,29 @@ impl Decimal64 {
+         ferrodec_transcend::pow::pow_kernel::<Decimal64>(self, exponent, rm)
+     }
+ 
++    /// IEEE 754-2019 §9.2 `pown(self, n)`: `self` raised to the
++    /// integer power `n`.
++    ///
++    /// A negative base is legal for every `n` (the exponent is an
++    /// integer by type, so `pow`'s negative-base `INVALID` has no
++    /// analog); the result is negative exactly when `self` is negative
++    /// and `n` is odd. Pure delegation onto the shared kernel, which
++    /// resolves every §9.2.1 special value internally and runs the
++    /// ADR-0059 escalation ladder from this operation's first release.
++    /// The special-value table, the two-arm kernel (working-precision
++    /// powering for `|n| ≤ 6`, `exp(n·ln|self|)` beyond), the
++    /// exactness and tie classification, and the ADR-0060 operand
++    /// ranges over which the correct-rounding claim is unconditional
++    /// all live on `ferrodec_transcend::pow::powi_kernel`.
++    ///
++    /// Preferred exponent (§9.2.2): `Q(pown(x, n))` is
++    /// `floor(n × Q(x))` where the result is exact.
++    #[must_use]
++    #[doc(alias = "pown")]
++    pub fn powi(self, n: i32, rm: RoundingMode) -> (Self, Status) {
++        ferrodec_transcend::pow::powi_kernel::<Decimal64>(self, n, rm)
++    }
++
+     /// IEEE 754-2019 §9.2 `cbrt(self)` rounded by `rm`. Defined for
+     /// all real x including negatives. `cbrt(±0) = ±0`,
+     /// `cbrt(±∞) = ±∞`, NaN propagates.
+diff --git a/ferrodec-transcend/src/exact.rs b/ferrodec-transcend/src/exact.rs
+index 21c3654..1e55a1e 100644
+--- a/ferrodec-transcend/src/exact.rs
++++ b/ferrodec-transcend/src/exact.rs
+@@ -1,4 +1,4 @@
+-//! Exact-result detection for `cbrt`, `pow`, `exp2`, `log2`,
++//! Exact-result detection for `cbrt`, `pow`, `powi`, `exp2`, `log2`,
+ //! `log10`, `log2p1`, and `log10p1` (IEEE 754-2019 §7.5).
+ //!
+ //! ## Why
+@@ -12,15 +12,18 @@
+ //! `exp`, `ln`, and the trig and hyperbolic families that is correct:
+ //! their values at non-special representable inputs are irrational
+ //! (Lindemann for the base-`e` family at rational arguments), and the
+-//! special inputs short-circuit. Ten functions are the exceptions:
++//! special inputs short-circuit. Eleven functions are the exceptions:
+ //! `exp2(n)` with `2^n` in reach of the width gate, `log2(2^k)`,
+ //! `log10(10^k)` (fd-aqs.8), `log2p1(2^k − 1)`, `log10p1(10^k − 1)`,
+ //! `exp2m1(n)`'s exact-and-tie family, `exp10(n)`'s whole-range
+ //! integer family, and `exp10m1(n)`'s all-nines family (ADR-0059
+ //! Track D), a
+-//! perfect cube under `cbrt`, and an
++//! perfect cube under `cbrt`, an
+ //! exact rational power under `pow` (the decimal Lauter–Lefèvre
+-//! criterion). Every one is decided from the *input alone* and
++//! criterion), and — the widest family of the eleven, since an
++//! integer exponent makes *every* result rational — a narrow enough
++//! `x^n` under `powi` (ADR-0059 Track D group D3). Every one is
++//! decided from the *input alone* and
+ //! short-circuits before the kernel, which both delivers the exact
+ //! value at every rounding direction and keeps the flags honest —
+ //! §7.5 forbids `INEXACT` on exact results.
+@@ -346,7 +349,10 @@ fn power_is_exact<F: DecimalFormat>(result: F, x: F, y: F) -> bool {
+ // width gate, `log10(x)` iff `x = 10^k`, `log2(x)` iff `x = 2^k`,
+ // `cbrt(x)` iff `x` is a perfect cube, `pow(x, y)` iff `x^y` is an
+ // exact rational of bounded width (the decimal Lauter–Lefèvre
+-// criterion below). Delivery through [`pack_value`] then yields the
++// criterion below), `powi(x, n)` iff the always-rational `x^n` is
++// narrow enough (that criterion at `b = 1`, where it stops being a
++// rationality test and becomes a width test).
++// Delivery through [`pack_value`] then yields the
+ // exact value and clean `OK` for representable results, and the
+ // correctly resolved rounding — tie rule included — for
+ // `PRECISION + 1`-digit results, in one move.
+@@ -1424,6 +1430,190 @@ pub(crate) fn pow_exact_input<F: DecimalFormat>(
+     Some(pack_value(coef, exp, false, rm))
+ }
+ 
++// ----------------------------------------------------------------------------
++// Input-side exact and tie classification for `powi` (IEEE 754-2019
++// §9.2 `pown`; ADR-0059 Track D group D3, the ADR-0060 premise).
++
++/// The widest decimal exponent [`powi_exact_input`] hands the format
++/// rounder, matching [`exp10_integer`]'s decode window so the two
++/// whole-range classifiers exercise the same envelope.
++///
++/// The window is a *soundness* bound, not a convenience one:
++/// `round_and_pack_finite` computes `qmin − unbiased_exp` in `i32`,
++/// which wraps once the exponent approaches `i32::MAX` (in a debug
++/// build it panics; in a release build it would ship a wrong
++/// disposition). Every classifier that can produce an exponent from
++/// an operand-scaled product — this one, and `pow`'s, whose
++/// `w = α·a` reaches `i32::MAX` at `pow(10, 2147483647)` — owes the
++/// rounder an exponent inside its tested envelope. See the bail proof
++/// on [`powi_exact_input`] for why declining past the window loses no
++/// boundary case.
++const POWI_EXPONENT_WINDOW: u64 = 99_999;
++
++/// The exact or tie value of `powi(x, n) = x^n` decided from the input
++/// alone, for a positive finite nonzero `abs_x` and any `n`; `None`
++/// routes to the kernel. The caller works on `|x|` under the
++/// negation-reflected rounding mode and re-applies the odd-`n` sign
++/// (the fd-aqs.5 rule), exactly as [`pow_exact_input`]'s caller does.
++///
++/// ## The criterion, with the denominator gone
++///
++/// This is [`pow_exact_input`]'s decimal Lauter–Lefèvre criterion at
++/// `|y| = a/b` with `(a, b) = (|n|, 1)`, which is not a special case
++/// so much as a collapse: `b = 1` divides every integer, so the
++/// `b | α` and `b | β` tests are vacuous, and `t = s^b` holds with
++/// `s = t` for every `t`, so the `nth_root_u128` search is gone too.
++/// **Every** representable `|x|` is a first power of itself, so
++/// `x^n` is rational for every `n` and the classification question is
++/// no longer "is it rational" but only "is the rational narrow
++/// enough to be a format value or a midpoint". That is the whole
++/// difference between this classifier and `pow`'s, and it is why the
++/// derivation is re-done here rather than shared: sharing the body
++/// would carry three tests whose answers are constants.
++///
++/// Factor the stripped `|x| = c · 10^e` as `2^α · 5^β · s` with
++/// `α = v₂(c) + e`, `β = v₅(c) + e` (both possibly negative) and `s`
++/// coprime to 10. Then
++///
++/// > `x^n = s^n · 2^(αn) · 5^(βn)`,
++///
++/// assembled as `coef · 10^w` with `u = αn`, `v = βn`,
++/// `w = min(u, v)` and `coef = s^|n| · 2^(u−w) · 5^(v−w)` for `n > 0`
++/// (`coef = 2^(u−w) · 5^(v−w)` for `n < 0`, where exactness needs
++/// `s = 1`). At most one of `u−w`, `v−w` is nonzero and `s` is
++/// coprime to 10, so `coef` is already stripped and its digit count
++/// is the value's: the `PRECISION + 1` gate then admits exactly the
++/// representable values and the nearest-mode midpoints, and
++/// [`pack_value`] resolves the mode, the tie rule, and the flags by
++/// construction.
++///
++/// ## The whole-range power-of-ten family (the D2 lesson, inverted)
++///
++/// `exp10_integer` had to classify `10^n` at *every* integer `n`,
++/// representable exponent or not, because such a value sits exactly
++/// ON a grid point at its own exponent and no rung of the ladder can
++/// move it off. The same hazard arrives here through the input rather
++/// than the output: for `x = 10^j` exactly (stripped coefficient 1),
++/// `x^n = 10^(j·n)` is on the grid at any magnitude. The general path
++/// above already covers it — `s = 1`, `α = β = j`, `coef = 1`,
++/// `w = j·n` — provided the product is formed in `i64`, which it is;
++/// an `i32` product would wrap and ship a wrong exponent, the one
++/// arithmetic mistake in this routine that would not announce itself.
++/// Inside `i32` the value is delivered through [`pack_value`], whose
++/// §7.4 disposition is correct by construction at any exponent,
++/// over/underflow and the directed-mode largest-finite cases
++/// included.
++///
++/// ## Bail-site completeness proofs
++///
++/// Every `None` below is provably neither exact nor a nearest-mode
++/// tie. The recurring facts: an exact-or-tie value has a *stripped*
++/// coefficient of at most `PRECISION + 1 ≤ 35` digits (in the
++/// subnormal range a midpoint is `(2k+1)·10^(etiny−1)` with
++/// `k < 10^PRECISION`, so the bound holds there too), and
++/// `|α|, |β| ≤ v₂/₅(c) + |e| < 6300` for every format.
++///
++/// * `n < 0` with `s ≠ 1`: `x^n = s^−|n| · 2^(−α|n|) · 5^(−β|n|)`.
++///   The powers of 2 and 5 fold into a decimal exponent, but `s ≥ 2`
++///   coprime to 10 makes `s^−|n|` a fraction whose lowest-terms
++///   denominator is `s^|n| ∤ 10^k` for every `k`: a non-terminating
++///   decimal, hence neither representable nor a midpoint (both
++///   terminate).
++/// * `du > 127` / `dv > 55`: `2^128` has 39 digits and `5^56` has 40,
++///   both past every format's `PRECISION + 1`, and `coef` is a
++///   multiple of that power. Wider than the gate means wider than a
++///   midpoint.
++/// * [`int_pow_u256`] / [`checked_mul_u256`] overflow: `coef` exceeds
++///   `U256`'s ~78 digit envelope, twice the widest gate.
++/// * The closing digit gate: the same fact stated directly.
++/// * `|w| > POWI_EXPONENT_WINDOW` (99,999): this bail is reached only
++///   *after* the digit gate, so the declined value is exactly
++///   `coef · 10^w` with `1 ≤ coef < 10^35`. Its logarithm is
++///   therefore `|n·ln|x|| = |ln(x^n)| ≥ 99,999·ln 10 − 81 > 230,000`,
++///   past both `exp` gates (the overflow limits 14,150 / 887 / 224
++///   and the underflow limits 14,221 / 918 / 235) of all three
++///   formats, so the kernel's saturation proxy answers it unguarded
++///   and correct by its own margin argument — the same 230,000 the
++///   [`exp10_integer`] beyond-the-decode-limit proof turns on, since
++///   both windows are the same size. The `|n| ≤ 6` powering arm,
++///   which has no gate to fall back on, never reaches this bail: its
++///   results carry `|w| ≤ 6·6211 = 37,266`, comfortably inside the
++///   window, so every on-grid value it could otherwise be handed is
++///   disposed of here instead.
++pub(crate) fn powi_exact_input<F: DecimalFormat>(
++    abs_x: F,
++    n: i32,
++    rm: RoundingMode,
++) -> Option<(F, Status)> {
++    let (coef, exp) = powi_exact_parts::<F>(abs_x, n)?;
++    Some(pack_value(coef, exp, false, rm))
++}
++
++/// The exact `(coefficient, decimal exponent)` of `|x|^n` when it is
++/// expressible in at most `F::PRECISION + 1` stripped digits at an
++/// `i32` exponent; `None` otherwise. Split out of
++/// [`powi_exact_input`] so the number theory is testable without a
++/// value-carrying format rounder (the mock format's
++/// `round_and_pack_finite` is `unreachable!`).
++fn powi_exact_parts<F: DecimalFormat>(abs_x: F, n: i32) -> Option<(U256, i32)> {
++    let (coef_x, exp_x, _) = abs_x.to_extended_parts()?;
++    if coef_x.is_zero() {
++        return None; // zeros are disposed of by the special cases
++    }
++    let (cx, ex) = strip_trailing_zeros(coef_x, exp_x);
++    // A format coefficient fits u128 (≤ 34 digits); bail defensively.
++    // Such a `c` is outside every format's input set, so no exact or
++    // tie case is lost.
++    if cx.hi != 0 {
++        return None;
++    }
++    let neg = n < 0;
++    // `i32::MIN.unsigned_abs()` is `2^31`, which `u32` holds exactly:
++    // no negation overflow anywhere below.
++    let a = n.unsigned_abs();
++    // |x| = 2^α · 5^β · s on the stripped parts. A stripped `c` shares
++    // no factor of ten, so at most one of v₂, v₅ is nonzero.
++    let v2 = factor_count(cx.lo, 2);
++    let v5 = factor_count(cx.lo, 5);
++    let s = cx.lo / 2u128.pow(v2) / 5u128.pow(v5);
++    let alpha = i64::from(v2) + i64::from(ex);
++    let beta = i64::from(v5) + i64::from(ex);
++    if neg && s != 1 {
++        return None; // 1/s^|n| is a non-terminating rational
++    }
++    // Exponents of 2 and 5 in the result. |α|, |β| < 6300 and
++    // `a ≤ 2^31` keep the products inside i64 with ten orders to
++    // spare; an i32 product would wrap on the power-of-ten family.
++    let mut u = alpha * i64::from(a);
++    let mut v = beta * i64::from(a);
++    if neg {
++        u = -u;
++        v = -v;
++    }
++    let w = u.min(v);
++    let (du, dv) = (u - w, v - w); // at least one is zero
++                                   // 2^128 has 39 digits and 5^56 has 40, both past every format's
++                                   // PRECISION + 1 (≤ 35): wider is neither exact nor a tie.
++    if du > 127 || dv > 55 {
++        return None;
++    }
++    let s_pow_n = if neg {
++        U256::from_u128(1)
++    } else {
++        int_pow_u256(U256::from_u128(s), a)?
++    };
++    let pow2 = int_pow_u256(U256::from_u128(2), du as u32)?;
++    let pow5 = int_pow_u256(U256::from_u128(5), dv as u32)?;
++    let coef = checked_mul_u256(checked_mul_u256(s_pow_n, pow2)?, pow5)?;
++    if coef.decimal_digit_count() > F::PRECISION + 1 {
++        return None;
++    }
++    if w.unsigned_abs() > POWI_EXPONENT_WINDOW {
++        return None;
++    }
++    Some((coef, w as i32))
++}
++
+ #[cfg(test)]
+ mod tests {
+     use super::*;
+@@ -1694,6 +1884,116 @@ mod tests {
+         assert_eq!(int_pow_u256(wide, 4), None);
+     }
+ 
++    /// The `powi` classifier's number theory, at the `Decimal128`
++    /// shape: every result narrow enough to be a format value or a
++    /// nearest-mode midpoint comes back as its exact `(coefficient,
++    /// exponent)`, stripped.
++    #[test]
++    fn powi_exact_parts_finds_the_narrow_powers() {
++        // (x coef, x exp, n) -> (result coef, result exp).
++        let cases: [(u128, i32, i32, u128, i32); 12] = [
++            (15, -1, 3, 3375, -3),           // 1.5^3 = 3.375
++            (2, -1, 2, 4, -2),               // 0.2^2 = 0.04
++            (2, 0, 3, 8, 0),                 // 2^3
++            (2, 0, -3, 125, -3),             // 2^-3 = 0.125
++            (2, 0, 112, 1 << 112, 0),        // the widest exact power of two
++            (2, 0, 113, (1u128 << 113), 0),  // PRECISION + 1 digits
++            (5, 0, 49, 5u128.pow(49), 0),    // the tie
++            (2, 0, -49, 5u128.pow(49), -49), // its negative mirror
++            (10, 0, 300, 1, 300),            // the power-of-ten family
++            (1, 1, -300, 1, -300),           // ... at a stripped input
++            (1, 0, i32::MAX, 1, 0),          // |x| = 1 at any exponent
++            (1, 0, i32::MIN, 1, 0),          // ... including i32::MIN
++        ];
++        for (cx, ex, n, want_c, want_e) in cases {
++            let got = powi_exact_parts::<ValueFmt128>(v128(cx, ex), n);
++            assert_eq!(got, Some((u(want_c), want_e)), "powi({cx}e{ex}, {n}) parts");
++        }
++    }
++
++    /// Every bail the classifier owes a completeness proof for, one
++    /// case each: a non-terminating reciprocal, a coefficient past the
++    /// `PRECISION + 1` gate, a `U256` overflow, and the 2- and 5-power
++    /// width gates.
++    #[test]
++    fn powi_exact_parts_declines_what_it_cannot_express() {
++        // 1/3^1 is a non-terminating rational: neither exact nor a tie.
++        assert_eq!(powi_exact_parts::<ValueFmt128>(v128(3, 0), -1), None);
++        assert_eq!(powi_exact_parts::<ValueFmt128>(v128(15, -1), -2), None);
++        // 2^117 has 36 digits, one past the PRECISION + 1 gate.
++        assert_eq!(powi_exact_parts::<ValueFmt128>(v128(2, 0), 117), None);
++        // 3^100 has 48 digits; 3^500 overflows U256 inside int_pow_u256.
++        assert_eq!(powi_exact_parts::<ValueFmt128>(v128(3, 0), 100), None);
++        assert_eq!(powi_exact_parts::<ValueFmt128>(v128(3, 0), 500), None);
++        // 2^-200 carries 5^200: past the du/dv width gates.
++        assert_eq!(powi_exact_parts::<ValueFmt128>(v128(2, 0), -200), None);
++    }
++
++    /// The exponent window, and the reason it is a *soundness* bound:
++    /// `round_and_pack_finite` computes `qmin − exp` in `i32`, so an
++    /// exponent near `i32::MAX` wraps there. Inside the window the
++    /// classifier delivers; outside it declines, and the kernel's
++    /// `exp` gate owns the disposition (the true value's logarithm
++    /// exceeds 230,000 past the window, well past every format's
++    /// gate).
++    #[test]
++    fn powi_exact_parts_respects_the_exponent_window() {
++        let window = i32::try_from(POWI_EXPONENT_WINDOW).unwrap();
++        // x = 10, so w = n exactly: the window edge and one past it.
++        assert_eq!(
++            powi_exact_parts::<ValueFmt128>(v128(10, 0), window),
++            Some((u(1), window))
++        );
++        assert_eq!(
++            powi_exact_parts::<ValueFmt128>(v128(10, 0), -window),
++            Some((u(1), -window))
++        );
++        assert_eq!(
++            powi_exact_parts::<ValueFmt128>(v128(10, 0), window + 1),
++            None
++        );
++        assert_eq!(
++            powi_exact_parts::<ValueFmt128>(v128(10, 0), -window - 1),
++            None
++        );
++        assert_eq!(powi_exact_parts::<ValueFmt128>(v128(10, 0), i32::MAX), None);
++        assert_eq!(powi_exact_parts::<ValueFmt128>(v128(10, 0), i32::MIN), None);
++    }
++
++    /// The exponent product is `i64` arithmetic, and this is the case
++    /// that proves it: `x = 10^4096` with `n = 1048576` has
++    /// `j·n = 2^32`, which an `i32` multiply wraps to exactly **zero**
++    /// — the classifier would then deliver `1 × 10^0 = 1` for a value
++    /// astronomically past `MAX`, with clean flags. A wrong answer
++    /// that looks entirely plausible is the one this routine cannot
++    /// afford, so the guard is a test rather than a comment.
++    #[test]
++    fn powi_exact_parts_forms_the_exponent_product_in_i64() {
++        let n = 1_048_576i32;
++        let j = 4096i32;
++        assert_eq!(i64::from(j) * i64::from(n), 1i64 << 32);
++        assert_eq!(j.wrapping_mul(n), 0, "the i32 product wraps to zero");
++        assert_eq!(powi_exact_parts::<ValueFmt128>(v128(1, j), n), None);
++        assert_eq!(powi_exact_parts::<ValueFmt128>(v128(1, -j), n), None);
++        assert_eq!(powi_exact_parts::<ValueFmt128>(v128(1, j), -n), None);
++    }
++
++    /// Cohort insensitivity: the classifier reads the stripped form,
++    /// so every cohort of a base produces the identical parts.
++    #[test]
++    fn powi_exact_parts_is_cohort_insensitive() {
++        for n in [-3i32, -1, 1, 2, 6, 7] {
++            let a = powi_exact_parts::<ValueFmt128>(v128(2, 0), n);
++            for (c, e) in [(20u128, -1i32), (200, -2), (2_000_000, -6)] {
++                assert_eq!(
++                    powi_exact_parts::<ValueFmt128>(v128(c, e), n),
++                    a,
++                    "powi({c}e{e}, {n}) must match powi(2, {n})"
++                );
++            }
++        }
++    }
++
+     #[test]
+     fn value_is_one_detects_unit_value() {
+         use crate::extended::u256_mul_u256;
+diff --git a/ferrodec-transcend/src/ladder.rs b/ferrodec-transcend/src/ladder.rs
+index ee98c89..9d287c8 100644
+--- a/ferrodec-transcend/src/ladder.rs
++++ b/ferrodec-transcend/src/ladder.rs
+@@ -70,6 +70,19 @@
+ //!   nines patterns exactly and the rest through an all nines proxy
+ //!   whose soundness is total digit knowledge rather than a margin
+ //!   (the proof lives at that classifier)..
++//! * `powi`'s exactly-expressible family (`x^n` with at most
++//!   `PRECISION + 1` stripped digits), the results *outside* the
++//!   format's exponent range included. Such a value is a grid point
++//!   or a midpoint at its own exponent whether or not that exponent
++//!   is representable, so the predicate reads distance zero and no
++//!   rung improves on it; `exact::powi_exact_input` hands the rounder
++//!   the true coefficient and the §7.4 disposition decides every
++//!   mode. The one family that classifier declines while still
++//!   sitting on the grid — an exact value whose decimal exponent
++//!   overflows `i32` — is astronomically past the `exp` gates, so the
++//!   saturation proxy answers it unguarded (the proof lives on the
++//!   classifier); together the two cases are what keeps `ladder_audit`
++//!   non-panicking over `powi`.
+ //! * `exp10`'s integer family (`x = n`), the integers *outside* the
+ //!   format's exponent range included, where the delivery is an
+ //!   overflow or underflow rather than an exact value. `10^n` is a
+@@ -456,6 +469,15 @@ fn cbrt_budget_dyn(p: u32) -> u128 {
+ fn pow_budget_dyn(p: u32) -> u128 {
+     10 * ((201 + 15 * u128::from(p)) * 14_151 + 3 * (u128::from(p) + 10))
+ }
++/// [`POWI_INT`] at `p`: precision-independent by construction — the
++/// powering arm's item count depends on `|n| ≤ 6`, not on the working
++/// width. Newton-seeded `recip` charges the module's flat 60, the ≤ 5
++/// working-precision multiplies charge 1 each through the ≤ 6×
++/// exponent amplification, and glue rounds the sum up: `(60 + 5·2 + 5)`
++/// ≈ 75, ×10 → 750.
++fn powi_int_budget_dyn(_p: u32) -> u128 {
++    750
++}
+ 
+ /// `exp`. Itemization (rung 1):
+ ///
+@@ -821,10 +843,70 @@ pub(crate) const POW: Budget = Budget {
+     dynamic: pow_budget_dyn,
+ };
+ 
++/// `powi(x, n) = x^n` on the binary-powering arm (`|n| ≤ 6`, IEEE
++/// 754-2019 §9.2 `pown`). Itemization (rung 1), all at *working*
++/// precision — the format-precision `int_pow` of `pow`'s fast path is
++/// a different routine with a different (H1-documented) error story:
++///
++/// * `from_format` of the base is exact (0 units); square-and-multiply
++///   for `|n| ≤ 6` executes at most 2 squarings and at most 2 rounding
++///   multiplies (the itemization budgets ≤ 3 and ≤ 2). A squaring
++///   doubles the accumulated relative error and adds its own rounding:
++///   the worst chain (`x → x² → x⁴`, then `x²·x⁴`) carries
++///   `1 → 3 → 5` units.
++/// * `n < 0` closes with a Newton-seeded `recip`: 15 units, plus the
++///   ≤ 5 units it inherits, ≈ 20. The operand is scaled into
++///   `[1, 10)` before the inversion and shifted back after (`pow`'s
++///   `working_reciprocal`, which keeps the Newton seed's format round
++///   trip in range); both steps are exact exponent arithmetic and
++///   charge nothing.
++///
++/// Sum ≈ 20; ×10 pad → 200, both rungs (the item count depends on
++/// `|n|`, never on the working width). Two consequences worth stating
++/// where the constant lives. First, this arm is what makes ADR-0060's
++/// unconditional tier claim reachable: the Liouville floor for
++/// `pown` at small `|n|` (`10^−(34|n|+2)` positive, `10^−(34|n|+36)`
++/// negative) is compared against `10^−109 · B₂`, and a budget of 200
++/// leaves `109 − log₁₀ 200 ≈ 106.7` digits of resolution — which
++/// clears the floor exactly on the operand ranges ADR-0060 tabulates
++/// (`n ∈ {−2, 2, 3}` bare, `−5 ≤ n ≤ 6` once the exact integer
++/// adjudicator lands). The `exp(n·ln|x|)` route's `~10^8` budget
++/// could not: routing small `|n|` through it would cost six decimal
++/// orders of resolution and put every one of those ranges out of
++/// reach. Second, the arm carries no over/underflow gate of its own —
++/// it does not need one, because `|n| ≤ 6` bounds the working result's
++/// decimal exponent by `6 · 6176` plus the working width (≈ 37,100,
++/// inside the envelope `exp10_integer` already exercises) and the
++/// format rounder's §7.4 disposition is correct at any exponent in
++/// it, while every value that sits exactly ON the grid out there is
++/// disposed of input side by `exact::powi_exact_input`.
++pub(crate) const POWI_INT: Budget = Budget {
++    rung1: 200,
++    rung2: 200,
++    dynamic: powi_int_budget_dyn,
++};
++
++/// `powi(x, n) = exp(n·ln|x|)` on the large-exponent arm (`|n| ≥ 7`).
++/// Itemization: [`POW`]'s verbatim — `ln`'s relative error plus the
++/// product rounding become absolute through the *same* `|n·ln x| ≤
++/// 14,151` overflow gate that bounds `|y·ln x|` there (the gate is a
++/// property of `exp`'s convergence window, not of how the argument
++/// was formed), and the [`EXP`] Taylor closes it. The only structural
++/// difference from `pow` is that the multiplier is an exact integer
++/// rather than a format value, which removes an error source rather
++/// than adding one. Same constants, same dynamic formula.
++pub(crate) const POWI: Budget = Budget {
++    rung1: 150_000_000,
++    rung2: 300_000_000,
++    dynamic: pow_budget_dyn,
++};
++
+ // Escalation-rate summary (Decimal128, the widest exposure; rate ≈
+ // 2 × rung1 × 10^-16 for a random input): trig ≈ 3%, tan ≈ 6%,
+-// pow ≈ 3e-8, cbrt ≈ 1e-8, exp family ≈ 1e-10, everything else
+-// ≤ 3e-12. Decimal64 rates are 10^18× smaller, Decimal32 smaller
++// pow and powi's large-|n| arm ≈ 3e-8, cbrt ≈ 1e-8, exp family
++// ≈ 1e-10, powi's powering arm ≈ 4e-14 (the narrowest budget in the
++// catalog), everything else ≤ 3e-12.
++// Decimal64 rates are 10^18× smaller, Decimal32 smaller
+ // still. The trig rate is the cost of carrying argred's analytic
+ // (not empirical) truncation bound; tightening it means moving the
+ // reduction bound, not shaving the pad.
+@@ -924,7 +1006,7 @@ mod tests {
+     /// escalate everything).
+     #[test]
+     fn budgets_are_positive_and_sane() {
+-        let all: [(&str, &Budget); 27] = [
++        let all: [(&str, &Budget); 29] = [
+             ("exp", &EXP),
+             ("exp2", &EXP2),
+             ("expm1", &EXPM1),
+@@ -952,6 +1034,8 @@ mod tests {
+             ("atanh", &ATANH),
+             ("cbrt", &CBRT),
+             ("pow", &POW),
++            ("powi_int", &POWI_INT),
++            ("powi", &POWI),
+         ];
+         for (name, b) in all {
+             assert!(b.rung1 > 0 && b.rung2 > 0, "{name}: zero budget");
+@@ -1056,7 +1140,7 @@ mod tests {
+     /// catalog have diverged and one of them is wrong.
+     #[test]
+     fn dynamic_budgets_track_the_rung2_catalog() {
+-        let all: [(&str, &Budget); 27] = [
++        let all: [(&str, &Budget); 29] = [
+             ("exp", &EXP),
+             ("exp2", &EXP2),
+             ("expm1", &EXPM1),
+@@ -1084,6 +1168,8 @@ mod tests {
+             ("atanh", &ATANH),
+             ("cbrt", &CBRT),
+             ("pow", &POW),
++            ("powi_int", &POWI_INT),
++            ("powi", &POWI),
+         ];
+         for (name, b) in all {
+             let at_110 = (b.dynamic)(110);
+diff --git a/ferrodec-transcend/src/pow.rs b/ferrodec-transcend/src/pow.rs
+index 491209b..3698c7b 100644
+--- a/ferrodec-transcend/src/pow.rs
++++ b/ferrodec-transcend/src/pow.rs
+@@ -6,6 +6,15 @@
+ //!
+ //! `pow(x, y)` — `x` raised to the power `y`.
+ //!
++//! The module also carries [`powi_kernel`] (IEEE 754-2019 §9.2
++//! `pown`), `x` raised to an `i32` power, which shares this module's
++//! sign rule and its `exp(·ln|x|)` composition but neither its
++//! special-value table nor its exactness classifier: an integer
++//! exponent legalises every negative base, makes every result
++//! rational, and admits a working-precision powering arm for small
++//! `|n|` that ADR-0060's floors require. Its own derivation lives on
++//! [`powi_kernel`] and [`powi_special_cases`].
++//!
+ //! ## Special cases (IEEE 754-2019 §9.2.1)
+ //!
+ //! Order matters for the NaN-and-zero tie-breakers:
+@@ -336,6 +345,294 @@ fn int_pow<F: DecimalFormat>(x: F, n: i32, rm: RoundingMode) -> (F, Status) {
+     (result, status)
+ }
+ 
++// ----------------------------------------------------------------------------
++// `powi` — IEEE 754-2019 §9.2 `pown`, `x` raised to an `i32` power
++// (ADR-0059 Track D group D3, under ADR-0060's kernel architecture
++// constraints).
++
++/// The exponent magnitude at which [`powi_kernel`] switches from
++/// binary powering at working precision to `exp(n·ln|x|)`.
++///
++/// ADR-0060 fixes the boundary, not convenience: the Liouville floor
++/// for `pown` degrades as `10^−(34|n|+2)`, so the operand range over
++/// which the two-rung claim can be unconditional is exactly the range
++/// where the powering arm's ~200-unit budget applies. Six is the
++/// widest `|n|` ADR-0060's table claims at all (`n` positive `≤ 6`,
++/// negative `≥ −5`, once the exact integer adjudicator lands); past
++/// it the floor is out of reach at any fixed rung and the cheaper
++/// `exp`/`ln` composition is the honest choice. `n = −6` runs the arm
++/// too — it is the faster route and the boundary is one constant, not
++/// two — it simply does not carry the unconditional claim.
++const POWI_POWERING_MAX: u32 = 6;
++
++/// Apply IEEE 754-2019 §9.2.1's `pown` special-value table without
++/// touching the working-precision path. `None` routes to the general
++/// path (finite nonzero `x`, `n ≠ 0`).
++///
++/// The table is transcribed from the standard row by row; the order
++/// below is the order the rows must be tested in, since `n = 0`
++/// outranks NaN propagation and both outrank the zero and infinity
++/// rows:
++///
++/// 1. `pown(x, 0)` is 1 if `x` is not a signaling NaN — quiet NaN and
++///    the infinities included. A signaling NaN takes the general
++///    §7.2 rule instead: quieted payload plus `INVALID`.
++/// 2. `pown(±0, n)` is `±∞` and signals `divideByZero` for odd
++///    `n < 0`, `+∞` and signals `divideByZero` for even `n < 0`,
++///    `+0` for even `n > 0`, and `±0` for odd `n > 0`.
++/// 3. `pown(+∞, n)` is `+∞` for `n > 0` and `+0` for `n < 0`;
++///    `pown(−∞, n)` is `−∞` for odd `n > 0`, `+∞` for even `n > 0`,
++///    `−0` for odd `n < 0`, and `+0` for even `n < 0`.
++/// 4. A quiet NaN operand propagates; a signaling NaN raises
++///    `INVALID` and returns the quieted payload.
++///
++/// A negative finite base is legal for **every** `n` — `n` is an
++/// integer by type, so `pow`'s rule 7 (`NaN + INVALID` for a
++/// non-integer exponent over a negative base) has no analog here, and
++/// there is no `pown(x, ±∞)` row because there is no infinite `n`.
++///
++/// ## Divergence from [`pow_special_cases`], deliberate
++///
++/// `pow_special_cases` returns `(1, INVALID)` for `pow(sNaN, ±0)`: it
++/// delivers the standard's value *and* raises, a documented
++/// conservative choice made because implementations disagree there.
++/// `pown` reads "is 1 if `x` is not a signaling NaN", which names the
++/// signaling case and excludes it, so this routine returns the
++/// quieted NaN. The two operations therefore disagree on
++/// `x = sNaN, n = 0`, by construction and per the standard's own
++/// wording; neither is changed to match the other.
++pub fn powi_special_cases<F: DecimalFormat>(x: F, n: i32) -> Option<(F, Status)> {
++    // Row 1: pown(x, 0) is 1 unless x signals.
++    if n == 0 {
++        if x.is_signaling_nan() {
++            return Some((x.nan_from(), Status::INVALID));
++        }
++        return Some((F::ONE, Status::OK));
++    }
++    // `i32::MIN % 2` is 0 (only `i32::MIN / -1` overflows), so the
++    // parity test is total over `i32`.
++    let odd = n % 2 != 0;
++    match x.classify() {
++        Class::SignalingNaN { .. } => Some((x.nan_from(), Status::INVALID)),
++        Class::QuietNaN { .. } => Some((x, Status::OK)),
++        Class::Zero { sign, .. } => {
++            let result_neg = sign && odd;
++            Some(if n < 0 {
++                (
++                    if result_neg {
++                        F::NEG_INFINITY
++                    } else {
++                        F::INFINITY
++                    },
++                    Status::DIV_BY_ZERO,
++                )
++            } else {
++                (if result_neg { F::NEG_ZERO } else { F::ZERO }, Status::OK)
++            })
++        }
++        Class::Infinity { sign } => {
++            let result_neg = sign && odd;
++            Some(if n < 0 {
++                (if result_neg { F::NEG_ZERO } else { F::ZERO }, Status::OK)
++            } else {
++                (
++                    if result_neg {
++                        F::NEG_INFINITY
++                    } else {
++                        F::INFINITY
++                    },
++                    Status::OK,
++                )
++            })
++        }
++        Class::Finite { .. } => None,
++    }
++}
++
++/// `x` raised to the integer power `n`: IEEE 754-2019 §9.2 `pown`.
++///
++/// ## Two arms, and why the boundary is a correctness constant
++///
++/// * `|n| ≤ 6`: square-and-multiply at *working* precision. Not the
++///   format-precision `int_pow` of `pow`'s fast path — that routine
++///   accumulates format ULPs and is only trusted when it happens to
++///   round exactly (the H1 finding of the 2026-05-10 review) — but
++///   the same recurrence carried at 50 or 110 digits, where the whole
++///   chain costs ~20 units of the last working place. ADR-0060 makes
++///   this arm load bearing rather than merely faster: the Liouville
++///   floor for `pown` is `10^−(34|n|+2)` for positive `n` and
++///   `10^−(34|n|+36)` for negative, and only a budget of this size
++///   (`ladder::POWI_INT`, 200) clears it at rung 2's 110 digits over
++///   the operand ranges ADR-0060 claims unconditional. Routing small
++///   `|n|` through `exp(n·ln|x|)` instead would spend six decimal
++///   orders on the `|ln x| ≤ 14151` amplification and put the claim
++///   out of reach.
++/// * `|n| ≥ 7`: `exp(n · ln|x|)`, `pow`'s rule-8 path with an exact
++///   integer multiplier in place of the format-valued `y`. Same
++///   `exp` gates, same composed budget shape (`ladder::POWI`), and
++///   the same ADR-0050 near-1-base reliance on `ln`'s direct path.
++///
++/// ## Sign
++///
++/// The result is negative exactly when `x` is negative and `n` is
++/// odd. Both arms evaluate `|x|^|n|`-shaped magnitudes and re-apply
++/// the sign at the end, so the magnitude is rounded under the
++/// negation-reflected mode (`rm.for_negation()`) and the directed
++/// modes land on the correct neighbour after the flip — the `cbrt`
++/// `for_negation` rule, fd-aqs.5, shared verbatim with [`pow_kernel`]
++/// and with the classifier.
++///
++/// ## Exactness, ties, and the over/underflow gates
++///
++/// An integer exponent makes `x^n` rational for *every* representable
++/// `x`, so — unlike every other §9.2 operation in this crate — the
++/// classification question is width, not rationality.
++/// `exact::powi_exact_input` decides it from the inputs alone: every
++/// value expressible in `PRECISION + 1` stripped digits at an `i32`
++/// exponent is delivered through the format rounder, exact ones with
++/// no `INEXACT` (§7.5), midpoints with the mode's own tie rule (the
++/// `powi(5, 49)` family), and out-of-range exponents with the §7.4
++/// over/underflow disposition of the rounding direction. Past the
++/// classifier the true value needs at least `PRECISION + 2` digits,
++/// so it is neither a grid point nor a midpoint and the kernels'
++/// unconditional `INEXACT` is correct in every mode.
++///
++/// That coherence is what keeps the `ladder_audit` lane quiet. On the
++/// `|n| ≥ 7` arm a magnitude past the `exp` gates saturates unguarded,
++/// which is sound because the gate thresholds put the true value past
++/// the last boundary; the `|n| ≤ 6` arm has no gate and needs none,
++/// because the format rounder's disposition is correct at any
++/// exponent. Either way the only inputs whose true value sits exactly
++/// ON a rounding boundary out there are the classifier's, and it owns
++/// them at every magnitude — including the whole-range power-of-ten
++/// family `x = 10^j`, whose `10^(j·n)` is on the grid at any `j·n`
++/// (the ADR-0059 Track D `exp10_integer` lesson, arriving through the
++/// input instead of the output). The single family the classifier
++/// declines while on the grid is an exact value whose exponent
++/// overflows `i32`, which its own proof shows is astronomically past
++/// both gates.
++///
++/// ## Accuracy
++///
++/// Correctly rounded on the ADR-0059 escalation ladder from this
++/// operation's first release, with the ADR-0060 caveat that the claim
++/// is *unconditional* only over the operand ranges that ADR tabulates
++/// (`n ∈ {−2, 2, 3}` in the bare two-rung build; `−5 ≤ n ≤ 6` once
++/// the exact integer adjudicator lands) and carries the Tier 1 / Tier
++/// 2 statement outside them. Rung 1 evaluates at 50 digits and
++/// delivers only when the arm's budget clears every rounding boundary
++/// of the format, otherwise the identical body re-runs at rung 2's
++/// 110 digits, and under the `unbounded-ladder` feature at a dynamic
++/// rung that widens until the rounding is decided.
++///
++/// The dynamic rung's termination width follows ADR-0060's
++/// `p ≈ D + log₁₀ B + 2` from the same floors: for `−5 ≤ n ≤ 6` that
++/// is `p ≤ 211`, inside the Ziv loop's 220-digit first attempt, which
++/// is the ADR's claim. `n = −6` is the one operand the ADR's
++/// dynamic-rung sentence ("first attempt for `pown |n| ≤ 6`") reads
++/// one wider than its own floor table supports: `D ≤ 34·6 + 36 = 240`
++/// puts its proven width at `p ≈ 245`, so it terminates at the first
++/// doubling (440) instead. Nothing in the delivery changes; only the
++/// proven bound moves one rung out, and it is recorded here rather
++/// than rounded off.
++#[doc(alias = "pown")]
++pub fn powi_kernel<F: DecimalFormat>(x: F, n: i32, rm: RoundingMode) -> (F, Status) {
++    ladder::ladder_run!(|ex| powi_kernel_body::<F, _>(ex, x, n, rm))
++}
++
++/// Generic body of [`powi_kernel`] (M4, ADR-0059); `None` escalates
++/// (M8 ladder). `ex` is the working-precision exemplar (M8b): the
++/// receiver the constant and constructor surface reads its width from,
++/// never a value the result depends on.
++pub(crate) fn powi_kernel_body<F: DecimalFormat, E: ExtNum>(
++    ex: E,
++    x: F,
++    n: i32,
++    rm: RoundingMode,
++) -> Option<(F, Status)> {
++    if let Some(early) = powi_special_cases(x, n) {
++        return Some(early);
++    }
++    // Past the table: `x` is finite and nonzero, `n` is nonzero.
++    let sign_neg = x.is_sign_negative() && n % 2 != 0;
++    let eff_rm = if sign_neg { rm.for_negation() } else { rm };
++    let abs_x = x.abs();
++
++    // Input-side exact and tie classification (ADR-0059 M7 machinery,
++    // ADR-0060 tripod leg 1): every result narrow enough to be a
++    // format value or a nearest-mode midpoint, at any exponent.
++    if let Some((mag, status)) = crate::exact::powi_exact_input::<F>(abs_x, n, eff_rm) {
++        return Some((if sign_neg { mag.neg() } else { mag }, status));
++    }
++
++    let (mag, status) = if n.unsigned_abs() <= POWI_POWERING_MAX {
++        powi_powering_arm::<F, E>(ex, abs_x, n, eff_rm)?
++    } else {
++        let ln_x_ext = ln_extended_body::<F, E>(ex, abs_x);
++        let n_ext = ex.from_i32(n);
++        exp_from_extended_body::<F, E>(n_ext.mul(ln_x_ext), eff_rm, &ladder::POWI)?
++    };
++    Some((if sign_neg { mag.neg() } else { mag }, status))
++}
++
++/// `|x|^n` for `|n| ≤ 6` by square-and-multiply at working precision,
++/// closed by a Newton `recip` for `n < 0`. `None` escalates.
++///
++/// The accumulator starts at the working `1`, so the first multiply
++/// of an odd `|n|` is exact (a format-sourced base has at most 34
++/// digits and the working width is at least 50); the itemization on
++/// [`ladder::POWI_INT`] counts it anyway.
++fn powi_powering_arm<F: DecimalFormat, E: ExtNum>(
++    ex: E,
++    abs_x: F,
++    n: i32,
++    eff_rm: RoundingMode,
++) -> Option<(F, Status)> {
++    let mut base = ex.from_format(abs_x);
++    let mut acc = ex.one();
++    let mut e = n.unsigned_abs();
++    while e > 0 {
++        if e & 1 == 1 {
++            acc = acc.mul(base);
++        }
++        e >>= 1;
++        if e > 0 {
++            base = base.square();
++        }
++    }
++    let value = if n < 0 {
++        working_reciprocal::<F, E>(acc)
++    } else {
++        acc
++    };
++    ladder::round_guarded::<F, E>(value, eff_rm, &ladder::POWI_INT)
++}
++
++/// `1 / v` at working precision for a positive nonzero `v`, with the
++/// operand first scaled into `[1, 10)` and the scale re-applied to the
++/// result as a pure exponent shift.
++///
++/// The scaling is not an optimization. `ExtNum::recip` seeds Newton by
++/// round-tripping its operand through the *format*, and this is the
++/// crate's first caller that can hand it a magnitude outside the
++/// format's exponent range: `powi(1.7e2000, -6)` accumulates `≈
++/// 2.4e12000` before the reciprocal, whose `to_format` is `+∞` and
++/// whose `from_format` then panics on the non-finite datum. Every
++/// earlier caller (`div`, the trig and inverse-trig
++/// kernels) works on operands the surrounding algebra already keeps in
++/// range, so the seam only opens here. Scaling to `[1, 10)` closes it
++/// for every format at once, and it costs nothing measurable in the
++/// budget: `with_exponent` and `mul_pow10_exp` are exact exponent
++/// arithmetic, so the itemization on [`ladder::POWI_INT`] is unchanged.
++fn working_reciprocal<F: DecimalFormat, E: ExtNum>(v: E) -> E {
++    let digits = v.digit_count() as i32;
++    // `v = unit · 10^shift` with `unit ∈ [1, 10)`, so
++    // `1/v = (1/unit) · 10^-shift` and `1/unit ∈ (0.1, 1]`.
++    let shift = v.exponent() + digits - 1;
++    let unit = v.with_exponent(1 - digits);
++    unit.recip::<F>().mul_pow10_exp(-shift)
++}
++
+ /// Classify the exponent `y` as an integer (and which kind) or not.
+ #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+ enum IntegerKind {
+diff --git a/src/math/pow.rs b/src/math/pow.rs
+index 4260346..5b800f4 100644
+--- a/src/math/pow.rs
++++ b/src/math/pow.rs
+@@ -14,6 +14,29 @@ impl Decimal128 {
+         ferrodec_transcend::pow::pow_kernel::<Decimal128>(self, exp, rm)
+     }
+ 
++    /// IEEE 754-2019 §9.2 `pown(self, n)`: `self` raised to the
++    /// integer power `n`.
++    ///
++    /// A negative base is legal for every `n` (the exponent is an
++    /// integer by type, so `pow`'s negative-base `INVALID` has no
++    /// analog); the result is negative exactly when `self` is negative
++    /// and `n` is odd. Pure delegation onto the shared kernel, which
++    /// resolves every §9.2.1 special value internally and runs the
++    /// ADR-0059 escalation ladder from this operation's first release.
++    /// The special-value table, the two-arm kernel (working-precision
++    /// powering for `|n| ≤ 6`, `exp(n·ln|self|)` beyond), the
++    /// exactness and tie classification, and the ADR-0060 operand
++    /// ranges over which the correct-rounding claim is unconditional
++    /// all live on `ferrodec_transcend::pow::powi_kernel`.
++    ///
++    /// Preferred exponent (§9.2.2): `Q(pown(x, n))` is
++    /// `floor(n × Q(x))` where the result is exact.
++    #[must_use]
++    #[doc(alias = "pown")]
++    pub fn powi(self, n: i32, rm: RoundingMode) -> (Self, Status) {
++        ferrodec_transcend::pow::powi_kernel::<Decimal128>(self, n, rm)
++    }
++
+     /// Kani-only entry point that returns the IEEE 754-2019 §9.2.1
+     /// special-case branch only (rules 1–7), without invoking the
+     /// `Extended`-precision `exp(y · ln(x))` pipeline.

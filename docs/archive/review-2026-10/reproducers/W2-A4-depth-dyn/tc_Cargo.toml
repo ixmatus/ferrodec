@@ -1,0 +1,30 @@
+[package]
+name = "ferrodec-transcend"
+version = "0.3.0"
+edition = "2021"
+
+[workspace]
+
+[features]
+default = []
+fmt = []
+trig = ["fmt"]
+exp-log = ["fmt"]
+hyperbolic = ["exp-log"]
+pow = ["exp-log"]
+trig-pi = ["fmt"]
+transcendentals = ["trig", "exp-log", "hyperbolic", "pow", "trig-pi"]
+unbounded-ladder = ["ferrodec-multiword/alloc"]
+telemetry = []
+
+[dependencies]
+ferrodec-ieee = { path = "../../../../../../ferrodec-ieee" }
+ferrodec-multiword = { path = "../../../../../../ferrodec-multiword" }
+
+[dev-dependencies]
+proptest = "1"
+astro-float = "0.9"
+ferrodec-test-support = { path = "../../../../../../ferrodec-test-support" }
+
+[lints.rust]
+unexpected_cfgs = { level = "allow" }

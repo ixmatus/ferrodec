@@ -1,0 +1,16 @@
+[package]
+name = "b1drv"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ferrodec = { path = "../../../../../.." }
+ferrodec-test-support = { path = "../../../../../../ferrodec-test-support" }
+ferrodec-ieee = { path = "../../../../../../ferrodec-ieee" }
+num-bigint = "*"
+
+[profile.release]
+debug-assertions = true
+overflow-checks = true
+
+[workspace]

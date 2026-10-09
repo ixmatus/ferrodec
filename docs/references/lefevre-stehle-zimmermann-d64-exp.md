@@ -5,12 +5,12 @@ citation: "Lefèvre, V., Stehlé, D., Zimmermann, P. Worst Cases for the Exponen
 canonical: "https://drops.dagstuhl.de/entities/document/10.4230/DagSemProc.06021.11"
 doi: "10.4230/DagSemProc.06021.11 (Dagstuhl); 10.1007/978-3-540-85521-7_7 (LNCS)"
 archived: "https://web.archive.org/web/20260217115028/https://drops.dagstuhl.de/entities/document/10.4230/DagSemProc.06021.11 (page); https://web.archive.org/web/20251210020530/https://drops.dagstuhl.de/storage/16dagstuhl-seminar-proceedings/dsp-vol06021/DagSemProc.06021.11/DagSemProc.06021.11.pdf (PDF); https://web.archive.org/web/20251119101245/https://inria.hal.science/inria-00068731 (HAL author deposit, the pre-certification capture)"
-archive-date: "2026-08-09 (both captures verified live at citation time)"
+archive-date: "2026-08-09"
 retrieved: "2026-08-09"
 sha256: 3b364d18082f9e90f65c48514adc69390ad3079d5f7c6b6e4d9409506b271324
 license: "CC BY 4.0 (the Dagstuhl deposit). The Springer LNCS version is paywalled and cited as a pointer only."
-vendor-status: "values-transcribed: Tables 2-3 and the §3.2 pattern cases live in tools/gen_lsz_d64_exp.py under the CC BY attribution; no PDF copy is vendored (pointer plus archive)."
-rot-risk: institutional-archive
+vendor-status: pointer-only
+rot-risk: stable-publisher
 provenance: primary
 consumers:
   - tools/gen_lsz_d64_exp.py
@@ -21,7 +21,7 @@ consumers:
 verification:
   - tests/corpus_integrity.rs
   - ferrodec-decimal64/tests/transcend_lsz_exp.rs
-notes: "The only externally certified worst-case table in any IEEE decimal format. Every transcribed row's claimed digit expansion is reproduced in Arb ball arithmetic by the generator before a corpus line is emitted, so the committed vectors are certified against the paper rather than trusted from it."
+notes: "The only externally certified worst-case table in any IEEE decimal format. Every transcribed row's claimed digit expansion is reproduced in Arb ball arithmetic by the generator before a corpus line is emitted, so the committed vectors are certified against the paper rather than trusted from it. Both archive captures were verified live at citation time (2026-08-09). Tables 2-3 and the §3.2 pattern cases are transcribed into tools/gen_lsz_d64_exp.py under the CC BY 4.0 attribution; no PDF copy is vendored (pointer plus archive), hence vendor-status pointer-only. rot-risk stable-publisher is the nearest schema class for the Dagstuhl DROPS institutional archive."
 ---
 
 # Lefèvre–Stehlé–Zimmermann: decimal64 exp worst cases

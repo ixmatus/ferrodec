@@ -1,0 +1,9 @@
+[package]
+name = "c3-cohort"
+version = "0.0.0"
+edition = "2021"
+[workspace]
+[dependencies]
+ferrodec = { path = "../../../../../..", features = ["transcendentals"] }
+ferrodec-transcend = { path = "../../../../../../ferrodec-transcend" }
+ferrodec-ieee = { path = "../../../../../../ferrodec-ieee" }

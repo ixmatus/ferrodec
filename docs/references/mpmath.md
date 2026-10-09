@@ -1,7 +1,7 @@
 ---
 slug: mpmath
 category: oracle
-citation: "Johansson, F. et al. mpmath: a Python library for arbitrary-precision floating-point arithmetic, version 1.x. mpmath.org."
+citation: "Johansson, F. et al. mpmath: a Python library for arbitrary-precision floating-point arithmetic, version 1.x; the review machine runs 1.4.1 as a user site install under /usr/bin/python3 3.9.6 (2026-10 review). mpmath.org."
 canonical: "https://mpmath.org/"
 doi: none
 archived: "https://web.archive.org/web/20260609032917/https://mpmath.org/"
