@@ -33,7 +33,10 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 echo "=== preflight: $(rustc --version) / $(cargo --version)"
-echo "=== preflight: $(rustup check 2>/dev/null | grep '^stable' || echo 'rustup check unavailable (offline?)')"
+# `rustup check` exits 100 when any toolchain has an update, so its exit
+# status is not "unavailable"; only an empty report is.
+preflight_check="$({ rustup check 2>/dev/null || true; } | grep '^stable' || true)"
+echo "=== preflight: ${preflight_check:-rustup check unavailable (offline?)}"
 
 FAILED=()
 
