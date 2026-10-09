@@ -2,10 +2,10 @@
 
 | crate | src_files | src_lines | test_files | test_lines | #[test] | #[kani::proof] | proptest! | #[ignore] | as casts (src) | unwrap (prod) | expect (prod) | panic! (prod) | unreachable! (prod) |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| ferrodec | 71 | 20678 | 77 | 22596 | 1140 | 87 | 45 | 2 | 372 | 1 | 14 | 3 | 11 |
-| ferrodec-decimal64 | 61 | 18622 | 52 | 15846 | 891 | 104 | 17 | 0 | 311 | 13 | 49 | 5 | 30 |
-| ferrodec-decimal32 | 61 | 19666 | 53 | 15991 | 930 | 105 | 22 | 2 | 329 | 21 | 48 | 3 | 30 |
-| ferrodec-transcend | 27 | 23036 | 0 | 0 | 172 | 0 | 1 | 0 | 241 | 0 | 28 | 9 | 3 |
+| ferrodec | 71 | 20678 | 77 | 22596 | 1140 | 87 | 45 | 2 | 372 | 0 | 14 | 3 | 11 |
+| ferrodec-decimal64 | 61 | 18622 | 52 | 15846 | 891 | 104 | 17 | 0 | 311 | 12 | 49 | 5 | 30 |
+| ferrodec-decimal32 | 61 | 19666 | 53 | 15991 | 930 | 105 | 22 | 2 | 329 | 12 | 48 | 3 | 30 |
+| ferrodec-transcend | 27 | 23069 | 0 | 0 | 172 | 0 | 1 | 0 | 241 | 0 | 28 | 9 | 3 |
 | ferrodec-decimal | 29 | 7037 | 10 | 2807 | 168 | 0 | 2 | 0 | 94 | 0 | 60 | 0 | 1 |
 | ferrodec-multiword | 8 | 4218 | 1 | 123 | 127 | 0 | 1 | 0 | 110 | 0 | 2 | 0 | 0 |
 | ferrodec-ieee | 6 | 920 | 0 | 0 | 20 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |

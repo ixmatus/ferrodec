@@ -42,7 +42,11 @@ def production_text(path):
     module convention in this workspace), with comment lines dropped."""
     out = []
     for line in path.read_text(errors="replace").split("\n"):
-        if line.startswith("#[cfg(test)]"):
+        # A column zero test module gate ends production code; the
+        # `cfg(all(test, feature = ...))` and `cfg(any(test, ...))` forms
+        # count too (C4-13: the first version missed them and counted
+        # test helpers as production unwrap sites).
+        if re.match(r"#\[cfg\((all|any)\(test\b|#\[cfg\(test\)\]", line):
             break
         if line.lstrip().startswith("//"):
             continue

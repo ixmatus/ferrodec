@@ -33,9 +33,20 @@ session scratchpad), and `{{READER}}`. The plan's wave tables name
 the readers: Wave 1 C1 C2 C5 D2 D3; Wave 2 A1 to A5; Wave 3 B1 to B5;
 Wave 4 C3 C4 D1 D4.
 
+## Verification records and reader reports
+
+| file | what |
+|---|---|
+| `phase1b-derivations.md` | the coordinator's own derivations (budgets, the Newton table, the adjudicator read, the generator pins), written before any reader's version existed |
+| `wave1-verification.md`, `wave2-verification.md`, `wave3-verification.md`, `wave4-verification.md` | the coordinator's verdict on every reader finding, with the rerun result, the ruling and the closure; the trust table, the contradiction list and the per wave handoffs live here |
+| `readers/<reader>.md` | each reader's report saved verbatim from its hand-back (nineteen readers: C1 C2 C5 D2 D3; A1 to A5; B1 to B5; C3 C4 D1 D4) |
+
 ## Reproducers
 
 `reproducers/<finding-id>/` holds the script or scratch crate and the
 captured output lines for every finding the report marks confirmed,
 with a `README.md` naming the oracle environment it needs. Added as
-each wave's verification session closes.
+each wave's verification session closes. `P1B-*` are the coordinator's
+Phase 1b reproducers; `W2-*`, `W3-*`, `W4-*` are the readers' scratch
+crates and scripts, copied with relative path dependencies and the
+coordinator's rerun logs beside the readers' outputs.

@@ -1,7 +1,7 @@
 ---
 slug: c23-draft
 category: spec
-citation: "ISO/IEC 9899:2024 (C23), Annex F (IEC 60559 floating-point arithmetic), F.10.1.9-F.10.1.12 and F.10.4.6-F.10.4.9 (the sinpi/cospi/tanpi and asinpi/acospi/atanpi/atan2pi special-value rows). Free proxy: WG14 working draft N3220."
+citation: "ISO/IEC 9899:2024 (C23), Annex F (IEC 60559 floating-point arithmetic), F.10.1.8-F.10.1.11 (acospi, asinpi, atanpi, atan2pi) and F.10.1.12-F.10.1.14 (cospi, sinpi, tanpi) special-value rows. Free proxy: WG14 working draft N3220, 2024-02-21 (the archived PDF's metadata; header ISO/IEC 9899:2024 working draft). Clause numbers corrected by the 2026-10 review (D4-2) against the archived draft."
 canonical: "https://www.open-std.org/jtc1/sc22/wg14/www/docs/n3220.pdf"
 doi: none
 archived: "https://web.archive.org/web/20260727064913/https://www.open-std.org/jtc1/sc22/wg14/www/docs/n3220.pdf"

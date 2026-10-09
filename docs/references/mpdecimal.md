@@ -1,7 +1,7 @@
 ---
 slug: mpdecimal
 category: oracle
-citation: "Krah, S. mpdecimal (libmpdec), the arbitrary precision decimal library underlying CPython's decimal module. bytereef.org, 2008 to 2025."
+citation: "Krah, S. mpdecimal (libmpdec), the arbitrary precision decimal library underlying CPython's decimal module. bytereef.org, 2008 to 2025. The review machine runs libmpdec 2.5.0 as shipped in CPython 3.9.6 (decimal.__libmpdec_version__, 2026-10 review)."
 canonical: "https://www.bytereef.org/mpdecimal/index.html"
 doi: none
 archived: "https://web.archive.org/web/20260517130620/https://www.bytereef.org/mpdecimal/index.html"

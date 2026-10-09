@@ -7,10 +7,12 @@ One line per entry; the entry file is the single home for every fact
 - [astro-float](astro-float.md) — oracle — pure Rust faithful oracle for the transcendental property suites
 - [brent-zimmermann-mca](brent-zimmermann-mca.md) — algorithm — Modern Computer Arithmetic, the DecBig performance algorithms handbook
 - [brisebarre-muller-2007](brisebarre-muller-2007.md) — algorithm — diophantine bounds for correctly rounding algebraic functions, Engine B's method family
+- [c23-draft](c23-draft.md) — spec — C23 Annex F pi-scaled special-value rows, the second §9.2.1 proxy for the D4 family
 - [core-math](core-math.md) — algorithm — CORE-MATH correctly rounded binary libm, the contemporary program the decimal flag positions against
-- [cowlishaw-dectest](cowlishaw-dectest.md) — conformance — General Decimal Arithmetic Testcases suite 2.62, vendored with hash pins, with the coverage-gap statement
-- [cowlishaw-gda-arith](cowlishaw-gda-arith.md) — spec — General Decimal Arithmetic Specification 1.70, the GDA semantic authority
 - [cowlishaw-algorism-2003](cowlishaw-algorism-2003.md) — history — the ARITH-16 case-for-decimal paper behind the 754-2008 formats
+- [cowlishaw-dectest](cowlishaw-dectest.md) — conformance — General Decimal Arithmetic Testcases suite 2.62, vendored with hash pins, with the coverage-gap statement
+- [cowlishaw-dpd-2002](cowlishaw-dpd-2002.md) — algorithm — Cowlishaw's DPD summary page, the declet equations the three codecs transcribe
+- [cowlishaw-gda-arith](cowlishaw-gda-arith.md) — spec — General Decimal Arithmetic Specification 1.70, the GDA semantic authority
 - [crlibm](crlibm.md) — algorithm — CRlibm correctly rounded libm, rejected alternative whose original host died
 - [decimal-thread](decimal-thread.md) — history — the REXX to GDA to 754-2008 lineage and its load bearing consequence
 - [decnumber](decnumber.md) — oracle — decNumber 3.68, the GDA reference implementation consulted as a behavioral model
@@ -19,6 +21,8 @@ One line per entry; the entry file is the single home for every fact
 - [failure-d64-quantize-pow10](failure-d64-quantize-pow10.md) — failure — Decimal64 quantize pads above 9 returned NaN (open, fd-aqs.2)
 - [failure-directed-rounding-seam](failure-directed-rounding-seam.md) — failure — grid-stuck directed rounding lost the residual's sign (fixed, ADR-0051)
 - [failure-min-positive-normal](failure-min-positive-normal.md) — failure — MIN_POSITIVE_NORMAL wrong on all three formats (open, fd-aqs.1)
+- [failure-one-sided-faithful-oracle](failure-one-sided-faithful-oracle.md) — failure — the faithful oracle's compare was signed, every property suite blind on the low side (2026-10 review C1-1, open)
+- [failure-pow-exponent-window](failure-pow-exponent-window.md) — failure — pow's exact classifier passed an unbounded exponent to the rounder (fd-clc, closed 6ad73ff)
 - [failure-self-referential-metamorphic](failure-self-referential-metamorphic.md) — failure — identities whose both sides shared one kernel verified nothing (ADR-0025)
 - [glossary](glossary.md) — glossary — the decimal-754 vocabulary, defined against the GDA spec and IEEE 754-2019
 - [goldberg-1991](goldberg-1991.md) — algorithm — What Every Computer Scientist Should Know About Floating-Point Arithmetic
@@ -26,6 +30,7 @@ One line per entry; the entry file is the single home for every fact
 - [ieee-754-2008](ieee-754-2008.md) — spec — the revision that brought decimal and the BID/DPD encodings into IEEE 754 (lineage)
 - [ieee-754-2019](ieee-754-2019.md) — spec — IEEE Std 754-2019, the storage and operation authority for the fixed formats
 - [ieee-854-1987](ieee-854-1987.md) — spec — the radix independent ancestor GDA's context model descends from (lineage)
+- [intel-dfp-math-library](intel-dfp-math-library.md) — oracle — Intel's BID reference library, the behavioural oracle for finite BID bit patterns (B1-1)
 - [iordache-matula-1999](iordache-matula-1999.md) — algorithm — the ARITH-14 precursor exclusion zone bounds, cited as lineage via lang-muller-2001
 - [karatsuba-1962](karatsuba-1962.md) — algorithm — divide and conquer multiplication, consulted through Knuth §4.3.3
 - [knuth-taocp-v2](knuth-taocp-v2.md) — algorithm — TAOCP volume 2, Algorithm D long division and the Karatsuba treatment
@@ -33,13 +38,9 @@ One line per entry; the entry file is the single home for every fact
 - [lauter-lefevre-pow-boundary](lauter-lefevre-pow-boundary.md) — algorithm — the pow rounding boundary classification, shape of the decimal exact-case rederivation
 - [lefevre-2000](lefevre-2000.md) — algorithm — hardest-to-round search thesis, the proof shape behind ADR-0032
 - [lefevre-stehle-zimmermann-d64-exp](lefevre-stehle-zimmermann-d64-exp.md) — conformance — the published decimal64 exp worst cases, recertified through Arb and replayed as the d64 external anchor gate (fd-4zo.7)
-- [mpdecimal](mpdecimal.md) — oracle — libmpdec via CPython decimal, the differential oracle
 - [matveev-2000](matveev-2000.md) — algorithm — explicit linear forms in logarithms, the S5 exp/ln/pow termination floor (recalled citation, verify)
+- [mpdecimal](mpdecimal.md) — oracle — libmpdec via CPython decimal, the differential oracle
 - [mpfr](mpfr.md) — oracle — MPFR via rug behind mpfr-gate, the independent corpus re-derivation
-- [c23-draft](c23-draft.md) — spec — C23 Annex F pi-scaled special-value rows, the second §9.2.1 proxy for the D4 family
-- [salikhov-2008](salikhov-2008.md) — algorithm — mu(pi) <= 7.6063, the prior irrationality-measure record (recalled citation, verify)
-- [shidlovskii-e-functions](shidlovskii-e-functions.md) — algorithm — E-function transcendence measures, the S5 recorded dead end (recalled citation, verify)
-- [zeilberger-zudilin-2020](zeilberger-zudilin-2020.md) — algorithm — mu(pi) <= 7.1032 (arXiv live-verified), the S5 huge-argument trig cap input
 - [mpmath](mpmath.md) — oracle — adaptive precision breadth oracle and anchor band corpus generator
 - [muller-elementary-functions](muller-elementary-functions.md) — algorithm — Elementary Functions, the per-function range reduction playbook
 - [muller-handbook-2018](muller-handbook-2018.md) — algorithm — Handbook of Floating-Point Arithmetic, the fixed precision envelope proofs
@@ -51,8 +52,11 @@ One line per entry; the entry file is the single home for every fact
 - [registry-rounding-modes](registry-rounding-modes.md) — registry — the five rounding directions, pinned to ferrodec_ieee::RoundingMode
 - [registry-status-flags](registry-status-flags.md) — registry — the six exception flags, pinned to ferrodec_ieee::Status
 - [rlibm](rlibm.md) — algorithm — RLIBM correct rounding by interval construction, the binary-only contrast
+- [salikhov-2008](salikhov-2008.md) — algorithm — mu(pi) <= 7.6063, the prior irrationality-measure record (recalled citation, verify)
 - [salikhov-zudilin-pi-irrationality](salikhov-zudilin-pi-irrationality.md) — algorithm — the explicit irrationality measure of pi, the huge-argument trig cap
+- [shidlovskii-e-functions](shidlovskii-e-functions.md) — algorithm — E-function transcendence measures, the S5 recorded dead end (recalled citation, verify)
 - [shidlovskii-transcendence](shidlovskii-transcendence.md) — algorithm — E-function transcendence measures, the no-ties facts and the measures question
 - [slz-worst-cases](slz-worst-cases.md) — algorithm — lattice reduction worst case search, the frontier that stops short of decimal128
 - [verification-map](verification-map.md) — verification — claim to mechanism to artifact, the how-is-this-known table
+- [zeilberger-zudilin-2020](zeilberger-zudilin-2020.md) — algorithm — mu(pi) <= 7.1032 (arXiv live-verified), the S5 huge-argument trig cap input
 - [ziv-1991](ziv-1991.md) — algorithm — adaptive precision correct rounding, rejected for the fixed formats
