@@ -1,0 +1,129 @@
+--- /Users/parnell/Development/ferrodec/ferrodec-transcend/Cargo.toml	2026-10-08 16:15:07
++++ ferrodec-transcend/Cargo.toml	2026-10-09 01:02:09
+@@ -50,3 +50,7 @@
+ 
+ [lints]
+ workspace = true
++
++[dev-dependencies.ferrodec-decimal32]
++path = "../ferrodec-decimal32"
++features = ["transcendentals"]
+--- /Users/parnell/Development/ferrodec/ferrodec-transcend/src/argred.rs	2026-10-08 16:15:06
++++ ferrodec-transcend/src/argred.rs	2026-10-09 00:52:21
+@@ -267,11 +267,11 @@
+ /// multiple of π/2) still leave `143 − 33 = 110` surviving significant
+ /// digits in `y_signed` — the full `EXT2_PRECISION` envelope, where
+ /// rung 1's 76 leaves 43 against its 50.
+-#[allow(dead_code)] // reached at M8, when the ladder wires rung 2
++
+ const FRAC2_DIGITS: u32 = 143;
+ /// Window high-end offset for rung 2 (`i_hi = q + I_HI_OFFSET2`); the
+ /// same `33 + CARRY_GUARD` tail the rung 1 offset carries.
+-#[allow(dead_code)] // reached at M8, when the ladder wires rung 2
++
+ const I_HI_OFFSET2: u32 = FRAC2_DIGITS + 33 + CARRY_GUARD; // = 180
+ 
+ /// 115 leading decimal digits of π/2 as a `U384` (truncated, not
+@@ -287,13 +287,13 @@
+ /// resolution and more than seventy below any format's half-ULP
+ /// margin — exactly the "80-digit U384 π/2 path" that constant's doc
+ /// deferred, delivered at 115 digits.
+-#[allow(dead_code)] // reached at M8, when the ladder wires rung 2
++
+ const PI_OVER_TWO_COEF2: U384 = U384 {
+     lo: table::PI_OVER_TWO_COEF2_LO,
+     mid: table::PI_OVER_TWO_COEF2_MID,
+     hi: table::PI_OVER_TWO_COEF2_HI,
+ };
+-#[allow(dead_code)] // reached at M8, when the ladder wires rung 2
++
+ const PI_OVER_TWO_EXP2: i32 = -114;
+ 
+ // ----------------------------------------------------------------------------
+@@ -646,7 +646,7 @@
+ // the original input, so no rung 1 state is reused.
+ 
+ /// Build the rung 2 window `W` as a `U768` (up to 182 digits).
+-#[allow(dead_code)] // reached at M8, when the ladder wires rung 2
++
+ fn extract_window_wide(i_lo: usize, i_hi: usize) -> U768 {
+     debug_assert!(i_lo >= 1 && i_hi <= table::TWO_OVER_PI_DIGITS && i_lo <= i_hi);
+     let mut w = U768::ZERO;
+@@ -658,7 +658,7 @@
+ }
+ 
+ /// Rung 2 sibling of [`Split`]: 143 fractional digits.
+-#[allow(dead_code)] // reached at M8, when the ladder wires rung 2
++
+ struct SplitWide {
+     floor_mod_100: u32,
+     frac_digits: [u8; FRAC2_DIGITS as usize],
+@@ -667,7 +667,7 @@
+ /// Rung 2 sibling of [`split_product`]: peel the `U768` windowed
+ /// product into integer-mod-100 and the 143 leading fractional digits,
+ /// discarding the same `33 + CARRY_GUARD`-digit unread tail.
+-#[allow(dead_code)] // reached at M8, when the ladder wires rung 2
++
+ fn split_product_wide(mut p: U768) -> SplitWide {
+     let mut frac = [0u8; FRAC2_DIGITS as usize];
+ 
+@@ -702,7 +702,7 @@
+ /// π/2 truncation itself, both inside the 110-digit envelope). The
+ /// worst-case 33-zero cancellation leaves 110 significant digits, in
+ /// which case nothing is dropped at all.
+-#[allow(dead_code)] // reached at M8, when the ladder wires rung 2
++
+ fn make_residual_wide(
+     frac_digits: [u8; FRAC2_DIGITS as usize],
+     rounded_up: bool,
+@@ -762,7 +762,7 @@
+ 
+ /// Convert a `U768` known to fit 384 bits (≤ 115 decimal digits).
+ #[inline]
+-#[allow(dead_code)] // reached at M8, when the ladder wires rung 2
++
+ fn u768_low_to_u384(c: U768) -> U384 {
+     debug_assert!(
+         c.limbs[3] == 0 && c.limbs[4] == 0 && c.limbs[5] == 0,
+@@ -779,7 +779,7 @@
+ /// [`Extended2`] precision (up to 110 surviving digits against
+ /// rung 1's 43). Same contract as [`reduce`] otherwise; `x` finite,
+ /// sign separated by the caller.
+-#[allow(dead_code)] // reached at M8, when the ladder wires rung 2
++
+ pub(crate) fn reduce_wide<F: DecimalFormat>(x: F) -> (u32, Extended2, Status) {
+     let cls = x.classify();
+     let (biased_exp, c) = match cls {
+--- /Users/parnell/Development/ferrodec/ferrodec-transcend/src/extended.rs	2026-08-13 15:19:59
++++ ferrodec-transcend/src/extended.rs	2026-10-09 00:52:21
+@@ -53,7 +53,7 @@
+ //! some Extended helpers are exercised only by unit tests, not by
+ //! every kernel path.
+ 
+-#![allow(dead_code)]
++
+ 
+ use crate::format::DecimalFormat;
+ use core::cmp::Ordering;
+--- /Users/parnell/Development/ferrodec/ferrodec-transcend/src/extended2.rs	2026-08-10 12:14:26
++++ ferrodec-transcend/src/extended2.rs	2026-10-09 00:52:21
+@@ -28,7 +28,7 @@
+ //! per-function budgets and predicate guards land. Until then the
+ //! crate-root `allow(dead_code)` mirror below keeps the build clean.
+ 
+-#![allow(dead_code)]
++
+ 
+ use crate::extended::{ExtNum, Extended};
+ use crate::format::DecimalFormat;
+--- /Users/parnell/Development/ferrodec/ferrodec-transcend/src/extended_dyn.rs	2026-08-10 12:14:26
++++ ferrodec-transcend/src/extended_dyn.rs	2026-10-09 00:52:21
+@@ -53,7 +53,7 @@
+ //! formula at the arena's precision (step 5). The Ziv driver in
+ //! `ladder::run3` is what walks this rung.
+ 
+-#![allow(dead_code)]
++
+ 
+ use crate::extended::{ExtNum, Extended};
+ use crate::format::DecimalFormat;

@@ -1,0 +1,11 @@
+rustc 1.84.1 (e71f9a9a9 2025-01-27)
+ferrodec-ieee	lib=0	all-targets=0
+ferrodec-multiword	lib=0	all-targets=101
+ferrodec-transcend	lib=0	all-targets=101
+ferrodec	lib=0	all-targets=101
+ferrodec-decimal64	lib=0	all-targets=101
+ferrodec-decimal32	lib=0	all-targets=101
+ferrodec-decimal	lib=0	all-targets=101
+ferrodec-test-support	lib=0	all-targets=0
+ferrodec-campaign	lib=0	all-targets=0
+DONE
