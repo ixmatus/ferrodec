@@ -112,7 +112,9 @@ Not findings.
 A correctness claim without a reproducer is a hypothesis and counts
 against the cap. Oracles available on this machine:
 `fractions.Fraction` and CPython `decimal` (libmpdec) for rational
-cases; mpmath at 120 dps (`import mpmath; mpmath.mp.dps = 120`);
+cases; mpmath at 120 dps (`import mpmath; mpmath.mp.dps = 120`; mpmath is a
+user site install, so run `/usr/bin/python3` WITHOUT `-I`, which hides
+it; `-I` is only for scripts that sit in untrusted directories);
 Arb through python-flint for transcendental near boundary cases via
 `~/.cache/pfloat-arb-oracle/venv/bin/python3`; the decTest vectors
 under `tests/vectors/` for GDA semantics; the frozen corpora with
