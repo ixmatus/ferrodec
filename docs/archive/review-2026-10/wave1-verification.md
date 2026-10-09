@@ -138,9 +138,33 @@ lacks. Report saved verbatim under `readers/C5.md`.
 
 Found clean, accepted: the battery and launcher script discipline (pipefail, own root, completeness audit), the stateless PRNG, the byte identical regeneration of the planted, lockstep, LSZ, and anchor band corpora, the value identical regeneration of the argred table and the Extended2 constants, every SHA256SUMS directory, and `verification.yml` against the README. The environment manifest is adopted as the durability baseline: a fresh machine needs seven things and the tree pins none of them.
 
+## C2: test quality and the oracle instruments
+
+Sixteen findings and no hypothesis rows; the reader validated the exact
+oracle before using it, ran a 309,000 case differential of the oracle
+against libmpdec, and re-ran the ignored 2^32 identity sweep in release.
+Report saved verbatim under `readers/C2.md`.
+
+| id | verdict | ruling | note |
+|---|---|---|---|
+| C2-1 | confirmed | **P0** (shipped wrong value) | `Decimal128::fma(10, 1E33, -1E-102)` returns `9999999999999999999999999999999990` under TowardZero and TowardNegative; the exact value lies strictly between `10^34 − 1` and `10^34` and libmpdec delivers the 34 nines (coordinator's own rational and libmpdec check; the reader's driver rerun with identical output). `src/ops/fma.rs:791-804`: the one digit drop leaves `kept = 10^33` and `kept.sub(1)` ignores the binade. 3,366 of 43,830 family cases, Decimal128 only, directed modes only. Filed as a P0 bead; reproducer `P1B-3`. The sibling fma is separate code and clean on the same family. |
+| C2-2 | confirmed | P1 | `atan2(qNaN, sNaN)` raises no INVALID on the siblings (the root does); the d64 Kani harness asserts the wrong behaviour. Reader's probe rerun. §7.2 requires INVALID on any signaling operand. |
+| C2-3 | confirmed | P1 | `pow(sNaN, ±0)` returns 1 with a clean status on the siblings while the root raises INVALID; the probe rerun shows the three formats disagreeing. Kani and `property_pow_specials` pin the live behaviour, and the latter calls the strict reading a deviation. |
+| C2-4 | confirmed | P2 | Sibling `min`/`max` and the magnitude pair return the canonical NaN for two quiet NaNs, dropping payload and sign, where the root, decTest rows 184-187, and KNOWN_ISSUES all say the first NaN survives. §6.2.3 is a "should", so P2 rather than P1; the cmp.rs doc claiming parity with the root is false either way. |
+| C2-5, C2-6, C2-7 | confirmed | P2 | The d64 runner's NaN comparison is lenient (eight wrong payload rows count as passes); ten d64 files are never dispatched (1,167 vectors) though the API exists for six of them; `run_suite` pins pass counts only and only for listed files, so an undispatched file passes silently. The reader's strict replay numbers are adopted (ddMaxMag 237, ddMinMag 227; the six dispatchable files pass at 251/241/107/146/83/83 with four NaN only differences). |
+| C2-8 | confirmed | P2 | The root runner skips 99 Conversion_syntax rows on a premise the parser does not have (it rejects all 99 untrimmed; the runner's own `trim()` admits two). |
+| C2-9 | confirmed | P2 | Pairs with C1-19 and C5-19 (three readers, same gap: `.prov`, `.json`, s1 `.tsv`, `margin_lockstep.txt` unhashed). |
+| C2-10 | confirmed (clean) | P2 | No exact oracle property suite for the sibling add, sub, mul, div, sqrt; the reader's 180,000 case differential found no defect, so this is a coverage finding. |
+| C2-11 to C2-16 | engineering | P3 | Stale oracle and CLAMPED prose, a d32 doc overclaim, a Kani harness doc that §6.3 makes false in general, the libm pipeline prose in the d64 verify modules (pairs with C1's lead), and the MPFR gate's floor. |
+
+Leads dispositioned: possible binade shapes in `addsub::sub_ulp_effective_sub` and `round_and_pack_finite` with power of ten operands at gaps of 110 digits or more go to B1 with the reader's driver; the special case dispatch order (early return on a quiet NaN before the signaling check) goes to A2, A5, and B2 for every binary operation (`hypot`, `compound`, `rootn`, `atan2_pi`, `powr`); the mpfr gate's triple rounding to B5; the oracle's missing CLAMPED model and out of format `rem` to B1.
+
+Found clean, adopted: the exact oracle on 309,000 random and 2,265 constructed cases against libmpdec and a rational oracle at all modes and formats (zero mismatches apart from two explained cases), which is what makes every arithmetic verdict in this review rest on a validated keystone; `oracle_soundness` 3,765 vectors; the root conformance runner's pins and `strip_comment` fix; the `ferrodec-decimal` runner as the most rigorous of the four; the regression files all pinned to literals or the oracle; the 2^32 identity sweep at zero violations (value only); the multiword add back gap from June now covered.
+
 ## Wave 1 summary
 
-- P0: one class, the Newton seed through the format (`asinh`, `acosh`, `atan2`, `atan2_pi`), found by the instrument the arc revived.
-- P1: the one sided faithful oracle (C1-1), ADR-0033's unsound backstop still presented as load bearing (D3-1), and the coordinator's own P1B-1 (the cancellation depth premise).
+- P0, two classes: the Newton seed through the format (`asinh`, `acosh`, `atan2`, `atan2_pi` panic on finite inputs), found by the instrument the arc revived; and a shipped wrong value from `Decimal128::fma` under the directed modes on an exact power of ten product, found by a structured differential the property strategy never draws.
+- P1: the one sided faithful oracle (C1-1), the sibling `atan2` and `pow` signaling NaN divergences (C2-2, C2-3), ADR-0033's unsound backstop still presented as load bearing (D3-1), and the coordinator's own cancellation depth premise (P1B-1).
 - One regression introduced and fixed inside the arc (C1-10, 70adcca).
-- The fleet's refutation rate: one hypothesis refuted (D2-H1), two line citations corrected (D3-3, D3-4), one brief premise corrected by a reader (the siblings' `.proptest-regressions`), and no finding refuted outright. Clean verdicts are adopted with their stated blind spots.
+- The fleet's refutation rate: one hypothesis refuted (D2-H1), two line citations corrected (D3-3, D3-4), one brief premise corrected by a reader (the siblings' `.proptest-regressions`), one severity lowered (C2-4), and no finding refuted outright. Clean verdicts are adopted with their stated blind spots.
+- Three readers independently found the unhashed corpus files (C1-19, C2-9, C5-19) and three found the stale CI prose (C5-16, D2-11, D3-11), which is the kind of convergence that makes the ownership rule worth its cost.
