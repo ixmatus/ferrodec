@@ -102,9 +102,10 @@ jobs:
   kani:
     name: kani harnesses
     runs-on: ubuntu-latest
-    # The whole job took 66 to 81 minutes on main in August 2026; a hang
-    # in the installer must fail in hours, not consume GitHub's six hour
-    # default (the first run on review-2026-10 did exactly that).
+    # The whole job took 66 to 81 minutes on main in August 2026; a
+    # proof that does not terminate must fail in hours, not consume
+    # GitHub's six hour default (the first run on review-2026-10 did
+    # exactly that).
     timeout-minutes: 180
     steps:
       - uses: actions/checkout@v5
@@ -112,9 +113,15 @@ jobs:
       # Pin the Kani the local battery proves with (`cargo kani --version`
       # at the Phase 0 tip of the 2026-10 review). The action's default is
       # `latest`, which floated to 0.68.0 (released 2026-09-16) after the
-      # last green run and hung the install step on 2026-10-09 (six hours
-      # on the first run, far past August's 22 minutes on the rerun). Bump
-      # deliberately, after the battery passes locally with the new version.
+      # last green run. This step is not only an install: the action
+      # installs Kani (about 15 seconds) and then runs `cargo-kani` with
+      # no arguments, 84 root harnesses in 22 to 43 minutes on the
+      # runner, before the four invocations below. Under 0.68.0 that run
+      # named its first harness on 2026-10-09 and printed nothing more
+      # for six hours; 0.67.0 proves the same harness in 3 to 7 seconds.
+      # Receipts: docs/archive/review-2026-10/reproducers/CI-kani-0.68/.
+      # Bump deliberately, after the battery passes locally with the new
+      # version.
       - uses: model-checking/kani-github-action@v1.1
         with:
           kani-version: "0.67.0"

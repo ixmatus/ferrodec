@@ -1,0 +1,19 @@
+# gh run view 37947625260 --job 114022662200 --log (ixmatus/ferrodec, PR #1 at b93bac5, 2026-10-09)
+# Excerpt: every line of the kani-github-action step that names a sub step, the Kani version, a harness, or the cancellation. Columns: timestamp, text.
+2026-10-09T20:57:09.6572778Z ##[start-action display=Install Kani;id=__model-checking_kani-github-action.__run]
+2026-10-09T20:57:09.6622896Z ##[group]Run /home/runner/work/_actions/model-checking/kani-github-action/v1.1/src/install-kani.sh latest
+2026-10-09T20:57:09.6625062Z /home/runner/work/_actions/model-checking/kani-github-action/v1.1/src/install-kani.sh latest
+2026-10-09T20:57:09.9200738Z   Downloaded kani-verifier v0.68.0
+2026-10-09T20:57:09.9503154Z   Installing kani-verifier v0.68.0
+2026-10-09T20:57:11.4114300Z    Compiling kani-verifier v0.68.0
+2026-10-09T20:57:14.6605599Z    Installed package `kani-verifier v0.68.0` (executables `cargo-kani`, `kani`)
+2026-10-09T20:57:26.3463851Z ##[end-action id=__model-checking_kani-github-action.__run;outcome=success;conclusion=success;duration_ms=16688]
+2026-10-09T20:57:26.3480888Z ##[start-action display=Run Kani;id=__model-checking_kani-github-action.__run_3]
+2026-10-09T20:57:26.3823794Z Kani Rust Verifier 0.68.0 (cargo plugin)
+2026-10-09T20:57:43.0850923Z Checking harness verify::addsub::special_status_only_invalid_for_snan...
+2026-10-10T02:57:16.6750625Z ##[error]The operation was canceled.
+2026-10-10T02:57:16.6753960Z ##[end-action id=__model-checking_kani-github-action.__run_3;outcome=cancelled;conclusion=cancelled;duration_ms=21590327]
+2026-10-10T02:57:16.9231809Z Cleaning up orphan processes
+2026-10-10T02:57:16.9400180Z Terminate orphan process: pid (2763) (cargo-kani)
+2026-10-10T02:57:16.9421801Z Terminate orphan process: pid (2764) (kani-driver)
+2026-10-10T02:57:16.9462047Z Terminate orphan process: pid (3423) (cbmc)

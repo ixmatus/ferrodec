@@ -49,4 +49,6 @@ with a `README.md` naming the oracle environment it needs. Added as
 each wave's verification session closes. `P1B-*` are the coordinator's
 Phase 1b reproducers; `W2-*`, `W3-*`, `W4-*` are the readers' scratch
 crates and scripts, copied with relative path dependencies and the
-coordinator's rerun logs beside the readers' outputs.
+coordinator's rerun logs beside the readers' outputs. `CI-*` holds
+excerpts of GitHub Actions job logs, which the service deletes after
+ninety days, for a claim the report makes about a CI run.

@@ -46,10 +46,25 @@ at default features) and was caught by reader C1 and fixed inside the
 arc; the record says so. A fifth CI cause appeared only when the branch
 first ran on GitHub, at the arc's close: the Kani action installs
 `latest`, which floated to 0.68.0 (released 2026-09-16) after the last
-green run and hung the install step for six hours; the job now pins
-0.67.0, the version the local battery proves with, and is bounded at
-three hours. Twenty six of the twenty seven jobs were green on the
-first run.
+green run, and the Kani job was cancelled at GitHub's six hour limit
+inside the action's step; the job now pins 0.67.0, the version the
+local battery proves with, and is bounded at three hours. Twenty six
+of the twenty seven jobs were green on the first run, and all twenty
+seven on the pinned rerun (run 43156222866, 2026-11-12 UTC).
+
+Correction, 2026-11-11: this paragraph and the pinning commit
+(`be64a0f`) first said that 0.68.0 "hung the install step". The logs
+say otherwise. The action's step installs Kani in about fifteen
+seconds and then runs `cargo-kani` itself, with no arguments, before
+the workflow's four invocations; under 0.68.0 that run named its first
+harness (`verify::addsub::special_status_only_invalid_for_snan`) and
+printed nothing more for six hours, with a `cbmc` process alive at
+cancellation, where 0.67.0 proves the same harness in three to seven
+seconds. The remedy stands; the stated cause was wrong, and the
+commit message cannot be amended on a pushed branch, so the receipts
+(`review-2026-10/reproducers/CI-kani-0.68/`) and this paragraph carry
+the correction. What 0.68.0 changed is not diagnosed; fd-e8a9.44
+holds that and the action's redundant proving run.
 
 Totals: 19 readers, 185 findings (Wave 1 110 across five readers
 counting D2's thirty claim rows; Wave 2 31; Wave 3 54; Wave 4 49),
