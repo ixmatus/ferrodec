@@ -1,0 +1,13 @@
+[package]
+name = "arith"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ferrodec = { path = "/Users/parnell/Development/ferrodec" }
+ferrodec-decimal64 = { path = "/Users/parnell/Development/ferrodec/ferrodec-decimal64" }
+ferrodec-decimal32 = { path = "/Users/parnell/Development/ferrodec/ferrodec-decimal32" }
+ferrodec-test-support = { path = "/Users/parnell/Development/ferrodec/ferrodec-test-support" }
+ferrodec-ieee = { path = "/Users/parnell/Development/ferrodec/ferrodec-ieee" }
+
+[workspace]

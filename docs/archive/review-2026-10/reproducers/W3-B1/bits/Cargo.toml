@@ -1,0 +1,9 @@
+[package]
+name = "b1bits"
+version = "0.1.0"
+edition = "2021"
+[dependencies]
+ferrodec = { path = "../../../../../.." }
+ferrodec-decimal64 = { path = "../../../../../../ferrodec-decimal64" }
+ferrodec-decimal32 = { path = "../../../../../../ferrodec-decimal32" }
+[workspace]

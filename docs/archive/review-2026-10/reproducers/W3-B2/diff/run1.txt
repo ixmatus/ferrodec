@@ -1,0 +1,14 @@
+SUMMARY d64 add cases=100000 mismatches=0
+SUMMARY d32 add cases=100000 mismatches=0
+SUMMARY d64 sub cases=100000 mismatches=0
+SUMMARY d32 sub cases=100000 mismatches=0
+SUMMARY d64 mul cases=100000 mismatches=0
+SUMMARY d32 mul cases=100000 mismatches=0
+SUMMARY d64 div cases=98840 mismatches=0
+SUMMARY d32 div cases=97445 mismatches=0
+SUMMARY d64 fma cases=100000 mismatches=0
+SUMMARY d32 fma cases=100000 mismatches=0
+SUMMARY d64 sqrt cases=50920 mismatches=0
+SUMMARY d32 sqrt cases=50965 mismatches=0
+SUMMARY d64 rem cases=19761 mismatches=0
+SUMMARY d32 rem cases=19481 mismatches=0

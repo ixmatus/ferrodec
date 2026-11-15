@@ -119,13 +119,13 @@ fn sqrt_positive_finite(coef: u64, biased_exp: u32, rm: RoundingMode) -> (Decima
     // broken, masking the bug.
     debug_assert!(target_d >= d, "working_coef fits the scaling window");
     let scale: u32 = target_d - d;
-    debug_assert!(scale % 2 == 0);
+    debug_assert_eq!(scale % 2, 0);
     debug_assert!((scale as usize) < POW10_U128.len());
 
     working_coef *= POW10_U128[scale as usize];
     working_exp -= scale as i32;
 
-    debug_assert!(working_exp & 1 == 0);
+    debug_assert_eq!(working_exp & 1, 0);
 
     let isqrt_val = working_coef.isqrt();
     let isqrt_squared = isqrt_val * isqrt_val;

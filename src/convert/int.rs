@@ -324,7 +324,7 @@ fn round_to_integer(coef: u128, unbiased: i32, sign: bool, rm: RoundingMode) -> 
                 break;
             }
         }
-        debug_assert!(cur == 0);
+        debug_assert_eq!(cur, 0);
         let last_kept = 0u32;
         let round_up = should_round_up_int(rm, sign, last_kept, round_digit, sticky);
         let mut status = Status::OK;

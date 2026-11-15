@@ -1,0 +1,13 @@
+== A3-5 plant through campaign_certify (pfloat venv)
+MISROUND WITNESSES FOUND: the shipped correctly rounded claim is falsified on the rows above. Surface to Parnell before any disclosure edit (ADR-0059 S1 protocol).
+MISROUND	S	sin	2	9552873219007404877823877103706725E421	NearestEven	9.813639446004346399351530840128860e-1	9.813639446004346399351530840128859E-1
+MISROUND	S	sin	3	9552873219007404877823877103706725E421	TowardPositive	9.813639446004346399351530840128860e-1	9.813639446004346399351530840128859E-1
+MISROUND	S	sin	4	9552873219007404877823877103706725E421	TowardNegative	9.813639446004346399351530840128859e-1	9.813639446004346399351530840128860E-1
+certify: rows=4 ok=17 misround=3 tmd_hard=0 oor=0 overflow_boundary=0 parse_error=0
+EXIT=
+certify: rows=1 ok=5 misround=0 tmd_hard=0 oor=0 overflow_boundary=0 parse_error=0
+EXIT=
+== A3-4 exp_red (mpmath)
+top k by |round50(k ln10)-k ln10|: [(4.998928106029175e-46, 5599, -4.998928106029175e-46), (4.995546334749839e-46, 4605, -4.995546334749839e-46), (4.992926961606907e-46, 5036, 4.992926961606907e-46)]
+max rung-1 exp error over probes: 49908 predicate units (catalog EXP sum 22,400; budget 250,000)
+EXIT=

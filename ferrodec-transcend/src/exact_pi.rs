@@ -112,7 +112,7 @@ pub(crate) fn pi_residue(coef: U256, exp: i32) -> PiResidue {
     if let Some(odd4) = integer_parity(quad, exp) {
         debug_assert!(odd4, "4x even would have made x a half integer");
         let q_mod8 = low_mod8(quad, exp);
-        debug_assert!(q_mod8 % 2 == 1);
+        debug_assert_eq!(q_mod8 % 2, 1);
         return PiResidue::QuarterInteger {
             odd: q_mod8 == 5 || q_mod8 == 7,
             three_quarters: q_mod8 == 3 || q_mod8 == 7,

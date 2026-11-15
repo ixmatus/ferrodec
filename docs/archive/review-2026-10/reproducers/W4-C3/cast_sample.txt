@@ -1,0 +1,40 @@
+189
+[('argred.rs', 42), ('exact.rs', 37), ('extended2.rs', 32), ('extended.rs', 29), ('extended_dyn.rs', 20), ('inverse_trig_pi.rs', 7), ('pow.rs', 5), ('sincospi.rs', 4), ('compound.rs', 3), ('hypot.rs', 3), ('adjudicate.rs', 2), ('exact_pi.rs', 2), ('rootn.rs', 2), ('ln.rs', 1)]
+argred.rs:312: let shift = 10u32.pow(8 - pos as u32);
+argred.rs:449: frac_digits: [u8; FRAC_DIGITS as usize],
+argred.rs:570: let i_hi_signed = q + I_HI_OFFSET as i32;
+argred.rs:616: debug_assert_eq!(i_hi as i32 - q, I_HI_OFFSET as i32);
+argred.rs:707: frac_digits: [u8; FRAC2_DIGITS as usize],
+argred.rs:797: let dig_c = decimal_digit_count(c) as i32;
+argred.rs:829: debug_assert_eq!(i_hi as i32 - q, I_HI_OFFSET2 as i32);
+argred.rs:1033: let dig_c = decimal_digit_count(c) as i32;
+argred.rs:1113: debug_assert_eq!(i_hi as i32 - q, offset as i32);
+exact.rs:219: let d = (-ey) as u32;
+exact.rs:627: -(m as i32)
+exact.rs:923: let exp = if neg { -(p1 as i32) } else { (n32 - p1) as i32 };
+exact.rs:1470: let pow5 = int_pow_u256(U256::from_u128(5), dv as u32)?;
+exact.rs:2076: let pow5 = int_pow_u256(U256::from_u128(5), dv as u32)?;
+exact.rs:2245: floor_div(i64::from(q_x), i64::from(n)) as i32
+exact.rs:2562: let pow5 = int_pow_u256(U256::from_u128(5), dv as u32)?;
+exact.rs:2836: if !QR16[u768_mod_small(s, 16) as usize] || !QR25[u768_mod_small(s, 25) as usize] {
+extended.rs:221: let d = (bytes[i] - b'0') as u128;
+extended.rs:410: let exp50 = self.exp - scale as i32;
+extended.rs:648: let dig_b = other.coef.decimal_digit_count() as i32;
+extended.rs:756: exp: result_exp + exp_shift as i32,
+extended.rs:1321: return if self.sign { -(val as i32) } else { val as i32 };
+extended.rs:1332: val as i32
+extended2.rs:227: digits = digits * 10 + (bytes[i] - b'0') as i32;
+extended2.rs:334: d_adj <= a_adj - (EXT2_PRECISION as i32 - 3)
+extended2.rs:508: let exp_grid = exp_w + excess as i32;
+extended2.rs:572: let delta = (hi_op.exp - lo_op.exp) as u32;
+extended2.rs:725: for _ in 0..(self.exp as u32) {
+extended2.rs:736: let val = c.lo as i64;
+extended_dyn.rs:163: self.vals.borrow()[idx as usize].clone()
+extended_dyn.rs:649: let b_shift = (dig_a - dig_b).max(0) as u32;
+extended_dyn.rs:773: self.exp - scale_up as i32 + shift as i32,
+extended_dyn.rs:945: let a_adj = anchor.exp + anchor.digit_count() as i32 - 1;
+hypot.rs:242: let delta0 = (F::PRECISION + 2).div_ceil(2) as i32;
+inverse_trig_pi.rs:351: let adj = exp + coef.decimal_digit_count() as i32 - 1;
+ln.rs:354: let digits = x_ext.digit_count() as i32;
+pow.rs:701: let last_digit = (int_part % 10) as i32;
+sincospi.rs:440: let d = 2 * (n_red as i128) - (h as i128) * (q as i128);

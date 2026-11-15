@@ -1,0 +1,19 @@
+# gh run view 31749959445 --job 94613229787 --log (ixmatus/ferrodec, main at 0a5be4c, 2026-08-13)
+# Excerpt: the same sub steps under Kani 0.67.0, the first harness with its verdict and time, and every completion line of the job (the action's own run, then the four explicit invocations).
+2026-08-13T22:26:40.4042625Z ##[start-action display=Install Kani;id=__model-checking_kani-github-action.__run]
+2026-08-13T22:26:56.8463387Z ##[end-action id=__model-checking_kani-github-action.__run;outcome=success;conclusion=success;duration_ms=16441]
+2026-08-13T22:26:56.8481584Z ##[start-action display=Run Kani;id=__model-checking_kani-github-action.__run_3]
+2026-08-13T22:26:56.8766148Z Kani Rust Verifier 0.67.0 (cargo plugin)
+2026-08-13T22:27:05.6902914Z Checking harness verify::addsub::special_status_only_invalid_for_snan...
+2026-08-13T22:27:12.9213789Z VERIFICATION:- SUCCESSFUL
+2026-08-13T22:27:12.9214097Z Verification Time: 7.2100935s
+2026-08-13T22:48:49.5546215Z Complete - 84 successfully verified harnesses, 0 failures, 84 total.
+2026-08-13T22:48:49.5552292Z ##[end-action id=__model-checking_kani-github-action.__run_3;outcome=success;conclusion=success;duration_ms=1312706]
+2026-08-13T22:48:51.6446297Z Kani Rust Verifier 0.67.0 (cargo plugin)
+2026-08-13T22:48:52.8918528Z Complete - 1 successfully verified harnesses, 0 failures, 1 total.
+2026-08-13T22:48:52.9444690Z Kani Rust Verifier 0.67.0 (cargo plugin)
+2026-08-13T23:31:12.6180284Z Complete - 90 successfully verified harnesses, 0 failures, 90 total.
+2026-08-13T23:31:13.1916151Z Kani Rust Verifier 0.67.0 (cargo plugin)
+2026-08-13T23:31:48.1519850Z Complete - 67 successfully verified harnesses, 0 failures, 67 total.
+2026-08-13T23:31:48.2063134Z Kani Rust Verifier 0.67.0 (cargo plugin)
+2026-08-13T23:32:40.7409775Z Complete - 103 successfully verified harnesses, 0 failures, 103 total.

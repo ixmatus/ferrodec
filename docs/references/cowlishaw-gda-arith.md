@@ -2,12 +2,12 @@
 slug: cowlishaw-gda-arith
 category: spec
 citation: "Cowlishaw, M. F. General Decimal Arithmetic Specification, version 1.70, IBM, 2009."
-canonical: "https://speleotrove.com/decimal/decarith.html"
+canonical: "https://speleotrove.com/decimal/decarith.pdf"
 doi: none
-archived: "https://web.archive.org/web/20260606044509/https://speleotrove.com/decimal/decarith.html"
-archive-date: "2026-06-06"
+archived: "https://web.archive.org/web/20261009082102/https://speleotrove.com/decimal/decarith.pdf"
+archive-date: "2026-10-09"
 retrieved: "2026-06-11"
-sha256: n/a
+sha256: "d279ab7ce8b3533188e81eb7db560df1b28c3de623170d8533b9d370ca4d76f0"
 license: "Reproduced with permission from IBM, copyright 1997, 2009 by International Business Machines Corporation. The permission is Cowlishaw's, not a redistribution grant."
 vendor-status: legally-cannot
 rot-risk: academic-personal
@@ -22,7 +22,7 @@ consumers:
 verification:
   - tests/vectors
   - ferrodec-decimal/tests/vectors
-notes: "The GDA specification defines the context model, the extended operation set beyond IEEE 754, the toSci/toEng string forms, and the cohort/ideal-exponent semantics ferrodec-decimal implements. IEEE 754-2019 is the storage and operation authority for the fixed formats; GDA is the authority for everything the decTest suite exercises beyond it. No alternative spec exists for this surface."
+notes: "The GDA specification defines the context model, the extended operation set beyond IEEE 754, the toSci/toEng string forms, and the cohort/ideal-exponent semantics ferrodec-decimal implements. IEEE 754-2019 is the storage and operation authority for the fixed formats; GDA is the authority for everything the decTest suite exercises beyond it. No alternative spec exists for this surface. The 2026-10 review (D4-10) found the earlier capture (web/20260606044509/decarith.html) held the table of contents page only; the archived PDF (v1.70, sha256 recorded) carries the clauses the code cites, and the Exceptional conditions page that defines the Clamped condition is captured at https://web.archive.org/web/20261009082110/https://speleotrove.com/decimal/daexcep.html (CLAMPED is this GDA condition, not IEEE 754-2019 §7.4, which is overflow: D4-1)."
 ---
 
 # General Decimal Arithmetic Specification (Cowlishaw)

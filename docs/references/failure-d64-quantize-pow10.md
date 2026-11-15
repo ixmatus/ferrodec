@@ -15,8 +15,8 @@ provenance: primary
 consumers:
   - docs/archive/REPORT-rigorous-review-2026-06-09.md
 verification:
-  - ferrodec-decimal64/tests/conformance.rs
-notes: "Open at write time pending fd-aqs.2; recorded now per the at-find-time ritual, fix pointer to follow."
+  - ferrodec-decimal64/src/ops/quantum.rs
+notes: "Closed at edab4f0 (fd-aqs.2); the status line below records the fix. The 2026-10 review (D4-4) found this entry still saying open four months after the fix, and its verification pointing at a runner with no check: the value pins are the verification now."
 ---
 
 # Failure: Decimal64 quantize pads above 9 return NaN
@@ -40,5 +40,4 @@ format-parameterized test asks otherwise; the dectest coverage-gap
 statement (cowlishaw-dectest entry) now names this class, and
 per-format boundary sweeps of pad widths belong with the fix.
 
-**Status.** Open at write time; fd-aqs.2 carries the fix. This entry
-gains the fix commit pointer when it lands.
+**Status.** Closed at edab4f0 (fd-aqs.2). The entry said open until the 2026-10 review corrected it (D4-4).

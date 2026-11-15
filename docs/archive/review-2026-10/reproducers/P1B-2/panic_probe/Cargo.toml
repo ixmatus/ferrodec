@@ -1,0 +1,11 @@
+[package]
+name = "panic_probe"
+version = "0.0.0"
+edition = "2021"
+
+[dependencies]
+ferrodec = { path = "/Users/parnell/Development/ferrodec", features = ["transcendentals"] }
+ferrodec-decimal64 = { path = "/Users/parnell/Development/ferrodec/ferrodec-decimal64", features = ["transcendentals"] }
+ferrodec-decimal32 = { path = "/Users/parnell/Development/ferrodec/ferrodec-decimal32", features = ["transcendentals"] }
+
+[workspace]

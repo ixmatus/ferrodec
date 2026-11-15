@@ -1,0 +1,123 @@
+diff --git a/ferrodec-decimal32/src/ops/mod.rs b/ferrodec-decimal32/src/ops/mod.rs
+index 5013dae..5d05152 100644
+--- a/ferrodec-decimal32/src/ops/mod.rs
++++ b/ferrodec-decimal32/src/ops/mod.rs
+@@ -21,6 +21,8 @@ pub(crate) mod logical;
+ pub(crate) mod mul;
+ #[cfg(feature = "pow")]
+ pub(crate) mod pow;
++#[cfg(feature = "pow")]
++pub(crate) mod powr;
+ pub(crate) mod quantum;
+ pub(crate) mod reduce;
+ pub(crate) mod rem;
+diff --git a/ferrodec-decimal64/src/ops/mod.rs b/ferrodec-decimal64/src/ops/mod.rs
+index 4eb4601..282c1a8 100644
+--- a/ferrodec-decimal64/src/ops/mod.rs
++++ b/ferrodec-decimal64/src/ops/mod.rs
+@@ -21,6 +21,8 @@ pub(crate) mod logical;
+ pub(crate) mod mul;
+ #[cfg(feature = "pow")]
+ pub(crate) mod pow;
++#[cfg(feature = "pow")]
++pub(crate) mod powr;
+ pub(crate) mod quantum;
+ pub(crate) mod reduce;
+ pub(crate) mod rem;
+diff --git a/ferrodec-transcend/src/ladder.rs b/ferrodec-transcend/src/ladder.rs
+index ee98c89..f0d1e38 100644
+--- a/ferrodec-transcend/src/ladder.rs
++++ b/ferrodec-transcend/src/ladder.rs
+@@ -821,6 +821,27 @@ pub(crate) const POW: Budget = Budget {
+     dynamic: pow_budget_dyn,
+ };
+ 
++/// `powr = exp(y·ln x)` (IEEE 754-2019 §9.2 `powr`): the §9.2.1 `powr`
++/// special-value table over [`POW`]'s rule-8 pipeline. Itemization by
++/// reference to [`POW`], because the priced pipeline is the identical
++/// one — the same `ln` relative error, the same product rounding, the
++/// same `|y·ln x| ≤ 14151` overflow gate carrying both into absolute
++/// error, the same [`EXP`] Taylor — and `powr`'s narrower domain
++/// (`x > 0` strictly, no negative-base sign reflection) removes inputs
++/// rather than adding error terms. Hence identical constants on both
++/// rungs and the shared [`pow_budget_dyn`] formula.
++///
++/// The constant is duplicated rather than aliased to [`POW`] for
++/// per-function containment: a budget is the auditable premise of its
++/// own function's Tier 1 claim (ADR-0059), so a future revision that
++/// turns out unsound reopens the correctness exposure on `powr` alone
++/// instead of silently moving `pow` with it.
++pub(crate) const POWR: Budget = Budget {
++    rung1: 150_000_000,
++    rung2: 300_000_000,
++    dynamic: pow_budget_dyn,
++};
++
+ // Escalation-rate summary (Decimal128, the widest exposure; rate ≈
+ // 2 × rung1 × 10^-16 for a random input): trig ≈ 3%, tan ≈ 6%,
+ // pow ≈ 3e-8, cbrt ≈ 1e-8, exp family ≈ 1e-10, everything else
+@@ -924,7 +945,7 @@ mod tests {
+     /// escalate everything).
+     #[test]
+     fn budgets_are_positive_and_sane() {
+-        let all: [(&str, &Budget); 27] = [
++        let all: [(&str, &Budget); 28] = [
+             ("exp", &EXP),
+             ("exp2", &EXP2),
+             ("expm1", &EXPM1),
+@@ -952,6 +973,7 @@ mod tests {
+             ("atanh", &ATANH),
+             ("cbrt", &CBRT),
+             ("pow", &POW),
++            ("powr", &POWR),
+         ];
+         for (name, b) in all {
+             assert!(b.rung1 > 0 && b.rung2 > 0, "{name}: zero budget");
+@@ -1056,7 +1078,7 @@ mod tests {
+     /// catalog have diverged and one of them is wrong.
+     #[test]
+     fn dynamic_budgets_track_the_rung2_catalog() {
+-        let all: [(&str, &Budget); 27] = [
++        let all: [(&str, &Budget); 28] = [
+             ("exp", &EXP),
+             ("exp2", &EXP2),
+             ("expm1", &EXPM1),
+@@ -1084,6 +1106,7 @@ mod tests {
+             ("atanh", &ATANH),
+             ("cbrt", &CBRT),
+             ("pow", &POW),
++            ("powr", &POWR),
+         ];
+         for (name, b) in all {
+             let at_110 = (b.dynamic)(110);
+diff --git a/ferrodec-transcend/src/lib.rs b/ferrodec-transcend/src/lib.rs
+index 007ba20..790c5d0 100644
+--- a/ferrodec-transcend/src/lib.rs
++++ b/ferrodec-transcend/src/lib.rs
+@@ -106,6 +106,12 @@ pub mod inverse_trig;
+ pub mod ln;
+ #[cfg(feature = "pow")]
+ pub mod pow;
++// IEEE 754-2019 §9.2 `powr`: `pow`'s rule-8 pipeline under the §9.2.1
++// `powr` special-value table (ADR-0059 Track D D3). Shares the `pow`
++// feature: the two operations differ only before the first
++// approximation runs.
++#[cfg(feature = "pow")]
++pub mod powr;
+ #[cfg(feature = "trig")]
+ pub mod sincos;
+ 
+diff --git a/src/math/mod.rs b/src/math/mod.rs
+index 6babb68..060f150 100644
+--- a/src/math/mod.rs
++++ b/src/math/mod.rs
+@@ -66,5 +66,9 @@ mod hyperbolic;
+ 
+ #[cfg(feature = "pow")]
+ mod pow;
++// IEEE 754-2019 §9.2 `powr` (ADR-0059 Track D D3): the same kernel as
++// `pow` under the §9.2.1 `powr` special-value table.
++#[cfg(feature = "pow")]
++mod powr;
+ 
+ pub use consts::{e, ln10, ln2, pi};

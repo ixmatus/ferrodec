@@ -1,0 +1,16 @@
+[package]
+name = "quantum"
+version = "0.0.0"
+edition = "2021"
+
+[dependencies]
+ferrodec = { path = "../../../../../..", features = ["transcendentals"] }
+ferrodec-decimal64 = { path = "../../../../../../ferrodec-decimal64", features = ["transcendentals"] }
+ferrodec-decimal32 = { path = "../../../../../../ferrodec-decimal32", features = ["transcendentals"] }
+ferrodec-transcend = { path = "../../../../../../ferrodec-transcend", features = ["transcendentals", "telemetry"] }
+
+[profile.release]
+debug-assertions = true
+overflow-checks = true
+
+[workspace]

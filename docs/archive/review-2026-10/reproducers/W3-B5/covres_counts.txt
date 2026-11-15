@@ -1,0 +1,4 @@
+COUNT witness qlimbs=2 d3dec1=0 d3dec2=0 addback=1
+COUNT random qlimbs=683645 d3dec1=150401 d3dec2=2384 addback=0
+COUNT knuth_family_d1 qlimbs=70061 d3dec1=19030 d3dec2=2015 addback=20000
+COUNT knuth_family_dgt1 qlimbs=2794 d3dec1=15 d3dec2=0 addback=1397

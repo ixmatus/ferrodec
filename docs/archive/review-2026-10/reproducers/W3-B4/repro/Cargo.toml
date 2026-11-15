@@ -1,0 +1,13 @@
+[package]
+name = "b4repro"
+version = "0.0.0"
+edition = "2021"
+
+[workspace]
+
+[dependencies]
+ferrodec-decimal = { path = "../../../../../../ferrodec-decimal", features = ["fmt","binary-float","interop"] }
+
+[profile.release]
+debug-assertions = false
+overflow-checks = false

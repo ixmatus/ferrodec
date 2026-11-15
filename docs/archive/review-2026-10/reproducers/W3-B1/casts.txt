@@ -1,0 +1,140 @@
+src/bid.rs:105: ((bits >> TYPE_SHIFT) & 0b1_1111) as u32
+src/bid.rs:127: let ec = ((bits >> EC_SHIFT) & 0xFFF) as u32;
+src/bid.rs:139: let coef_high3 = (t & 0b111) as u128; // T[2..0]
+src/bid.rs:169: let s = (sign as u128) << SIGN_SHIFT;
+src/bid.rs:170: let exp_high2 = ((biased_exp >> 12) & 0b11) as u128; // 2 bits → T[4..3]
+src/bid.rs:173: let ec = (biased_exp & 0xFFF) as u128;
+src/bid.rs:180: let s = (sign as u128) << SIGN_SHIFT;
+src/bid.rs:186: let s = (sign as u128) << SIGN_SHIFT;
+src/bid.rs:192: let s = (sign as u128) << SIGN_SHIFT;
+src/classify.rs:342: let coef = (((t & 0b111) as u128) << T_BITS) | (bits & T_MASK);
+src/classify.rs:571: exponent: (biased_exp as i32 - BIAS as i32) as i16,
+src/classify.rs:576: exponent: (biased_exp as i32 - BIAS as i32) as i16,
+src/classify.rs:626: let biased = parts.exponent as i32 + BIAS as i32;
+src/classify.rs:627: if biased < 0 || biased > BIASED_EXP_MAX as i32 {
+src/classify.rs:632: biased as u32,
+src/decimal.rs:74: let biased = exponent as i64 + bid::BIAS as i64;
+src/decimal.rs:75: if biased < 0 || biased > bid::BIASED_EXP_MAX as i64 {
+src/decimal.rs:78: Ok(Self(bid::pack_finite(sign, biased as u32, magnitude)))
+src/decimal.rs:109: let biased = exponent as i64 + bid::BIAS as i64;
+src/decimal.rs:110: if biased < 0 || biased > bid::BIASED_EXP_MAX as i64 {
+src/decimal.rs:113: Ok(Self(bid::pack_finite(false, biased as u32, coefficient)))
+src/digits.rs:42: let d = (c % 10) as u8;
+src/digits.rs:80: c = c * 10 + d as u128;
+src/cmp.rs:466: let scale_a = da as i64 + ea as i64;
+src/cmp.rs:467: let scale_b = db as i64 + eb as i64;
+src/ops/addsub.rs:250: es as i32 - BIAS as i32,
+src/ops/addsub.rs:260: el as i32 - BIAS as i32,
+src/ops/addsub.rs:272: let target_exp_fine = el as i32 - BIAS as i32 - pad as i32;
+src/ops/addsub.rs:284: let q_preferred = (ea.min(eb)) as i32 - BIAS as i32;
+src/ops/addsub.rs:328: let q_preferred = (ea.min(eb)) as i32 - BIAS as i32;
+src/ops/addsub.rs:404: (extended.sub(U256::from_u128(1)), target_exp - k as i32)
+src/ops/addsub.rs:498: (target_unbiased_exp + BIAS as i32).clamp(0, crate::bid::BIASED_EXP_MAX as i32) as u32;
+src/ops/div.rs:116: let q = (ea as i32 - eb as i32) + BIAS as i32;
+src/ops/div.rs:117: let biased = q.clamp(0, crate::bid::BIASED_EXP_MAX as i32);
+src/ops/div.rs:127: Decimal128::from_bits(pack_finite(result_sign, biased as u32, 0)),
+src/ops/div.rs:154: let k = (PRECISION as i32 + 1) + (digits_b as i32) - (digits_a as i32);
+src/ops/div.rs:155: let k_u32 = k.max(0) as u32;
+src/ops/div.rs:162: let unbiased_exp = (ea as i32 - BIAS as i32) - (eb as i32 - BIAS as i32) - k_u32 as i32;
+src/ops/div.rs:167: let q_preferred = (ea as i32 - BIAS as i32) - (eb as i32 - BIAS as i32);
+src/ops/divide_integer.rs:198: let qx = qxb as i32 - BIAS as i32;
+src/ops/divide_integer.rs:199: let qy = qyb as i32 - BIAS as i32;
+src/ops/divide_integer.rs:206: let dq_x = (qx - q_min) as u32;
+src/ops/divide_integer.rs:207: let dq_y = (qy - q_min) as u32;
+src/ops/fma.rs:207: let qab = (ea as i32 - BIAS as i32) + (eb as i32 - BIAS as i32);
+src/ops/fma.rs:208: let qc = ec as i32 - BIAS as i32;
+src/ops/fma.rs:235: (ea as i32 - BIAS as i32) + (eb as i32 - BIAS as i32)
+src/ops/fma.rs:256: let qc = ec as i32 - BIAS as i32;
+src/ops/fma.rs:258: let target_clamped = target.clamp(-(BIAS as i32), BIASED_EXP_MAX as i32 - BIAS as i32);
+src/ops/fma.rs:275: (target_clamped + BIAS as i32) as u32,
+src/ops/fma.rs:287: let qc = ec as i32 - BIAS as i32;
+src/ops/fma.rs:336: let qab = (ea as i32 - BIAS as i32) + (eb as i32 - BIAS as i32);
+src/ops/fma.rs:337: let qc = ec as i32 - BIAS as i32;
+src/ops/fma.rs:345: let shift_ab = (qab - target) as u32;
+src/ops/fma.rs:346: let shift_c = (qc - target) as u32;
+src/ops/fma.rs:400: let target_after = target + exp_shift as i32;
+src/ops/fma.rs:514: let cab_digits = cab.decimal_digit_count() as i32;
+src/ops/fma.rs:566: let q_padded = q_dom - pad as i32;
+src/ops/fma.rs:626: let true_adjusted = qc + d as i32 - 1 - i32::from(is_pow10);
+src/ops/fma.rs:647: (extended.sub(U256::from_u128(1)), qc - k as i32)
+src/ops/fma.rs:726: let mut cab_biased = qab + BIAS as i32;
+src/ops/fma.rs:727: if cab_biased > BIASED_EXP_MAX as i32 {
+src/ops/fma.rs:728: let excess = (cab_biased - BIASED_EXP_MAX as i32) as u32;
+src/ops/fma.rs:734: cab_biased = BIASED_EXP_MAX as i32;
+src/ops/fma.rs:736: let cab_dec = Decimal128::from_bits(pack_finite(sab, cab_biased as u32, cab_u128));
+src/ops/fma.rs:738: let c_dec = Decimal128::from_bits(pack_finite(c_sign, (qc + BIAS as i32) as u32, cc));
+src/ops/fma.rs:776: let kept_q = qab + drop as i32;
+src/ops/fma.rs:792: let kept_q = qab + drop as i32;
+src/ops/fma.rs:829: let biased_exp = (target_unbiased_exp + BIAS as i32).clamp(0, BIASED_EXP_MAX as i32) as u32;
+src/ops/integral.rs:114: let unbiased = biased_exp as i32 - BIAS as i32;
+src/ops/integral.rs:142: let unbiased = biased_exp as i32 - BIAS as i32;
+src/ops/integral.rs:147: let drop = (-unbiased) as u32;
+src/ops/integral.rs:158: let r = (cur % 10) as u32;
+src/ops/integral.rs:188: let r = (cur % 10) as u32;
+src/ops/integral.rs:196: let last_kept = (cur % 10) as u32;
+src/ops/logical.rs:23:fn as_logical_digits(d: Decimal128) -> Option<[u8; PRECISION as usize]> {
+src/ops/logical.rs:36: let mut buf = [0u8; PRECISION as usize];
+src/ops/logical.rs:146: let mut out = [0u8; PRECISION as usize];
+src/ops/logical.rs:147: for i in 0..(PRECISION as usize) {
+src/ops/mul.rs:91: let q_biased = ea as i32 + eb as i32 - BIAS as i32;
+src/ops/mul.rs:92: let exp = q_biased.clamp(0, crate::bid::BIASED_EXP_MAX as i32);
+src/ops/mul.rs:97: Decimal128::from_bits(pack_finite(result_sign, exp as u32, 0)),
+src/ops/mul.rs:119: let unbiased_exp = (ea as i32 - BIAS as i32) + (eb as i32 - BIAS as i32);
+src/ops/quantum.rs:122: let last_lsb = (kept % 10) as u32;
+src/ops/quantum.rs:220: let shifted = biased_exp as i64 + n as i64;
+src/ops/quantum.rs:221: let new_bexp = shifted.clamp(0, BIASED_EXP_MAX as i64);
+src/ops/quantum.rs:228: Self::from_bits(pack_finite(sign, new_bexp as u32, 0)),
+src/ops/quantum.rs:241: let new_unbiased: i64 = bexp as i64 - BIAS as i64 + n as i64;
+src/ops/quantum.rs:244: let clamped = new_unbiased.clamp(-10_000, 10_000) as i32;
+src/ops/quantum.rs:293: let digits = decimal_digit_count(coefficient) as i32;
+src/ops/quantum.rs:294: let unbiased = biased_exp as i32 - BIAS as i32;
+src/ops/quantum.rs:298: (true, (-adjusted_exp) as u128)
+src/ops/quantum.rs:300: (false, adjusted_exp as u128)
+src/ops/quantum.rs:565: let r = (c % 10) as u32;
+src/ops/rem.rs:193: let qx = qxb as i32 - BIAS as i32;
+src/ops/rem.rs:194: let qy = qyb as i32 - BIAS as i32;
+src/ops/rem.rs:197: let dq_x = (qx - q_min) as u32;
+src/ops/rem.rs:198: let dq_y = (qy - q_min) as u32;
+src/ops/rem.rs:236: let n_lsb = (q.lo & 1) as u32;
+src/ops/rem.rs:297: let biased = unbiased + BIAS as i32;
+src/ops/rem.rs:298: biased.clamp(0, BIASED_EXP_MAX as i32) as u32
+src/ops/round.rs:56: let q_clamped = q.clamp(-(BIAS as i32), BIASED_EXP_MAX as i32 - BIAS as i32);
+src/ops/round.rs:77: let qmin = -(BIAS as i32);
+src/ops/round.rs:87: unbiased_exp + excess as i32,
+src/ops/round.rs:108: let tiny_pre = digits as i32 + unbiased_exp - 1 < E_MIN;
+src/ops/round.rs:133: } else if (kept_digits as usize) < POW10_U128.len()
+src/ops/round.rs:134: && rounded.lo == POW10_U128[kept_digits as usize]
+src/ops/round.rs:159: let max_shift = PRECISION as i32 - kept_digits as i32;
+src/ops/round.rs:163: rounded = rounded.mul_pow10(shift as u32);
+src/ops/round.rs:284: (kept, unbiased_exp + excess as i32, round_digit, sticky)
+src/ops/round.rs:297: let qmin = -(BIAS as i32);
+src/ops/round.rs:298: let qmax = BIASED_EXP_MAX as i32 - BIAS as i32;
+src/ops/round.rs:323: let digits = coef.decimal_digit_count() as i32;
+src/ops/round.rs:331: let mut biased_exp = unbiased_exp + BIAS as i32;
+src/ops/round.rs:339: if biased_exp > BIASED_EXP_MAX as i32 {
+src/ops/round.rs:340: let excess = biased_exp - BIASED_EXP_MAX as i32;
+src/ops/round.rs:341: let slack = PRECISION as i32 - digits;
+src/ops/round.rs:343: coef = coef.mul_pow10(excess as u32);
+src/ops/round.rs:359: let shift = (-biased_exp) as u32;
+src/ops/round.rs:360: if shift >= digits as u32 {
+src/ops/round.rs:374: let (round_digit, sticky_eff) = round_digit_for_full_drop(coef, shift, digits as u32);
+src/ops/round.rs:409: debug_assert!(biased_exp >= 0 && biased_exp as u32 <= BIASED_EXP_MAX);
+src/ops/round.rs:417: let digits = coef.decimal_digit_count() as i32;
+src/ops/round.rs:423: Decimal128::from_bits(pack_finite(sign, biased_exp as u32, coef.to_u128())),
+src/ops/round.rs:470: (unbiased_exp + BIAS as i32) as u32
+src/ops/shift.rs:39: let n = coef as i32;
+src/ops/shift.rs:117: let mut digits = [0u8; PRECISION as usize];
+src/ops/shift.rs:119: let p = PRECISION as i32;
+src/ops/shift.rs:121: let mut out = [0u8; PRECISION as usize];
+src/ops/shift.rs:123: let n_mod = n.rem_euclid(p) as usize;
+src/ops/shift.rs:124: for i in 0..PRECISION as usize {
+src/ops/shift.rs:125: out[(i + n_mod) % PRECISION as usize] = digits[i];
+src/ops/shift.rs:128: let n = n as usize;
+src/ops/shift.rs:129: let len = PRECISION as usize - n;
+src/ops/shift.rs:132: let n_abs = (-n) as usize;
+src/ops/shift.rs:133: let len = PRECISION as usize - n_abs;
+src/ops/sqrt.rs:67: let q_in = biased_exp as i32 - BIAS as i32;
+src/ops/sqrt.rs:69: let biased_out = (q_out + BIAS as i32) as u32;
+src/ops/sqrt.rs:102: let q_a = ea as i32 - BIAS as i32;
+src/ops/sqrt.rs:106: let mut k: i32 = 2 * (PRECISION as i32 + 1) - digits_c as i32;
+src/ops/sqrt.rs:113: let k_u32 = k as u32;

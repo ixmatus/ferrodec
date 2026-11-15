@@ -2,3 +2,9 @@
 channel = "stable"
 components = ["rustfmt", "clippy"]
 targets = ["thumbv6m-none-eabi", "thumbv8m.main-none-eabi"]
+
+# `stable` floats here deliberately, matching CI (`dtolnay/rust-toolchain@stable`),
+# so the two instruments never drift apart by a pinned version nobody bumps.
+# The cost is that a stale local install diverges silently from CI's current
+# stable (it did for four months in 2026); run `rustup update stable` before a
+# battery run. `tools/gate_battery.sh` prints the toolchain in its preflight.

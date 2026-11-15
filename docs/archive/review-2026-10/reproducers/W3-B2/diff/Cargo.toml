@@ -1,0 +1,17 @@
+[package]
+name = "b2diff"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+
+[dependencies]
+ferrodec-decimal64 = { path = "../../../../../../ferrodec-decimal64", features = ["fmt","transcendentals"] }
+ferrodec-decimal32 = { path = "../../../../../../ferrodec-decimal32", features = ["fmt","transcendentals"] }
+ferrodec = { path = "../../../../../..", features = ["fmt","transcendentals"] }
+ferrodec-test-support = { path = "../../../../../../ferrodec-test-support" }
+num-bigint = "0.4"
+
+[profile.release]
+debug-assertions = true
+overflow-checks = true

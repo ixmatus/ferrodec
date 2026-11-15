@@ -1,0 +1,9 @@
+mpmath https://web.archive.org/web/20260609032917/https://mpmath.org/
+rlibm https://web.archive.org/web/20241212135237/https://people.cs.rutgers.edu/~sn349/papers/rlibmall-popl-2022.pdf
+salikhov-zudilin-pi-irrationality https://web.archive.org/web/20260709091622/https://arxiv.org/abs/1912.06345
+shidlovskii-transcendence https://web.archive.org/web/20250118021649/https://www.degruyter.com/document/doi/10.1515/9783110889055/html
+slz-worst-cases https://web.archive.org/web/20250815003048/https://inria.hal.science/inria-00000379
+zeilberger-zudilin-2020 https://web.archive.org/web/20260709091622/https://arxiv.org/abs/1912.06345
+lsz-page https://web.archive.org/web/20260217115028/https://drops.dagstuhl.de/entities/document/10.4230/DagSemProc.06021.11
+lsz-pdf https://web.archive.org/web/20251210020530/https://drops.dagstuhl.de/storage/16dagstuhl-seminar-proceedings/dsp-vol06021/DagSemProc.06021.11/DagSemProc.06021.11.pdf
+lsz-hal https://web.archive.org/web/20251119101245/https://inria.hal.science/inria-00068731

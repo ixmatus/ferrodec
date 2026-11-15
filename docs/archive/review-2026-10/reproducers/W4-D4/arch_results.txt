@@ -1,0 +1,33 @@
+arb-flint|200|https://web.archive.org/web/20260607085830id_/https://flintlib.org/|text/html|8959|91d29b1cdcc15d4b7893cdbd9920ec6ea2dc9d871b7c4d37d0d2cd04048039fb
+brent-zimmermann-mca|200|https://web.archive.org/web/20260213054438id_/https://members.loria.fr/PZimmermann/mca/mca-cup-0.5.9.pdf|application/pdf|1987150|0a7b9eff1f7c02faa7f3f350545282f1e5a5e34b055f8eb366f656c2ac3bc213
+brisebarre-muller-2007|200|https://web.archive.org/web/20260417092410id_/https://www.rairo-ita.org/articles/ita/abs/2007/01/ita06004/ita06004.html|text/html; charset=utf-8|46691|ab7be9440c5c31ccb9ad49bbbc75cab67f4019a6acc33eef4402ced08ff5c45f
+c23-draft|200|https://web.archive.org/web/20260727064913id_/https://www.open-std.org/jtc1/sc22/wg14/www/docs/n3220.pdf|application/pdf|4045695|bccd974cd9d0227c282c9557e12e29c90df115b403ea4269f58d69661acfc113
+core-math|200|https://web.archive.org/web/20260726183836id_/https://core-math.gitlabpages.inria.fr/|text/html; charset=utf-8|42667|b75bb3140b657ab145810b5adbc8567b29f17e7dfacd92186ba22fd7f77ba8fb
+cowlishaw-algorism-2003|200|https://web.archive.org/web/20260310005038id_/https://speleotrove.com/decimal/IEEE-cowlishaw-arith16.pdf|application/pdf|204753|dc2345cb0d72a933b678df24dd4a9ac5d838ce2a822e869343be22af6f3fee46
+cowlishaw-dectest|200|https://web.archive.org/web/20250928040220id_/https://speleotrove.com/decimal/dectest.zip|application/zip|791733|b70a224cd52e82b7a8150aedac5efa2d0cb3941696fd829bdbe674f9f65c3926
+cowlishaw-gda-arith|200|https://web.archive.org/web/20260606044509id_/https://speleotrove.com/decimal/decarith.html|text/html|1117|49b2441e8ddc91b5e96d9bd4e05fe2aa8beed03029b295e87c4d320971082005
+crlibm|200|https://web.archive.org/web/20260309194505id_/https://github.com/taschini/crlibm|text/html; charset=utf-8|412485|26fde3f74d1b5f6d27ea331d3c545143177e689c709dbd853650ac534ba9d8d1
+decimal-thread|200|https://web.archive.org/web/20260226142706id_/https://speleotrove.com/decimal/decifaq.html|text/html|6172|83097d6eb6aeda16576534bdd726045b0ae659939e9c6e384636bb965d75a438
+decnumber|200|https://web.archive.org/web/20260307015721id_/https://speleotrove.com/decimal/decnumber.html|text/html|1533|c3bee63f8f92f83543db26703ddec418974d8881377e9aebcd8c4f5715378c4d
+goldberg-1991|200|https://web.archive.org/web/20260608130707id_/https://docs.oracle.com/cd/E19957-01/806-3568/ncg_goldberg.html|text/html|476299|0ac94c794295cbdd720336ccee20c90ade926e5cb236a0d56addbc7b1cbd9257
+haible-papanikolaou-1998|200|https://web.archive.org/web/20260221053736id_/https://www.ginac.de/CLN/binsplit.pdf|application/pdf|200998|9fc01de60c99c6976ceb3c501c82c0f0fede8a93c2d401e45ac83b7824039ff1
+iordache-matula-1999|200|https://web.archive.org/web/20240423032626id_/http://acsel-lab.com/arithmetic/arith14/papers/ARITH14_Iordache.pdf|application/pdf|194994|40cbed72c7189d0ac47a00f1773d1542a1e58fffdb6a81c7fb7af2eccebe95fc
+lang-muller-2001|200|https://web.archive.org/web/20230803014739id_/http://www.acsel-lab.com/arithmetic/arith15/papers/ARITH15_Lang.pdf|application/pdf|525415|d1122bca808cccac79f433c603eb9ad6a8b6ae0110658acad78bab773c8f0bf2
+lauter-lefevre-pow-boundary|200|https://web.archive.org/web/20250815003030id_/https://inria.hal.science/inria-00583988|text/html; charset=UTF-8|95754|95374f08c181e381b59aea2b92e0562c93b816ea58ba471cfa5f214e7ceb8257
+lefevre-2000|200|https://web.archive.org/web/20250814192734id_/https://www.vinc17.net/research/papers/these.pdf|application/pdf|1042834|fe0aba797a2e6bd5d842f3b83bf943c10f770e7757732373fa53f9304b287787
+shasum: dl/lefevre-stehle-zimmermann-d64-exp.bin: No such file or directory
+lefevre-stehle-zimmermann-d64-exp|000|https://web.archive.org/web/20260217115028id_/https://drops.dagstuhl.de/entities/document/10.4230/DagSemProc.06021.11 (page); https://web.archive.org/web/20251210020530/https://drops.dagstuhl.de/storage/16dagstuhl-seminar-proceedings/dsp-vol06021/DagSemProc.06021.11/DagSemProc.06021.11.pdf (PDF); https://web.archive.org/web/20251119101245/https://inria.hal.science/inria-00068731 (HAL author deposit, the pre-certification capture)||0|
+mpdecimal|200|https://web.archive.org/web/20260517130620id_/https://www.bytereef.org/mpdecimal/index.html|text/html; charset=utf-8|10417|b12a23aae655159c6a15a4f27a0e411bbc62ff5ad30743678b7866fdfd0d9319
+mpfr|200|https://web.archive.org/web/20260530152157id_/https://www.mpfr.org/|text/html; charset=ISO-8859-1|44484|8a8526d118b361bb8c23e6e5383201fb59ec2e7a143b3467b1ba33cefa936dac
+shasum: dl/mpmath.bin: No such file or directory
+mpmath|000|https://web.archive.org/web/20260609032917id_/https://mpmath.org/||0|
+shasum: dl/rlibm.bin: No such file or directory
+rlibm|000|https://web.archive.org/web/20241212135237id_/https://people.cs.rutgers.edu/~sn349/papers/rlibmall-popl-2022.pdf||0|
+shasum: dl/salikhov-zudilin-pi-irrationality.bin: No such file or directory
+salikhov-zudilin-pi-irrationality|000|https://web.archive.org/web/20260709091622id_/https://arxiv.org/abs/1912.06345||0|
+shasum: dl/shidlovskii-transcendence.bin: No such file or directory
+shidlovskii-transcendence|000|https://web.archive.org/web/20250118021649id_/https://www.degruyter.com/document/doi/10.1515/9783110889055/html||0|
+shasum: dl/slz-worst-cases.bin: No such file or directory
+slz-worst-cases|000|https://web.archive.org/web/20250815003048id_/https://inria.hal.science/inria-00000379||0|
+shasum: dl/zeilberger-zudilin-2020.bin: No such file or directory
+zeilberger-zudilin-2020|000|https://web.archive.org/web/20260709091622id_/https://arxiv.org/abs/1912.06345||0|

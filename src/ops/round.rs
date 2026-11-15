@@ -407,7 +407,7 @@ fn finalize_finite(
     }
 
     debug_assert!(biased_exp >= 0 && biased_exp as u32 <= BIASED_EXP_MAX);
-    debug_assert!(coef.hi == 0);
+    debug_assert_eq!(coef.hi, 0);
     debug_assert!(coef.lo < COEFFICIENT_LIMIT);
 
     // IEEE 754 §7.5: raise `UNDERFLOW` for inexact subnormal results.

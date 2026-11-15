@@ -1,0 +1,16 @@
+[package]
+name = "b5mw"
+version = "0.0.0"
+edition = "2021"
+
+[dependencies]
+ferrodec-multiword = { path = "../../../../../../ferrodec-multiword", features = ["alloc"] }
+ferrodec-ieee = { path = "../../../../../../ferrodec-ieee" }
+ferrodec = { path = "../../../../../..", features = ["binary-float"] }
+
+[profile.dev]
+opt-level = 3
+debug-assertions = true
+overflow-checks = true
+
+[workspace]

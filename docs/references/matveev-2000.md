@@ -3,19 +3,20 @@ slug: matveev-2000
 category: algorithm
 citation: "Matveev, E. M. An explicit lower bound for a homogeneous rational linear form in logarithms of algebraic numbers, II (2000). Izvestiya: Mathematics, exact volume/pages RECALLED, NOT VERIFIED."
 canonical: "pending verification"
-doi: "pending verification"
-archived: "pending (no URL pinned until the citation is verified)"
+doi: none
+archived: "none (no URL pinned until the recalled citation is verified)"
 archive-date: n/a
 retrieved: n/a
 sha256: n/a
 license: "publisher copyright; pointer only."
 vendor-status: pointer-only
-rot-risk: standards-body
-provenance: recalled
+rot-risk: stable-publisher
+provenance: secondary
 consumers:
   - docs/decisions/plans/2026-08-10-s5-transcendence-measure-memo.md
 verification:
-  - "S5 spike only; NOT specialist verified. Only the ORDER of the constants was used (10^10-10^11 for two logarithms), and the memo's conclusion (floors near 10^(-10^16): termination theorem, no practical budget) is robust to several orders of slop."
+  - docs/decisions/plans/2026-08-10-s5-transcendence-measure-memo.md
+notes: "Recalled citation, NOT VERIFIED: the exact volume, pages, and DOI are pending verification, and the source itself was not fetched (provenance secondary). Only the ORDER of the constants was used (10^10-10^11 for two logarithms), and the memo's conclusion (floors near 10^(-10^16): termination theorem, no practical budget) is robust to several orders of slop. S5 spike only; NOT specialist verified. The memo's own record of what was checked is the only verification artifact, so the verification list points at the memo."
 ---
 
 # Matveev 2000: explicit linear forms in logarithms

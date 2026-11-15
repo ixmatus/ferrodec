@@ -1,0 +1,52 @@
+== A2 quantum
+target-A2/release/newton
+target-A2/release/quantum
+EXIT=0
+BAD d32|powi|0E+5|3|0|0 want 0E+15 Qp 15
+BAD d32|powi|0E+5|1|0|0 want 0E+5 Qp 5
+ok? d32|powi|-0E-3|3|-0|0 want 0E-9 Qp -9
+BAD d32|rootn|0E+6|3|0|0 want 0E+2 Qp 2
+BAD d32|rootn|0E+5|1|0|0 want 0E+5 Qp 5
+BAD d32|compound|0E-3|2|1|0 want 1.000000 Qp -6
+BAD d32|compound|-0E-3|3|1|0 want 1.000000 Qp -9
+BAD d64|powi|0E+5|3|0|0 want 0E+15 Qp 15
+BAD d64|powi|0E+5|1|0|0 want 0E+5 Qp 5
+ok? d64|powi|-0E-3|3|-0|0 want 0E-9 Qp -9
+BAD d64|rootn|0E+6|3|0|0 want 0E+2 Qp 2
+BAD d64|rootn|0E+5|1|0|0 want 0E+5 Qp 5
+BAD d64|compound|0E-3|2|1|0 want 1.000000 Qp -6
+BAD d64|compound|-0E-3|3|1|0 want 1.000000000 Qp -9
+BAD d128|powi|0E+5|3|0|0 want 0E+15 Qp 15
+BAD d128|powi|0E+5|1|0|0 want 0E+5 Qp 5
+ok? d128|powi|-0E-3|3|-0|0 want 0E-9 Qp -9
+BAD d128|rootn|0E+6|3|0|0 want 0E+2 Qp 2
+BAD d128|rootn|0E+5|1|0|0 want 0E+5 Qp 5
+BAD d128|compound|0E-3|2|1|0 want 1.000000 Qp -6
+BAD d128|compound|-0E-3|3|1|0 want 1.000000000 Qp -9
+EXIT=0
+== A2 newton
+d32: rung1 max rel err  recip 8.539e-26  sqrt 4.028e-26  rsqrt-unpolished 4.801e-26  rsqrt-polished 1.500e-49
+d64: rung1 max rel err  recip 1.000e-49  sqrt 1.011e-49  rsqrt-unpolished 1.750e-49  rsqrt-polished 1.150e-49
+d128: rung1 max rel err  recip 1.000e-49  sqrt 9.995e-50  rsqrt-unpolished 1.550e-49  rsqrt-polished 1.200e-49
+EXIT=0
+== A3 exp_red
+import subprocess, mpmath
+from fractions import Fraction
+mpmath.mp.dps=120
+LN10_55=Fraction(2302585092994045684017991454684364207601101488628772976, 10**54)
+ln10=mpmath.log(10)
+def round50(f):
+    # round positive Fraction to 50 sig digits half-even
+    from decimal import Decimal, getcontext, ROUND_HALF_EVEN
+    getcontext().prec=200
+    d=Decimal(f.numerator)/Decimal(f.denominator)
+    getcontext().prec=50
+    return Fraction(+d)
+best=[]
+for k in range(1,6200):
+    p=round50(k*LN10_55)
+    err=float(mpmath.mpf(p.numerator)/p.denominator - k*ln10)
+    best.append((abs(err),k,err))
+best.sort(reverse=True)
+print("top k by |round50(k ln10)-k ln10|:", best[:3])
+probe="/private/tmp/claude-502/-Users-parnell-Development-ferrodec/7aa0469f-7024-4109-8d3d-fac13748b08d/scratchpad/target-A3/release/a3probe"

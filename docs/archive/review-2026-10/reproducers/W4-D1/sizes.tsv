@@ -1,0 +1,15 @@
+ferrodec-ieee	none	rc=0	0.1s	rlib=74142	text,rodata=	
+ferrodec-multiword	none	rc=0	0.2s	rlib=195002	text,rodata=	
+ferrodec-transcend	none	rc=0	0.2s	rlib=333162	text,rodata=	
+ferrodec-transcend	transcendentals	rc=0	0.5s	rlib=1282838	text,rodata=	
+ferrodec	none	rc=0	0.5s	rlib=449658	text,rodata=	
+ferrodec	fmt	rc=0	0.6s	rlib=562476	text,rodata=	
+ferrodec	transcendentals	rc=0	1.4s	rlib=1095136	text,rodata=	
+ferrodec-decimal64	none	rc=0	0.4s	rlib=447190	text,rodata=	
+ferrodec-decimal64	fmt	rc=0	0.5s	rlib=567926	text,rodata=	
+ferrodec-decimal64	transcendentals	rc=0	1.3s	rlib=1138326	text,rodata=	
+ferrodec-decimal32	none	rc=0	0.4s	rlib=436052	text,rodata=	
+ferrodec-decimal32	fmt	rc=0	0.4s	rlib=555708	text,rodata=	
+ferrodec-decimal32	transcendentals	rc=0	1.2s	rlib=1084908	text,rodata=	
+ferrodec-decimal	fmt	rc=0	0.5s	rlib=447350	text,rodata=	
+DONE

@@ -14,6 +14,8 @@ rot-risk: community-run
 provenance: secondary
 consumers:
   - tools/gen_transcend_vectors.py
+  - tools/campaign_certify.py
+  - tools/gen_lsz_d64_exp.py
   - tools/certify_anchor_floor.py
   - tools/d32_exhaustive_sweep.py
   - tools/d32_exhaustive_compute_outputs.py
@@ -23,7 +25,7 @@ consumers:
 verification:
   - tests/vectors/transcend
   - tests/vectors/transcend/acos_d32_exhaustive.prov
-notes: "The certified enclosure engine under the correctly rounded claim: ball arithmetic gives rigorous lower and upper bounds, so where both bounds round to the same p-digit value the result is established, not estimated (the Ziv/TMD problem solved offline). Chosen over raw MPFR for the certification semantics and over mpmath for rigor; the legacy standalone site arblib.org is archived at https://web.archive.org/web/20260305102239/https://arblib.org/."
+notes: "The certified enclosure engine under the correctly rounded claim: ball arithmetic gives rigorous lower and upper bounds, so where both bounds round to the same p-digit value the result is established, not estimated (the Ziv/TMD problem solved offline). Chosen over raw MPFR for the certification semantics and over mpmath for rigor; the legacy standalone site arblib.org is archived at https://web.archive.org/web/20260305102239/https://arblib.org/. Version on the review machine: python-flint 0.6.0 in ~/.cache/pfloat-arb-oracle/venv (Python 3.9.6); the bundled FLINT version is not exposed and is unrecorded; no .prov header stamps an oracle version (2026-10 review, D4-11)."
 ---
 
 # Arb / FLINT (python-flint)

@@ -1,0 +1,18 @@
+# d32band.txt: first 12 and last 4 of 898 lines (every sinh/cosh input from ±224.0001 to ±224.0439, all five modes wrong)
+d32 sinh 224.0001	Infinity#20	Infinity#20	9.999999E+96#20	Infinity#20	9.999999E+96#20
+d32 cosh -224.0001	Infinity#20	Infinity#20	9.999999E+96#20	Infinity#20	9.999999E+96#20
+d32 sinh 224.0002	Infinity#20	Infinity#20	9.999999E+96#20	Infinity#20	9.999999E+96#20
+d32 cosh -224.0002	Infinity#20	Infinity#20	9.999999E+96#20	Infinity#20	9.999999E+96#20
+d32 sinh 224.0003	Infinity#20	Infinity#20	9.999999E+96#20	Infinity#20	9.999999E+96#20
+d32 cosh -224.0003	Infinity#20	Infinity#20	9.999999E+96#20	Infinity#20	9.999999E+96#20
+d32 sinh 224.0004	Infinity#20	Infinity#20	9.999999E+96#20	Infinity#20	9.999999E+96#20
+d32 cosh -224.0004	Infinity#20	Infinity#20	9.999999E+96#20	Infinity#20	9.999999E+96#20
+d32 sinh 224.0005	Infinity#20	Infinity#20	9.999999E+96#20	Infinity#20	9.999999E+96#20
+d32 cosh -224.0005	Infinity#20	Infinity#20	9.999999E+96#20	Infinity#20	9.999999E+96#20
+d32 sinh 224.0006	Infinity#20	Infinity#20	9.999999E+96#20	Infinity#20	9.999999E+96#20
+d32 cosh -224.0006	Infinity#20	Infinity#20	9.999999E+96#20	Infinity#20	9.999999E+96#20
+...
+d32 sinh 224.0448	Infinity#20	Infinity#20	9.999999E+96#20	Infinity#20	9.999999E+96#20
+d32 cosh -224.0448	Infinity#20	Infinity#20	9.999999E+96#20	Infinity#20	9.999999E+96#20
+d32 sinh 224.0449	Infinity#20	Infinity#20	9.999999E+96#20	Infinity#20	9.999999E+96#20
+d32 cosh -224.0449	Infinity#20	Infinity#20	9.999999E+96#20	Infinity#20	9.999999E+96#20

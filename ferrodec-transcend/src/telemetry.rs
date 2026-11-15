@@ -12,9 +12,15 @@
 //! observability surface and no shipped configuration enables it.
 //! The counters are `core::sync::atomic::AtomicU64` with `Relaxed`
 //! ordering (counts, not synchronization), which keeps the module
-//! `no_std` but does require a target with 64-bit atomic
-//! read-modify-write; `thumbv6m` (no atomic RMW at any width) cannot
-//! enable the feature, and the size-delta CI lane does not.
+//! `no_std`. Atomic read-modify-write at 64 bits does not exist on
+//! every supported target (`thumbv6m` has no atomic RMW at any width;
+//! `thumbv8m.main` stops at 32), so on targets without it the feature
+//! still compiles but the counters are no-ops and every reader returns
+//! zero. The reason: a test-only instrument must never be what makes a
+//! `--all-features` cross build fail to link, and no pinned-count test
+//! runs on those targets (the pins run on the host, where the real
+//! counters exist). A future target with 32-bit RMW that wants live
+//! counts needs a third arm on each item below; none is planned.
 //!
 //! ## Counting discipline
 //!
@@ -30,26 +36,42 @@
 //! (byte identity of the rungs), and the pinned counts run in the
 //! default lane only.
 
+#[cfg(target_has_atomic = "64")]
 use core::sync::atomic::{AtomicU64, Ordering};
 
+#[cfg(target_has_atomic = "64")]
 static RUNG2_ENTRIES: AtomicU64 = AtomicU64::new(0);
+#[cfg(target_has_atomic = "64")]
 static RUNG3_ENTRIES: AtomicU64 = AtomicU64::new(0);
+#[cfg(target_has_atomic = "64")]
 static ADJUDICATIONS: AtomicU64 = AtomicU64::new(0);
 
 /// Rung 1's boundary predicate reported "cannot decide": the caller
 /// re-runs the kernel at rung 2. One increment per guarded delivery
 /// that naturally escalates (the `force_escalate` bypass does not
-/// count).
+/// count). A no-op on targets without 64-bit atomic RMW (module docs).
 #[inline]
+#[cfg_attr(
+    not(any(feature = "exp-log", feature = "trig", feature = "trig-pi")),
+    allow(dead_code)
+)]
 pub(crate) fn count_rung2_entry() {
+    #[cfg(target_has_atomic = "64")]
     RUNG2_ENTRIES.fetch_add(1, Ordering::Relaxed);
 }
 
 /// Rung 2's predicate reported "cannot decide" in an
 /// `unbounded-ladder` build: the caller enters the dynamic Ziv rung.
 #[inline]
-#[cfg_attr(not(feature = "unbounded-ladder"), allow(dead_code))]
+#[cfg_attr(
+    not(all(
+        feature = "unbounded-ladder",
+        any(feature = "exp-log", feature = "trig", feature = "trig-pi")
+    )),
+    allow(dead_code)
+)]
 pub(crate) fn count_rung3_entry() {
+    #[cfg(target_has_atomic = "64")]
     RUNG3_ENTRIES.fetch_add(1, Ordering::Relaxed);
 }
 
@@ -58,32 +80,61 @@ pub(crate) fn count_rung3_entry() {
 #[inline]
 #[cfg_attr(not(feature = "exp-log"), allow(dead_code))]
 pub(crate) fn count_adjudication() {
+    #[cfg(target_has_atomic = "64")]
     ADJUDICATIONS.fetch_add(1, Ordering::Relaxed);
 }
 
-/// Total natural rung-2 entries since the last [`reset`].
+/// Total natural rung-2 entries since the last [`reset`]. Always zero
+/// on targets without 64-bit atomic RMW (module docs).
 #[must_use]
 pub fn rung2_entries() -> u64 {
-    RUNG2_ENTRIES.load(Ordering::Relaxed)
+    #[cfg(target_has_atomic = "64")]
+    {
+        RUNG2_ENTRIES.load(Ordering::Relaxed)
+    }
+    #[cfg(not(target_has_atomic = "64"))]
+    {
+        0
+    }
 }
 
 /// Total rung-3 (dynamic rung) entries since the last [`reset`].
-/// Always zero without the `unbounded-ladder` feature.
+/// Always zero without the `unbounded-ladder` feature, and on targets
+/// without 64-bit atomic RMW (module docs).
 #[must_use]
 pub fn rung3_entries() -> u64 {
-    RUNG3_ENTRIES.load(Ordering::Relaxed)
+    #[cfg(target_has_atomic = "64")]
+    {
+        RUNG3_ENTRIES.load(Ordering::Relaxed)
+    }
+    #[cfg(not(target_has_atomic = "64"))]
+    {
+        0
+    }
 }
 
-/// Total adjudicator decisions since the last [`reset`].
+/// Total adjudicator decisions since the last [`reset`]. Always zero
+/// on targets without 64-bit atomic RMW (module docs).
 #[must_use]
 pub fn adjudications() -> u64 {
-    ADJUDICATIONS.load(Ordering::Relaxed)
+    #[cfg(target_has_atomic = "64")]
+    {
+        ADJUDICATIONS.load(Ordering::Relaxed)
+    }
+    #[cfg(not(target_has_atomic = "64"))]
+    {
+        0
+    }
 }
 
 /// Zero every counter. Call between corpus files when authoring or
-/// checking exact per-file pins.
+/// checking exact per-file pins. A no-op on targets without 64-bit
+/// atomic RMW (module docs).
 pub fn reset() {
-    RUNG2_ENTRIES.store(0, Ordering::Relaxed);
-    RUNG3_ENTRIES.store(0, Ordering::Relaxed);
-    ADJUDICATIONS.store(0, Ordering::Relaxed);
+    #[cfg(target_has_atomic = "64")]
+    {
+        RUNG2_ENTRIES.store(0, Ordering::Relaxed);
+        RUNG3_ENTRIES.store(0, Ordering::Relaxed);
+        ADJUDICATIONS.store(0, Ordering::Relaxed);
+    }
 }
