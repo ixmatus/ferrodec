@@ -102,10 +102,11 @@ jobs:
   kani:
     name: kani harnesses
     runs-on: ubuntu-latest
-    # The whole job took 66 to 81 minutes on main in August 2026; a
-    # proof that does not terminate must fail in hours, not consume
-    # GitHub's six hour default (the first run on review-2026-10 did
-    # exactly that).
+    # The whole job took 66 to 81 minutes on main in August 2026, 22 to
+    # 43 of them in the action's own redundant run (now a no-op, see
+    # below); a proof that does not terminate must fail in hours, not
+    # consume GitHub's six hour default (the first run on
+    # review-2026-10 did exactly that).
     timeout-minutes: 180
     steps:
       - uses: actions/checkout@v5
@@ -113,18 +114,26 @@ jobs:
       # Pin the Kani the local battery proves with (`cargo kani --version`
       # at the Phase 0 tip of the 2026-10 review). The action's default is
       # `latest`, which floated to 0.68.0 (released 2026-09-16) after the
-      # last green run. This step is not only an install: the action
-      # installs Kani (about 15 seconds) and then runs `cargo-kani` with
-      # no arguments, 84 root harnesses in 22 to 43 minutes on the
-      # runner, before the four invocations below. Under 0.68.0 that run
-      # named its first harness on 2026-10-09 and printed nothing more
-      # for six hours; 0.67.0 proves the same harness in 3 to 7 seconds.
+      # last green run; under 0.68.0 a proving run named its first
+      # harness on 2026-10-09 and printed nothing more for six hours,
+      # where 0.67.0 proves the same harness in 3 to 7 seconds.
       # Receipts: docs/archive/review-2026-10/reproducers/CI-kani-0.68/.
       # Bump deliberately, after the battery passes locally with the new
       # version.
+      #
+      # The action does not only install: its last step runs
+      # `cargo-kani <args>`. With no arguments that was a full proving
+      # run of the root crate's default feature harnesses, 84 of them in
+      # 22 to 43 runner minutes, every one of which the explicit root
+      # invocation below proves again among its 90 (the same names, and
+      # no `cfg(not(feature))` item exists in the crates they reach).
+      # `--version` makes the action's own run a no-op (fd-e8a9.44); the
+      # four invocations below are the proofs, the same four the
+      # battery's kani lane runs.
       - uses: model-checking/kani-github-action@v1.1
         with:
           kani-version: "0.67.0"
+          args: "--version"
       - run: cargo kani --package ferrodec-ieee
       # The dpd feature gates the DPD codec harnesses on the root and
       # decimal64 crates; without it those proofs never ran in CI (fd-aqs.9).
