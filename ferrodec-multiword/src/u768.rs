@@ -278,10 +278,8 @@ mod tests {
             limbs: [0, 0, 0, 0, 0, 1],
         };
         let c = a.sub(U768::from_u128(1));
-        assert_eq!(c.limbs[5], 0);
-        for i in 0..5 {
-            assert_eq!(c.limbs[i], u128::MAX);
-        }
+        let m = u128::MAX;
+        assert_eq!(c.limbs, [m, m, m, m, m, 0]);
     }
 
     #[test]
