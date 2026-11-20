@@ -45,3 +45,15 @@ question of whether the action's own 84 harness run is a subset of
 the 90 the explicit root invocation proves (if so it costs 22 to 43
 runner minutes per run and buys nothing), and the registry entry Kani
 and the action still lack.
+
+## Addendum, 2026-11-14: the action's run was redundant
+
+The subset question is answered from the November log. The action's
+own run checks 84 harnesses; the workflow's explicit root invocation
+(`--features=transcendentals,dpd`) checks 90; the 84 are a subset by
+name (the other six are three DPD and three `pow` harnesses), and
+`src/`, `ferrodec-ieee/src/` and `ferrodec-multiword/src/` hold no
+`cfg(not(feature ...))` item, so the default feature build contains no
+function body the full feature build lacks. The workflow now passes
+`args: --version` to the action, which makes its run a no-op. The
+0.68.0 diagnosis and the registry entry stay open on fd-e8a9.44.

@@ -57,7 +57,7 @@
 //! | `hypot_side` | `S < 2·10^170` | ≤ 171 |
 //! | `powi_side`, `n = −6` | `C · a⁶` | ≤ 239 |
 //! | `rootn_side`, `n = −6` | `a · C⁶` | ≤ 244 |
-//! | `compound_side`, `|n|·w ≤ 196` | `C · N'^{|n|}` | ≤ 231 |
+//! | `compound_side`, `\|n\|·w ≤ 196` | `C · N'^{\|n\|}` | ≤ 231 |
 //!
 //! plus the same-decade alignment shift of [`cmp_aligned`], which by
 //! construction lands the shifted side exactly on the other's width:
